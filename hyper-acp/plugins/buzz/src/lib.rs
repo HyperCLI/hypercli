@@ -4,11 +4,14 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod mcp_bridge;
+mod mcp_shim;
 mod observer;
 mod pool;
 mod pool_lifecycle;
 mod prompt_framing;
 mod prompt_project;
+mod publish;
 mod queue;
 mod relay;
 mod scope;
@@ -2389,6 +2392,8 @@ mod idle_pool_sleep_tests {
 
 /// Run the Buzz plugin as the compatibility `buzz-acp` executable.
 pub fn run_compat_binary() -> Result<()> {
+    // The compat binary re-enters shim mode directly: `buzz-acp __buzz-mcp-shim`.
+    mcp_shim::set_launch_argv_prefix(vec![]);
     run_plugin(std::env::args())
 }
 
@@ -2398,6 +2403,9 @@ where
     I: IntoIterator<Item = T>,
     T: Into<String>,
 {
+    // Launched via the hyper-acp host binary: shim re-exec needs the
+    // `plugin buzz` prefix to reach this plugin again.
+    mcp_shim::set_launch_argv_prefix(vec!["plugin".into(), "buzz".into()]);
     let args = std::iter::once(String::from("buzz-acp")).chain(args.into_iter().map(Into::into));
     run_plugin(args)
 }
@@ -2463,6 +2471,14 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
             .collect();
         let args = AuthTagArgs::parse_from(&filtered);
         return run_auth_tag(args);
+    }
+
+    // MCP shim mode: this process was re-executed by the agent as its `buzz`
+    // MCP server (session/new mcpServers command re-execs this binary with
+    // the hidden marker). stdout is the MCP transport — return before tracing
+    // init so nothing but protocol frames ever touches it.
+    if is_subcommand(&args, mcp_shim::SHIM_MARKER) {
+        return mcp_shim::run_shim().await;
     }
 
     tracing_subscriber::fmt()
@@ -2726,6 +2742,30 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
 
     let base_prompt_content = config.base_prompt_content.take();
     let cwd = current_working_directory()?;
+
+    // Blind-signing surfaces. The agent child holds no Buzz credentials, so
+    // publishing terminates in this process instead:
+    //   - `publish_handle` backs the plugin-terminated `buzz/publish` ACP
+    //     agent→client method (per-turn channel scope, acp.rs dispatch).
+    //   - `mcp_bridge` is the plugin's half of the per-session `buzz` MCP
+    //     server: each session/new injects a shim re-exec of this binary, and
+    //     the bridge does scope check + sign + relay behind a session token.
+    let publish_handle = Some(publish::PublisherHandle {
+        keys: config.keys.clone(),
+        publisher: relay.event_publisher(),
+    });
+    let mcp_bridge =
+        match mcp_bridge::McpBridge::start(config.keys.clone(), relay.event_publisher()).await {
+            Ok(bridge) => Some(Arc::new(bridge)),
+            Err(e) => {
+                tracing::warn!(
+                "buzz MCP bridge listener failed to bind ({e}); the `buzz` publish MCP tool is \
+                 disabled — the buzz/publish ACP method remains available"
+            );
+                None
+            }
+        };
+
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
         initial_message: config.initial_message.clone(),
@@ -2764,6 +2804,8 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
         memory_enabled: config.memory_enabled,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
         relay_url: config.relay_url.clone(),
+        publish_handle,
+        mcp_bridge,
     });
 
     if !config.memory_enabled {
@@ -5169,8 +5211,9 @@ fn default_heartbeat_prompt() -> String {
             high-priority requests addressed to you.\n\
          2. Run `buzz feed get --types mentions` to check for unanswered @mentions.\n\
          3. If you find actionable items, address them using the appropriate CLI commands\n\
-            (e.g., `buzz workflows approve --token <UUID>`, `buzz messages send`,\n\
-            `buzz messages send --reply-to <event-id>`).\n\
+            inside the dev-MCP shell (Buzz credentials live there, not in your own\n\
+            environment) — e.g., `buzz workflows approve --token <UUID>`,\n\
+            `buzz messages send --reply-to <event-id>`.\n\
          4. If there are no pending actions or mentions, end your turn immediately.\n\n\
          Do not run `buzz channels list` or `buzz messages search` unless you have a specific reason.\n\
          Do not invent work — only act on items surfaced by the feed commands."
@@ -5704,6 +5747,17 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
     Ok(())
 }
 
+/// Build the operator-configured (dev) MCP server entries for `session/new`.
+///
+/// RESIDUAL SECRET EXPOSURE — documented blind-signing exception: the
+/// `BUZZ_PRIVATE_KEY`/`BUZZ_AUTH_TAG` entries below are *retained on purpose*.
+/// Reads (and non-publish writes like draft/attestation flows) still run
+/// through the dev MCP server, which needs the key; the agent child env is
+/// stripped of both keys (`acp::CHILD_SECRET_ENV_KEYS`), so the key is no
+/// longer in the child *environment* — but it does still ride inside the
+/// `session/new` params the child sees. Publishes are already plugin-signed
+/// (`publish.rs` + `mcp_bridge.rs`); moving reads behind the bridge is the
+/// tracked follow-up that removes this injection entirely.
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     if config.mcp_command.is_empty() {
         return vec![];

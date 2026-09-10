@@ -3,10 +3,6 @@ use std::path::{Path, PathBuf};
 
 const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
-        "src/base_prompt.md",
-        "b710fa17703c126c651c37e089d9958785fce25d769e57c5b81d89694edd9a36",
-    ),
-    (
         "src/engram_fetch.rs",
         "7894398b28b818398e4e307c72042a9b342690446d969daf41a3747b76c47e0e",
     ),
@@ -29,10 +25,6 @@ const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
         "src/prompt_project.rs",
         "200eea011dc40b285644f19d34cc5e76a56df97b6dec4814beca84cb6793728e",
-    ),
-    (
-        "src/queue.rs",
-        "6fd72f7780185e3379bb5a5e792a672d8db413f2d52a19d5b23681238fbb7549",
     ),
     (
         "src/relay.rs",
@@ -107,10 +99,22 @@ fn copied_buzz_sources_match_upstream_except_documented_entrypoint_diffs() {
         "PROVENANCE.md",
         "README.md",
         "src/acp.rs",
+        // Teaches the plugin-signed `publish` MCP-tool flow (blind signing)
+        // instead of the upstream direct-credentials CLI flow. See
+        // PROVENANCE.md.
+        "src/base_prompt.md",
         "src/config.rs",
         "src/lib.rs",
         "src/main.rs",
+        // No upstream counterpart: plugin-terminated blind-signing publish
+        // core, in-process MCP bridge, and the agent-spawned stdio shim.
+        "src/mcp_bridge.rs",
+        "src/mcp_shim.rs",
         "src/pool.rs",
+        "src/publish.rs",
+        // Reply-instruction text points at the plugin-signed publish surface
+        // (see PROVENANCE.md); event parsing/queue semantics stay upstream.
+        "src/queue.rs",
         "tests/source_parity.rs",
     ]
     .into_iter()

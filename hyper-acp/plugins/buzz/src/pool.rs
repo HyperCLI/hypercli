@@ -806,6 +806,13 @@ pub struct PromptContext {
     /// the desktop keys per (agent, relay) pair, e.g. `session_config_captured`,
     /// mirroring the `managed_agent_runtime_lifecycle` frames.
     pub relay_url: String,
+    /// Blind-signing handle for the plugin-terminated `buzz/publish` ACP
+    /// method; installed on the agent's ACP client each channel turn. `None`
+    /// disables the method (error reply instead of signing).
+    pub publish_handle: Option<crate::publish::PublisherHandle>,
+    /// In-process MCP bridge serving the per-session `buzz` MCP server
+    /// (publish tool). `None` disables the MCP injection.
+    pub mcp_bridge: Option<Arc<crate::mcp_bridge::McpBridge>>,
 }
 
 impl AgentPool {
@@ -1299,12 +1306,13 @@ async fn create_session_and_apply_model(
             channel.scope.and_then(SessionScope::root_event_id),
         )
     });
-    let mcp_servers = mcp_servers_with_git_origin(
+    let mut mcp_servers = mcp_servers_with_git_origin(
         &ctx.mcp_servers,
         channel.scope.map(SessionScope::channel_id),
         channel.channel_type,
         ctx.session_title.as_deref(),
     );
+    append_buzz_publish_server(&mut mcp_servers, ctx.mcp_bridge.as_deref(), channel.scope);
 
     let resp = agent
         .acp
@@ -1554,6 +1562,23 @@ fn mcp_servers_with_git_origin(
         }
     }
     servers
+}
+
+/// Inject the per-session `buzz` MCP server into a new session's server list.
+/// The entry re-execs this binary as a stdio shim (`mcp_shim.rs`) bound to
+/// the session's channel via a per-session token; all MCP handling, scope
+/// checks, signing, and relaying happen in the plugin's in-process bridge.
+/// No Buzz key material enters the child env or the MCP server's env.
+pub(super) fn append_buzz_publish_server(
+    servers: &mut Vec<McpServer>,
+    bridge: Option<&crate::mcp_bridge::McpBridge>,
+    scope: Option<&SessionScope>,
+) {
+    if let (Some(bridge), Some(scope)) = (bridge, scope) {
+        if let Some(server) = bridge.session_mcp_server(scope.channel_id()) {
+            servers.push(server);
+        }
+    }
 }
 
 /// Outcome of a live model-switch RPC returned by [`apply_model_switch`].
@@ -2052,6 +2077,18 @@ pub async fn run_prompt_task(
         turn_id.clone(),
         turn_started_at.clone(),
     ));
+    // Bind the plugin-terminated publish path to this turn's channel. For the
+    // rest of the turn, an agent-initiated `buzz/publish` ACP request is
+    // validated against this scope and signed + relayed by the plugin.
+    agent
+        .acp
+        .set_publish_turn(match (&ctx.publish_handle, &source) {
+            (Some(handle), PromptSource::Channel(scope)) => Some(crate::publish::PublishTurn {
+                handle: handle.clone(),
+                channel_id: scope.channel_id(),
+            }),
+            _ => None,
+        });
     let triggering_event_ids: Vec<String> = batch
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
@@ -5136,6 +5173,58 @@ mod tests {
     /// (equivalent to the pre-thread-scoping channel key).
     fn conv(channel_id: Uuid) -> SessionScope {
         SessionScope::Conversation { channel_id }
+    }
+
+    #[tokio::test]
+    async fn publish_mcp_server_injected_with_channel_bound_token() {
+        let (publisher, _rx) = crate::relay::RelayEventPublisher::test_pair();
+        let bridge = crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher)
+            .await
+            .expect("bridge binds");
+        let channel = Uuid::new_v4();
+        let scope = conv(channel);
+
+        let mut servers = vec![test_mcp_server()];
+        append_buzz_publish_server(&mut servers, Some(&bridge), Some(&scope));
+        assert_eq!(servers.len(), 2);
+        let buzz = &servers[1];
+        assert_eq!(
+            buzz.name, "buzz",
+            "publish tool rides the `buzz` MCP server"
+        );
+        assert!(
+            buzz.args.iter().any(|a| a == crate::mcp_shim::SHIM_MARKER),
+            "shim marker missing from re-exec args: {:?}",
+            buzz.args
+        );
+        assert!(buzz.env.iter().any(|e| e.name == crate::mcp_shim::ENV_ADDR));
+        assert!(buzz
+            .env
+            .iter()
+            .any(|e| e.name == crate::mcp_shim::ENV_TOKEN));
+        // The blind-signing boundary holds on the injected entry too: no
+        // secret keys in the MCP server's env.
+        for key in crate::acp::CHILD_SECRET_ENV_KEYS {
+            assert!(
+                !buzz.env.iter().any(|e| e.name == key),
+                "injected MCP server must not carry {key}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publish_mcp_server_skipped_without_bridge_or_scope() {
+        let (publisher, _rx) = crate::relay::RelayEventPublisher::test_pair();
+        let bridge = crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher)
+            .await
+            .expect("bridge binds");
+
+        let mut servers = vec![test_mcp_server()];
+        append_buzz_publish_server(&mut servers, None, Some(&conv(Uuid::new_v4())));
+        assert_eq!(servers.len(), 1, "no bridge → no publish tool");
+
+        append_buzz_publish_server(&mut servers, Some(&bridge), None);
+        assert_eq!(servers.len(), 1, "no channel scope → no publish tool");
     }
 
     fn test_mcp_server() -> McpServer {
@@ -8687,6 +8776,8 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             memory_enabled: false,
             harness_name: "goose".to_string(),
             relay_url: "ws://127.0.0.1:3000".to_string(),
+            publish_handle: None,
+            mcp_bridge: None,
         }
     }
 

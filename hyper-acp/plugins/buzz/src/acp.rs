@@ -214,7 +214,28 @@ pub struct AcpClient {
     standard_usage: StandardUsageTracker,
     /// Known adapter identity for prompt-response usage mapping.
     standard_adapter: Option<StandardAdapterKind>,
+    /// Plugin-terminated `buzz/publish` context for the in-flight turn:
+    /// signing handle plus the channel this turn may publish into. `None`
+    /// outside channel prompt turns (heartbeats, auth probes, tests) —
+    /// `buzz/publish` then answers with a JSON-RPC error instead of signing.
+    publish_turn: Option<crate::publish::PublishTurn>,
 }
+
+/// Buzz secret keys that must never reach the agent child's environment.
+///
+/// The plugin holds these and signs for the agent (blind-signing); the child
+/// inherits the parent environment wholesale, so each key is removed with
+/// `env_remove` at spawn, covering all three sources: inherited parent env,
+/// `[default_agent_env](crate::config::default_agent_env)` defaults, and
+/// persona `extra_env` injection. `BUZZ_ACP_PRIVATE_KEY` is the legacy alias
+/// propagated to `BUZZ_PRIVATE_KEY` at process start
+/// ([`crate::config::propagate_legacy_env_vars`]); both are stripped.
+pub(crate) const CHILD_SECRET_ENV_KEYS: [&str; 4] = [
+    "BUZZ_PRIVATE_KEY",
+    "NOSTR_PRIVATE_KEY",
+    "BUZZ_AUTH_TAG",
+    "BUZZ_ACP_PRIVATE_KEY",
+];
 
 /// Recursively merge `overlay` into `base`, with `overlay` winning on scalar/shape
 /// collisions.  When both sides have an object for the same key, the merge recurses so
@@ -516,6 +537,15 @@ impl AcpClient {
             cmd.env("CODEX_CONFIG", merged);
         }
 
+        // Blind-signing boundary: the agent child must know NOTHING about
+        // Buzz credentials. Strip every secret key — whether inherited from
+        // our own environment or injected via persona `extra_env` — so the
+        // only way to publish is through the plugin (`buzz/publish` ACP
+        // method or the `buzz` MCP server, both plugin-terminated).
+        for key in CHILD_SECRET_ENV_KEYS {
+            cmd.env_remove(key);
+        }
+
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
         // to the harness's own process group on Unix.
         // tokio::process::Command::process_group is a stable tokio API (no extra imports needed).
@@ -563,6 +593,7 @@ impl AcpClient {
             goose_usage: UsageTracker::default(),
             standard_usage: StandardUsageTracker::default(),
             standard_adapter,
+            publish_turn: None,
         })
     }
 
@@ -570,6 +601,15 @@ impl AcpClient {
     pub fn set_observer(&mut self, observer: Option<ObserverHandle>, agent_index: usize) {
         self.observer = observer;
         self.observer_agent_index = Some(agent_index);
+    }
+
+    /// Install the plugin-terminated publish context for a turn.
+    ///
+    /// `Some` binds `buzz/publish` to the turn's channel; `None` (heartbeats,
+    /// non-channel work) makes the method answer with a JSON-RPC error.
+    /// Installed by the pool at turn start; never persisted across turns.
+    pub fn set_publish_turn(&mut self, turn: Option<crate::publish::PublishTurn>) {
+        self.publish_turn = turn;
     }
 
     /// Update metadata that will be attached to subsequent raw wire events.
@@ -1260,6 +1300,9 @@ impl AcpClient {
                     "session/request_permission" => {
                         self.handle_permission_request(&msg).await?;
                     }
+                    crate::publish::ACP_METHOD => {
+                        self.handle_buzz_publish_request(&msg).await?;
+                    }
                     other => {
                         // If the unknown message has an id, it's a request expecting a reply.
                         // Silence would cause the agent to hang waiting for a response.
@@ -1708,6 +1751,9 @@ impl AcpClient {
                             "session/request_permission" => {
                                 self.handle_permission_request(&msg).await?;
                             }
+                            crate::publish::ACP_METHOD => {
+                                self.handle_buzz_publish_request(&msg).await?;
+                            }
                             other => {
                                 // If the unknown message has an id, it's a request expecting a reply.
                                 // Silence would cause the agent to hang waiting for a response.
@@ -1729,6 +1775,64 @@ impl AcpClient {
                 }
             }
         }
+    }
+
+    /// Terminate an agent-initiated `buzz/publish` request: validate params,
+    /// sign with the plugin's keys, relay through the turn's publisher, and
+    /// reply with the event id and relay acceptance. Errors go back as
+    /// JSON-RPC errors — the caller never hangs on a silent publish.
+    ///
+    /// Notifications (no `id`) are ignored: publish is request/response only.
+    async fn handle_buzz_publish_request(
+        &mut self,
+        msg: &serde_json::Value,
+    ) -> Result<(), AcpError> {
+        let Some(id) = msg.get("id").cloned() else {
+            return Ok(());
+        };
+        let response = match &self.publish_turn {
+            // No turn context (heartbeat, non-channel work, tests): fail
+            // clearly rather than -32601 — the method exists, it is just not
+            // scoped to a channel right now.
+            None => serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": -32000,
+                    "message": "buzz/publish is unavailable in this turn (no channel scope)",
+                },
+            }),
+            Some(turn) => {
+                let outcome = match crate::publish::parse_params(&msg["params"]) {
+                    Ok(params) => {
+                        crate::publish::publish(&turn.handle, &params, turn.channel_id).await
+                    }
+                    Err(e) => Err(e),
+                };
+                match outcome {
+                    Ok(result) => {
+                        tracing::info!(
+                            target: "acp::publish",
+                            "buzz/publish accepted: {}",
+                            result["eventId"].as_str().unwrap_or("<no id>")
+                        );
+                        serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result})
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "acp::publish",
+                            "buzz/publish failed: {e}"
+                        );
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {"code": e.code(), "message": e.to_string()},
+                        })
+                    }
+                }
+            }
+        };
+        self.write_ndjson(&response).await
     }
 
     /// Log a `session/update` notification via tracing.
@@ -3363,6 +3467,165 @@ mod tests {
             .await;
         assert!(result.is_ok(), "expected Ok, got {result:?}");
         assert_eq!(result.unwrap()["worked"], serde_json::json!(true));
+    }
+
+    /// A `buzz/publish` agent→client request inside a turn with a publish
+    /// context is terminated by the plugin: params validated, event signed
+    /// with the plugin's keys, handed to the relay writer, and answered with
+    /// the event id. The prompt result must not be consumed by the dispatch.
+    #[tokio::test]
+    async fn buzz_publish_request_is_signed_relayed_and_answered() {
+        let channel = uuid::Uuid::new_v4();
+        let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle {
+            keys: nostr::Keys::generate(),
+            publisher,
+        };
+        let script = format!(
+            r#"
+            echo '{{"jsonrpc":"2.0","id":77,"method":"buzz/publish","params":{{"channelId":"{channel}","content":"wire me up"}}}}'
+            read -t 5 reply
+            if [[ "$reply" == *'"eventId"'* && "$reply" == *'"accepted":true'* ]]; then
+                echo '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'
+            else
+                echo '{{"jsonrpc":"2.0","id":0,"error":{{"code":-1,"message":"unexpected publish reply"}}}}'
+            fi
+            sleep 1
+        "#
+        );
+        let mut client = spawn_script(&script).await;
+        client.set_publish_turn(Some(crate::publish::PublishTurn {
+            channel_id: channel,
+            handle: handle.clone(),
+        }));
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "test",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "publish dispatch must not break the prompt result, got {result:?}"
+        );
+        assert_eq!(result.unwrap()["stopReason"].as_str(), Some("end_turn"));
+
+        let event = published.recv().await.expect("event must reach the relay");
+        assert_eq!(event.kind, nostr::Kind::Custom(9));
+        assert_eq!(event.content, "wire me up");
+        assert_eq!(event.pubkey, handle.keys.public_key());
+        event
+            .verify()
+            .expect("event must be signed by the plugin's keys");
+        assert!(
+            event.tags.iter().any(|t| {
+                let parts = t.as_slice();
+                parts.len() == 2 && parts[0] == "h" && parts[1] == channel.to_string()
+            }),
+            "channel h-tag missing; tags: {:?}",
+            event.tags
+        );
+    }
+
+    /// Without a per-turn publish context (heartbeats, non-channel work),
+    /// `buzz/publish` answers with a JSON-RPC error instead of signing.
+    #[tokio::test]
+    async fn buzz_publish_without_turn_gets_jsonrpc_error() {
+        let script = r#"
+            echo '{"jsonrpc":"2.0","id":9,"method":"buzz/publish","params":{"content":"hi"}}'
+            read -t 5 reply
+            case "$reply" in
+                *'"error"'*'-32000'*) echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}' ;;
+                *) echo '{"jsonrpc":"2.0","id":0,"error":{"code":-1,"message":"unexpected publish reply"}}' ;;
+            esac
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "test",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+    }
+
+    /// A `buzz/publish` *notification* (no id) is dropped: publish is
+    /// request/response only, and no event is relayed.
+    #[tokio::test]
+    async fn buzz_publish_notification_is_ignored() {
+        let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle {
+            keys: nostr::Keys::generate(),
+            publisher,
+        };
+        let script = r#"
+            echo '{"jsonrpc":"2.0","method":"buzz/publish","params":{"content":"no id here"}}'
+            echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}'
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        client.set_publish_turn(Some(crate::publish::PublishTurn {
+            channel_id: uuid::Uuid::new_v4(),
+            handle,
+        }));
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "test",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+        tokio::time::timeout(std::time::Duration::from_millis(200), published.recv())
+            .await
+            .expect_err("a publish notification must not relay anything");
+    }
+
+    /// The blind-signing boundary: Buzz secret keys must never reach the
+    /// child environment — neither inherited from the parent nor injected via
+    /// persona `extra_env`.
+    #[tokio::test]
+    async fn spawn_strips_buzz_secret_env_from_child() {
+        let extra_env: Vec<(String, String)> = CHILD_SECRET_ENV_KEYS
+            .iter()
+            .map(|k| (k.to_string(), "nsec1injected-secret".to_string()))
+            .collect();
+        let script = r#"
+            for k in BUZZ_PRIVATE_KEY NOSTR_PRIVATE_KEY BUZZ_AUTH_TAG BUZZ_ACP_PRIVATE_KEY; do
+                if [ -n "${!k}" ]; then echo "$k=LEAKED"; else echo "$k=stripped"; fi
+            done
+            sleep 1
+        "#;
+        let mut client = AcpClient::spawn("bash", &["-c".into(), script.into()], &extra_env, false)
+            .await
+            .expect("spawn env-strip probe");
+        for _ in 0..CHILD_SECRET_ENV_KEYS.len() {
+            let line =
+                tokio::time::timeout(std::time::Duration::from_secs(5), client.reader.next())
+                    .await
+                    .expect("child must emit one line per key")
+                    .expect("child stream open")
+                    .expect("line decodes");
+            assert!(
+                line.ends_with("=stripped"),
+                "child env must not carry {line}"
+            );
+        }
     }
 
     #[tokio::test]

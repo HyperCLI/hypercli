@@ -58,6 +58,33 @@ Deliberate deviations:
 - `src/pool.rs` no longer applies a non-default permission mode as a safety
   valve for auto-approved tool calls; the comment and docs reflect that
   permission requests fail closed in `AcpClient`.
+- Blind signing: the agent child holds no Buzz credentials. `src/acp.rs`
+  strips `BUZZ_PRIVATE_KEY`, `NOSTR_PRIVATE_KEY`, `BUZZ_AUTH_TAG`, and the
+  legacy `BUZZ_ACP_PRIVATE_KEY` alias from the child environment at spawn and
+  terminates the agent→client `buzz/publish` JSON-RPC method (params
+  validated, channel-scoped, signed with the plugin's keys, relayed via
+  `RelayEventPublisher`). Upstream had no such method; unknown methods there
+  fall through to -32601.
+- No-upstream-counterpart modules: `src/publish.rs` (shared validate/sign/
+  publish core), `src/mcp_bridge.rs` (in-process MCP bridge on a loopback
+  listener; per-session channel-bound capability tokens), and
+  `src/mcp_shim.rs` (hidden `__buzz-mcp-shim` re-exec entry that pipes the
+  agent's MCP stdio to the bridge; env carries only the bridge address and
+  token). `src/pool.rs` injects the per-session `buzz` MCP server at
+  `session/new` and installs the per-turn publish context; `src/lib.rs`
+  starts the bridge after relay connect and routes the shim marker before
+  clap parsing.
+- `src/base_prompt.md` and `src/queue.rs` teach the agent to publish via the
+  plugin-signed `publish` tool on the `buzz` MCP server (with `reply_to`
+  threading) instead of `buzz messages send --reply-to`, and describe the
+  two-surface access model (publish tool vs. `buzz` CLI inside the dev-MCP
+  shell). Event parsing, threading anchors, and queue semantics are
+  unchanged from upstream; only the publish surface instructions differ.
+- `src/lib.rs` retains the dev-MCP `BUZZ_PRIVATE_KEY`/`BUZZ_AUTH_TAG` env
+  injection as a documented residual: reads and non-publish writes still run
+  through the dev MCP server. The agent child env no longer carries those
+  keys; removing the injection entirely is the tracked follow-up once reads
+  move behind the plugin bridge.
 
 No relay, queue, owner-command, auth/membership, prompt gating, observer,
 setup, usage, session-pool, or other permission semantics beyond the
