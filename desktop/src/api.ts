@@ -530,6 +530,7 @@ export interface Routine {
   prompt: string;
   enabled: boolean;
   run_at?: string | null;
+  session_id?: string | null;
   next_run_at: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -545,6 +546,7 @@ function routineFromSdk(r: SdkRoutine): Routine {
     prompt: r.prompt,
     enabled: r.enabled,
     run_at: r.runAt,
+    session_id: r.sessionId,
     next_run_at: r.nextRunAt,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
@@ -553,10 +555,10 @@ function routineFromSdk(r: SdkRoutine): Routine {
 
 export type RoutineCreateInput = Pick<
   RoutineCreateOptions,
-  "agentId" | "prompt" | "cron" | "runAt" | "name" | "enabled"
+  "agentId" | "prompt" | "cron" | "runAt" | "name" | "sessionId" | "enabled"
 >;
 
-export type RoutineUpdatePatch = Pick<RoutineUpdateOptions, "prompt" | "cron" | "name" | "enabled"> & {
+export type RoutineUpdatePatch = Pick<RoutineUpdateOptions, "prompt" | "cron" | "name" | "sessionId" | "enabled"> & {
   runAt?: string;
 };
 

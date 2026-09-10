@@ -122,6 +122,7 @@ function routineFixture(overrides: Partial<Routine> = {}): Routine {
     enabled: true,
     name: 'greeter',
     runAt: null,
+    sessionId: null,
     nextRunAt: '2026-09-10T00:05:00Z',
     createdAt: '2026-09-01T00:00:00Z',
     updatedAt: '2026-09-01T00:00:00Z',
@@ -829,6 +830,45 @@ describe('hyper agents routines', () => {
     });
     expect(create.mock.calls[0][0]).not.toHaveProperty('agentId');
     expect(stdout()).toContain('created');
+  });
+
+  it('create --session binds the routine to an existing session', async () => {
+    const create = vi.fn(async () => routineFixture({ sessionId: 'session-abc' }));
+    const { ctx } = makeCtx(fakeClient({ routines: { list: vi.fn(), create, update: vi.fn(), delete: vi.fn() } }), 'table');
+
+    await agents.run(ctx, [
+      'routines', 'create', '--cron', '0 9 * * *', '--prompt', 'standup', '--session', 'session-abc',
+    ]);
+
+    expect(create).toHaveBeenCalledWith({
+      prompt: 'standup',
+      cron: '0 9 * * *',
+      sessionId: 'session-abc',
+      enabled: true,
+    });
+  });
+
+  it('create without --session omits sessionId from the body', async () => {
+    const create = vi.fn(async () => routineFixture());
+    const { ctx } = makeCtx(fakeClient({ routines: { list: vi.fn(), create, update: vi.fn(), delete: vi.fn() } }), 'table');
+
+    await agents.run(ctx, ['routines', 'create', '--cron', '0 9 * * *', '--prompt', 'standup']);
+
+    expect(create.mock.calls[0][0]).not.toHaveProperty('sessionId');
+  });
+
+  it('hidden update --session binds; --session "" and --session null clear', async () => {
+    const update = vi.fn(async () => routineFixture({ sessionId: 'session-abc' }));
+    const { ctx } = makeCtx(fakeClient({ routines: { list: vi.fn(), create: vi.fn(), update, delete: vi.fn() } }), 'table');
+
+    await agents.run(ctx, ['routines', 'update', 'routine-1', '--session', 'session-abc']);
+    expect(update).toHaveBeenCalledWith('routine-1', { sessionId: 'session-abc' });
+
+    await agents.run(ctx, ['routines', 'update', 'routine-1', '--session', '']);
+    expect(update).toHaveBeenCalledWith('routine-1', { sessionId: '' });
+
+    await agents.run(ctx, ['routines', 'update', 'routine-1', '--session', 'null']);
+    expect(update).toHaveBeenCalledWith('routine-1', { sessionId: '' });
   });
 
   it('delete --yes removes the routine and prints the id', async () => {

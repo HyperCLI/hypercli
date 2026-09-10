@@ -61,7 +61,7 @@ export const usage = [
   'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>)',
   'hyper agents activate <code> [--extend-existing]',
   'hyper agents routines list [--agent ID]',
-  'hyper agents routines create (--cron EXPR | --run-at ISO) --prompt TEXT [--agent ID] [--name N] [--disabled]',
+  'hyper agents routines create (--cron EXPR | --run-at ISO) --prompt TEXT [--agent ID] [--name N] [--session ID] [--disabled]',
   'hyper agents routines delete <routine-id> [--yes]',
 ];
 
@@ -932,6 +932,7 @@ function routineJson(routine: Routine): Record<string, unknown> {
     agent_id: routine.agentId,
     cron: routine.cron,
     run_at: routine.runAt,
+    session_id: routine.sessionId,
     next_run_at: routine.nextRunAt,
     prompt: routine.prompt,
     enabled: routine.enabled,
@@ -982,6 +983,7 @@ async function cmdRoutines(ctx: CommandContext, args: string[]): Promise<void> {
         'run-at': { type: 'string' },
         prompt: { type: 'string' },
         agent: { type: 'string' },
+        session: { type: 'string' },
         disabled: { type: 'boolean', default: false },
       });
       if (parsed.help) return printHelp();
@@ -1004,6 +1006,7 @@ async function cmdRoutines(ctx: CommandContext, args: string[]): Promise<void> {
         ...(cron !== undefined ? { cron } : {}),
         ...(runAt !== undefined ? { runAt } : {}),
         ...(str(parsed, 'name') ? { name: str(parsed, 'name') } : {}),
+        ...(str(parsed, 'session') ? { sessionId: str(parsed, 'session') } : {}),
         enabled: parsed.values.disabled !== true,
       } as RoutineCreateOptions;
       const routine = await api('create routine', () => client.routines.create(body));
@@ -1046,6 +1049,7 @@ async function cmdRoutines(ctx: CommandContext, args: string[]): Promise<void> {
         enable: { type: 'boolean', default: false },
         disable: { type: 'boolean', default: false },
         agent: { type: 'string' },
+        session: { type: 'string' },
       });
       if (parsed.help) return printHelp();
       const routineId = onePositional(parsed, 'routine id');
@@ -1059,8 +1063,10 @@ async function cmdRoutines(ctx: CommandContext, args: string[]): Promise<void> {
       if (str(parsed, 'cron') !== undefined) body.cron = str(parsed, 'cron');
       if (str(parsed, 'run-at') !== undefined) body.runAt = str(parsed, 'run-at');
       if (str(parsed, 'prompt') !== undefined) body.prompt = str(parsed, 'prompt');
+      const session = str(parsed, 'session');
+      if (session !== undefined) body.sessionId = session === 'null' ? '' : session;
       if (Object.keys(body).length === 0) {
-        throw new UsageError('nothing to update; pass --name, --cron, --run-at, --prompt, --enable or --disable');
+        throw new UsageError('nothing to update; pass --name, --cron, --run-at, --prompt, --session, --enable or --disable');
       }
       const { client } = await adopt(ctx);
       const routine = await api('update routine', () => client.routines.update(routineId, body));

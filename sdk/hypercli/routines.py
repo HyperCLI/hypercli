@@ -49,6 +49,7 @@ class Routine:
     enabled: bool
     name: str | None = None
     run_at: str | None = None
+    session_id: str | None = None
     next_run_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -64,6 +65,7 @@ class Routine:
             enabled=bool(data.get("enabled", True)),
             name=data.get("name"),
             run_at=data.get("run_at"),
+            session_id=data.get("session_id"),
             next_run_at=_parse_datetime(data.get("next_run_at")),
             created_at=_parse_datetime(data.get("created_at")),
             updated_at=_parse_datetime(data.get("updated_at")),
@@ -100,6 +102,7 @@ class RoutinesAPI:
         cron: str | None = None,
         run_at: str | None = None,
         name: str | None = None,
+        session_id: str | None = None,
         enabled: bool = True,
     ) -> Routine:
         payload = {
@@ -113,6 +116,8 @@ class RoutinesAPI:
             payload["run_at"] = run_at
         if name is not None:
             payload["name"] = name
+        if session_id is not None:
+            payload["session_id"] = session_id
         data = _request("POST", self.api_base, api_key=self.api_key, json=payload)
         return Routine.from_dict(data)
 
@@ -125,6 +130,7 @@ class RoutinesAPI:
         prompt: str | None = None,
         enabled: bool | None = None,
         name: str | None = None,
+        session_id: str | None = None,
     ) -> Routine:
         payload = {}
         if agent_id is not None:
@@ -137,6 +143,8 @@ class RoutinesAPI:
             payload["prompt"] = prompt
         if enabled is not None:
             payload["enabled"] = enabled
+        if session_id is not None:
+            payload["session_id"] = session_id if session_id.strip() else None
         data = _request(
             "PATCH",
             f"{self.api_base}/{_encode_ref(routine_id)}",

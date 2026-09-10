@@ -179,6 +179,50 @@ def test_create_one_shot_with_run_at_and_name(monkeypatch):
     ]
 
 
+def test_create_with_session_id_posts_binding(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, **kwargs):
+        calls.append((method, url, api_key, kwargs))
+        return {**ROUTINE_PAYLOAD, "session_id": "session-abc"}
+
+    monkeypatch.setattr("hypercli.routines._request", fake_request)
+    api = RoutinesAPI("key", api_base="http://routines.test/routines")
+
+    routine = api.create(
+        agent_id="agent-1",
+        cron="0 * * * *",
+        prompt="Run the hourly check",
+        session_id="session-abc",
+    )
+
+    assert routine.session_id == "session-abc"
+    assert calls[0][3]["json"]["session_id"] == "session-abc"
+
+
+def test_update_session_id_sets_and_clears_binding(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, **kwargs):
+        calls.append((method, url, api_key, kwargs))
+        return ROUTINE_PAYLOAD
+
+    monkeypatch.setattr("hypercli.routines._request", fake_request)
+    api = RoutinesAPI("key", api_base="http://routines.test/routines")
+
+    api.update("routine-1", session_id="session-abc")
+
+    assert calls[0][3] == {"json": {"session_id": "session-abc"}}
+
+    api.update("routine-1", session_id="")
+
+    assert calls[1][3] == {"json": {"session_id": None}}
+
+
+def test_routine_from_dict_defaults_session_id_to_none():
+    assert Routine.from_dict(ROUTINE_PAYLOAD).session_id is None
+
+
 def test_update_sends_name(monkeypatch):
     calls = []
 

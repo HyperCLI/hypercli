@@ -102,6 +102,9 @@ pub struct Routine {
     pub name: Option<String>,
     #[serde(default)]
     pub run_at: Option<String>,
+    /// Bound ACP session the routine resumes; `None` starts a new session per run.
+    #[serde(default)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub next_run_at: Option<String>,
     #[serde(default)]
@@ -121,6 +124,8 @@ pub struct RoutineCreate {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl RoutineCreate {
@@ -138,6 +143,7 @@ impl RoutineCreate {
             enabled: true,
             name: None,
             run_at: None,
+            session_id: None,
         }
     }
 
@@ -155,11 +161,17 @@ impl RoutineCreate {
             enabled: true,
             name: None,
             run_at: Some(run_at.into()),
+            session_id: None,
         }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
         self
     }
 
@@ -181,6 +193,9 @@ pub struct RoutinePatch {
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// `Some("")` clears the binding: the backend normalizes empty to null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -480,6 +495,54 @@ mod tests {
             serde_json::to_value(&patch).unwrap(),
             json!({ "prompt": "pong" })
         );
+    }
+
+    #[test]
+    fn session_id_serializes_on_create_patch_and_decodes() {
+        let create = RoutineCreate::new("agent-1", "0 * * * *", "ping").with_session("session-abc");
+        assert_eq!(
+            serde_json::to_value(&create).unwrap(),
+            json!({
+                "agent_id": "agent-1",
+                "cron": "0 * * * *",
+                "prompt": "ping",
+                "enabled": true,
+                "session_id": "session-abc"
+            })
+        );
+
+        let patch = RoutinePatch {
+            session_id: Some("session-abc".to_owned()),
+            ..RoutinePatch::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&patch).unwrap(),
+            json!({ "session_id": "session-abc" })
+        );
+
+        let clear = RoutinePatch {
+            session_id: Some(String::new()),
+            ..RoutinePatch::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&clear).unwrap(),
+            json!({ "session_id": "" })
+        );
+
+        let routine: Routine = serde_json::from_value(json!({
+            "id": "routine-1",
+            "user_id": "user-1",
+            "agent_id": "agent-1",
+            "cron": "0 * * * *",
+            "prompt": "ping",
+            "enabled": true,
+            "session_id": "session-abc"
+        }))
+        .unwrap();
+        assert_eq!(routine.session_id.as_deref(), Some("session-abc"));
+
+        let routine: Routine = serde_json::from_value(routine_json("routine-2")).unwrap();
+        assert_eq!(routine.session_id, None);
     }
 
     #[test]

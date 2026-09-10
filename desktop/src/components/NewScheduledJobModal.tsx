@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarClock, Loader2, Play, X } from "lucide-react";
-import { routinesCreate, routinesUpdate, type AgentSummary, type Routine } from "../api";
+import { listAcpSessions, routinesCreate, routinesUpdate, type AcpSessionInfo, type AgentSummary, type Routine } from "../api";
+import { runtimeFamily } from "../agent-utils";
 import {
   DEFAULT_SCHEDULE,
   MONTH_NAMES,
@@ -55,12 +56,28 @@ export function NewScheduledJobModal({
   onSaved: () => void;
 }) {
   const editing = routine !== null;
+  const isAcp = runtimeFamily(agent.runtime) === "acp";
   const [initialDraft] = useState<ScheduleDraft>(() =>
     routine ? draftFromRoutine(routine) : { ...DEFAULT_SCHEDULE, date: dateInputValue(new Date()) },
   );
   const [draft, setDraft] = useState<ScheduleDraft>(initialDraft);
   const [prompt, setPrompt] = useState(routine?.prompt ?? "");
   const [name, setName] = useState(routine?.name ?? "");
+  const [sessionId, setSessionId] = useState(routine?.session_id ?? "");
+  const [sessions, setSessions] = useState<AcpSessionInfo[]>([]);
+
+  useEffect(() => {
+    if (!isAcp) return;
+    let cancelled = false;
+    listAcpSessions(agent.id)
+      .then((list) => {
+        if (!cancelled) setSessions(list.sessions);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id, isAcp]);
   const [delivery, setDelivery] = useState<"in-app" | "slack">("in-app");
   const [showAdvanced, setShowAdvanced] = useState(initialDraft.rawCron.trim() !== "");
   const [templateOffset, setTemplateOffset] = useState(0);
@@ -93,6 +110,8 @@ export function NewScheduledJobModal({
           prompt: text,
           cron: cron ?? "",
           runAt: oneTime ?? "",
+          // Empty sessionId is sent as JSON null by the SDK — clears the binding.
+          ...(isAcp ? { sessionId } : {}),
         });
       } else {
         await routinesCreate({
@@ -102,6 +121,7 @@ export function NewScheduledJobModal({
           ...(trimmedName ? { name: trimmedName } : {}),
           ...(cron ? { cron } : {}),
           ...(oneTime ? { runAt: oneTime } : {}),
+          ...(isAcp && sessionId ? { sessionId } : {}),
         });
       }
       onSaved();
@@ -182,6 +202,27 @@ export function NewScheduledJobModal({
               </select>
             </div>
           </div>
+
+          {isAcp && (
+            <div>
+              <FieldLabel>Session</FieldLabel>
+              <select
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+                className={`${FIELD_CLASS} w-full`}
+              >
+                <option value="">New session each run</option>
+                {sessionId && !sessions.some((s) => s.session_id === sessionId) && (
+                  <option value={sessionId}>{sessionId}</option>
+                )}
+                {sessions.map((session) => (
+                  <option key={session.session_id} value={session.session_id}>
+                    {session.title ?? session.session_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <FieldLabel>When</FieldLabel>
           <div className="flex flex-wrap items-center gap-2">

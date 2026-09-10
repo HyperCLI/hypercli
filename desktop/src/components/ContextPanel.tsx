@@ -1066,6 +1066,7 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
                   )}
                   <div className="mt-1 text-[10px] text-text-secondary">
                     {describeRoutine(routine)} · next {formatRoutineTime(routine.next_run_at)}
+                    {routine.session_id ? ` · session ${routine.session_id}` : ""}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">

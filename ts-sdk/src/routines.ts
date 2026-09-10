@@ -32,6 +32,8 @@ export interface Routine {
   enabled: boolean;
   name: string | null;
   runAt: string | null;
+  /** Bound ACP session the routine resumes; null starts a new session per run. */
+  sessionId: string | null;
   nextRunAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -43,6 +45,8 @@ export interface RoutineCreateOptions {
   cron?: string;
   runAt?: string;
   name?: string;
+  /** Bind the routine to an existing ACP session; omitted runs a fresh session. */
+  sessionId?: string;
   enabled?: boolean;
 }
 
@@ -56,6 +60,8 @@ export interface RoutineUpdateOptions {
   enabled?: boolean;
   /** Empty string clears the name server-side (sent as JSON null). */
   name?: string;
+  /** Empty string clears the session binding server-side (sent as JSON null). */
+  sessionId?: string;
 }
 
 function routineFromDict(data: any): Routine {
@@ -68,6 +74,7 @@ function routineFromDict(data: any): Routine {
     enabled: Boolean(data?.enabled ?? false),
     name: data?.name ?? null,
     runAt: data?.run_at ?? data?.runAt ?? null,
+    sessionId: data?.session_id ?? data?.sessionId ?? null,
     nextRunAt: data?.next_run_at ?? data?.nextRunAt ?? null,
     createdAt: data?.created_at ?? data?.createdAt ?? null,
     updatedAt: data?.updated_at ?? data?.updatedAt ?? null,
@@ -153,6 +160,7 @@ export class RoutinesAPI {
     payload.enabled = body.enabled ?? true;
     if (body.runAt !== undefined) payload.run_at = body.runAt;
     if (body.name !== undefined) payload.name = body.name;
+    if (body.sessionId !== undefined) payload.session_id = body.sessionId;
     const data = await this.request('POST', '', payload);
     return routineFromDict(data);
   }
@@ -166,6 +174,7 @@ export class RoutinesAPI {
     if (body.prompt !== undefined) payload.prompt = body.prompt;
     if (body.enabled !== undefined) payload.enabled = body.enabled;
     if (body.name !== undefined) payload.name = nullable(body.name);
+    if (body.sessionId !== undefined) payload.session_id = nullable(body.sessionId);
     const data = await this.request('PATCH', `/${encodeRef(routineId)}`, payload);
     return routineFromDict(data);
   }
