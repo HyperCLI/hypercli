@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "hypercli-desktop"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "dirs",
  "hypercli-sdk",
