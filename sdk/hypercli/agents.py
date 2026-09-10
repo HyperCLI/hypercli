@@ -65,7 +65,7 @@ _STALE_OPENCLAW_IMAGES = frozenset(
         DEFAULT_OPENCLAW_PRO_IMAGE,
     }
 )
-DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:latest"
+DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes:latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude:latest"

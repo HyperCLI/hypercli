@@ -1208,7 +1208,7 @@ function AgentSectionSettingsContent({
               value={agentImageDraft}
               onChange={(event) => onAgentImageChange(event.target.value)}
               placeholder={hermesRuntime
-                ? (getHermesDefaultImage() || "ghcr.io/hypercli/hypercli-hermes-agent:latest")
+                ? (getHermesDefaultImage() || "ghcr.io/hypercli/hypercli-hermes:latest")
                 : "ghcr.io/hypercli/hypercli-openclaw:prod"}
               aria-label="Agent Docker image"
               spellCheck={false}
