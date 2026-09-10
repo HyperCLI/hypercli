@@ -743,6 +743,11 @@ export const agentFileWrite = async (id: string, path: string, bytes: Uint8Array
 // Runtime (OpenClaw/Hermes) chat — the SDK's agent classes own the session.
 // ---------------------------------------------------------------------------
 
+// How long the UI waits for an OpenClaw gateway lease before surfacing an
+// error. Shorter than the SDK's 45s initial-connect budget so a dead gateway
+// fails fast for the user.
+const RUNTIME_LEASE_TIMEOUT_MS = 20_000;
+
 /**
  * The canonical session client for a runtime-family agent.
  *
@@ -769,7 +774,14 @@ async function withRuntimeSession<T>(
   const client = await sdk();
   const agent = await client.deployments.get(id);
   if (agent instanceof OpenClawAgent) {
-    const lease = await agent.acquireConnectedGateway();
+    // Belt-and-braces around the SDK lease: the gateway client now settles
+    // its own initial connect (45s budget, terminal on pre-hello policy
+    // closes), but a stuck dial must never hang the UI either. The lease is
+    // only abandoned on timeout; the pooled socket keeps its own lifecycle.
+    const deadline = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Gateway for agent ${id} did not answer in time`)), RUNTIME_LEASE_TIMEOUT_MS),
+    );
+    const lease = await Promise.race([agent.acquireConnectedGateway(), deadline]);
     try {
       // The client is already connected (the lease awaited its hello), so the
       // canonical view needs no `connect()` of its own.

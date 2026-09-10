@@ -1440,6 +1440,7 @@ const DEFAULT_CLIENT_MODE = "cli";
 const DEFAULT_CLIENT_VERSION = "@hypercli/sdk";
 const DEFAULT_CAPS = ["tool-events"];
 const CONNECT_TIMER_MS = 750;
+const INITIAL_CONNECT_TIMEOUT_MS = 45_000;
 const PAIRING_APPROVAL_TIMEOUT_MS = 35_000;
 const INITIAL_BACKOFF_MS = 800;
 const MAX_BACKOFF_MS = 15_000;
@@ -3166,6 +3167,7 @@ export class GatewayClient {
   private closed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private initialConnectTimer: ReturnType<typeof setTimeout> | null = null;
   private backoffMs = INITIAL_BACKOFF_MS;
   private connectNonce: string | null = null;
   private connectSent = false;
@@ -3511,6 +3513,13 @@ export class GatewayClient {
         this.resolveConnectPromise = resolve;
         this.rejectConnectPromise = reject;
       });
+      // The initial connect must always settle: transport-level refusals
+      // (1008 policy close, dead URLs) enter the reconnect loop without ever
+      // rejecting, and every pool acquisition joins this same promise.
+      this.initialConnectTimer = setTimeout(() => {
+        this.initialConnectTimer = null;
+        this.rejectInitialConnect(new Error(`gateway initial connect timed out after ${INITIAL_CONNECT_TIMEOUT_MS}ms`));
+      }, INITIAL_CONNECT_TIMEOUT_MS);
     }
     const connection = this.connectPromise;
     try {
@@ -3530,6 +3539,7 @@ export class GatewayClient {
   }
 
   private resolveInitialConnect(): void {
+    this.clearInitialConnectTimer();
     const resolve = this.resolveConnectPromise;
     this.connectPromise = null;
     this.resolveConnectPromise = null;
@@ -3538,11 +3548,19 @@ export class GatewayClient {
   }
 
   private rejectInitialConnect(error: unknown): void {
+    this.clearInitialConnectTimer();
     const reject = this.rejectConnectPromise;
     this.connectPromise = null;
     this.resolveConnectPromise = null;
     this.rejectConnectPromise = null;
     reject?.(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private clearInitialConnectTimer(): void {
+    if (this.initialConnectTimer) {
+      clearTimeout(this.initialConnectTimer);
+      this.initialConnectTimer = null;
+    }
   }
 
   /** Close permanently and stop reconnecting */
@@ -3968,6 +3986,11 @@ export class GatewayClient {
       if (this.pairingApprovalInFlight) {
         // The approval result owns the next transition. A late successful
         // approval opens one fresh socket; a failure rejects the initial hello.
+      } else if (this._hello === null && code === 1008) {
+        // A pre-hello policy violation (e.g. origin not allowed) is a
+        // configuration refusal, not a transient drop: retrying re-dials the
+        // same rejection forever and the initial connect never settles.
+        this.rejectInitialConnect(closeError);
       } else if (terminal || shouldPauseReconnectAfterAuthFailure(detailCode, this.pendingDeviceTokenRetry)) {
         this.rejectInitialConnect(error ? new GatewayRequestError(error) : closeError);
       } else {

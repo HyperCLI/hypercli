@@ -90,31 +90,36 @@ export function Sidebar({
     const ids = sessionAgentKey ? sessionAgentKey.split(",") : [];
     if (ids.length === 0) return;
     let cancelled = false;
+    let inFlight = false;
     const sweep = async () => {
+      // One sweep at a time: a slow agent must not stack overlapping sweeps.
+      if (inFlight) return;
+      inFlight = true;
       setSessionsBusy(true);
       try {
-        const results = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              const agent = live.find((a) => a.id === id);
-              const list = agent && runtimeFamily(agent.runtime) === "acp"
-                ? await listAcpSessions(id)
-                : await listRuntimeSessions(id);
-              return [id, list.sessions] as const;
-            } catch {
-              return [id, null] as const;
-            }
-          }),
-        );
-        if (cancelled) return;
-        setSessionsByAgent((prev) => {
-          const next = new Map(prev);
-          for (const [id, sessions] of results) {
-            if (sessions !== null) next.set(id, sessions);
+        // Merge per agent as each lister settles: one hanging or failing
+        // gateway must never blank the sessions of healthy agents.
+        await Promise.all(ids.map(async (id) => {
+          try {
+            const agent = live.find((a) => a.id === id);
+            const list = agent && runtimeFamily(agent.runtime) === "acp"
+              ? await listAcpSessions(id)
+              : await listRuntimeSessions(id);
+            if (cancelled) return;
+            setSessionsByAgent((prev) => new Map(prev).set(id, list.sessions));
+          } catch {
+            // A failed lister surfaces as "no sessions" for that agent only.
           }
-          return next;
+        }));
+        if (cancelled) return;
+        // Drop entries for agents that left the roster.
+        setSessionsByAgent((prev) => {
+          const keep = new Set(ids);
+          const next = new Map([...prev].filter(([id]) => keep.has(id)));
+          return next.size === prev.size ? prev : next;
         });
       } finally {
+        inFlight = false;
         if (!cancelled) setSessionsBusy(false);
       }
     };

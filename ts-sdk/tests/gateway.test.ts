@@ -395,6 +395,42 @@ describe("GatewayClient", () => {
   });
 
 
+  it("rejects the initial connect on a pre-hello 1008 policy close", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const connectPromise = client.connect();
+    const rejected = expect(connectPromise).rejects.toThrow(/1008/);
+    await flushMicrotasks();
+
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+    ws.close(1008, "origin not allowed");
+
+    await rejected;
+    // A policy refusal is terminal: no reconnect is scheduled on its own.
+    expect(MockWebSocket.instances).toHaveLength(1);
+    client.close();
+  });
+
+  it("settles the initial connect on an unreachable gateway via the connect budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      const connectPromise = client.connect();
+      const rejected = expect(connectPromise).rejects.toThrow(/initial connect timed out/);
+      await vi.advanceTimersByTimeAsync(45_000);
+      await rejected;
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("exposes connection state transitions", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
