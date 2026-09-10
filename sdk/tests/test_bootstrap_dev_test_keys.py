@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -102,6 +103,66 @@ def test_github_env_file_separates_mask_commands(
     assert "TEST_API_KEY<<EOF\nhyper-api-key\nEOF\n" in env_text
     assert "TEST_AGENT_API_KEY<<EOF\nhyper-agent-key\nEOF\n" in env_text
     assert "BOOTSTRAP_STATE_FILE<<EOF\n/tmp/bootstrap-state.json\nEOF\n" in env_text
+
+
+def test_env_format_emits_shell_sourceable_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = MODULE.BootstrapState(
+        product_base="https://api.dev.hypercli.com",
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_api_base="https://api.dev.hypercli.com/agents",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_admin_key="orchestra-admin",
+        agents_admin_key="agents-admin",
+        orchestra_user_id="orchestra-user",
+        hyperclaw_user_id="hyperclaw-user",
+        email="sdk-test@example.com",
+        test_api_key="hyper-api-key",
+        test_agent_api_key="agent key with spaces",
+    )
+
+    MODULE._print_env(state, "/tmp/bootstrap-state.json")
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    lines = captured.out.splitlines()
+    assert "::add-mask::" not in captured.out
+    assert "TEST_API_KEY=hyper-api-key" in lines
+    assert "TEST_AGENT_API_KEY='agent key with spaces'" in lines
+    assert "BOOTSTRAP_STATE_FILE=/tmp/bootstrap-state.json" in lines
+
+
+def test_env_format_quotes_special_characters(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    tricky_key = "key with 'quotes' and\nnewline $DOLLAR `backtick`"
+    state = MODULE.BootstrapState(
+        product_base="https://api.dev.hypercli.com",
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_api_base="https://api.dev.hypercli.com/agents",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_admin_key="orchestra-admin",
+        agents_admin_key="agents-admin",
+        orchestra_user_id="orchestra-user",
+        hyperclaw_user_id="hyperclaw-user",
+        email="sdk-test@example.com",
+        test_api_key=tricky_key,
+        test_agent_api_key="hyper-agent-key",
+    )
+
+    MODULE._print_env(state, "/tmp/bootstrap-state.json")
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assignments = {}
+    for token in shlex.split(captured.out):
+        key, _, value = token.partition("=")
+        assignments[key] = value
+    assert assignments["TEST_API_KEY"] == tricky_key
+    assert assignments["TEST_AGENT_API_KEY"] == "hyper-agent-key"
+    assert assignments["BOOTSTRAP_STATE_FILE"] == "/tmp/bootstrap-state.json"
+    assert f"TEST_API_KEY={shlex.quote(tricky_key)}" in captured.out
 
 
 def test_request_retries_transient_status(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import tempfile
 import time
@@ -440,13 +441,8 @@ def _load_state_file(path: str) -> BootstrapState:
     return BootstrapState(**payload)
 
 
-def _print_github_env(
-    state: BootstrapState,
-    state_file: str,
-    *,
-    github_env_file: str | None = None,
-) -> None:
-    fields = {
+def _bootstrap_env_fields(state: BootstrapState, state_file: str) -> dict[str, str]:
+    return {
         "TEST_API_KEY": state.test_api_key,
         "TEST_API_BASE": state.product_base,
         "TEST_AGENT_API_KEY": state.test_agent_api_key,
@@ -455,6 +451,20 @@ def _print_github_env(
         "TEST_AGENTS_ADMIN_BASE": state.agents_admin_base,
         "BOOTSTRAP_STATE_FILE": state_file,
     }
+
+
+def _print_env(state: BootstrapState, state_file: str) -> None:
+    for key, value in _bootstrap_env_fields(state, state_file).items():
+        print(f"{key}={shlex.quote(value)}")
+
+
+def _print_github_env(
+    state: BootstrapState,
+    state_file: str,
+    *,
+    github_env_file: str | None = None,
+) -> None:
+    fields = _bootstrap_env_fields(state, state_file)
     mask_output = sys.stdout if github_env_file else sys.stderr
     for masked in ("TEST_API_KEY", "TEST_AGENT_API_KEY"):
         print(f"::add-mask::{fields[masked]}", file=mask_output)
@@ -476,7 +486,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     bootstrap_parser = subparsers.add_parser("bootstrap")
-    bootstrap_parser.add_argument("--format", choices=("json", "github-env"), default="json")
+    bootstrap_parser.add_argument("--format", choices=("json", "github-env", "env"), default="json")
     bootstrap_parser.add_argument(
         "--github-env-file",
         help="Append GitHub environment entries directly to this file",
@@ -496,6 +506,8 @@ def main() -> int:
                 state_file,
                 github_env_file=args.github_env_file,
             )
+        elif args.format == "env":
+            _print_env(state, state_file)
         else:
             print(json.dumps({"state_file": state_file, **asdict(state)}, indent=2))
         return 0

@@ -18,7 +18,8 @@ sdk_ci_bootstrap() {
     echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([ "${BACKEND_API_KEY#orchestra_dev_}" != "${BACKEND_API_KEY}" ] && echo yes || echo no)"
   fi
   for attempts in $(seq 1 "${SDK_INTEGRATION_RETRIES:-2}"); do
-    if python /opt/bin/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "${envfile}"; then
+    : > "${envfile}"
+    if python /opt/bin/bootstrap_dev_test_keys.py bootstrap --format env > "${envfile}"; then
       break
     fi
     if [ "${attempts}" -ge "${SDK_INTEGRATION_RETRIES:-2}" ]; then
