@@ -574,6 +574,139 @@ fn binary_buzz_helper_help_uses_in_process_library() {
     }
 }
 
+/// A fake ACP child that answers `initialize` with the given identity and
+/// `session/new` with a fixed session id, logging every stdin line.
+fn write_responsive_child_script(
+    path: PathBuf,
+    child_input_path: &Path,
+    agent_name: &str,
+    protocol_version: u64,
+) -> PathBuf {
+    let mut script = String::from("#!/bin/sh\nset -eu\n");
+    script.push_str("while IFS= read -r line; do\n");
+    script.push_str("  printf '%s\\n' \"$line\" >> '");
+    script.push_str(child_input_path.to_str().unwrap());
+    script.push_str("'\n");
+    script.push_str("  case \"$line\" in\n");
+    script.push_str("    *'\"initialize\"'*)\n");
+    script.push_str(&format!(
+        "      printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"protocolVersion\":{protocol_version},\"agentInfo\":{{\"name\":\"{agent_name}\",\"version\":\"0\"}},\"agentCapabilities\":{{}}}}}}'\n"
+    ));
+    script.push_str("      ;;\n");
+    script.push_str("    *'\"session/new\"'*)\n");
+    script.push_str(
+        "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"s1\"}}'\n",
+    );
+    script.push_str("      ;;\n");
+    script.push_str("  esac\n");
+    script.push_str("done\n");
+    fs::write(&path, script).unwrap();
+    path
+}
+
+async fn run_binary_stdio_transport(
+    temp: &TestTemp,
+    agent_name: &str,
+    protocol_version: u64,
+    frames: &[&str],
+) -> Vec<Value> {
+    let child_input_path = temp.path("child-input.jsonl");
+    let child_script = write_responsive_child_script(
+        temp.path("agent-child.sh"),
+        &child_input_path,
+        agent_name,
+        protocol_version,
+    );
+
+    let mut host = Command::new(env!("CARGO_BIN_EXE_hyper-acp"));
+    host.arg("--agent-command")
+        .arg("sh")
+        .arg("--agent-arg")
+        .arg(&child_script)
+        .env_remove("HYPER_ACP_SYSTEM_PROMPT")
+        .env_remove("HYPER_ACP_SYSTEM_PROMPT_FILE")
+        .env_remove("HYPER_ACP_BASE_PROMPT_FILE")
+        .env_remove("HYPER_ACP_NO_BASE_PROMPT")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = host.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for frame in frames {
+        stdin.write_all(frame.as_bytes()).await.unwrap();
+        stdin.write_all(b"\n").await.unwrap();
+        // Let each frame settle so the host observes agent responses in order.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    drop(stdin);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while read_jsonl(&child_input_path).len() < frames.len() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child did not receive all frames: {:?}",
+            read_jsonl(&child_input_path)
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    child.kill().await.unwrap();
+    read_jsonl(&child_input_path)
+        .iter()
+        .map(|line| parse_json(line))
+        .collect()
+}
+
+const ADAPTER_FRAMES: &[&str] = &[
+    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}"#,
+    r#"{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}"#,
+    r#"{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"first turn"}]}}"#,
+    r#"{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"second turn"}]}}"#,
+];
+
+#[tokio::test]
+async fn binary_stdio_opencode_v1_gets_first_prompt_prepend_only() {
+    let temp = TestTemp::new("adapter-opencode-v1");
+    let received = run_binary_stdio_transport(&temp, "opencode", 1, ADAPTER_FRAMES).await;
+
+    let session_new = &received[1];
+    assert!(session_new["params"].get("systemPrompt").is_none());
+    assert!(session_new["params"].get("_meta").is_none());
+
+    let first = received[2]["params"]["prompt"].as_array().unwrap();
+    assert_eq!(first.len(), 2);
+    assert_eq!(first[0]["type"], "text");
+    assert!(first[0]["text"].as_str().unwrap().contains("<base>"));
+    assert_eq!(first[1]["text"], "first turn");
+
+    let second = received[3]["params"]["prompt"].as_array().unwrap();
+    assert_eq!(
+        second,
+        &vec![json!({"type": "text", "text": "second turn"})],
+    );
+}
+
+#[tokio::test]
+async fn binary_stdio_claude_agent_gets_meta_system_prompt_append() {
+    let temp = TestTemp::new("adapter-claude");
+    let received = run_binary_stdio_transport(&temp, "claude-agent-acp", 1, ADAPTER_FRAMES).await;
+
+    let session_new = &received[1];
+    assert!(session_new["params"].get("systemPrompt").is_none());
+    let append = session_new["params"]["_meta"]["systemPrompt"]["append"]
+        .as_str()
+        .unwrap();
+    assert!(append.contains("<base>"));
+
+    for prompt_frame in &received[2..] {
+        assert_eq!(
+            prompt_frame["params"]["prompt"].as_array().unwrap().len(),
+            1,
+            "claude delivery never touches session/prompt"
+        );
+    }
+}
+
 fn write_child_script(path: PathBuf, child_input_path: &Path) -> PathBuf {
     let mut script = String::from("#!/bin/sh\nset -eu\n");
     for frame in AGENT_FRAMES {

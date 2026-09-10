@@ -257,11 +257,17 @@ export class CodingAgentAcpClient {
     });
   }
 
-  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.NewSessionResponse> {
+  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[]; systemPrompt?: string } = {}): Promise<acp.NewSessionResponse> {
     const context = this.requireContext();
     const cwd = options.cwd ?? this.cwd;
     const mcpServers = options.mcpServers ?? this.mcpServers;
-    const response = await this.requestWithAuth<acp.NewSessionResponse>(context, acp.methods.agent.session.new, { cwd, mcpServers });
+    const response = await this.requestWithAuth<acp.NewSessionResponse>(context, acp.methods.agent.session.new, {
+      cwd,
+      mcpServers,
+      // Pass-through hyper-acp param: the pod host layers this last as
+      // <session-context> and routes it through the per-adapter channel.
+      systemPrompt: options.systemPrompt,
+    });
     this.sessions.set(response.sessionId, {
       cwd,
       mcpServers,

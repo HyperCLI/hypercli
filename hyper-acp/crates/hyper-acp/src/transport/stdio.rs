@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::adapter::PromptAdapter;
 use crate::capabilities::{AgentFrameAction, ClientFrameAction, PodCapabilities};
 use crate::frame::validate_frame;
 use crate::prompt::PromptConfig;
@@ -65,17 +66,18 @@ pub async fn run_with_prompt_and_observer(
     // stdout pump so writes never interleave mid-line.
     let (pod_response_tx, mut pod_response_rx) = mpsc::channel::<String>(16);
     let caps = Arc::new(PodCapabilities::from_env(&child_write_tx));
+    let adapter = Arc::new(PromptAdapter::new(prompt_config));
 
     let mut stdin_to_child = {
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
         let caps = Arc::clone(&caps);
-        let prompt_config = prompt_config.clone();
+        let adapter = Arc::clone(&adapter);
         tokio::spawn(async move {
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
             while let Some(line) = lines.next_line().await? {
                 validate_frame(&line)?;
-                let line = prompt_config.inject_client_frame(&line)?;
+                let line = adapter.process_client_frame(&line).await?;
                 // Pod capability termination: `initialize` capability rewrite
                 // (or re-initialize replay) and `session/new` cwd tracking
                 // for the per-session fs jail.
@@ -128,6 +130,7 @@ pub async fn run_with_prompt_and_observer(
     let mut stdout_to_client = {
         let observer = observer.clone();
         let caps = Arc::clone(&caps);
+        let adapter = Arc::clone(&adapter);
         tokio::spawn(async move {
             let mut stdout = tokio::io::stdout();
             let mut lines = BufReader::new(child_stdout).lines();
@@ -146,6 +149,10 @@ pub async fn run_with_prompt_and_observer(
                             AgentFrameAction::Forward(line) => line,
                             AgentFrameAction::Drop => continue,
                         };
+                        // Per-adapter prompt delivery: capture the agent
+                        // identity from its initialize response and bind
+                        // prepend-pending prompts to session ids.
+                        adapter.observe_agent_frame(&line);
                         if let Some(observer) = &observer {
                             observer.observe(Direction::AgentToClient, &line).await?;
                         }

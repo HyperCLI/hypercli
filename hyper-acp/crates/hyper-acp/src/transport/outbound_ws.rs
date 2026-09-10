@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::adapter::PromptAdapter;
 use crate::capabilities::{AgentFrameAction, ClientFrameAction, PodCapabilities};
 use crate::frame::validate_frame;
 use crate::prompt::PromptConfig;
@@ -126,6 +127,7 @@ pub async fn run_with_prompt_and_observer(
         mpsc::channel::<String>(CHILD_OUTBOUND_CHANNEL_LIMIT);
 
     let caps = Arc::new(PodCapabilities::from_env(&child_write_tx));
+    let adapter = Arc::new(PromptAdapter::new(prompt_config));
 
     // The first connection precedes the child spawn so agent startup frames
     // can never race ahead of client frames.
@@ -163,6 +165,7 @@ pub async fn run_with_prompt_and_observer(
     // child's stdout writes instead of failing them.
     let child_reader = tokio::spawn({
         let caps = Arc::clone(&caps);
+        let adapter = Arc::clone(&adapter);
         async move {
             let mut lines = BufReader::new(child_stdout).lines();
             while let Some(line) = lines.next_line().await? {
@@ -175,6 +178,10 @@ pub async fn run_with_prompt_and_observer(
                     AgentFrameAction::Forward(line) => line,
                     AgentFrameAction::Drop => continue,
                 };
+                // Per-adapter prompt delivery: capture the agent identity
+                // from its initialize response and bind prepend-pending
+                // prompts to session ids.
+                adapter.observe_agent_frame(&line);
                 child_outbound_tx
                     .send(line.into_owned())
                     .await
@@ -208,7 +215,7 @@ pub async fn run_with_prompt_and_observer(
                     ws_url: &ws_url,
                     observer: observer.as_ref(),
                     caps: &caps,
-                    prompt_config: &prompt_config,
+                    adapter: &adapter,
                     child_write_tx: &child_write_tx,
                     had_prior_era,
                     preconnected: preconnected.take(),
@@ -297,7 +304,7 @@ struct SocketEraContext<'a> {
     ws_url: &'a str,
     observer: Option<&'a AcpFrameObserver>,
     caps: &'a Arc<PodCapabilities>,
-    prompt_config: &'a PromptConfig,
+    adapter: &'a Arc<PromptAdapter>,
     child_write_tx: &'a mpsc::Sender<String>,
     had_prior_era: bool,
     preconnected: Option<Socket>,
@@ -321,7 +328,7 @@ async fn run_socket_era(
         socket,
         context.observer,
         context.caps,
-        context.prompt_config,
+        context.adapter,
         context.child_write_tx,
         child_outbound_rx,
     )
@@ -336,7 +343,7 @@ async fn pump_socket(
     socket: Socket,
     observer: Option<&AcpFrameObserver>,
     caps: &Arc<PodCapabilities>,
-    prompt_config: &PromptConfig,
+    adapter: &Arc<PromptAdapter>,
     child_write_tx: &mpsc::Sender<String>,
     child_outbound_rx: &mut mpsc::Receiver<String>,
 ) -> Result<(), EraError> {
@@ -376,7 +383,7 @@ async fn pump_socket(
         let child_write_tx = child_write_tx.clone();
         let observer = observer.cloned();
         let caps = Arc::clone(caps);
-        let prompt_config = prompt_config.clone();
+        let adapter = Arc::clone(adapter);
         let ws_send_tx = ws_send_tx.clone();
         tokio::spawn(async move {
             while let Some(message) = ws_read.next().await {
@@ -385,8 +392,9 @@ async fn pump_socket(
                     Message::Text(text) => {
                         let text = text.to_string();
                         validate_stdio_text_frame(&text).map_err(EraError::Fatal)?;
-                        let text = prompt_config
-                            .inject_client_frame(&text)
+                        let text = adapter
+                            .process_client_frame(&text)
+                            .await
                             .map_err(EraError::Fatal)?;
                         // Pod capability termination: `initialize` capability
                         // rewrite + `session/new` cwd jail tracking. A

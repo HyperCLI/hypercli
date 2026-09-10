@@ -298,12 +298,27 @@ describe('CodingAgent.acpConnect', () => {
       sessionId: 'session-1',
       prompt: [{ type: 'text', text: 'hello agent' }],
     });
+    expect(promptFrame.params.systemPrompt).toBeUndefined();
 
     await client.cancel(session.sessionId);
     await waitFor(() => bridge.currentPeer.framesFor('session/cancel').length > 0);
     expect(bridge.currentPeer.framesFor('session/cancel')[0].params).toMatchObject({
       sessionId: 'session-1',
     });
+  });
+
+  it('passes newSession systemPrompt through to session/new params', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+
+    await client.newSession({ cwd: '/home/node', systemPrompt: 'client session context' });
+    expect(bridge.currentPeer.framesFor('session/new')[0].params).toMatchObject({
+      cwd: '/home/node',
+      systemPrompt: 'client session context',
+    });
+
+    await client.newSession({ cwd: '/home/node' });
+    expect(bridge.currentPeer.framesFor('session/new')[1].params.systemPrompt).toBeUndefined();
   });
 
   it('gates listSessions/loadSession on advertised capabilities with typed errors', async () => {
