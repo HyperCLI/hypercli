@@ -809,10 +809,75 @@ pub struct PromptContext {
     /// Blind-signing handle for the plugin-terminated `buzz/publish` ACP
     /// method; installed on the agent's ACP client each channel turn. `None`
     /// disables the method (error reply instead of signing).
+    ///
+    /// Single-identity default: used whenever `agent_identities` is `None`
+    /// (no `BUZZ_ACP_AGENTS_FILE`) — selection helpers fall through to it.
     pub publish_handle: Option<crate::publish::PublisherHandle>,
     /// In-process MCP bridge serving the per-session `buzz` MCP server
     /// (publish tool). `None` disables the MCP injection.
+    ///
+    /// Single-identity default; see `publish_handle`.
     pub mcp_bridge: Option<Arc<crate::mcp_bridge::McpBridge>>,
+    /// Multi-identity registry (spike, `BUZZ_ACP_AGENTS_FILE`). When `Some`,
+    /// turns resolve their publish surface through [`publish_handle_for`]
+    /// (and session creation through [`mcp_bridge_for`]) so the turn's
+    /// session always signs with the identity that owns its channel.
+    ///
+    /// [`publish_handle_for`]: PromptContext::publish_handle_for
+    /// [`mcp_bridge_for`]: PromptContext::mcp_bridge_for
+    pub agent_identities: Option<Arc<crate::identity::IdentitySet>>,
+}
+
+impl PromptContext {
+    /// Blind-signing handle for a turn on `channel`.
+    ///
+    /// Multi-identity runs select the identity that owns the channel; a
+    /// channel no configured identity owns resolves to `None` so
+    /// `buzz/publish` answers with a clear scope error instead of signing as
+    /// the wrong identity. Single-identity runs (no agents file) always
+    /// return the env-configured handle — behavior unchanged.
+    pub(crate) fn publish_handle_for(
+        &self,
+        channel: Uuid,
+    ) -> Option<&crate::publish::PublisherHandle> {
+        match &self.agent_identities {
+            Some(set) => set
+                .for_channel(channel)
+                .map(|identity| &identity.publish_handle),
+            None => self.publish_handle.as_ref(),
+        }
+    }
+
+    /// MCP bridge to advertise in a new session's `mcpServers`.
+    ///
+    /// Multi-identity runs select the identity-owning bridge per channel —
+    /// each bridge has a private token registry, so the session's capability
+    /// token resolves to exactly one (identity, channel) pair. `None` for
+    /// heartbeats (`channel == None`) and unowned channels.
+    pub(crate) fn mcp_bridge_for(
+        &self,
+        channel: Option<Uuid>,
+    ) -> Option<&crate::mcp_bridge::McpBridge> {
+        match (&self.agent_identities, channel) {
+            (Some(set), Some(channel)) => set
+                .for_channel(channel)
+                .and_then(|identity| identity.mcp_bridge.as_deref()),
+            (Some(_), None) => None,
+            (None, _) => self.mcp_bridge.as_deref(),
+        }
+    }
+
+    /// Signing keys of the identity that owns `channel` (multi-identity), or
+    /// the connected env identity's keys (single-identity default).
+    pub(crate) fn keys_for_channel(&self, channel: Uuid) -> &nostr::Keys {
+        match &self.agent_identities {
+            Some(set) => set
+                .for_channel(channel)
+                .map(|identity| &identity.keys)
+                .unwrap_or(&self.agent_keys),
+            None => &self.agent_keys,
+        }
+    }
 }
 
 impl AgentPool {
@@ -1312,7 +1377,15 @@ async fn create_session_and_apply_model(
         channel.channel_type,
         ctx.session_title.as_deref(),
     );
-    append_buzz_publish_server(&mut mcp_servers, ctx.mcp_bridge.as_deref(), channel.scope);
+    // The `buzz` MCP server entry comes from the channel-owning identity's
+    // bridge: under multi-identity config each identity runs its own loopback
+    // bridge with a private token registry, so the injected session token can
+    // only ever resolve back to that identity's signing keys.
+    append_buzz_publish_server(
+        &mut mcp_servers,
+        ctx.mcp_bridge_for(channel.scope.map(SessionScope::channel_id)),
+        channel.scope,
+    );
 
     let resp = agent
         .acp
@@ -2012,12 +2085,15 @@ fn with_canvas(prompt: Option<String>, canvas: Option<&str>) -> Option<String> {
     }
 }
 
-/// Reply guard: guarantee a reply-required turn never ends silently.
+/// Reply guard: guarantee a channel turn never ends silently.
 ///
 /// If the turn accumulated non-empty assistant text but nothing was published
 /// on `channel` (through either blind-sign surface) since `turn_started`, the
 /// plugin publishes the text itself — signed with the agent keys, threaded
-/// under `reply_to` when present. Call only for channel turns with the
+/// under `reply_to` when present, mentioning `mentions` so the asking party
+/// is notified. `turn_root` scopes the journal check: a thread turn accepts
+/// publishes rooted at the thread (or broadcasts); a conversation turn
+/// accepts anything on the channel. Call only for channel turns with the
 /// agent's accumulated turn text already extracted.
 ///
 /// Empty/whitespace text stays silent: an agent that produced nothing has
@@ -2029,27 +2105,26 @@ async fn reply_fallback_publish(
     turn_text: &str,
     turn_started: std::time::Instant,
     reply_to: Option<nostr::EventId>,
+    mentions: Vec<nostr::PublicKey>,
+    turn_root: Option<nostr::EventId>,
 ) {
     let content = turn_text.trim();
     if content.is_empty() {
         return;
     }
-    if handle
-        .last_publish_at(channel)
-        .is_some_and(|at| at >= turn_started)
-    {
+    if handle.published_since(channel, turn_root, turn_started) {
         return;
     }
     let capped: String = content
         .char_indices()
-        .take_while(|(i, _)| *i < crate::publish::MAX_CONTENT_BYTES)
+        .take_while(|(i, c)| i + c.len_utf8() <= crate::publish::MAX_CONTENT_BYTES)
         .map(|(_, c)| c)
         .collect();
     let params = crate::publish::PublishParams {
         channel_id: None,
         content: capped,
         reply_to,
-        mentions: Vec::new(),
+        mentions,
         files: Vec::new(),
     };
     match crate::publish::publish(handle, &params, channel).await {
@@ -2132,29 +2207,66 @@ pub async fn run_prompt_task(
         turn_id.clone(),
         turn_started_at.clone(),
     ));
-    // Bind the plugin-terminated publish path to this turn's channel. For the
-    // rest of the turn, an agent-initiated `buzz/publish` ACP request is
-    // validated against this scope and signed + relayed by the plugin.
-    agent
-        .acp
-        .set_publish_turn(match (&ctx.publish_handle, &source) {
-            (Some(handle), PromptSource::Channel(scope)) => Some(crate::publish::PublishTurn {
-                handle: handle.clone(),
-                channel_id: scope.channel_id(),
-            }),
-            _ => None,
-        });
+    // Unbind the last-turn publish fallback until this turn's session is
+    // known: any unscoped `buzz/publish` observed during session setup (the
+    // RPCs below also pump the read loop) answers with a scope error instead
+    // of signing into the previous turn's channel. The per-session publish
+    // turn is bound immediately after session resolution below.
+    agent.acp.unbind_turn();
     let triggering_event_ids: Vec<String> = batch
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
         .unwrap_or_default();
     // Reply-guard bookkeeping: the guard compares the publish journal at turn
-    // end against this instant, and threads a fallback reply under the batch's
-    // newest triggering event.
+    // end against this instant, and threads a fallback reply at the turn's
+    // scope root (never a mid-thread child — the relay rejects root
+    // mismatches). Distinct human batch authors are mentioned so the asking
+    // party is notified.
     let turn_started_instant = std::time::Instant::now();
-    let fallback_reply_anchor = triggering_event_ids
-        .last()
-        .and_then(|hex| nostr::EventId::from_hex(hex).ok());
+    let mut fallback_mentions: Vec<nostr::PublicKey> = Vec::new();
+    if let Some(batch) = &batch {
+        // The turn's identity keys (channel-selected under multi-identity
+        // config, the env identity otherwise): its own messages are never
+        // mention-notified by the fallback.
+        let agent_key = ctx.keys_for_channel(batch.channel_id).public_key();
+        let mut seen = std::collections::HashSet::new();
+        fallback_mentions = batch
+            .events
+            .iter()
+            .map(|be| be.event.pubkey)
+            .filter(|pk| *pk != agent_key && seen.insert(*pk))
+            .take(crate::publish::MAX_MENTIONS)
+            .collect();
+    }
+    let fallback_reply_anchor: Option<nostr::EventId> = batch.as_ref().and_then(|b| {
+        b.events
+            .iter()
+            .max_by_key(|be| be.event.created_at)
+            .map(|be| {
+                let parsed = crate::queue::parse_thread_tags(&be.event);
+                parsed
+                    .root_event_id
+                    .as_deref()
+                    .and_then(|hex| nostr::EventId::from_hex(hex).ok())
+                    .unwrap_or(be.event.id)
+            })
+    });
+    let (fallback_anchor, fallback_turn_root) = match &source {
+        PromptSource::Channel(scope) => {
+            let root = scope
+                .root_event_id()
+                .and_then(|root| nostr::EventId::from_hex(root).ok());
+            match root {
+                // Thread turn: publish under the thread root; journal matches
+                // on the same root (broadcasts also count).
+                Some(root) => (Some(root), Some(root)),
+                // Conversation turn: anchor under the newest triggering event;
+                // any publish into the channel satisfies the guard.
+                None => (fallback_reply_anchor, None),
+            }
+        }
+        _ => (None, None),
+    };
     agent.acp.observe(
         "turn_started",
         serde_json::json!({
@@ -2497,6 +2609,26 @@ pub async fn run_prompt_task(
             }
         }
     };
+    // Bind the plugin-terminated publish path to this turn's session. From
+    // here on, an agent-initiated `buzz/publish` ACP request naming this
+    // session (or omitting `sessionId` during this turn) is validated against
+    // this scope and signed + relayed by the plugin with the channel-owning
+    // identity's keys. `None` (heartbeats, channels no configured identity
+    // owns) makes the method answer with a JSON-RPC error instead of signing.
+    agent.acp.set_publish_turn(
+        &session_id,
+        match &source {
+            PromptSource::Channel(scope) => {
+                ctx.publish_handle_for(scope.channel_id()).map(|handle| {
+                    crate::publish::PublishTurn {
+                        handle: handle.clone(),
+                        channel_id: scope.channel_id(),
+                    }
+                })
+            }
+            PromptSource::Heartbeat => None,
+        },
+    );
     agent.acp.set_observer_context(observer::context_for_turn(
         observer_channel_id,
         Some(session_id.clone()),
@@ -3032,16 +3164,19 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
-                        if let (Some(handle), Some(channel)) =
-                            (&ctx.publish_handle, source.channel_id())
-                        {
-                            let turn_text = agent.acp.take_turn_text();
+                        let guard_target = source
+                            .channel_id()
+                            .and_then(|channel| ctx.publish_handle_for(channel).map(|h| (h, channel)));
+                        if let Some((handle, channel)) = guard_target {
+                            let turn_text = agent.acp.take_turn_text(&session_id);
                             reply_fallback_publish(
                                 handle,
                                 channel,
                                 &turn_text,
                                 turn_started_instant,
-                                fallback_reply_anchor,
+                                fallback_anchor,
+                                fallback_mentions.clone(),
+                                fallback_turn_root,
                             )
                             .await;
                         }
@@ -3118,14 +3253,19 @@ pub async fn run_prompt_task(
                 agent.state.invalidate(&source);
             }
             if matches!(stop_reason, StopReason::EndTurn) {
-                if let (Some(handle), Some(channel)) = (&ctx.publish_handle, source.channel_id()) {
-                    let turn_text = agent.acp.take_turn_text();
+                let guard_target = source
+                    .channel_id()
+                    .and_then(|channel| ctx.publish_handle_for(channel).map(|h| (h, channel)));
+                if let Some((handle, channel)) = guard_target {
+                    let turn_text = agent.acp.take_turn_text(&session_id);
                     reply_fallback_publish(
                         handle,
                         channel,
                         &turn_text,
                         turn_started_instant,
-                        fallback_reply_anchor,
+                        fallback_anchor,
+                        fallback_mentions.clone(),
+                        fallback_turn_root,
                     )
                     .await;
                 }
@@ -8868,6 +9008,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             relay_url: "ws://127.0.0.1:3000".to_string(),
             publish_handle: None,
             mcp_bridge: None,
+            agent_identities: None,
         }
     }
 
@@ -10819,11 +10960,12 @@ done"#
     }
 
     #[tokio::test]
-    async fn reply_guard_publishes_turn_text_threaded_under_anchor() {
+    async fn reply_guard_publishes_turn_text_threaded_under_anchor_with_mentions() {
         let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
         let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
         let channel = Uuid::new_v4();
         let anchor = nostr::EventId::from_hex(&"ab".repeat(32)).unwrap();
+        let human = nostr::Keys::generate().public_key();
         let started = std::time::Instant::now();
 
         reply_fallback_publish(
@@ -10831,6 +10973,8 @@ done"#
             channel,
             "  the answer is 42  ",
             started,
+            Some(anchor),
+            vec![human],
             Some(anchor),
         )
         .await;
@@ -10846,6 +10990,13 @@ done"#
                     && t.as_slice().get(1).map(String::as_str) == Some(&anchor.to_hex())
             }),
             "fallback reply threads under the triggering event"
+        );
+        assert!(
+            event.tags.iter().any(|t| {
+                t.as_slice().first().map(String::as_str) == Some("p")
+                    && t.as_slice().get(1).map(String::as_str) == Some(&human.to_hex())
+            }),
+            "fallback reply mentions the asking human (feed/notify is p-tag driven)"
         );
     }
 
@@ -10867,7 +11018,16 @@ done"#
             .await
             .expect("in-turn publish succeeds");
 
-        reply_fallback_publish(&handle, channel, "extra trailing text", started, None).await;
+        reply_fallback_publish(
+            &handle,
+            channel,
+            "extra trailing text",
+            started,
+            None,
+            Vec::new(),
+            None,
+        )
+        .await;
 
         // Only the model's own publish reaches the relay.
         let first = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
@@ -10884,12 +11044,218 @@ done"#
     }
 
     #[tokio::test]
+    async fn reply_guard_thread_scope_isolation() {
+        let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
+        let publisher2 = publisher;
+        let journal: crate::publish::PublishJournal = Default::default();
+        let handle_a = crate::publish::PublisherHandle::with_journal(
+            nostr::Keys::generate(),
+            publisher2.clone(),
+            journal.clone(),
+        );
+        let handle_b = crate::publish::PublisherHandle::with_journal(
+            handle_a.keys.clone(),
+            publisher2,
+            journal,
+        );
+        let channel = Uuid::new_v4();
+        let root_x = nostr::EventId::from_hex(&"aa".repeat(32)).unwrap();
+        let root_y = nostr::EventId::from_hex(&"bb".repeat(32)).unwrap();
+        let started = std::time::Instant::now();
+
+        // A publish rooted at thread X during turn B (thread Y) must NOT
+        // suppress B's fallback — journal filters by scope root.
+        let params = crate::publish::PublishParams {
+            channel_id: None,
+            content: "answer in thread X".to_string(),
+            reply_to: Some(root_x),
+            mentions: Vec::new(),
+            files: Vec::new(),
+        };
+        crate::publish::publish(&handle_a, &params, channel)
+            .await
+            .expect("thread X publish succeeds");
+
+        // Thread Y turn guard: must still fire (different root).
+        reply_fallback_publish(
+            &handle_b,
+            channel,
+            "answer in thread Y",
+            started,
+            Some(root_y),
+            Vec::new(),
+            Some(root_y),
+        )
+        .await;
+        // Thread X turn guard: suppressed by the matching-root publish.
+        reply_fallback_publish(
+            &handle_b,
+            channel,
+            "answer in thread X again",
+            started,
+            Some(root_x),
+            Vec::new(),
+            Some(root_x),
+        )
+        .await;
+
+        let mut contents = Vec::new();
+        while let Ok(Some(ev)) =
+            tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await
+        {
+            contents.push(ev.content.clone());
+        }
+        assert!(contents.contains(&"answer in thread X".to_string()));
+        assert!(contents.contains(&"answer in thread Y".to_string()));
+        assert!(
+            !contents.contains(&"answer in thread X again".to_string()),
+            "journal suppresses only same-scope publishes"
+        );
+    }
+
+    /// Multi-identity journal isolation: each identity runs its OWN publish
+    /// journal (see `identity::IdentitySet`), so a successful publish by
+    /// identity A on a channel must never suppress identity B's reply-guard
+    /// fallback on that same channel.
+    #[tokio::test]
+    async fn reply_guard_cross_identity_journals_do_not_suppress() {
+        let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
+        let identity_a =
+            crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher.clone());
+        let identity_b = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        // Distinct Arcs by construction (new() per handle), unlike the shared
+        // journal single-identity surfaces use.
+        assert!(!std::sync::Arc::ptr_eq(
+            &identity_a.journal,
+            &identity_b.journal
+        ));
+        let channel = Uuid::new_v4();
+        let started = std::time::Instant::now();
+
+        // Identity A publishes on the channel mid-turn.
+        let params = crate::publish::PublishParams {
+            channel_id: None,
+            content: "A speaking".to_string(),
+            reply_to: None,
+            mentions: Vec::new(),
+            files: Vec::new(),
+        };
+        crate::publish::publish(&identity_a, &params, channel)
+            .await
+            .expect("A's publish succeeds");
+
+        // B's turn on the same channel produced text but no publish of its
+        // own: its guard must still fire — A's journal says nothing about B.
+        reply_fallback_publish(
+            &identity_b,
+            channel,
+            "B's unspoken answer",
+            started,
+            None,
+            Vec::new(),
+            None,
+        )
+        .await;
+
+        let mut contents = Vec::new();
+        while let Ok(Some(ev)) =
+            tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await
+        {
+            contents.push(ev.content.clone());
+        }
+        assert!(contents.contains(&"A speaking".to_string()));
+        assert!(
+            contents.contains(&"B's unspoken answer".to_string()),
+            "identity A's publish must not suppress identity B's fallback"
+        );
+    }
+
+    /// [`PromptContext::publish_handle_for`] /
+    /// [`PromptContext::mcp_bridge_for`] / [`PromptContext::keys_for_channel`]
+    /// select each channel's owning identity under multi-identity config and
+    /// fall through to the single-identity surfaces when none is configured.
+    #[tokio::test]
+    async fn prompt_context_selects_publish_surfaces_by_channel_identity() {
+        let channel_owned = Uuid::new_v4();
+        let channel_foreign = Uuid::new_v4();
+        let identity_keys = nostr::Keys::generate();
+        let spec = crate::config::AgentIdentity {
+            id: "owned".into(),
+            keys: identity_keys.clone(),
+            owner: None,
+            channels: std::collections::HashSet::from([channel_owned]),
+        };
+        let (publisher, _rx) = crate::relay::RelayEventPublisher::test_pair();
+        let set = crate::identity::IdentitySet::build(vec![spec], publisher).await;
+
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.agent_identities = Some(std::sync::Arc::new(set));
+
+        // Owned channel → the identity's keys and bridge.
+        assert_eq!(
+            ctx.publish_handle_for(channel_owned)
+                .expect("owned channel has a publish surface")
+                .keys
+                .public_key(),
+            identity_keys.public_key()
+        );
+        assert!(
+            ctx.mcp_bridge_for(Some(channel_owned)).is_some(),
+            "owned channel gets the identity's bridge"
+        );
+        assert_eq!(
+            ctx.keys_for_channel(channel_owned).public_key(),
+            identity_keys.public_key()
+        );
+
+        // Foreign channel → no publish surface, no bridge (fail closed, never
+        // sign as the connected env identity).
+        assert!(ctx.publish_handle_for(channel_foreign).is_none());
+        assert!(ctx.mcp_bridge_for(Some(channel_foreign)).is_none());
+        // keys_for_channel still resolves for mention filtering: the env
+        // identity stands in for unowned channels.
+        assert_eq!(
+            ctx.keys_for_channel(channel_foreign).public_key(),
+            ctx.agent_keys.public_key()
+        );
+        // Heartbeats never get a bridge under multi-identity.
+        assert!(ctx.mcp_bridge_for(None).is_none());
+
+        // No agents file → the legacy single-identity surfaces win.
+        let (env_publisher, _rx2) = crate::relay::RelayEventPublisher::test_pair();
+        let mut single = make_prompt_context_no_owner();
+        let env_keys = nostr::Keys::generate();
+        single.publish_handle = Some(crate::publish::PublisherHandle::new(
+            env_keys.clone(),
+            env_publisher,
+        ));
+        assert_eq!(
+            single
+                .publish_handle_for(channel_owned)
+                .expect("legacy surface")
+                .keys
+                .public_key(),
+            env_keys.public_key(),
+            "without an agents file every channel uses the env identity"
+        );
+    }
+
+    #[tokio::test]
     async fn reply_guard_stays_silent_on_empty_turn_text() {
         let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
         let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
         let started = std::time::Instant::now();
 
-        reply_fallback_publish(&handle, Uuid::new_v4(), "   \n  ", started, None).await;
+        reply_fallback_publish(
+            &handle,
+            Uuid::new_v4(),
+            "   \n  ",
+            started,
+            None,
+            Vec::new(),
+            None,
+        )
+        .await;
 
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv())

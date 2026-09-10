@@ -5,6 +5,7 @@ mod attachment;
 mod config;
 mod engram_fetch;
 mod filter;
+mod identity;
 mod mcp_bridge;
 mod mcp_shim;
 mod observer;
@@ -2771,6 +2772,32 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
         }
     };
 
+    // Multi-identity launch (spike, `BUZZ_ACP_AGENTS_FILE`): per-identity
+    // signing keys + private publish journal + private MCP bridge, selected
+    // per turn by the channel-owning identity. `None` keeps the legacy
+    // single-identity `publish_handle`/`mcp_bridge` as the only publish
+    // surfaces — behavior byte-identical to a single-agent launch.
+    //
+    // Deferred in this spike: relay ingress and subscriptions still use the
+    // connected env identity (`config.keys`); the file currently governs the
+    // publish side only (key selection, journals, per-identity bridges), and
+    // pool dispatch multiplexes by the disjoint channel guarantee.
+    let agent_identities = if config.agent_identities.is_empty() {
+        None
+    } else {
+        tracing::info!(
+            identities = config.agent_identities.len(),
+            "multi-agent mode: running logical identities over one shared child pool"
+        );
+        Some(Arc::new(
+            identity::IdentitySet::build(
+                std::mem::take(&mut config.agent_identities),
+                relay.event_publisher(),
+            )
+            .await,
+        ))
+    };
+
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
         initial_message: config.initial_message.clone(),
@@ -2811,6 +2838,7 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
         relay_url: config.relay_url.clone(),
         publish_handle,
         mcp_bridge,
+        agent_identities,
     });
 
     if !config.memory_enabled {
@@ -8915,6 +8943,7 @@ mod build_mcp_servers_tests {
             agent_owner: None,
             no_base_prompt: false,
             base_prompt_content: None,
+            agent_identities: Vec::new(),
         }
     }
 
@@ -9140,6 +9169,7 @@ mod error_outcome_emission_tests {
             agent_owner: None,
             no_base_prompt: false,
             base_prompt_content: None,
+            agent_identities: Vec::new(),
         }
     }
 

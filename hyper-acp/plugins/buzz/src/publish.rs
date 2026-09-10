@@ -43,15 +43,22 @@ pub(crate) const MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
 /// `MAX_VIDEO_BYTES`.
 pub(crate) const MAX_VIDEO_ATTACHMENT_BYTES: u64 = 500 * 1024 * 1024;
 
+/// One recorded publish: when it landed and which thread root it targeted
+/// (`None` for a channel-root broadcast).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct JournalHit {
+    pub at: std::time::Instant,
+    pub root: Option<EventId>,
+}
+
 /// Signing + relay access the plugin lends to a publish call.
 #[derive(Clone)]
 pub(crate) struct PublisherHandle {
     pub keys: Keys,
     pub publisher: RelayEventPublisher,
-    /// Channel → wall-clock instant of the most recent publish that succeeded
-    /// through this handle. Read at turn end by the reply guard: a channel
-    /// turn that finished without a successful publish while carrying
-    /// non-empty agent text is a missed reply.
+    /// Channel → recent publishes through this handle. Read at turn end by the
+    /// reply guard: a turn that finished without a successful publish matching
+    /// its scope while carrying non-empty agent text is a missed reply.
     pub journal: PublishJournal,
     /// Relay media endpoint context for file attachments; `None` disables the
     /// `files` param (a publish carrying files then fails with a tool error).
@@ -66,7 +73,7 @@ impl PublisherHandle {
         Self {
             keys,
             publisher,
-            journal: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            journal: Default::default(),
             attachments: None,
         }
     }
@@ -91,22 +98,38 @@ impl PublisherHandle {
         self
     }
 
-    /// Wall-clock instant of the last successful publish into `channel`,
-    /// or `None` if nothing has been published through this handle.
-    pub(crate) fn last_publish_at(&self, channel: Uuid) -> Option<std::time::Instant> {
-        self.journal
+    /// Whether this channel saw a successful publish since `since` that
+    /// satisfies the turn's scope. A conversation turn accepts any publish;
+    /// a thread turn accepts publishes rooted at the turn's thread plus
+    /// channel-root broadcasts.
+    pub(crate) fn published_since(
+        &self,
+        channel: Uuid,
+        turn_root: Option<EventId>,
+        since: std::time::Instant,
+    ) -> bool {
+        let journal = self
+            .journal
             .lock()
-            .expect("journal lock")
-            .get(&channel)
-            .copied()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(hits) = journal.get(&channel) else {
+            return false;
+        };
+        hits.iter()
+            .filter(|hit| hit.at >= since)
+            .any(|hit| match turn_root {
+                None => true,
+                Some(root) => hit.root == Some(root) || hit.root.is_none(),
+            })
     }
 }
 
-/// Shared journal: channel → instant of the last successful publish. One
+/// Shared journal: channel → recent publishes with their thread roots. One
 /// instance is shared by both publish surfaces (ACP method + MCP bridge) so
 /// the reply guard sees publishes no matter which path the agent took.
+/// Entries older than an hour are pruned on insert.
 pub(crate) type PublishJournal =
-    Arc<std::sync::Mutex<std::collections::HashMap<Uuid, std::time::Instant>>>;
+    Arc<std::sync::Mutex<std::collections::HashMap<Uuid, std::collections::VecDeque<JournalHit>>>>;
 
 /// Per-turn publish context installed on the ACP client: the signing handle
 /// plus the single channel this turn is authorized to publish into.
@@ -342,11 +365,18 @@ pub(crate) async fn publish(
         .await
         .map_err(|e| PublishError::Transport(format!("relay publish error: {e}")))?;
 
-    handle
-        .journal
-        .lock()
-        .expect("journal lock")
-        .insert(channel_id, std::time::Instant::now());
+    {
+        let mut journal = handle
+            .journal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hits = journal.entry(channel_id).or_default();
+        hits.retain(|hit| hit.at.elapsed() < std::time::Duration::from_secs(3600));
+        hits.push_back(JournalHit {
+            at: std::time::Instant::now(),
+            root: params.reply_to,
+        });
+    }
 
     Ok(serde_json::json!({
         "eventId": event_id,

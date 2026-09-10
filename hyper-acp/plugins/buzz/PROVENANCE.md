@@ -99,11 +99,33 @@ Deliberate deviations:
   the imeta tag carries the local basename as relay-allowlisted `filename`
   but does not forward upstream's optional `thumb`/`duration` fields. Size
   caps match upstream (50 MB non-video, 500 MB video).
+- Multi-identity spike (no upstream counterpart): `src/identity.rs`
+  describes one logical buzz identity (keys, owner, channel subscriptions)
+  and `src/config.rs` optionally loads a `[[agents]]` TOML
+  (`BUZZ_ACP_AGENTS_FILE`) so one plugin process — and one shared ACP child
+  pool — can serve several identities. `src/acp.rs` keeps per-session turn
+  state (`turn_text`, publish scope, permission ids) keyed by `sessionId`
+  instead of one in-flight turn per client, so interleaved updates from two
+  sessions on one stdio connection attribute correctly; `buzz/publish`
+  selects the signing keys of the session's identity. Default env-based
+  single-agent configuration is unchanged.
 - `src/lib.rs` retains the dev-MCP `BUZZ_PRIVATE_KEY`/`BUZZ_AUTH_TAG` env
   injection as a documented residual: reads and non-publish writes still run
   through the dev MCP server. The agent child env no longer carries those
   keys; removing the injection entirely is the tracked follow-up once reads
   move behind the plugin bridge.
+- Reply guard (no upstream counterpart): a channel turn that ends at
+  `end_turn` with non-empty accumulated assistant text and no successful
+  publish through either blind-sign surface is completed by the plugin
+  itself — `src/pool.rs` `reply_fallback_publish` blind-signs and relays the
+  accumulated text, threaded at the turn's scope root and p-tagging the
+  human batch authors. Detection rides a per-channel publish journal
+  (`src/publish.rs` `PublishJournal`, thread-root scoped) shared by the
+  `buzz/publish` ACP method and the MCP bridge; turn text accumulation lives
+  in `src/acp.rs` (`agent_message_chunk` only — thought chunks and tool
+  narration metadata are never published). This replaces
+  `buzz-agent`'s model-facing `require_reply` nag loop with a
+  transport-level guarantee; no code or text was copied from `buzz-agent`.
 
 No relay, queue, owner-command, auth/membership, prompt gating, observer,
 setup, usage, session-pool, or other permission semantics beyond the

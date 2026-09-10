@@ -150,16 +150,31 @@ pub struct AcpClient {
     /// Monotonically increasing JSON-RPC request id counter.
     /// Harness-generated IDs are always numeric.
     next_id: u64,
-    /// The id of a `session/request_permission` request that has been received
-    /// but not yet responded to. Stored as `serde_json::Value` because JSON-RPC 2.0
-    /// permits both numeric and string IDs from the agent.
-    /// Used by [`cancel_with_cleanup`](AcpClient::cancel_with_cleanup) to send
-    /// a `cancelled` outcome before the agent returns from `session/prompt`.
-    pending_permission_id: Option<serde_json::Value>,
-    /// Whether we have already sent a response to the pending permission request.
-    /// Guards against double-response if a timeout fires after the allow_once
-    /// response was written but before `pending_permission_id` was cleared.
-    permission_responded: bool,
+    /// Per-session turn state, keyed by ACP `sessionId`.
+    ///
+    /// ACP sessions are independent on one connection, so everything a turn
+    /// accumulates — streamed text, the bound publish context, a pending
+    /// permission request, the goose run id — is attributed by the
+    /// `params.sessionId` of the frame that carried it, never to "the"
+    /// in-flight turn. Two sessions may interleave on this client (updates
+    /// for session B arriving during session A's prompt accumulate into B's
+    /// state); only the prompt read loop stays single-flight per client.
+    ///
+    /// Entries persist for the life of the client: a rotated session id is
+    /// simply never looked up again, and each entry is small.
+    turns: std::collections::HashMap<String, TurnState>,
+    /// Session most recently bound via [`set_publish_turn`](Self::set_publish_turn).
+    ///
+    /// Fallback scope for frames that carry no `params.sessionId`:
+    /// `session/update` accumulators and `buzz/publish` resolve against the
+    /// awaited session first (lexical, in the prompt read loop) and then
+    /// against this last-bound session outside of a prompt (e.g. during
+    /// `session/new` RPC reads), preserving the pre-multi-session behavior
+    /// for adapters that omit the field. Cleared at the start of every turn
+    /// by [`unbind_turn`](Self::unbind_turn), so an unscoped `buzz/publish`
+    /// observed between turns answers with a clear error instead of
+    /// signing into a stale turn's channel.
+    bound_session: Option<String>,
     /// The JSON-RPC id of the most recently sent `session/prompt` request.
     /// Used by [`cancel_with_cleanup`] to drain the correct response.
     /// Set in [`session_prompt_with_idle_timeout`]; consumed in [`cancel_with_cleanup`].
@@ -174,21 +189,6 @@ pub struct AcpClient {
     observer_agent_index: Option<usize>,
     /// Best-effort context attached to raw ACP wire events.
     observer_context: ObserverContext,
-    /// Most recently observed `_meta.goose.activeRunId` from a
-    /// `session/update` notification of kind `session_info_update`.
-    ///
-    /// Both goose and buzz-agent emit `session_info_update` with this field;
-    /// goose emits it whenever it starts or clears an active prompt run
-    /// (`crates/goose/src/acp/server.rs:2277` `send_active_run_update`).
-    /// Required as `expectedRunId` when calling the non-standard
-    /// `_goose/unstable/session/steer` method to inject a message into an
-    /// in-flight turn without cancelling it.
-    ///
-    /// `None` until the first `session_info_update` arrives, or after the
-    /// run clears (goose/buzz-agent emit `activeRunId: null` at end of turn).
-    /// Other agents may leave this unset — readers must treat `None` as
-    /// "no active run to steer into" and fall back to cancel+merge.
-    active_run_id: Option<String>,
     /// Whether the agent advertised `_meta.steering.supported: true` in its
     /// `initialize` response, meaning it implements the cross-adapter
     /// [`ACP_STEER_METHOD`] extension.
@@ -214,19 +214,66 @@ pub struct AcpClient {
     standard_usage: StandardUsageTracker,
     /// Known adapter identity for prompt-response usage mapping.
     standard_adapter: Option<StandardAdapterKind>,
-    /// Plugin-terminated `buzz/publish` context for the in-flight turn:
-    /// signing handle plus the channel this turn may publish into. `None`
+}
+
+/// Everything one ACP session's current (or most recent) turn accumulated.
+///
+/// Keyed by `sessionId` in [`AcpClient::turns`]: the read loop routes
+/// `session/update`, `session/request_permission`, and `buzz/publish` frames
+/// by their `params.sessionId` into the matching entry, so interleaved
+/// traffic from a second session on the same connection is attributed
+/// correctly instead of dropped or folded into the awaited turn.
+#[derive(Default)]
+struct TurnState {
+    /// Plain assistant text streamed during the session's latest turn
+    /// (`agent_message_chunk` updates, concatenated, capped at
+    /// [`TURN_TEXT_CAP`]). Cleared by every
+    /// [`set_publish_turn`](AcpClient::set_publish_turn) install for this
+    /// session — including the `None` heartbeat/teardown install — so text
+    /// never leaks across turns. Read by the turn-end reply guard:
+    /// non-empty text with no successful publish on the turn's channel
+    /// triggers a guard publish so a channel turn never ends silently.
+    turn_text: String,
+    /// Plugin-terminated `buzz/publish` context for this session's turn:
+    /// signing handle plus the channel the turn may publish into. `None`
     /// outside channel prompt turns (heartbeats, auth probes, tests) —
     /// `buzz/publish` then answers with a JSON-RPC error instead of signing.
+    /// Under multi-identity config the handle carries **this session's**
+    /// identity keys; a publish routed here can never sign as another
+    /// identity.
     publish_turn: Option<crate::publish::PublishTurn>,
-    /// Plain assistant text streamed during the in-flight turn
-    /// (`agent_message_chunk` updates, concatenated). Cleared whenever
-    /// [`set_publish_turn`](Self::set_publish_turn) installs a new turn
-    /// scope. Read by the turn-end reply guard: non-empty text with no
-    /// successful publish on the turn's channel triggers a guard publish so
-    /// a reply-required turn never ends silently.
-    turn_text: String,
+    /// The id of a `session/request_permission` request for this session that
+    /// has been received but not yet responded to. Stored as
+    /// `serde_json::Value` because JSON-RPC 2.0 permits both numeric and
+    /// string IDs from the agent. Used by
+    /// [`cancel_with_cleanup`](AcpClient::cancel_with_cleanup) to send a
+    /// `cancelled` outcome before the agent returns from `session/prompt`.
+    pending_permission_id: Option<serde_json::Value>,
+    /// Whether we have already sent a response to the pending permission
+    /// request. Guards against double-response if a timeout fires after the
+    /// response was written but before `pending_permission_id` was cleared.
+    permission_responded: bool,
+    /// Most recently observed `_meta.goose.activeRunId` for this session from
+    /// a `session/update` notification of kind `session_info_update`.
+    ///
+    /// Both goose and buzz-agent emit `session_info_update` with this field;
+    /// goose emits it whenever it starts or clears an active prompt run.
+    /// Required as `expectedRunId` when calling the non-standard
+    /// `_goose/unstable/session/steer` method to inject a message into an
+    /// in-flight turn without cancelling it.
+    ///
+    /// `None` until the first `session_info_update` arrives for the session,
+    /// or after the run clears (`activeRunId: null` at end of turn). Other
+    /// agents may leave this unset — readers must treat `None` as "no active
+    /// run to steer into" and fall back to cancel+merge.
+    active_run_id: Option<String>,
 }
+
+/// Hard cap on accumulated per-turn assistant text. Comfortably above the
+/// 32 KiB publish cap, so a runaway turn can't grow this without bound while
+/// still letting the reply guard fall back to everything up to the publish
+/// limit.
+const TURN_TEXT_CAP: usize = 64 * 1024;
 
 /// Buzz secret keys that must never reach the agent child's environment.
 ///
@@ -552,6 +599,13 @@ impl AcpClient {
         for key in CHILD_SECRET_ENV_KEYS {
             cmd.env_remove(key);
         }
+        // Multi-identity runs additionally strip the env vars referenced by
+        // the agents file (`BUZZ_ACP_AGENTS_FILE`): every identity's
+        // `private_key_ref` holds key material, and the child inherits our
+        // environment wholesale. Registered at config load, before any spawn.
+        for key in crate::config::extra_child_secret_env_keys() {
+            cmd.env_remove(key);
+        }
 
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
         // to the harness's own process group on Unix.
@@ -587,21 +641,18 @@ impl AcpClient {
             stdin,
             reader: FramedRead::new(stdout, LinesCodec::new_with_max_length(MAX_LINE_SIZE)),
             next_id: 0,
-            pending_permission_id: None,
-            permission_responded: false,
+            turns: std::collections::HashMap::new(),
+            bound_session: None,
             last_prompt_id: None,
             current_hard_deadline: None,
             observer: None,
             observer_agent_index: None,
             observer_context: ObserverContext::default(),
-            active_run_id: None,
             steering_supported: false,
             steer_rx: None,
             goose_usage: UsageTracker::default(),
             standard_usage: StandardUsageTracker::default(),
             standard_adapter,
-            publish_turn: None,
-            turn_text: String::new(),
         })
     }
 
@@ -611,22 +662,63 @@ impl AcpClient {
         self.observer_agent_index = Some(agent_index);
     }
 
-    /// Install the plugin-terminated publish context for a turn.
+    /// Clear the last-bound-session fallback before a new turn resolves its
+    /// session.
     ///
-    /// `Some` binds `buzz/publish` to the turn's channel; `None` (heartbeats,
-    /// non-channel work) makes the method answer with a JSON-RPC error.
-    /// Installed by the pool at turn start; never persisted across turns.
-    /// Installing a fresh scope also resets the turn text accumulator.
-    pub fn set_publish_turn(&mut self, turn: Option<crate::publish::PublishTurn>) {
-        if turn.is_some() {
-            self.turn_text.clear();
-        }
-        self.publish_turn = turn;
+    /// Installed by the pool at turn start, before the session id is known.
+    /// Between this call and the matching
+    /// [`set_publish_turn`](Self::set_publish_turn), an unscoped
+    /// `buzz/publish` (no `params.sessionId`) answers with a JSON-RPC error
+    /// instead of signing into the *previous* turn's channel — the misrouting
+    /// this exists to prevent.
+    pub fn unbind_turn(&mut self) {
+        self.bound_session = None;
     }
 
-    /// Drain the text stream accumulated for the in-flight turn.
-    pub fn take_turn_text(&mut self) -> String {
-        std::mem::take(&mut self.turn_text)
+    /// Install the plugin-terminated publish context for one session's turn.
+    ///
+    /// `Some` binds `buzz/publish` requests naming `session_id` (and, via the
+    /// last-bound fallback, unscoped ones during this turn) to that session's
+    /// channel and identity keys; `None` (heartbeats, non-channel work) makes
+    /// the method answer with a JSON-RPC error. Installed by the pool once
+    /// the turn's session is resolved; the binding — not the text reset —
+    /// persists past turn end so late publish frames for this session still
+    /// address the right channel.
+    ///
+    /// Every install — including the `None` heartbeat/teardown scope — resets
+    /// **this session's** turn text accumulator, so heartbeat turns and other
+    /// sessions' turns never grow it.
+    pub fn set_publish_turn(
+        &mut self,
+        session_id: &str,
+        turn: Option<crate::publish::PublishTurn>,
+    ) {
+        let state = self.turns.entry(session_id.to_string()).or_default();
+        state.turn_text.clear();
+        state.publish_turn = turn;
+        self.bound_session = Some(session_id.to_string());
+    }
+
+    /// Drain the text stream accumulated for `session_id`'s latest turn.
+    pub fn take_turn_text(&mut self, session_id: &str) -> String {
+        match self.turns.get_mut(session_id) {
+            Some(state) => std::mem::take(&mut state.turn_text),
+            None => String::new(),
+        }
+    }
+
+    /// Resolve the session a frame belongs to: its own `params.sessionId`
+    /// when present, else the caller-supplied fallback (the awaited session
+    /// in the prompt read loop, the last-bound session elsewhere).
+    ///
+    /// The `Option<String>` return is deliberately owned: the resolved id
+    /// must outlive the borrow on `msg` so callers can mutably borrow
+    /// `self.turns`.
+    fn frame_session_id(msg: &serde_json::Value, fallback_session: Option<&str>) -> Option<String> {
+        msg.pointer("/params/sessionId")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .or_else(|| fallback_session.map(str::to_owned))
     }
 
     /// Update metadata that will be attached to subsequent raw wire events.
@@ -907,18 +999,20 @@ impl AcpClient {
         self.last_prompt_id.is_some()
     }
 
-    /// Most recently observed goose `_meta.goose.activeRunId` from a
-    /// `session_info_update`, if any.
+    /// Most recently observed goose `_meta.goose.activeRunId` for
+    /// `session_id`, if any.
     ///
-    /// Both goose and buzz-agent emit `session_info_update`; other agents
-    /// leave this `None` for the lifetime of the client. Read directly by
-    /// `read_until_response_with_idle_timeout`'s
-    /// steer arm at write time (see [`crate::pool::SteerRequest`] for
-    /// why the read loop owns this); production callers do not need this
-    /// accessor. Kept as `pub` so tests can introspect the field.
+    /// Both goose and buzz-agent emit `session_info_update` per session;
+    /// other agents leave this `None` for the lifetime of the client. Read
+    /// directly by `read_until_response_with_idle_timeout`'s steer arm at
+    /// write time (see [`crate::pool::SteerRequest`] for why the read loop
+    /// owns this); production callers do not need this accessor. Kept as
+    /// `pub` so tests can introspect the field.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub fn active_run_id(&self) -> Option<&str> {
-        self.active_run_id.as_deref()
+    pub fn active_run_id(&self, session_id: &str) -> Option<&str> {
+        self.turns
+            .get(session_id)
+            .and_then(|state| state.active_run_id.as_deref())
     }
 
     /// Whether the agent advertised the [`ACP_STEER_METHOD`] extension at
@@ -1072,19 +1166,25 @@ impl AcpClient {
             AcpError::Protocol("cancel_with_cleanup called with no in-flight prompt".into())
         })?;
 
-        // Step 1: respond to any pending permission request with "cancelled",
-        // but only if we haven't already responded (guards against double-response race).
-        if let Some(perm_id) = self.pending_permission_id.clone() {
-            if !self.permission_responded {
-                let response = permission_response_cancelled(&perm_id);
-                self.write_ndjson(&response).await?;
-                tracing::debug!(
-                    target: "acp::cancel",
-                    "responded cancelled to pending permission id={perm_id}"
-                );
-            }
-            self.pending_permission_id = None;
-            self.permission_responded = false;
+        // Step 1: respond to any pending permission request for this session
+        // with "cancelled", but only if we haven't already responded (guards
+        // against double-response race). Permission state is per-session, so
+        // cancelling session A never disturbs a pending request on session B.
+        let respond_to = match self.turns.get(session_id) {
+            Some(state) if !state.permission_responded => state.pending_permission_id.clone(),
+            _ => None,
+        };
+        if let Some(perm_id) = respond_to {
+            let response = permission_response_cancelled(&perm_id);
+            self.write_ndjson(&response).await?;
+            tracing::debug!(
+                target: "acp::cancel",
+                "responded cancelled to pending permission id={perm_id}"
+            );
+        }
+        if let Some(state) = self.turns.get_mut(session_id) {
+            state.pending_permission_id = None;
+            state.permission_responded = false;
         }
 
         // Step 2: send session/cancel notification (no id)
@@ -1298,19 +1398,25 @@ impl AcpClient {
             }
 
             // Dispatch by method name (notifications and agent-initiated requests).
+            // Session routing: frames resolve to their own `params.sessionId`
+            // first; outside a prompt read loop the last-bound session is the
+            // fallback for adapters that omit the field.
+            let fallback_session = self.bound_session.clone();
             if let Some(method) = msg.get("method").and_then(|v| v.as_str()) {
                 match method {
                     "session/update" => {
-                        let _ = self.handle_session_update(&msg);
+                        let _ = self.handle_session_update(&msg, fallback_session.as_deref());
                     }
                     "_goose/unstable/session/update" => {
                         self.handle_goose_usage_update(&msg);
                     }
                     "session/request_permission" => {
-                        self.handle_permission_request(&msg).await?;
+                        self.handle_permission_request(&msg, fallback_session.as_deref())
+                            .await?;
                     }
                     crate::publish::ACP_METHOD => {
-                        self.handle_buzz_publish_request(&msg).await?;
+                        self.handle_buzz_publish_request(&msg, fallback_session.as_deref())
+                            .await?;
                     }
                     other => {
                         // If the unknown message has an id, it's a request expecting a reply.
@@ -1459,7 +1565,9 @@ impl AcpClient {
                     // notifications inside this very loop; reading it here
                     // (rather than snapshotting at dispatch) guarantees the
                     // value matches what goose's run-id check will compare
-                    // against.
+                    // against. The value is per-session: a steer for the
+                    // awaited session only ever reads *its* run id, never a
+                    // sibling session's leaked through the shared connection.
                     //
                     // Transport precedence:
                     //   Some(run_id)              → GOOSE_STEER_METHOD. goose
@@ -1479,7 +1587,11 @@ impl AcpClient {
                     // delivered steer and silently drop the user's message.
                     let prompt_block_refs: Vec<&str> =
                         req.prompt_blocks.iter().map(String::as_str).collect();
-                    let selected = match (&self.active_run_id, self.steering_supported) {
+                    let active_run_id = self
+                        .turns
+                        .get(session_id)
+                        .and_then(|state| state.active_run_id.clone());
+                    let selected = match (&active_run_id, self.steering_supported) {
                         (Some(run_id), _) => Some((
                             SteerTransport::Goose,
                             GOOSE_STEER_METHOD,
@@ -1744,10 +1856,15 @@ impl AcpClient {
                     }
 
                     // Dispatch notifications and agent-initiated requests.
+                    // Every session-scoped frame resolves to its own
+                    // `params.sessionId` TurnState (the awaited session is
+                    // only the fallback for adapters that omit the field), so
+                    // a second session's interleaved update/permission/publish
+                    // frames attribute to its own state, not to this turn.
                     if let Some(method) = msg.get("method").and_then(|v| v.as_str()) {
                         match method {
                             "session/update" => {
-                                if self.handle_session_update(&msg) {
+                                if self.handle_session_update(&msg, Some(session_id)) {
                                     let activity_now = Instant::now();
                                     idle_deadline = activity_now + idle_timeout;
                                     last_activity_at = activity_now;
@@ -1758,10 +1875,12 @@ impl AcpClient {
                                 self.handle_goose_usage_update(&msg);
                             }
                             "session/request_permission" => {
-                                self.handle_permission_request(&msg).await?;
+                                self.handle_permission_request(&msg, Some(session_id))
+                                    .await?;
                             }
                             crate::publish::ACP_METHOD => {
-                                self.handle_buzz_publish_request(&msg).await?;
+                                self.handle_buzz_publish_request(&msg, Some(session_id))
+                                    .await?;
                             }
                             other => {
                                 // If the unknown message has an id, it's a request expecting a reply.
@@ -1786,31 +1905,47 @@ impl AcpClient {
         }
     }
 
-    /// Terminate an agent-initiated `buzz/publish` request: validate params,
-    /// sign with the plugin's keys, relay through the turn's publisher, and
-    /// reply with the event id and relay acceptance. Errors go back as
-    /// JSON-RPC errors — the caller never hangs on a silent publish.
+    /// Terminate an agent-initiated `buzz/publish` request: resolve the target
+    /// session's bound publish turn, validate params, sign with **that
+    /// session's identity keys**, relay through its publisher, and reply with
+    /// the event id and relay acceptance. Errors go back as JSON-RPC errors —
+    /// the caller never hangs on a silent publish.
+    ///
+    /// Session routing: `params.sessionId` selects the session's
+    /// [`TurnState`] when present — so a publish for session B arriving while
+    /// session A's prompt is awaited signs as B's identity into B's channel,
+    /// never as A. When the agent omits `sessionId` the request resolves to
+    /// `fallback_session` (the awaited session in the prompt read loop, the
+    /// last-bound session outside it), preserving single-session behavior for
+    /// adapters that never learned the field.
+    ///
+    /// When the resolved session has no bound publish turn (heartbeats,
+    /// non-channel work, an unknown session id), the method answers with a
+    /// JSON-RPC error instead of signing: a publish without scope would
+    /// misroute the identity's keys to the wrong channel.
     ///
     /// Notifications (no `id`) are ignored: publish is request/response only.
     async fn handle_buzz_publish_request(
         &mut self,
         msg: &serde_json::Value,
+        fallback_session: Option<&str>,
     ) -> Result<(), AcpError> {
         let Some(id) = msg.get("id").cloned() else {
             return Ok(());
         };
-        let response = match &self.publish_turn {
-            // No turn context (heartbeat, non-channel work, tests): fail
-            // clearly rather than -32601 — the method exists, it is just not
-            // scoped to a channel right now.
-            None => serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "error": {
-                    "code": -32000,
-                    "message": "buzz/publish is unavailable in this turn (no channel scope)",
-                },
-            }),
+        let explicit_session = msg
+            .pointer("/params/sessionId")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+        let resolved_session = explicit_session
+            .clone()
+            .or_else(|| fallback_session.map(str::to_owned));
+        // Read-only resolution ahead of the mutable write below.
+        let publish_turn = resolved_session
+            .as_deref()
+            .and_then(|sid| self.turns.get(sid))
+            .and_then(|state| state.publish_turn.clone());
+        let response = match publish_turn {
             Some(turn) => {
                 let outcome = match crate::publish::parse_params(&msg["params"]) {
                     Ok(params) => {
@@ -1840,25 +1975,58 @@ impl AcpClient {
                     }
                 }
             }
+            None => {
+                // No turn context for the resolved session. Fail clearly
+                // rather than -32601 — the method exists, it is just not
+                // scoped to a channel right now (or the named session is not
+                // one this client has ever seen).
+                let message = match explicit_session {
+                    Some(sid) => format!(
+                        "buzz/publish is unavailable for session {sid:?} \
+                         (no publish turn bound to that session)"
+                    ),
+                    None => {
+                        "buzz/publish is unavailable in this turn (no channel scope)".to_string()
+                    }
+                };
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": message,
+                    },
+                })
+            }
         };
         self.write_ndjson(&response).await
     }
 
-    /// Log a `session/update` notification via tracing.
+    /// Log a `session/update` notification via tracing and attribute its
+    /// state to the session named by `params.sessionId`.
     ///
     /// The discriminator field is `sessionUpdate` (not `type`) per the ACP schema.
     /// Returns `true` if the update indicates a tool call started, signaling that
     /// the idle clock should be explicitly reset (the agent will be silent while
     /// the tool executes).
     ///
-    /// Takes `&mut self` (not `&self`) because some updates carry agent state
+    /// Takes `&mut self` (not `&self`) because some updates carry session state
     /// the client must observe — notably goose's `session_info_update` with
-    /// `_meta.goose.activeRunId`, which seeds [`active_run_id`](Self::active_run_id)
-    /// so the steer arm can target `_goose/unstable/session/steer` at the
-    /// correct run. Agents that never emit it (claude-agent-acp, codex-acp)
-    /// leave it `None` and are steered via `_session/steering` instead, which
-    /// needs no run id.
-    fn handle_session_update(&mut self, msg: &serde_json::Value) -> bool {
+    /// `_meta.goose.activeRunId`, which seeds the session's
+    /// [`TurnState::active_run_id`] so the steer arm can target
+    /// `_goose/unstable/session/steer` at the correct run. Agents that never
+    /// emit it (claude-agent-acp, codex-acp) leave it `None` and are steered
+    /// via `_session/steering` instead, which needs no run id.
+    ///
+    /// `fallback_session` scopes updates that omit `params.sessionId`: the
+    /// awaited session in the prompt read loop, the last-bound session during
+    /// non-prompt RPCs. When neither resolves, stateful arms degrade to
+    /// logging only — nothing is accumulated into the wrong session.
+    fn handle_session_update(
+        &mut self,
+        msg: &serde_json::Value,
+        fallback_session: Option<&str>,
+    ) -> bool {
         let update = &msg["params"]["update"];
         let update_type = update
             .get("sessionUpdate")
@@ -1868,7 +2036,19 @@ impl AcpClient {
         match update_type {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
-                    self.turn_text.push_str(text);
+                    if let Some(sid) = Self::frame_session_id(msg, fallback_session) {
+                        let state = self.turns.entry(sid).or_default();
+                        if state.turn_text.len() < TURN_TEXT_CAP {
+                            state.turn_text.push_str(text);
+                            if state.turn_text.len() > TURN_TEXT_CAP {
+                                let mut end = TURN_TEXT_CAP;
+                                while !state.turn_text.is_char_boundary(end) {
+                                    end -= 1;
+                                }
+                                state.turn_text.truncate(end);
+                            }
+                        }
+                    }
                     tracing::info!(target: "acp::stream", "{text}");
                 }
                 false
@@ -1923,34 +2103,46 @@ impl AcpClient {
                 // Both goose and buzz-agent emit `session_info_update` with
                 // `_meta.goose.activeRunId`: the id of the currently-active
                 // prompt run, or `null` when the run has cleared. Other agents
-                // don't emit this field; for them `active_run_id` stays `None`
-                // and steer callers will fall back to cancel+merge.
+                // don't emit this field; for them the session's `active_run_id`
+                // stays `None` and steer callers will fall back to cancel+merge.
                 //
                 // Per the ACP `SessionInfoUpdate` schema, `_meta` is a field
                 // on the update object itself — nested inside `update`, not
                 // alongside it at the params level. Goose and buzz-agent both
                 // emit it at `params.update._meta.goose.activeRunId`.
+                //
+                // Recorded only when the session resolves (frame sessionId or
+                // fallback): an unscoped update must not seed a run id into a
+                // session that isn't running.
                 let meta = msg["params"]["update"]
                     .get("_meta")
                     .and_then(|m| m.get("goose"));
                 if let Some(goose_meta) = meta {
-                    match goose_meta.get("activeRunId") {
-                        Some(serde_json::Value::String(run_id)) => {
-                            tracing::debug!(
-                                target: "acp::update",
-                                "session_info_update: activeRunId={run_id}"
-                            );
-                            self.active_run_id = Some(run_id.clone());
+                    if let Some(sid) = Self::frame_session_id(msg, fallback_session) {
+                        match goose_meta.get("activeRunId") {
+                            Some(serde_json::Value::String(run_id)) => {
+                                tracing::debug!(
+                                    target: "acp::update",
+                                    "session_info_update: activeRunId={run_id}"
+                                );
+                                self.turns.entry(sid).or_default().active_run_id =
+                                    Some(run_id.clone());
+                            }
+                            Some(serde_json::Value::Null) => {
+                                tracing::debug!(
+                                    target: "acp::update",
+                                    "session_info_update: activeRunId cleared"
+                                );
+                                self.turns.entry(sid).or_default().active_run_id = None;
+                            }
+                            // Missing or non-string/null — leave state untouched.
+                            _ => {}
                         }
-                        Some(serde_json::Value::Null) => {
-                            tracing::debug!(
-                                target: "acp::update",
-                                "session_info_update: activeRunId cleared"
-                            );
-                            self.active_run_id = None;
-                        }
-                        // Missing or non-string/null — leave state untouched.
-                        _ => {}
+                    } else {
+                        tracing::debug!(
+                            target: "acp::update",
+                            "session_info_update dropped: no sessionId and no bound session"
+                        );
                     }
                 }
                 false
@@ -2043,19 +2235,34 @@ impl AcpClient {
     ///
     /// **Critical:** Never hardcode `optionId` — always find it dynamically by `kind`.
     ///
-    /// The request `id` is stored as `serde_json::Value` to support both numeric
-    /// and string IDs per JSON-RPC 2.0.
-    async fn handle_permission_request(&mut self, msg: &serde_json::Value) -> Result<(), AcpError> {
+    /// The request `id` and its responded flag are stored in the session's
+    /// [`TurnState`] (keyed by `params.sessionId`, falling back to
+    /// `fallback_session` when the agent omits it) so
+    /// [`cancel_with_cleanup`](Self::cancel_with_cleanup) answers the pending
+    /// request of the session being cancelled and no other. The id is stored
+    /// as `serde_json::Value` to support both numeric and string IDs per
+    /// JSON-RPC 2.0.
+    async fn handle_permission_request(
+        &mut self,
+        msg: &serde_json::Value,
+        fallback_session: Option<&str>,
+    ) -> Result<(), AcpError> {
         // Extract id as a Value — JSON-RPC 2.0 allows both numeric and string IDs.
         let id = msg
             .get("id")
             .cloned()
             .ok_or_else(|| AcpError::Protocol("permission request missing id".into()))?;
 
-        // Store pending permission id so cancel_with_cleanup can respond to it.
-        self.pending_permission_id = Some(id.clone());
-        // Mark as not yet responded — guards against double-response race.
-        self.permission_responded = false;
+        // Store pending permission id on the resolved session so
+        // cancel_with_cleanup can respond to it. An unresolvable session still
+        // gets the rejection below — only the cancel bookkeeping is skipped.
+        let permission_session = Self::frame_session_id(msg, fallback_session);
+        if let Some(ref sid) = permission_session {
+            let state = self.turns.entry(sid.clone()).or_default();
+            state.pending_permission_id = Some(id.clone());
+            // Mark as not yet responded — guards against double-response race.
+            state.permission_responded = false;
+        }
 
         let options = msg["params"]["options"]
             .as_array()
@@ -2103,8 +2310,11 @@ impl AcpClient {
         // small and bounded by a single memory store; the deadlock window was
         // unbounded.
         self.write_ndjson(&response).await?;
-        self.permission_responded = true;
-        self.pending_permission_id = None;
+        if let Some(sid) = permission_session {
+            let state = self.turns.entry(sid).or_default();
+            state.permission_responded = true;
+            state.pending_permission_id = None;
+        }
         Ok(())
     }
 
@@ -3501,10 +3711,13 @@ mod tests {
         "#
         );
         let mut client = spawn_script(&script).await;
-        client.set_publish_turn(Some(crate::publish::PublishTurn {
-            channel_id: channel,
-            handle: handle.clone(),
-        }));
+        client.set_publish_turn(
+            "test",
+            Some(crate::publish::PublishTurn {
+                channel_id: channel,
+                handle: handle.clone(),
+            }),
+        );
         let max_dur = std::time::Duration::from_secs(5);
         let hard_deadline = tokio::time::Instant::now() + max_dur;
         let result = client
@@ -3567,6 +3780,264 @@ mod tests {
         assert!(result.is_ok(), "expected Ok, got {result:?}");
     }
 
+    /// Multi-session attribution (the foundational spike property): updates
+    /// and a `buzz/publish` for session B arriving *during* session A's
+    /// in-flight prompt must land in B's per-session state — text into B's
+    /// accumulator, the publish signed with B's identity keys into B's
+    /// channel — while A's prompt result stays intact.
+    #[tokio::test]
+    async fn interleaved_session_frames_attribute_to_the_right_turn_state() {
+        let channel_a = uuid::Uuid::new_v4();
+        let channel_b = uuid::Uuid::new_v4();
+        let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
+        let keys_a = nostr::Keys::generate();
+        let keys_b = nostr::Keys::generate();
+        let handle_a = crate::publish::PublisherHandle::new(keys_a.clone(), publisher.clone());
+        let handle_b = crate::publish::PublisherHandle::new(keys_b.clone(), publisher);
+        let script = r#"
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-a","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"alpha-1"}}}}'
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-b","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"beta-1"}}}}'
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-a","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"alpha-2"}}}}'
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-b","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"beta-2"}}}}'
+            echo '{"jsonrpc":"2.0","id":55,"method":"buzz/publish","params":{"sessionId":"sess-b","content":"hello from beta"}}'
+            read -t 5 reply
+            if [[ "$reply" != *'"eventId"'* ]]; then
+                echo '{"jsonrpc":"2.0","id":0,"error":{"code":-1,"message":"expected publish success for sess-b"}}'
+                sleep 1
+                exit 0
+            fi
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-a","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"alpha-3"}}}}'
+            echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}'
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        // Both sessions bound before A's prompt: B's binding models an earlier
+        // turn on the shared connection whose publish scope persists.
+        client.set_publish_turn(
+            "sess-b",
+            Some(crate::publish::PublishTurn {
+                channel_id: channel_b,
+                handle: handle_b,
+            }),
+        );
+        client.set_publish_turn(
+            "sess-a",
+            Some(crate::publish::PublishTurn {
+                channel_id: channel_a,
+                handle: handle_a,
+            }),
+        );
+
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "sess-a",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(result.is_ok(), "session A prompt must complete: {result:?}");
+        assert_eq!(result.unwrap()["stopReason"].as_str(), Some("end_turn"));
+
+        // Text attribution: no cross-leak between the sessions' accumulators.
+        assert_eq!(client.take_turn_text("sess-a"), "alpha-1alpha-2alpha-3");
+        assert_eq!(client.take_turn_text("sess-b"), "beta-1beta-2");
+
+        // The publish for session B was signed with B's keys into B's channel
+        // even though it arrived mid-turn on A.
+        let event = published.recv().await.expect("B's publish must relay");
+        assert_eq!(event.content, "hello from beta");
+        assert_eq!(event.pubkey, keys_b.public_key());
+        event.verify().expect("signed by B's keys");
+        assert!(
+            event.tags.iter().any(|t| {
+                let parts = t.as_slice();
+                parts.len() == 2 && parts[0] == "h" && parts[1] == channel_b.to_string()
+            }),
+            "B's h-tag channel missing; tags: {:?}",
+            event.tags
+        );
+        tokio::time::timeout(std::time::Duration::from_millis(200), published.recv())
+            .await
+            .expect_err("exactly one publish must have been relayed");
+    }
+
+    /// A `buzz/publish` naming a session with no bound turn must NOT fall
+    /// back to the awaited session: misrouting would sign as the wrong
+    /// identity. It answers with a clear JSON-RPC error instead.
+    #[tokio::test]
+    async fn buzz_publish_unknown_session_id_gets_scoped_error() {
+        let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        let script = r#"
+            echo '{"jsonrpc":"2.0","id":9,"method":"buzz/publish","params":{"sessionId":"sess-unknown","content":"hi"}}'
+            read -t 5 reply
+            case "$reply" in
+                *'"error"'*'sess-unknown'*'no publish turn bound'*)
+                    echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}' ;;
+                *)
+                    echo '{"jsonrpc":"2.0","id":0,"error":{"code":-1,"message":"unexpected publish reply"}}' ;;
+            esac
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        client.set_publish_turn(
+            "sess-a",
+            Some(crate::publish::PublishTurn {
+                channel_id: uuid::Uuid::new_v4(),
+                handle,
+            }),
+        );
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "sess-a",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "unknown-session publish must error cleanly, not break the turn: {result:?}"
+        );
+        tokio::time::timeout(std::time::Duration::from_millis(200), published.recv())
+            .await
+            .expect_err("a publish for an unknown session must never sign");
+    }
+
+    /// An unscoped `buzz/publish` (no `sessionId`) outside any bound turn —
+    /// the pool installs [`AcpClient::unbind_turn`] before session resolution
+    /// — must error instead of signing into a stale turn's channel.
+    #[tokio::test]
+    async fn buzz_publish_unscoped_frame_between_turns_gets_error() {
+        let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        let script = r#"
+            echo '{"jsonrpc":"2.0","id":9,"method":"buzz/publish","params":{"content":"hi"}}'
+            read -t 5 reply
+            case "$reply" in
+                *'"error"'*'no channel scope'*)
+                    echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}' ;;
+                *)
+                    echo '{"jsonrpc":"2.0","id":0,"error":{"code":-1,"message":"unexpected publish reply"}}' ;;
+            esac
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        // Bind one turn, then unbind: the fallback must not survive.
+        client.set_publish_turn(
+            "sess-a",
+            Some(crate::publish::PublishTurn {
+                channel_id: uuid::Uuid::new_v4(),
+                handle,
+            }),
+        );
+        client.unbind_turn();
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        // Awaiting another session's prompt: the awaited session itself has
+        // no bound turn either, so both resolution stages fail closed.
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "sess-b",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+        tokio::time::timeout(std::time::Duration::from_millis(200), published.recv())
+            .await
+            .expect_err("an unscoped publish between turns must never sign");
+    }
+
+    /// Sequential single-flight: two turns on different sessions over the
+    /// same client keep fully independent turn state; rebinding a session
+    /// never disturbs the other's accumulator.
+    #[tokio::test]
+    async fn sequential_turns_on_one_client_keep_independent_session_state() {
+        let script = r#"
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-a","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"for-a"}}}}'
+            echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}'
+            sleep 0.3
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-b","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"for-b"}}}}'
+            echo '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        let max_dur = std::time::Duration::from_secs(5);
+
+        client.set_publish_turn("sess-a", None);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let first = client
+            .read_until_response_with_idle_timeout(
+                "sess-a",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(first.is_ok(), "first turn: {first:?}");
+        assert_eq!(client.take_turn_text("sess-a"), "for-a");
+
+        // Bind the second session; session A's already-drained state and the
+        // new session's fresh accumulator must be independent.
+        client.set_publish_turn("sess-b", None);
+        assert_eq!(client.take_turn_text("sess-b"), "");
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let second = client
+            .read_until_response_with_idle_timeout(
+                "sess-b",
+                1,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(second.is_ok(), "second turn: {second:?}");
+        assert_eq!(client.take_turn_text("sess-b"), "for-b");
+        assert_eq!(
+            client.take_turn_text("sess-a"),
+            "",
+            "session A's drained accumulator stays empty during B's turn"
+        );
+    }
+
+    /// Legacy compatibility: updates that omit `sessionId` attribute to the
+    /// awaited session (preserving pre-multi-session behavior for adapters
+    /// that never emit the field).
+    #[tokio::test]
+    async fn sessionless_updates_fall_back_to_the_awaited_session() {
+        let script = r#"
+            echo '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"legacy"}}}}'
+            echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}'
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        client.set_publish_turn("sess-a", None);
+        let max_dur = std::time::Duration::from_secs(5);
+        let hard_deadline = tokio::time::Instant::now() + max_dur;
+        let result = client
+            .read_until_response_with_idle_timeout(
+                "sess-a",
+                0,
+                std::time::Duration::from_secs(3),
+                hard_deadline,
+                max_dur,
+            )
+            .await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+        assert_eq!(client.take_turn_text("sess-a"), "legacy");
+    }
+
     /// A `buzz/publish` *notification* (no id) is dropped: publish is
     /// request/response only, and no event is relayed.
     #[tokio::test]
@@ -3579,10 +4050,13 @@ mod tests {
             sleep 1
         "#;
         let mut client = spawn_script(script).await;
-        client.set_publish_turn(Some(crate::publish::PublishTurn {
-            channel_id: uuid::Uuid::new_v4(),
-            handle,
-        }));
+        client.set_publish_turn(
+            "test",
+            Some(crate::publish::PublishTurn {
+                channel_id: uuid::Uuid::new_v4(),
+                handle,
+            }),
+        );
         let max_dur = std::time::Duration::from_secs(5);
         let hard_deadline = tokio::time::Instant::now() + max_dur;
         let result = client
@@ -3971,14 +4445,18 @@ mod tests {
             .expect("spawn cat as inert client")
     }
 
-    /// Build a `session/update` JSON-RPC notification carrying a
-    /// `session_info_update` with the given `_meta.goose.activeRunId` value.
-    /// Pass `None` to omit the `activeRunId` field entirely.
+    /// Build a `session/update` JSON-RPC notification for `session_id`
+    /// carrying a `session_info_update` with the given
+    /// `_meta.goose.activeRunId` value. Pass `None` to omit the `activeRunId`
+    /// field entirely.
     ///
     /// `_meta` is nested inside the `update` object (per the ACP
     /// `SessionInfoUpdate` schema), matching what goose and buzz-agent
     /// emit on the wire.
-    fn session_info_update_msg(active_run_id: Option<serde_json::Value>) -> serde_json::Value {
+    fn session_info_update_msg(
+        session_id: &str,
+        active_run_id: Option<serde_json::Value>,
+    ) -> serde_json::Value {
         let mut goose = serde_json::Map::new();
         if let Some(v) = active_run_id {
             goose.insert("activeRunId".to_string(), v);
@@ -3989,7 +4467,7 @@ mod tests {
             "jsonrpc": "2.0",
             "method": "session/update",
             "params": {
-                "sessionId": "test-session",
+                "sessionId": session_id,
                 "update": {
                     "sessionUpdate": "session_info_update",
                     "_meta": serde_json::Value::Object(meta),
@@ -4001,27 +4479,30 @@ mod tests {
     #[tokio::test]
     async fn active_run_id_sets_on_string() {
         let mut client = spawn_inert_client().await;
-        assert!(client.active_run_id().is_none(), "starts as None");
+        assert!(
+            client.active_run_id("test-session").is_none(),
+            "starts as None"
+        );
 
-        let msg = session_info_update_msg(Some(serde_json::json!("run-abc-123")));
-        let _ = client.handle_session_update(&msg);
+        let msg = session_info_update_msg("test-session", Some(serde_json::json!("run-abc-123")));
+        let _ = client.handle_session_update(&msg, None);
 
-        assert_eq!(client.active_run_id(), Some("run-abc-123"));
+        assert_eq!(client.active_run_id("test-session"), Some("run-abc-123"));
     }
 
     #[tokio::test]
     async fn active_run_id_clears_on_null() {
         let mut client = spawn_inert_client().await;
         // Set it first
-        let set_msg = session_info_update_msg(Some(serde_json::json!("run-xyz")));
-        let _ = client.handle_session_update(&set_msg);
-        assert_eq!(client.active_run_id(), Some("run-xyz"));
+        let set_msg = session_info_update_msg("test-session", Some(serde_json::json!("run-xyz")));
+        let _ = client.handle_session_update(&set_msg, None);
+        assert_eq!(client.active_run_id("test-session"), Some("run-xyz"));
 
         // Then clear with explicit null
-        let clear_msg = session_info_update_msg(Some(serde_json::Value::Null));
-        let _ = client.handle_session_update(&clear_msg);
+        let clear_msg = session_info_update_msg("test-session", Some(serde_json::Value::Null));
+        let _ = client.handle_session_update(&clear_msg, None);
         assert!(
-            client.active_run_id().is_none(),
+            client.active_run_id("test-session").is_none(),
             "explicit null must clear active_run_id"
         );
     }
@@ -4031,15 +4512,16 @@ mod tests {
         // Field absent entirely — must NOT clear existing state (only an
         // explicit null clears; missing means "no new info this update").
         let mut client = spawn_inert_client().await;
-        let set_msg = session_info_update_msg(Some(serde_json::json!("run-stable")));
-        let _ = client.handle_session_update(&set_msg);
-        assert_eq!(client.active_run_id(), Some("run-stable"));
+        let set_msg =
+            session_info_update_msg("test-session", Some(serde_json::json!("run-stable")));
+        let _ = client.handle_session_update(&set_msg, None);
+        assert_eq!(client.active_run_id("test-session"), Some("run-stable"));
 
         // session_info_update with no activeRunId field — leave state alone.
-        let missing_msg = session_info_update_msg(None);
-        let _ = client.handle_session_update(&missing_msg);
+        let missing_msg = session_info_update_msg("test-session", None);
+        let _ = client.handle_session_update(&missing_msg, None);
         assert_eq!(
-            client.active_run_id(),
+            client.active_run_id("test-session"),
             Some("run-stable"),
             "missing activeRunId must leave state untouched"
         );
@@ -4049,16 +4531,38 @@ mod tests {
     async fn active_run_id_untouched_on_wrong_type() {
         // A number or object in activeRunId is malformed — neither set nor clear.
         let mut client = spawn_inert_client().await;
-        let set_msg = session_info_update_msg(Some(serde_json::json!("run-stable")));
-        let _ = client.handle_session_update(&set_msg);
-        assert_eq!(client.active_run_id(), Some("run-stable"));
+        let set_msg =
+            session_info_update_msg("test-session", Some(serde_json::json!("run-stable")));
+        let _ = client.handle_session_update(&set_msg, None);
+        assert_eq!(client.active_run_id("test-session"), Some("run-stable"));
 
-        let wrong_type_msg = session_info_update_msg(Some(serde_json::json!(42)));
-        let _ = client.handle_session_update(&wrong_type_msg);
+        let wrong_type_msg = session_info_update_msg("test-session", Some(serde_json::json!(42)));
+        let _ = client.handle_session_update(&wrong_type_msg, None);
         assert_eq!(
-            client.active_run_id(),
+            client.active_run_id("test-session"),
             Some("run-stable"),
             "non-string/non-null activeRunId must leave state untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn active_run_id_is_scoped_per_session() {
+        // The core multi-session invariant: a run id observed on one session
+        // is invisible to every other session on the same connection.
+        let mut client = spawn_inert_client().await;
+        let set_msg = session_info_update_msg("session-a", Some(serde_json::json!("run-a")));
+        let _ = client.handle_session_update(&set_msg, None);
+
+        assert_eq!(client.active_run_id("session-a"), Some("run-a"));
+        assert!(client.active_run_id("session-b").is_none());
+        assert!(client.active_run_id("other").is_none());
+
+        let clear_other = session_info_update_msg("other", Some(serde_json::Value::Null));
+        let _ = client.handle_session_update(&clear_other, None);
+        assert_eq!(
+            client.active_run_id("session-a"),
+            Some("run-a"),
+            "clearing session 'other' must not disturb session-a"
         );
     }
 
@@ -4088,7 +4592,7 @@ mod tests {
         // the steer arm and the idle timeout to consider.
         let mut client = spawn_script("sleep 10").await;
         assert!(
-            client.active_run_id().is_none(),
+            client.active_run_id("sess-test").is_none(),
             "precondition: active_run_id starts as None"
         );
 
@@ -4159,9 +4663,9 @@ mod tests {
 
         // Set active_run_id via a synthesized session_info_update so the
         // steer arm has a non-None value to read at write time.
-        let update = session_info_update_msg(Some(serde_json::json!("run-42")));
-        let _ = client.handle_session_update(&update);
-        assert_eq!(client.active_run_id(), Some("run-42"));
+        let update = session_info_update_msg("sess-test", Some(serde_json::json!("run-42")));
+        let _ = client.handle_session_update(&update, None);
+        assert_eq!(client.active_run_id("sess-test"), Some("run-42"));
 
         let (steer_tx, steer_rx) = tokio::sync::mpsc::channel::<crate::pool::SteerRequest>(1);
         client.install_steer_rx(steer_rx);
@@ -4232,8 +4736,8 @@ mod tests {
                       echo '{\"jsonrpc\":\"2.0\",\"id\":999,\"result\":{\"done\":true}}'";
         let mut client = spawn_script(script).await;
 
-        let update = session_info_update_msg(Some(serde_json::json!("run-99")));
-        let _ = client.handle_session_update(&update);
+        let update = session_info_update_msg("sess-test", Some(serde_json::json!("run-99")));
+        let _ = client.handle_session_update(&update, None);
 
         let (steer_tx, steer_rx) = tokio::sync::mpsc::channel::<crate::pool::SteerRequest>(1);
         client.install_steer_rx(steer_rx);
@@ -4426,7 +4930,7 @@ mod tests {
         .await;
         set_steering_supported(&mut client);
         assert!(
-            client.active_run_id().is_none(),
+            client.active_run_id("sess-test").is_none(),
             "precondition: no active_run_id"
         );
 
@@ -4465,8 +4969,8 @@ mod tests {
         let mut client =
             spawn_steer_capture_script(&capture, r#"{"jsonrpc":"2.0","id":0,"result":{}}"#).await;
         set_steering_supported(&mut client);
-        let update = session_info_update_msg(Some(serde_json::json!("run-77")));
-        let _ = client.handle_session_update(&update);
+        let update = session_info_update_msg("sess-test", Some(serde_json::json!("run-77")));
+        let _ = client.handle_session_update(&update, None);
 
         let (written, ack) = run_one_steer(&mut client, &capture).await;
 
@@ -4662,7 +5166,7 @@ mod tests {
             spawn_steer_capture_script(&capture, r#"{"jsonrpc":"2.0","id":0,"result":{}}"#).await;
         assert!(!client.steering_supported(), "precondition: not advertised");
         assert!(
-            client.active_run_id().is_none(),
+            client.active_run_id("sess-test").is_none(),
             "precondition: no active_run_id"
         );
 
@@ -4721,7 +5225,7 @@ mod tests {
         client.standard_adapter = Some(StandardAdapterKind::Claude);
         client.notify_session_spawned("claude-session");
         client.standard_usage.begin_turn("claude-session");
-        client.handle_session_update(&standard_cost_update("claude-session", 0.042));
+        client.handle_session_update(&standard_cost_update("claude-session", 0.042), None);
         assert_eq!(
             client
                 .parse_prompt_response(
@@ -4753,7 +5257,7 @@ mod tests {
         let mut client = spawn_inert_client().await;
         client.standard_adapter = Some(StandardAdapterKind::Codex);
         client.standard_usage.begin_turn("codex-session");
-        client.handle_session_update(&standard_cost_update("codex-session", 0.042));
+        client.handle_session_update(&standard_cost_update("codex-session", 0.042), None);
         client
             .parse_prompt_response(
                 "codex-session",
@@ -4835,7 +5339,7 @@ mod tests {
         client.standard_adapter = Some(StandardAdapterKind::Claude);
         client.notify_session_spawned("cost-only-session");
         client.standard_usage.begin_turn("cost-only-session");
-        client.handle_session_update(&standard_cost_update("cost-only-session", 0.125));
+        client.handle_session_update(&standard_cost_update("cost-only-session", 0.125), None);
 
         let usage = client.take_turn_usage().expect("cost-only usage");
         assert_eq!(usage.turn_seq, 1);
@@ -4850,7 +5354,7 @@ mod tests {
         let mut client = spawn_inert_client().await;
         client.standard_adapter = Some(StandardAdapterKind::Claude);
         client.standard_usage.begin_turn("attached-session");
-        client.handle_session_update(&standard_cost_update("attached-session", 1.25));
+        client.handle_session_update(&standard_cost_update("attached-session", 1.25), None);
         client
             .parse_prompt_response(
                 "attached-session",
@@ -4870,7 +5374,7 @@ mod tests {
         client.notify_session_spawned("two-prompt-session");
 
         client.standard_usage.begin_turn("two-prompt-session");
-        client.handle_session_update(&standard_cost_update("two-prompt-session", 0.1));
+        client.handle_session_update(&standard_cost_update("two-prompt-session", 0.1), None);
         client
             .parse_prompt_response(
                 "two-prompt-session",
@@ -4880,7 +5384,7 @@ mod tests {
         let initial = client.take_turn_usage().expect("initial prompt usage");
 
         client.standard_usage.begin_turn("two-prompt-session");
-        client.handle_session_update(&standard_cost_update("two-prompt-session", 0.25));
+        client.handle_session_update(&standard_cost_update("two-prompt-session", 0.25), None);
         client
             .parse_prompt_response(
                 "two-prompt-session",

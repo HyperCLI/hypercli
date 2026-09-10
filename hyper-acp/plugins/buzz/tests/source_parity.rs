@@ -111,6 +111,9 @@ fn copied_buzz_sources_match_upstream_except_documented_entrypoint_diffs() {
         // `attachment.rs` pattern-ports upstream buzz-cli's Blossom upload
         // (see PROVENANCE.md) for the publish-side `files` flow.
         "src/attachment.rs",
+        // No upstream counterpart: multi-identity descriptors for the
+        // many-agents-over-one-stdio spike (see PROVENANCE.md).
+        "src/identity.rs",
         "src/mcp_bridge.rs",
         "src/mcp_shim.rs",
         "src/pool.rs",

@@ -517,6 +517,16 @@ pub struct CliArgs {
     /// Requires `--lazy-pool`; ignored otherwise. 0 disables idle re-sleep.
     #[arg(long, env = "BUZZ_ACP_IDLE_POOL_SLEEP", default_value_t = 0)]
     pub idle_pool_sleep: u64,
+
+    /// Optional TOML file declaring multiple logical agent identities
+    /// (`[[agents]]` entries with `id`, `private_key_ref`, `owner`,
+    /// `channels`). When present, the harness runs one logical identity per
+    /// entry over the same child-process pool: each identity gets its own
+    /// signing keys, publish journal, and MCP bridge, bound to its disjoint
+    /// channel list. Absent → single-identity env config, byte-identical
+    /// behavior.
+    #[arg(long, env = "BUZZ_ACP_AGENTS_FILE")]
+    pub agents_file: Option<PathBuf>,
 }
 
 /// Merged NIP-01 subscription filter for a single channel.
@@ -615,6 +625,11 @@ pub struct Config {
     /// `from_cli()`. `None` when using the compiled-in default or when
     /// `--no-base-prompt` is set.
     pub base_prompt_content: Option<String>,
+    /// Multi-identity launch: logical agent identities resolved from
+    /// `--agents-file` (`BUZZ_ACP_AGENTS_FILE`). Empty when no file is
+    /// configured — the single-identity env path (`keys`, `agent_owner`)
+    /// stays the sole identity and behavior is unchanged.
+    pub agent_identities: Vec<AgentIdentity>,
 }
 
 /// Maximum length, in characters, of a session title sent to the adapter.
@@ -1137,6 +1152,17 @@ impl Config {
 
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
+        // Multi-identity launch (spike): when an agents file is configured,
+        // resolve every identity's key material, validate disjoint channel
+        // ownership, and register each `private_key_ref` env var name as a
+        // child-secret key so agent spawns strip it (blind-signing boundary).
+        // Absent → empty list; every downstream consumer keeps the
+        // single-identity env semantics.
+        let agent_identities = match args.agents_file {
+            Some(ref path) => load_agent_identities(path)?,
+            None => Vec::new(),
+        };
+
         let config = Config {
             keys,
             relay_url: args.relay_url,
@@ -1190,6 +1216,7 @@ impl Config {
             agent_owner: args.agent_owner.map(|s| s.trim().to_ascii_lowercase()),
             no_base_prompt: args.no_base_prompt,
             base_prompt_content,
+            agent_identities,
         };
 
         Ok(config)
@@ -1209,6 +1236,16 @@ impl Config {
             let mut modes = self.allowed_respond_to.clone();
             modes.sort();
             format!(" allowed_respond_to=[{}]", modes.join(","))
+        };
+        let identities_detail = if self.agent_identities.is_empty() {
+            String::new()
+        } else {
+            let ids: Vec<&str> = self
+                .agent_identities
+                .iter()
+                .map(|identity| identity.id.as_str())
+                .collect();
+            format!(" agent_identities=[{}]", ids.join(","))
         };
         format!(
             "relay={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} session_policy={} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
@@ -1236,6 +1273,7 @@ impl Config {
             respond_to_detail,
             allowed_respond_to_detail,
         )
+        + &identities_detail
     }
 }
 
@@ -1316,6 +1354,203 @@ pub fn load_rules(path: &std::path::Path) -> Result<Vec<SubscriptionRule>, Confi
     }
 
     Ok(config.rules)
+}
+
+// ── Multi-identity agents file (BUZZ_ACP_AGENTS_FILE) ───────────────────────
+//
+// Optional spike feature: one harness process runs N logical agent identities
+// over the SAME agent child pool. Relay ingress and subscriptions remain the
+// connected env identity; the file governs *publishing* identity: each entry
+// gets its own keys, publish journal, and MCP bridge, and every channel is
+// owned by exactly one identity so session/turn routing can select the right
+// publisher by `SessionScope`'s channel.
+//
+// `private_key_ref` is an *environment variable name* (optionally written
+// `env:NAME`) holding the secret key as hex or nsec — the file itself never
+// carries key material. Referenced names are registered as child-secret env
+// vars so spawned agents cannot inherit them (blind-signing boundary).
+
+/// One resolved logical identity from the agents file: parsed, validated,
+/// and key material loaded from the referenced environment variable.
+#[derive(Debug)]
+pub struct AgentIdentity {
+    /// Stable logical id from the file (`[[agents]].id`). Log/summary only.
+    pub id: String,
+    /// Resolved signing keys for this identity.
+    pub keys: Keys,
+    /// Optional owner pubkey, normalized to 64-char hex.
+    pub owner: Option<String>,
+    /// Channels this identity owns. Disjoint across identities (enforced at
+    /// load) so a channel id selects exactly one identity.
+    pub channels: HashSet<Uuid>,
+}
+
+/// Wire shape of the agents file: `[[agents]]` entries only.
+#[derive(Debug, serde::Deserialize)]
+struct AgentsFile {
+    agents: Vec<AgentSpecToml>,
+}
+
+/// Wire shape of one `[[agents]]` entry.
+#[derive(Debug, serde::Deserialize)]
+struct AgentSpecToml {
+    id: String,
+    private_key_ref: String,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    channels: Vec<String>,
+}
+
+/// Env-var names registered as child-secret by loaded agents files.
+///
+/// Written at config load (before any agent spawn) and only ever appended;
+/// `AcpClient::spawn` strips these alongside `acp::CHILD_SECRET_ENV_KEYS` so
+/// identity key material cannot leak into a child's environment via wholesale
+/// env inheritance. Global rather than threaded through spawn parameters
+/// because spawn sites (initial pool, slot refill, lazy wake) are numerous —
+/// registration strictly precedes the first spawn in every call chain.
+static EXTRA_CHILD_SECRET_ENV_KEYS: std::sync::LazyLock<std::sync::RwLock<Vec<String>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(Vec::new()));
+
+/// Register `name` as a child-secret env var (see
+/// [`EXTRA_CHILD_SECRET_ENV_KEYS`]).
+pub(crate) fn register_child_secret_env_key(name: &str) {
+    let mut keys = EXTRA_CHILD_SECRET_ENV_KEYS
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !keys.iter().any(|existing| existing == name) {
+        keys.push(name.to_string());
+    }
+}
+
+/// Extra child-secret env var names registered via agents-file loads.
+pub(crate) fn extra_child_secret_env_keys() -> Vec<String> {
+    EXTRA_CHILD_SECRET_ENV_KEYS
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Parse the TOML wire shape without touching the environment. Separated
+/// from [`load_agent_identities`] so the structure and all validation that
+/// does not need key material are unit-testable.
+fn parse_agents_file(content: &str) -> Result<Vec<AgentSpecToml>, ConfigError> {
+    let file: AgentsFile =
+        toml::from_str(content).map_err(|e| ConfigError::ConfigFile(e.to_string()))?;
+    if file.agents.is_empty() {
+        return Err(ConfigError::ConfigFile(
+            "agents file must declare at least one [[agents]] entry".into(),
+        ));
+    }
+    let mut seen_ids = HashSet::new();
+    for spec in &file.agents {
+        if spec.id.trim().is_empty() {
+            return Err(ConfigError::ConfigFile(
+                "agents file: [[agents]].id must not be empty".into(),
+            ));
+        }
+        if !seen_ids.insert(spec.id.clone()) {
+            return Err(ConfigError::ConfigFile(format!(
+                "agents file: duplicate agent id {:?}",
+                spec.id
+            )));
+        }
+        if spec.private_key_ref.trim().is_empty() {
+            return Err(ConfigError::ConfigFile(format!(
+                "agents file: agent {:?} has an empty private_key_ref",
+                spec.id
+            )));
+        }
+        if spec.channels.is_empty() {
+            return Err(ConfigError::ConfigFile(format!(
+                "agents file: agent {:?} declares no channels — it could never \
+                 receive a publish scope, so it must not be launched",
+                spec.id
+            )));
+        }
+    }
+    Ok(file.agents)
+}
+
+/// Resolve `private_key_ref` to the referenced env var name.
+///
+/// Accepts `env:NAME` and bare `NAME` spellings. The *value* is never logged
+/// or persisted; only the name leaves this function.
+fn key_ref_env_name(private_key_ref: &str) -> &str {
+    let trimmed = private_key_ref.trim();
+    trimmed.strip_prefix("env:").unwrap_or(trimmed).trim()
+}
+
+/// Read `path`, resolve every identity's keys from its referenced env var,
+/// and validate the shape end to end.
+///
+/// Validation is fail-fast: any malformed entry aborts startup rather than
+/// launching a subset of identities that would silently answer as the wrong
+/// pubkey. Registered secret env names accumulate even on success only.
+pub fn load_agent_identities(path: &std::path::Path) -> Result<Vec<AgentIdentity>, ConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    let specs = parse_agents_file(&content)?;
+    let mut identities = Vec::with_capacity(specs.len());
+    let mut channel_owners: HashMap<Uuid, String> = HashMap::new();
+    for spec in specs {
+        let env_name = key_ref_env_name(&spec.private_key_ref);
+        let secret = std::env::var(env_name).map_err(|_| {
+            ConfigError::ConfigFile(format!(
+                "agents file: agent {:?} private_key_ref {:?} resolves to env var \
+                 {env_name:?}, which is not set",
+                spec.id, spec.private_key_ref
+            ))
+        })?;
+        let keys = Keys::parse(secret.trim()).map_err(|e| {
+            ConfigError::ConfigFile(format!(
+                "agents file: agent {:?} key material in env var {env_name:?} is not a \
+                 valid secret key (hex or nsec): {e}",
+                spec.id
+            ))
+        })?;
+        let owner = match spec.owner.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(raw) => Some(
+                nostr::PublicKey::parse(raw)
+                    .map_err(|e| {
+                        ConfigError::ConfigFile(format!(
+                            "agents file: agent {:?} has an invalid owner pubkey {raw:?}: {e}",
+                            spec.id
+                        ))
+                    })?
+                    .to_hex(),
+            ),
+        };
+        let mut channels = HashSet::with_capacity(spec.channels.len());
+        for raw in &spec.channels {
+            let channel = Uuid::parse_str(raw.trim()).map_err(|e| {
+                ConfigError::ConfigFile(format!(
+                    "agents file: agent {:?} has an invalid channel UUID {raw:?}: {e}",
+                    spec.id
+                ))
+            })?;
+            if let Some(other) = channel_owners.get(&channel) {
+                return Err(ConfigError::ConfigFile(format!(
+                    "agents file: channel {channel} is declared by both {other:?} and {:?}; \
+                     channels must be disjoint across identities",
+                    spec.id
+                )));
+            }
+            channel_owners.insert(channel, spec.id.clone());
+            channels.insert(channel);
+        }
+        // Blind-signing boundary: after this point any spawned agent child has
+        // this env var stripped from its inherited environment.
+        register_child_secret_env_key(env_name);
+        identities.push(AgentIdentity {
+            id: spec.id,
+            keys,
+            owner,
+            channels,
+        });
+    }
+    Ok(identities)
 }
 
 /// Resolve per-channel NIP-01 filters from config + discovered channels.
@@ -1565,6 +1800,7 @@ mod tests {
             agent_owner: None,
             no_base_prompt: false,
             base_prompt_content: None,
+            agent_identities: Vec::new(),
         }
     }
 
@@ -3173,5 +3409,156 @@ channels = "ALL"
             "Found secret-bearing env args without hide_env_values=true. \
              Add `hide_env_values = true` to each: {violations:?}"
         );
+    }
+
+    // ── Multi-identity agents file (BUZZ_ACP_AGENTS_FILE) ───────────────────
+
+    fn two_channel_ids() -> (String, String) {
+        (Uuid::new_v4().to_string(), Uuid::new_v4().to_string())
+    }
+
+    #[test]
+    fn parse_agents_file_accepts_two_identities() {
+        let (ch_a, ch_b) = two_channel_ids();
+        let content = format!(
+            r#"
+            [[agents]]
+            id = "alpha"
+            private_key_ref = "env:BUZZ_TEST_AGENTS_ALPHA_KEY"
+            owner = "{owner}"
+            channels = ["{ch_a}"]
+
+            [[agents]]
+            id = "beta"
+            private_key_ref = "BUZZ_TEST_AGENTS_BETA_KEY"
+            channels = ["{ch_b}"]
+            "#,
+            owner = nostr::Keys::generate().public_key().to_hex(),
+        );
+        let specs = parse_agents_file(&content).expect("valid file parses");
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].id, "alpha");
+        assert_eq!(specs[1].id, "beta");
+        assert_eq!(specs[1].owner, None, "owner is optional");
+    }
+
+    #[test]
+    fn parse_agents_file_rejects_empty_duplicate_and_channel_less_entries() {
+        let (ch_a, _) = two_channel_ids();
+        for (label, content) in [
+            ("no entries", "# nothing here\n".to_string()),
+            (
+                "empty id",
+                format!(
+                    "[[agents]]\nid = \"\"\nprivate_key_ref = \"K\"\nchannels = [\"{ch_a}\"]\n"
+                ),
+            ),
+            (
+                "duplicate id",
+                format!(
+                    "[[agents]]\nid = \"a\"\nprivate_key_ref = \"K1\"\nchannels = [\"{ch_a}\"]\n\
+                     [[agents]]\nid = \"a\"\nprivate_key_ref = \"K2\"\nchannels = [\"{ch_a}\"]\n"
+                ),
+            ),
+            (
+                "no channels",
+                "[[agents]]\nid = \"a\"\nprivate_key_ref = \"K\"\n".to_string(),
+            ),
+        ] {
+            assert!(
+                parse_agents_file(&content).is_err(),
+                "{label} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn key_ref_env_name_accepts_prefixed_and_bare_spellings() {
+        assert_eq!(key_ref_env_name("env:MY_KEY"), "MY_KEY");
+        assert_eq!(key_ref_env_name("MY_KEY"), "MY_KEY");
+        assert_eq!(key_ref_env_name("  env:MY_KEY  "), "MY_KEY");
+    }
+
+    #[test]
+    fn load_agent_identities_resolves_keys_and_channels() {
+        let (ch_a, ch_b) = two_channel_ids();
+        let keys_a = nostr::Keys::generate();
+        let keys_b = nostr::Keys::generate();
+        // Unique env names per test so parallel cases never interfere.
+        std::env::set_var(
+            "BUZZ_TEST_ALPHA_ID_KEY",
+            keys_a.secret_key().to_secret_hex(),
+        );
+        std::env::set_var("BUZZ_TEST_BETA_ID_KEY", keys_b.secret_key().to_secret_hex());
+        let dir = std::env::temp_dir().join(format!("buzz-agents-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create agents dir");
+        let path = dir.join("agents.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "[[agents]]\nid = \"alpha\"\nprivate_key_ref = \"env:BUZZ_TEST_ALPHA_ID_KEY\"\nchannels = [\"{ch_a}\"]\n\
+                 [[agents]]\nid = \"beta\"\nprivate_key_ref = \"BUZZ_TEST_BETA_ID_KEY\"\nchannels = [\"{ch_b}\"]\n"
+            ),
+        )
+        .expect("write agents file");
+
+        let identities = load_agent_identities(&path).expect("load succeeds");
+        assert_eq!(identities.len(), 2);
+        assert_eq!(identities[0].id, "alpha");
+        assert_eq!(identities[0].keys.public_key(), keys_a.public_key());
+        assert_eq!(identities[1].keys.public_key(), keys_b.public_key());
+        assert_eq!(
+            identities[0].channels,
+            HashSet::from([Uuid::parse_str(&ch_a).unwrap()])
+        );
+        // Both key refs were registered as child-secret env vars.
+        let extras = extra_child_secret_env_keys();
+        assert!(extras.iter().any(|k| k == "BUZZ_TEST_ALPHA_ID_KEY"));
+        assert!(extras.iter().any(|k| k == "BUZZ_TEST_BETA_ID_KEY"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_agent_identities_rejects_missing_env_and_channel_overlap() {
+        let (ch_a, _) = two_channel_ids();
+        let dir = std::env::temp_dir().join(format!("buzz-agents-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create agents dir");
+
+        // Env var absent → fail fast, never launch a partial roster.
+        let missing = dir.join("missing.toml");
+        std::fs::write(
+            &missing,
+            format!(
+                "[[agents]]\nid = \"ghost\"\nprivate_key_ref = \"env:BUZZ_TEST_NEVER_SET_ID_KEY\"\nchannels = [\"{ch_a}\"]\n"
+            ),
+        )
+        .unwrap();
+        std::env::remove_var("BUZZ_TEST_NEVER_SET_ID_KEY");
+        assert!(load_agent_identities(&missing).is_err());
+
+        // Same channel on two identities → ambiguous publish routing; refused.
+        std::env::set_var(
+            "BUZZ_TEST_OVERLAP_A_KEY",
+            nostr::Keys::generate().secret_key().to_secret_hex(),
+        );
+        std::env::set_var(
+            "BUZZ_TEST_OVERLAP_B_KEY",
+            nostr::Keys::generate().secret_key().to_secret_hex(),
+        );
+        let overlap = dir.join("overlap.toml");
+        std::fs::write(
+            &overlap,
+            format!(
+                "[[agents]]\nid = \"a\"\nprivate_key_ref = \"BUZZ_TEST_OVERLAP_A_KEY\"\nchannels = [\"{ch_a}\"]\n\
+                 [[agents]]\nid = \"b\"\nprivate_key_ref = \"BUZZ_TEST_OVERLAP_B_KEY\"\nchannels = [\"{ch_a}\"]\n"
+            ),
+        )
+        .unwrap();
+        let err = load_agent_identities(&overlap).unwrap_err();
+        assert!(
+            err.to_string().contains("disjoint"),
+            "overlap error must explain disjointness, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
