@@ -571,7 +571,8 @@ mod tests {
             "wss://api.example.com/ws?token=secret"
         );
         assert_eq!(
-            authenticated_request_url("wss://api.example.com/ws?agent_id=a", Some("se cret")).unwrap(),
+            authenticated_request_url("wss://api.example.com/ws?agent_id=a", Some("se cret"))
+                .unwrap(),
             "wss://api.example.com/ws?agent_id=a&token=se+cret"
         );
         assert_eq!(
