@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use hypercli_sdk::{
     canonical_deployment_name, AgentCapacity, AgentSize, CompleteDeploymentLaunchConfig,
     CreateDeploymentRequest, Deployment, DeploymentLaunchConfig, HyperCliClient, HyperCliError,
-    ManagedRuntime, StartDeploymentRequest, UpdateDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    LifecycleActionRequest, ManagedRuntime, StartDeploymentRequest, UpdateDeploymentRequest,
+    BUZZ_RUNTIME_SCOPES,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -655,7 +656,7 @@ fn reconcile_existing(
             });
         }
         client
-            .delete_deployment(&deployment.id)
+            .delete_deployment(&deployment.id, &LifecycleActionRequest::new())
             .map_err(ProviderError::HyperCli)?;
         return Ok(None);
     }
