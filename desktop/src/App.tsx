@@ -8,7 +8,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { subscribeAgentUpdates, type AgentSummary } from "./api";
-import { TRANSITIONAL } from "./agent-utils";
+import { TRANSITIONAL, runtimeFamily } from "./agent-utils";
+import type { ConnectionIssue } from "./lib/connection-errors";
 import { assertNever } from "./lib/machine";
 import { useMachine, usePooledMachine, usePooledMachines } from "./lib/use-machine";
 import {
@@ -89,6 +90,45 @@ function Splash({ note }: { note?: string }) {
     <div className="h-full flex flex-col items-center justify-center bg-background">
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-[52px]" />
       {note && <div className="text-[12px] text-text-secondary">{note}</div>}
+    </div>
+  );
+}
+
+/**
+ * The splash for a sessionless `degraded` — the very first credential
+ * resolution never completed, so there is no workspace to render. FSM.md
+ * guarantee 5 forbids a silent dead end here: the issue says *why*, the Retry
+ * re-runs the probe now, and the sign-in escape lets the user abandon a
+ * credential that may be the whole problem.
+ */
+function UnreachableSplash({
+  issue,
+  onRetry,
+  onSignIn,
+}: {
+  issue: ConnectionIssue;
+  onRetry: () => void;
+  onSignIn: () => void;
+}) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center bg-background">
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-[52px]" />
+      <div className="w-[380px]">
+        <div className="text-[16px] font-semibold mb-1.5">{issue.title}</div>
+        <p className="text-[12px] text-text-secondary leading-relaxed">{issue.detail}</p>
+        {issue.hint && (
+          <p className="mt-2 text-[12px] text-text-secondary/70 leading-relaxed">{issue.hint}</p>
+        )}
+        <p className="mt-2 text-[11px] text-text-secondary/50">Retrying automatically.</p>
+        <div className="mt-5 flex flex-col gap-2">
+          <button type="button" onClick={onRetry} className="ui-primary-button w-full py-2">
+            Retry now
+          </button>
+          <button type="button" onClick={onSignIn} className="ui-secondary-button w-full py-2">
+            Sign in with a different key
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -421,16 +461,26 @@ export default function App() {
       // yes, and it was rejected, which is a different sentence from "you have
       // never signed in here".
       const message = loggedIn(session)
-        ? "That API key was rejected. Sign in again with a current key."
+        ? "That API key was rejected or no longer has the permissions this app needs. Sign in again to mint a new key."
         : session.name === "unauthenticated" && session.reason === "signed-out"
-          ? "You're signed out. Enter a key to sign back in."
+          ? "You're signed out. Sign in again to continue."
           : null;
       return <SignIn onSignedIn={onSignedIn} message={message} />;
     }
     case "degraded":
       // `sessionOf` is unsafe here: the very first credential resolution never
-      // completed, so there is nothing to render a workspace against.
-      if (!session.session) return <Splash note={session.issue.title} />;
+      // completed, so there is nothing to render a workspace against. But a
+      // bare splash with no way out is a dead end (FSM.md guarantee 5) — this
+      // names the issue, retries on demand, and offers sign-in as the escape.
+      if (!session.session) {
+        return (
+          <UnreachableSplash
+            issue={session.issue}
+            onRetry={() => sessionMachine.send({ type: "RETRY" })}
+            onSignIn={onSignedOut}
+          />
+        );
+      }
       break;
     case "authenticated":
     case "roster-loaded":

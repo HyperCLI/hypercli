@@ -1,9 +1,23 @@
 use hypercli_sdk::{
-    discover_agents_api_base, discover_client_config, remove_config_api_keys,
-    save_api_key as persist_api_key, ClientConfig, HyperCliClient,
+    discover_agents_api_base, discover_client_config, issue_api_key_from_jwt,
+    remove_config_api_keys, save_api_key as persist_api_key, ClientConfig, HyperCliClient,
+    IssueApiKeyFromJwtOptions,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
+
+/// Capabilities held by a desktop-minted machine key: agent management plus
+/// the single model grant for the prompt-drafting helper, and `user:self` for
+/// account/plan reads. Never an unrestricted key.
+const DESKTOP_KEY_SCOPES: [&str; 3] = ["agents:*", "models:*", "user:self"];
+
+/// Web login page. Its allowlist accepts the `hypercli://auth` scheme
+/// callback (site/apps/claw/src/app/desktop-login/page.tsx): the session token
+/// travels in the URL fragment, never in a server round-trip.
+/// `HYPERCLI_DESKTOP_LOGIN_PAGE` overrides the page for dev/feat testing.
+const DESKTOP_LOGIN_PAGE: &str = "https://agents.hypercli.com/desktop-login";
 
 #[derive(Clone, Serialize)]
 struct AuthStatus {
@@ -57,6 +71,47 @@ async fn save_api_key(key: String) -> Result<AuthStatus, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Open the browser sign-in. The page redirects back to `hypercli://auth`
+/// with the session token in the URL fragment, which `on_open_url` (and, on
+/// Windows/Linux, the single-instance argv hand-off) delivers as an
+/// `auth-token` event to the webview.
+#[tauri::command]
+fn start_login(app: tauri::AppHandle) -> Result<(), String> {
+    let page = std::env::var("HYPERCLI_DESKTOP_LOGIN_PAGE")
+        .unwrap_or_else(|_| DESKTOP_LOGIN_PAGE.to_owned());
+    let url = format!("{page}?redirect_uri=hypercli%3A%2F%2Fauth");
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(url, None::<String>)
+        .map_err(|e| e.to_string())
+}
+
+/// Exchange a browser session token for a durable, scoped machine API key and
+/// persist it. The session token is never stored. `issue_api_key_from_jwt`
+/// resolves the backend through the same env/config discovery
+/// (`discover_agents_api_base`) as `acp_credentials`, so a dev/feat API base
+/// is honored here too.
+#[tauri::command]
+async fn mint_api_key(session_token: String) -> Result<AuthStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut options = IssueApiKeyFromJwtOptions::new(
+            DESKTOP_KEY_SCOPES
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect(),
+        );
+        options.name = "HyperCLI desktop".to_owned();
+        let issued = issue_api_key_from_jwt(&session_token, options).map_err(|e| e.to_string())?;
+        let api_key = issued
+            .api_key
+            .ok_or_else(|| "key issued but the response carried no key material".to_owned())?;
+        let home = dirs::home_dir().ok_or("no home directory".to_owned())?;
+        persist_api_key(&home, &api_key).map_err(|e| e.to_string())?;
+        Ok(auth_status_inner())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn logout() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -98,16 +153,79 @@ fn is_auto_update_supported() -> bool {
     }
 }
 
+/// Minimal %XX decoding — the page encodes with encodeURIComponent and the
+/// token must round-trip byte-for-byte.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Extract the session token from a `hypercli://auth#token=...` callback.
+/// Rejects anything that is not our scheme + host, loudly.
+fn token_from_callback(url: &str) -> Option<String> {
+    let rest = match url.strip_prefix("hypercli://auth") {
+        Some(rest) => rest,
+        None => {
+            eprintln!("hypercli-desktop: rejected deep link with unexpected target");
+            return None;
+        }
+    };
+    let fragment = rest.split_once('#')?.1;
+    fragment.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == "token" && !value.is_empty()).then(|| percent_decode(value))
+    })
+}
+
+/// Emit the browser session token to the webview and refocus the app after
+/// the browser detour. The webview's SignIn screen redeems it via
+/// `mint_api_key`.
+fn deliver_auth_token(app: &tauri::AppHandle, token: String) {
+    if app.emit("auth-token", token).is_err() {
+        eprintln!("hypercli-desktop: failed to deliver auth token to window");
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Single-instance must be the first registered plugin: its callback
+    // receives the second instance's argv, which on Windows and Linux carries
+    // the hypercli:// deep link.
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            use tauri::Manager;
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            for arg in argv {
+                if arg.starts_with("hypercli://") {
+                    if let Some(token) = token_from_callback(&arg) {
+                        deliver_auth_token(app, token);
+                    }
+                }
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init());
 
     // Register the updater (and the process plugin its relaunch flow needs)
@@ -124,13 +242,51 @@ pub fn run() {
     };
 
     builder
+        .setup(|app| {
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    if let Some(token) = token_from_callback(url.as_str()) {
+                        deliver_auth_token(&handle, token);
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             auth_status,
             save_api_key,
             logout,
             acp_credentials,
             is_auto_update_supported,
+            start_login,
+            mint_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running hypercli desktop-ng");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_from_callback_reads_fragment_token() {
+        let token = token_from_callback("hypercli://auth#token=abc123").unwrap();
+        assert_eq!(token, "abc123");
+    }
+
+    #[test]
+    fn token_from_callback_percent_decodes() {
+        let token = token_from_callback("hypercli://auth#token=a%2Fb%3D").unwrap();
+        assert_eq!(token, "a/b=");
+    }
+
+    #[test]
+    fn token_from_callback_rejects_foreign_or_tokenless_urls() {
+        assert!(token_from_callback("https://auth#token=abc").is_none());
+        assert!(token_from_callback("hypercli://other#token=abc").is_none());
+        assert!(token_from_callback("hypercli://auth").is_none());
+        assert!(token_from_callback("hypercli://auth#token=").is_none());
+    }
 }

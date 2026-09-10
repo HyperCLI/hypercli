@@ -13,7 +13,6 @@ import { FakeClock } from "./machine";
 import {
   CREDENTIAL_DEADLINE_MS,
   MANUAL_RETRY_FLOOR_MS,
-  MissingCredentialError,
   ROSTER_DEADLINE_MS,
   SIGN_OUT_DEADLINE_MS,
   SessionMachine,
@@ -29,7 +28,12 @@ import {
   type SessionMachineOptions,
   type SessionState,
 } from "./fsm";
-import type { AcpCredentials } from "./credentials";
+import {
+  MissingCredentialError,
+  RUST_ABSENT_CREDENTIAL_MESSAGES,
+  normalizeCredentialError,
+  type AcpCredentials,
+} from "./credentials";
 import type { Endpoints } from "./endpoints";
 import type { AgentSummary } from "../api";
 import type { ConnectionIssue } from "./connection-errors";
@@ -320,7 +324,7 @@ describe("SessionMachine — no credential", () => {
   it('a "no credential" throw is unauthenticated{no-credential}', async () => {
     const h = harness({
       resolveCredentials: async () => {
-        throw failure(
+        throw new MissingCredentialError(
           "No API credential available. Run the desktop app, or set HYPER_API_KEY in the environment that starts the dev server.",
         );
       },
@@ -339,8 +343,8 @@ describe("SessionMachine — no credential", () => {
   });
 
   it("the sentinel class routes to unauthenticated without matching on prose", async () => {
-    // The message match is a stopgap for `credentials.ts` not exporting this;
-    // the class is the contract, and it must work on its own.
+    // The class is the whole contract — this message matches nothing any
+    // classifier has ever looked for, and it must still sign out.
     const h = harness({
       resolveCredentials: async () => {
         throw new MissingCredentialError("nothing here that mentions the usual words");
@@ -354,11 +358,53 @@ describe("SessionMachine — no credential", () => {
     expect(state.reason).toBe("no-credential");
   });
 
+  it.each(RUST_ABSENT_CREDENTIAL_MESSAGES)(
+    "the Rust ConfigError %j is absent, not unreachable",
+    async (rustMessage) => {
+      // Exactly what the packaged app sees on a fresh install: `acp_credentials`
+      // rejects with a bare `ConfigError::Display` string, `credentials.ts`
+      // normalises it, and the machine must land on the sign-in screen — not
+      // on the sessionless `degraded` splash this used to dead-end into.
+      const h = harness({
+        resolveCredentials: async () => {
+          throw normalizeCredentialError(rustMessage);
+        },
+      });
+      h.machine.send({ type: "BOOT" });
+      await flush();
+
+      const state = h.machine.state;
+      expect(state.name).toBe("unauthenticated");
+      if (state.name !== "unauthenticated") throw new Error("unreachable");
+      expect(state.reason).toBe("no-credential");
+      expect(state.detail).toBe(rustMessage);
+      expect(h.issues).toEqual([]);
+    },
+  );
+
+  it("an unrecognised credential-probe failure does not fall back to message matching", async () => {
+    // The old fallback regex would have read this as "no key". Under the
+    // allow-list default it is `degraded` with a retry, which is the safe
+    // direction for a failure nobody has classified yet.
+    const h = harness({
+      resolveCredentials: async () => {
+        throw new Error("no api key configured somewhere unexpected");
+      },
+    });
+    h.machine.send({ type: "BOOT" });
+    await flush();
+
+    const state = h.machine.state;
+    expect(state.name).toBe("degraded");
+    if (state.name !== "degraded") throw new Error("unreachable");
+    expect(state.retryDelay).toBe(1000);
+  });
+
   it("KEY_SAVED from unauthenticated re-enters resolving-credentials", async () => {
     let fail = true;
     const h = harness({
       resolveCredentials: async () => {
-        if (fail) throw failure("no api key configured");
+        if (fail) throw new MissingCredentialError();
         return CREDENTIALS;
       },
       listAgents: async () => [agent("a")],

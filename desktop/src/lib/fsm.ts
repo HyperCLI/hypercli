@@ -60,7 +60,7 @@ import {
   sdk,
   type AgentSummary,
 } from "../api";
-import { resolveCredentials, type AcpCredentials } from "./credentials";
+import { MissingCredentialError, resolveCredentials, type AcpCredentials } from "./credentials";
 import { resolveEndpoints, type Endpoints } from "./endpoints";
 import {
   classifyConnectionError,
@@ -348,41 +348,23 @@ export const MANUAL_RETRY_FLOOR_MS = 1000;
  * "There is no credential here at all" — the one failure of the credential
  * probe that means `unauthenticated` rather than `degraded`.
  *
- * **Coupling worth naming:** the sentinel belongs in `credentials.ts` next to
- * the `throw`, and this class exists here only because that file is owned
- * elsewhere in this change. Until it is moved, {@link isMissingCredential}
- * falls back to matching the message `credentials.ts:46` actually throws
- * ("No API credential available…"). A reworded throw over there silently
- * re-routes first-run users to `degraded` — which is the *safe* direction
- * (a reconnecting splash, not a false accusation of being signed out), but it
- * is still a coupling that a shared error class would delete outright.
- */
-export class MissingCredentialError extends Error {
-  constructor(message = "No API credential available.") {
-    super(message);
-    this.name = "MissingCredentialError";
-  }
-}
-
-const MISSING_CREDENTIAL_MESSAGE = /no api (credential|key)|no credential/i;
-
-/**
- * The classification is now an allow-list, and the default is `degraded`.
+ * The classification is an allow-list, and the default is `degraded`. Testing
+ * for the *specific* condition that means "no key" and degrading everything
+ * else makes the dangerous edge the one that has to be proven: a positively
+ * identified missing credential is a sign-out, while anything the classifier
+ * cannot name falls to a retrying splash.
  *
- * It used to be the other way round: anything the classifier did not label
- * `auth` or network-shaped fell through to `ABSENT` ⇒ `unauthenticated`. But
- * {@link classifyConnectionError} only says `blocked` for an
- * `instanceof TypeError` whose message matches a fixed regex, so a plain
- * `Error("Failed to fetch")` — or undici's `TypeError: fetch failed`, which the
- * regex misses — landed on the sign-in screen. That is precisely the bug this
- * module exists to prevent, one rewording away at all times.
- *
- * Testing for the *specific* condition that means "no key" and degrading
- * everything else makes the dangerous edge the one that has to be proven.
+ * The sentinel lives next to the throw, in `credentials.ts`, which also
+ * normalises the known Rust `ConfigError` strings `acp_credentials` can
+ * reject with (`rs-sdk/src/config.rs` — see
+ * `RUST_ABSENT_CREDENTIAL_MESSAGES`). That is what this check *cannot* be:
+ * a regex over message fragments. The messages used to be matched loosely
+ * from here, and the first Rust rewording ("no HyperCLI credential found…")
+ * silently re-routed fresh installs to an endless sessionless `degraded`
+ * splash instead of the sign-in screen.
  */
 function isMissingCredential(error: unknown): boolean {
-  if (error instanceof MissingCredentialError) return true;
-  return MISSING_CREDENTIAL_MESSAGE.test(describe(error));
+  return error instanceof MissingCredentialError;
 }
 
 function describe(error: unknown): string {
@@ -753,8 +735,9 @@ export class SessionMachine extends Machine<SessionState, SessionEvent> {
       // reachability failure and the cost of the two mistakes is not
       // symmetric: a degraded first-run user sees a reconnecting splash and a
       // Retry, while an unauthenticated user with a blocked fetch is told to
-      // re-enter a key that was never the problem (FSM.md §1). See
-      // {@link isMissingCredential} for the coupling this leaves behind.
+      // re-enter a key that was never the problem (FSM.md §1). The nominal
+      // check is {@link isMissingCredential}; the message normalisation that
+      // feeds it lives in `credentials.ts`.
       if (isMissingCredential(error)) {
         this.send({ type: "ABSENT", attempt: attempt.id, detail: describe(error) });
         return;

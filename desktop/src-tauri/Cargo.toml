@@ -20,9 +20,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["image-png", "macos-private-api"] }
 tauri-plugin-opener = "2"
+# Delivers hypercli://auth deep links into the running app (browser sign-in).
+tauri-plugin-deep-link = "2"
 # Re-launching the app focuses the existing window instead of spawning a
-# second instance.
-tauri-plugin-single-instance = "2"
+# second instance. Windows/Linux deliver deep links to a NEW instance's argv;
+# the "deep-link" feature forwards them to the running instance.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Always compiled (their permissions must exist for capabilities/default.json),
 # but only *registered* when build.rs emits `hypercli_updater_enabled` — i.e.
 # when HYPERCLI_UPDATER_PUBLIC_KEY + HYPERCLI_UPDATER_ENDPOINT are set at
