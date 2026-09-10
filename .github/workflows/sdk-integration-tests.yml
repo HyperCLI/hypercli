@@ -16,33 +16,23 @@ jobs:
   ts-sdk-unit:
     runs-on: self-hosted
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-        working-directory: ts-sdk
     steps:
       - uses: actions/checkout@v4
         with:
           clean: false
 
       - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+        run: sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: ts-sdk/package-lock.json
-
-      - name: Install TS SDK dependencies
-        run: npm ci
+      - name: Build TS SDK CI image
+        run: docker build -f docker/cli-ci.Dockerfile -t "ts-sdk-ci:${{ github.sha }}" .
 
       - name: Run TS SDK unit tests
-        run: |
-          npm run clean
-          npm run build
-          npm test
+        run: docker run --rm "ts-sdk-ci:${{ github.sha }}" /tests/ts-sdk.sh
+
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
 
   python-sdk-unit:
     runs-on: self-hosted
