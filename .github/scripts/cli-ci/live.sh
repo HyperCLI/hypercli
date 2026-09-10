@@ -246,6 +246,9 @@ case "${GROUP}/${SUB}" in
     # the acknowledged archive before restore, which 409s on a pending one.
     "${CLI[@]}" agents wait "${ID}" --state ARCHIVED --timeout 240 --interval 5 --dev
     "${CLI[@]}" agents restore "${ID}" --dev
+    # Restore is async too: storage must finish re-materializing (back to
+    # STOPPED) before start, which 409s on a still-restoring agent.
+    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5 --dev
 
     step "start → chat 2/2"
     "${CLI[@]}" agents start "${ID}" --dev
