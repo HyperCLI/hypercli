@@ -2735,21 +2735,28 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
     //   - `mcp_bridge` is the plugin's half of the per-session `buzz` MCP
     //     server: each session/new injects a shim re-exec of this binary, and
     //     the bridge does scope check + sign + relay behind a session token.
-    let publish_handle = Some(publish::PublisherHandle {
-        keys: config.keys.clone(),
-        publisher: relay.event_publisher(),
-    });
-    let mcp_bridge =
-        match mcp_bridge::McpBridge::start(config.keys.clone(), relay.event_publisher()).await {
-            Ok(bridge) => Some(Arc::new(bridge)),
-            Err(e) => {
-                tracing::warn!(
+    let publish_journal: publish::PublishJournal = Default::default();
+    let publish_handle = Some(publish::PublisherHandle::with_journal(
+        config.keys.clone(),
+        relay.event_publisher(),
+        publish_journal.clone(),
+    ));
+    let mcp_bridge = match mcp_bridge::McpBridge::start(
+        config.keys.clone(),
+        relay.event_publisher(),
+        publish_journal,
+    )
+    .await
+    {
+        Ok(bridge) => Some(Arc::new(bridge)),
+        Err(e) => {
+            tracing::warn!(
                 "buzz MCP bridge listener failed to bind ({e}); the `buzz` publish MCP tool is \
                  disabled — the buzz/publish ACP method remains available"
             );
-                None
-            }
-        };
+            None
+        }
+    };
 
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
@@ -2787,6 +2794,7 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
             .as_deref()
             .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
         memory_enabled: config.memory_enabled,
+        require_reply: config.require_reply,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
         relay_url: config.relay_url.clone(),
         publish_handle,
@@ -8879,6 +8887,7 @@ mod build_mcp_servers_tests {
             presence_enabled: true,
             typing_enabled: true,
             memory_enabled: false,
+            require_reply: true,
             model: None,
             effort_level: None,
             session_title: None,
@@ -9104,6 +9113,7 @@ mod error_outcome_emission_tests {
             presence_enabled: true,
             typing_enabled: true,
             memory_enabled: false,
+            require_reply: true,
             model: None,
             effort_level: None,
             session_title: None,

@@ -799,6 +799,9 @@ pub struct PromptContext {
     /// `<core-memory>` section. On by default; disabled via
     /// `--no-memory` / `BUZZ_ACP_NO_MEMORY`.
     pub memory_enabled: bool,
+    /// When true, channel turns must end with a published reply; otherwise the
+    /// pool blind-signs and relays the accumulated assistant text itself.
+    pub require_reply: bool,
     /// Harness identity string for NIP-AM `harness` field. Derived from the
     /// configured `agent_command` at startup (e.g. `"goose"`, `"buzz-agent"`).
     pub harness_name: String,
@@ -2012,6 +2015,61 @@ fn with_canvas(prompt: Option<String>, canvas: Option<&str>) -> Option<String> {
     }
 }
 
+/// Reply guard: guarantee a reply-required turn never ends silently.
+///
+/// If the turn accumulated non-empty assistant text but nothing was published
+/// on `channel` (through either blind-sign surface) since `turn_started`, the
+/// plugin publishes the text itself — signed with the agent keys, threaded
+/// under `reply_to` when present. Call only for reply-required channel turns
+/// (`ctx.require_reply` and a channel source) with the agent's accumulated
+/// turn text already extracted.
+///
+/// Empty/whitespace text stays silent: an agent that produced nothing has
+/// nothing to fall back to. Publish failures are logged, not propagated — the
+/// turn itself already succeeded.
+async fn reply_fallback_publish(
+    handle: &crate::publish::PublisherHandle,
+    channel: Uuid,
+    turn_text: &str,
+    turn_started: std::time::Instant,
+    reply_to: Option<nostr::EventId>,
+) {
+    let content = turn_text.trim();
+    if content.is_empty() {
+        return;
+    }
+    if handle
+        .last_publish_at(channel)
+        .is_some_and(|at| at >= turn_started)
+    {
+        return;
+    }
+    let capped: String = content
+        .char_indices()
+        .take_while(|(i, _)| *i < crate::publish::MAX_CONTENT_BYTES)
+        .map(|(_, c)| c)
+        .collect();
+    let params = crate::publish::PublishParams {
+        channel_id: None,
+        content: capped,
+        reply_to,
+        mentions: Vec::new(),
+    };
+    match crate::publish::publish(handle, &params, channel).await {
+        Ok(result) => tracing::info!(
+            target: "pool::prompt",
+            "reply guard: turn ended without a publish; published {} bytes of \
+             assistant text as {}",
+            turn_text.len(),
+            result["eventId"].as_str().unwrap_or("<no id>"),
+        ),
+        Err(e) => tracing::warn!(
+            target: "pool::prompt",
+            "reply guard: fallback publish failed: {e}"
+        ),
+    }
+}
+
 /// Return `agent` to the pool via `result_tx`, clearing any steer receiver first.
 ///
 /// Every path that returns an `OwnedAgent` to the pool via `PromptResult` goes
@@ -2093,6 +2151,13 @@ pub async fn run_prompt_task(
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
         .unwrap_or_default();
+    // Reply-guard bookkeeping: the guard compares the publish journal at turn
+    // end against this instant, and threads a fallback reply under the batch's
+    // newest triggering event.
+    let turn_started_instant = std::time::Instant::now();
+    let fallback_reply_anchor = triggering_event_ids
+        .last()
+        .and_then(|hex| nostr::EventId::from_hex(hex).ok());
     agent.acp.observe(
         "turn_started",
         serde_json::json!({
@@ -2970,6 +3035,21 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
+                        if ctx.require_reply {
+                            if let (Some(handle), Some(channel)) =
+                                (&ctx.publish_handle, source.channel_id())
+                            {
+                                let turn_text = agent.acp.take_turn_text();
+                                reply_fallback_publish(
+                                    handle,
+                                    channel,
+                                    &turn_text,
+                                    turn_started_instant,
+                                    fallback_reply_anchor,
+                                )
+                                .await;
+                            }
+                        }
                         let usage = agent.acp.take_turn_usage();
                         publish_agent_turn_metric(
                             &ctx,
@@ -3041,6 +3121,20 @@ pub async fn run_prompt_task(
                     "rotating session for {source:?} after {stop_reason:?}",
                 );
                 agent.state.invalidate(&source);
+            }
+
+            if matches!(stop_reason, StopReason::EndTurn) && ctx.require_reply {
+                if let (Some(handle), Some(channel)) = (&ctx.publish_handle, source.channel_id()) {
+                    let turn_text = agent.acp.take_turn_text();
+                    reply_fallback_publish(
+                        handle,
+                        channel,
+                        &turn_text,
+                        turn_started_instant,
+                        fallback_reply_anchor,
+                    )
+                    .await;
+                }
             }
 
             let core_stop = acp_stop_to_core(&stop_reason);
@@ -5178,9 +5272,10 @@ mod tests {
     #[tokio::test]
     async fn publish_mcp_server_injected_with_channel_bound_token() {
         let (publisher, _rx) = crate::relay::RelayEventPublisher::test_pair();
-        let bridge = crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher)
-            .await
-            .expect("bridge binds");
+        let bridge =
+            crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher, Default::default())
+                .await
+                .expect("bridge binds");
         let channel = Uuid::new_v4();
         let scope = conv(channel);
 
@@ -5215,9 +5310,10 @@ mod tests {
     #[tokio::test]
     async fn publish_mcp_server_skipped_without_bridge_or_scope() {
         let (publisher, _rx) = crate::relay::RelayEventPublisher::test_pair();
-        let bridge = crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher)
-            .await
-            .expect("bridge binds");
+        let bridge =
+            crate::mcp_bridge::McpBridge::start(Keys::generate(), publisher, Default::default())
+                .await
+                .expect("bridge binds");
 
         let mut servers = vec![test_mcp_server()];
         append_buzz_publish_server(&mut servers, None, Some(&conv(Uuid::new_v4())));
@@ -8774,6 +8870,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             agent_keys: agent_keys.clone(),
             agent_owner_pubkey: owner_pubkey,
             memory_enabled: false,
+            require_reply: true,
             harness_name: "goose".to_string(),
             relay_url: "ws://127.0.0.1:3000".to_string(),
             publish_handle: None,
@@ -10725,6 +10822,86 @@ done"#
         assert!(
             cap["configOptions"].is_null(),
             "an optionless switch caches the target's (empty) options, never the pre-switch model-a options with a patched effort"
+        );
+    }
+
+    #[tokio::test]
+    async fn reply_guard_publishes_turn_text_threaded_under_anchor() {
+        let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        let channel = Uuid::new_v4();
+        let anchor = nostr::EventId::from_hex(&"ab".repeat(32)).unwrap();
+        let started = std::time::Instant::now();
+
+        reply_fallback_publish(
+            &handle,
+            channel,
+            "  the answer is 42  ",
+            started,
+            Some(anchor),
+        )
+        .await;
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("guard publish must reach the relay")
+            .expect("publisher alive");
+        assert_eq!(event.content, "the answer is 42");
+        assert!(
+            event.tags.iter().any(|t| {
+                t.as_slice().first().map(String::as_str) == Some("e")
+                    && t.as_slice().get(1).map(String::as_str) == Some(&anchor.to_hex())
+            }),
+            "fallback reply threads under the triggering event"
+        );
+    }
+
+    #[tokio::test]
+    async fn reply_guard_skips_when_turn_already_published() {
+        let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        let channel = Uuid::new_v4();
+        let started = std::time::Instant::now();
+        // The model published via a blind-sign surface during the turn.
+        let params = crate::publish::PublishParams {
+            channel_id: None,
+            content: "from the model".to_string(),
+            reply_to: None,
+            mentions: Vec::new(),
+        };
+        crate::publish::publish(&handle, &params, channel)
+            .await
+            .expect("in-turn publish succeeds");
+
+        reply_fallback_publish(&handle, channel, "extra trailing text", started, None).await;
+
+        // Only the model's own publish reaches the relay.
+        let first = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("in-turn publish arrives")
+            .expect("publisher alive");
+        assert_eq!(first.content, "from the model");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv())
+                .await
+                .is_err(),
+            "no duplicate fallback publish after a successful in-turn publish"
+        );
+    }
+
+    #[tokio::test]
+    async fn reply_guard_stays_silent_on_empty_turn_text() {
+        let (publisher, mut rx) = crate::relay::RelayEventPublisher::test_pair();
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
+        let started = std::time::Instant::now();
+
+        reply_fallback_publish(&handle, Uuid::new_v4(), "   \n  ", started, None).await;
+
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), rx.recv())
+                .await
+                .is_err(),
+            "whitespace-only text never publishes"
         );
     }
 }

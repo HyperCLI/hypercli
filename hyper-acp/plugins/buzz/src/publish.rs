@@ -16,6 +16,7 @@
 
 use nostr::{EventId, Keys, PublicKey};
 use serde_json::Value;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::relay::RelayEventPublisher;
@@ -36,7 +37,54 @@ pub(crate) const MAX_MENTIONS: usize = 32;
 pub(crate) struct PublisherHandle {
     pub keys: Keys,
     pub publisher: RelayEventPublisher,
+    /// Channel → wall-clock instant of the most recent publish that succeeded
+    /// through this handle. Read at turn end by the reply guard: a channel
+    /// turn that finished without a successful publish while carrying
+    /// non-empty agent text is a missed reply.
+    pub journal: PublishJournal,
 }
+
+impl PublisherHandle {
+    /// Create a handle with its own empty journal.
+    /// Test-only: production installs a journal shared with the MCP bridge.
+    #[cfg(test)]
+    pub(crate) fn new(keys: Keys, publisher: RelayEventPublisher) -> Self {
+        Self {
+            keys,
+            publisher,
+            journal: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    /// Create a handle backed by a caller-supplied shared journal.
+    pub(crate) fn with_journal(
+        keys: Keys,
+        publisher: RelayEventPublisher,
+        journal: PublishJournal,
+    ) -> Self {
+        Self {
+            keys,
+            publisher,
+            journal,
+        }
+    }
+
+    /// Wall-clock instant of the last successful publish into `channel`,
+    /// or `None` if nothing has been published through this handle.
+    pub(crate) fn last_publish_at(&self, channel: Uuid) -> Option<std::time::Instant> {
+        self.journal
+            .lock()
+            .expect("journal lock")
+            .get(&channel)
+            .copied()
+    }
+}
+
+/// Shared journal: channel → instant of the last successful publish. One
+/// instance is shared by both publish surfaces (ACP method + MCP bridge) so
+/// the reply guard sees publishes no matter which path the agent took.
+pub(crate) type PublishJournal =
+    Arc<std::sync::Mutex<std::collections::HashMap<Uuid, std::time::Instant>>>;
 
 /// Per-turn publish context installed on the ACP client: the signing handle
 /// plus the single channel this turn is authorized to publish into.
@@ -213,6 +261,12 @@ pub(crate) async fn publish(
         .await
         .map_err(|e| PublishError::Transport(format!("relay publish error: {e}")))?;
 
+    handle
+        .journal
+        .lock()
+        .expect("journal lock")
+        .insert(channel_id, std::time::Instant::now());
+
     Ok(serde_json::json!({
         "eventId": event_id,
         "channelId": channel_id.to_string(),
@@ -229,13 +283,7 @@ mod tests {
 
     fn test_handle() -> (PublisherHandle, tokio::sync::mpsc::Receiver<nostr::Event>) {
         let (publisher, rx) = RelayEventPublisher::test_pair();
-        (
-            PublisherHandle {
-                keys: Keys::generate(),
-                publisher,
-            },
-            rx,
-        )
+        (PublisherHandle::new(Keys::generate(), publisher), rx)
     }
 
     fn params_json(content: &str) -> Value {
@@ -389,10 +437,7 @@ mod tests {
     #[tokio::test]
     async fn publish_reports_dead_relay_writer_as_transport_error() {
         let (publisher, rx) = RelayEventPublisher::test_pair();
-        let handle = PublisherHandle {
-            keys: Keys::generate(),
-            publisher,
-        };
+        let handle = PublisherHandle::new(Keys::generate(), publisher);
         // Close the fake relay: the first publish wakes the forwarder, which
         // fails to fan out and exits — dropping the command receiver.
         drop(rx);

@@ -219,6 +219,13 @@ pub struct AcpClient {
     /// outside channel prompt turns (heartbeats, auth probes, tests) —
     /// `buzz/publish` then answers with a JSON-RPC error instead of signing.
     publish_turn: Option<crate::publish::PublishTurn>,
+    /// Plain assistant text streamed during the in-flight turn
+    /// (`agent_message_chunk` updates, concatenated). Cleared whenever
+    /// [`set_publish_turn`](Self::set_publish_turn) installs a new turn
+    /// scope. Read by the turn-end reply guard: non-empty text with no
+    /// successful publish on the turn's channel triggers a guard publish so
+    /// a reply-required turn never ends silently.
+    turn_text: String,
 }
 
 /// Buzz secret keys that must never reach the agent child's environment.
@@ -594,6 +601,7 @@ impl AcpClient {
             standard_usage: StandardUsageTracker::default(),
             standard_adapter,
             publish_turn: None,
+            turn_text: String::new(),
         })
     }
 
@@ -608,8 +616,17 @@ impl AcpClient {
     /// `Some` binds `buzz/publish` to the turn's channel; `None` (heartbeats,
     /// non-channel work) makes the method answer with a JSON-RPC error.
     /// Installed by the pool at turn start; never persisted across turns.
+    /// Installing a fresh scope also resets the turn text accumulator.
     pub fn set_publish_turn(&mut self, turn: Option<crate::publish::PublishTurn>) {
+        if turn.is_some() {
+            self.turn_text.clear();
+        }
         self.publish_turn = turn;
+    }
+
+    /// Drain the text stream accumulated for the in-flight turn.
+    pub fn take_turn_text(&mut self) -> String {
+        std::mem::take(&mut self.turn_text)
     }
 
     /// Update metadata that will be attached to subsequent raw wire events.
@@ -1851,6 +1868,7 @@ impl AcpClient {
         match update_type {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
+                    self.turn_text.push_str(text);
                     tracing::info!(target: "acp::stream", "{text}");
                 }
                 false
@@ -3469,10 +3487,7 @@ mod tests {
     async fn buzz_publish_request_is_signed_relayed_and_answered() {
         let channel = uuid::Uuid::new_v4();
         let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
-        let handle = crate::publish::PublisherHandle {
-            keys: nostr::Keys::generate(),
-            publisher,
-        };
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
         let script = format!(
             r#"
             echo '{{"jsonrpc":"2.0","id":77,"method":"buzz/publish","params":{{"channelId":"{channel}","content":"wire me up"}}}}'
@@ -3557,10 +3572,7 @@ mod tests {
     #[tokio::test]
     async fn buzz_publish_notification_is_ignored() {
         let (publisher, mut published) = crate::relay::RelayEventPublisher::test_pair();
-        let handle = crate::publish::PublisherHandle {
-            keys: nostr::Keys::generate(),
-            publisher,
-        };
+        let handle = crate::publish::PublisherHandle::new(nostr::Keys::generate(), publisher);
         let script = r#"
             echo '{"jsonrpc":"2.0","method":"buzz/publish","params":{"content":"no id here"}}'
             echo '{"jsonrpc":"2.0","id":0,"result":{"stopReason":"end_turn"}}'

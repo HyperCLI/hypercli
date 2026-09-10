@@ -89,15 +89,18 @@ impl McpBridge {
     /// Bind the loopback listener and spawn the accept loop.
     ///
     /// `handle` supplies the signing keys and relay publisher used for every
-    /// authenticated publish; neither ever leaves this process.
+    /// authenticated publish; neither ever leaves this process. `journal` is
+    /// shared with the `buzz/publish` ACP handle so the turn-end reply guard
+    /// sees publishes regardless of which surface carried them.
     pub(crate) async fn start(
         keys: nostr::Keys,
         publisher: RelayEventPublisher,
+        journal: publish::PublishJournal,
     ) -> std::io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
         let registry: Arc<Mutex<HashMap<String, Uuid>>> = Arc::new(Mutex::new(HashMap::new()));
-        let handle = PublisherHandle { keys, publisher };
+        let handle = PublisherHandle::with_journal(keys, publisher, journal);
         let accept_registry = Arc::clone(&registry);
         let accept_task = tokio::spawn(async move {
             loop {
@@ -330,7 +333,7 @@ mod tests {
     /// `(bridge, published-events receiver)`.
     async fn test_bridge() -> (McpBridge, tokio::sync::mpsc::Receiver<nostr::Event>) {
         let (publisher, rx) = RelayEventPublisher::test_pair();
-        let bridge = McpBridge::start(nostr::Keys::generate(), publisher)
+        let bridge = McpBridge::start(nostr::Keys::generate(), publisher, Default::default())
             .await
             .expect("bridge binds");
         (bridge, rx)
