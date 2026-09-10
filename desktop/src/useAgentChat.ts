@@ -11,6 +11,7 @@ import {
   ChatTraceFolder,
   detailOf,
   genId,
+  imageMarkdownOf,
   runtimeMessageToChat,
   settleOpenToolCalls,
   type ChatMessage,
@@ -196,6 +197,24 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       };
 
       if (kind === "user_message_chunk") {
+        const image = imageMarkdownOf(update.content);
+        if (image) {
+          const last = next[next.length - 1];
+          if (last?.role === "user") {
+            replaceLast({ ...last, text: `${last.text}\n\n${image}\n\n` });
+          } else {
+            next.push({
+              id: genId(),
+              role: "user",
+              text: image,
+              thoughts: [],
+              toolCalls: [],
+              plan: [],
+              ts: Date.now(),
+            });
+          }
+          return next;
+        }
         const text = textOf(update.content);
         const pendingEcho = pendingUserEchoRef.current;
         if (pendingEcho) {
@@ -227,11 +246,13 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       }
       if (kind === "agent_message_chunk") {
         const text = textOf(update.content);
+        const image = imageMarkdownOf(update.content);
+        const appended = text || (image ? `\n\n${image}\n\n` : "");
         const last = next[next.length - 1];
         const newSegment = last?.role === "assistant" && last.text.trim().length > 0 && last.toolCalls.length > 0;
         const current = openAssistant(newSegment);
-        replaceLast({ ...current, text: current.text + text });
-        setActivity(activityTraceRef.current.appendReplyText(text));
+        replaceLast({ ...current, text: current.text + appended });
+        if (text) setActivity(activityTraceRef.current.appendReplyText(text));
         return next;
       }
       if (kind === "agent_thought_chunk") {
@@ -283,6 +304,11 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         const done = status === "completed" || status === "failed";
         const startedAt = activityTraceRef.current.toolStartedAt(callId);
         const durationMs = done && startedAt != null ? Date.now() - startedAt : undefined;
+        // Patch semantics: a tool_call_update carries only the fields that
+        // changed. Merge any newly provided detail (rawInput / content) so the
+        // row becomes expandable, not just a status flip.
+        const updatedDetail =
+          detailOf(update.rawInput) ?? detailOf(update.content) ?? detailOf(update.output);
         let handled = false;
         if (callId) {
           for (let i = next.length - 1; i >= 0; i -= 1) {
@@ -292,7 +318,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
               ...message,
               toolCalls: message.toolCalls.map((t) =>
                 t.id === callId
-                  ? { ...t, status: status ?? t.status, durationMs: durationMs ?? t.durationMs }
+                  ? {
+                      ...t,
+                      status: status ?? t.status,
+                      durationMs: durationMs ?? t.durationMs,
+                      detail: updatedDetail ?? t.detail,
+                    }
                   : t,
               ),
             };
@@ -310,7 +341,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
             next[next.indexOf(message)] = {
               ...message,
               toolCalls: message.toolCalls.map((t, i) =>
-                i === index ? { ...t, status: status ?? t.status } : t,
+                i === index
+                  ? { ...t, status: status ?? t.status, detail: updatedDetail ?? t.detail }
+                  : t,
               ),
             };
             break;

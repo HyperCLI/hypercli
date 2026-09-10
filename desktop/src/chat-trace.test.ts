@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeChatEvent } from "./api";
-import { ChatTraceFolder, settleOpenToolCalls, type ChatMessage } from "./chat-trace";
+import { ChatTraceFolder, detailOf, imageMarkdownOf, settleOpenToolCalls, type ChatMessage } from "./chat-trace";
 
 function foldAll(events: RuntimeChatEvent[]): ChatMessage[] {
   const folder = new ChatTraceFolder();
@@ -79,5 +79,31 @@ describe("settleOpenToolCalls", () => {
     ];
     const settled = settleOpenToolCalls(withTools, "interrupted");
     expect(settled[0].toolCalls.map((tool) => tool.status)).toEqual(["interrupted", "completed", "interrupted"]);
+  });
+});
+
+describe("detailOf", () => {
+  it("never stringifies array items to [object Object]", () => {
+    expect(detailOf([{ command: "ls -la" }, { path: "/tmp/x.png" }])).toBe("ls -la /tmp/x.png");
+    expect(detailOf([])).toBeUndefined();
+  });
+});
+
+describe("imageMarkdownOf", () => {
+  it("converts base64 image blocks to data-URI markdown", () => {
+    expect(imageMarkdownOf({ type: "image", data: "QUJD", mimeType: "image/png" })).toBe(
+      "![image](data:image/png;base64,QUJD)",
+    );
+  });
+
+  it("prefers a uri over inline data", () => {
+    expect(imageMarkdownOf({ type: "image", uri: "https://x/y.png", data: "QUJD" })).toBe(
+      "![image](https://x/y.png)",
+    );
+  });
+
+  it("ignores text and audio blocks", () => {
+    expect(imageMarkdownOf({ type: "text", text: "hi" })).toBeUndefined();
+    expect(imageMarkdownOf({ type: "audio", data: "QUJD" })).toBeUndefined();
   });
 });

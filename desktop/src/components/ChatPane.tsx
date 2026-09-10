@@ -78,6 +78,7 @@ ${rows}
 export function ChatPane({
   agent,
   chat,
+  sessionNonce,
   busy,
   onStart,
   onRestore,
@@ -89,6 +90,8 @@ export function ChatPane({
 }: {
   agent: AgentSummary | null;
   chat: AgentChat;
+  /** Bumped on agent/session switch so the view snaps to the latest messages. */
+  sessionNonce: number;
   /**
    * A lifecycle command is in flight or waiting for the roster to confirm it.
    * The failure itself is not a prop any more: `agentMachine` publishes it to
@@ -115,6 +118,15 @@ export function ChatPane({
     const el = scrollRef.current;
     if (el && nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [chat.messages, chat.busy, approvalCount]);
+
+  // Switching agent/session must land on the latest message regardless of
+  // where the previous conversation was scrolled to.
+  const chatInstanceKey = `${agent?.id ?? ""}:${sessionNonce}`;
+  useEffect(() => {
+    nearBottomRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatInstanceKey]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -286,6 +298,11 @@ export function ChatPane({
           const el = e.currentTarget;
           nearBottomRef.current =
             el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        onLoadCapture={(e) => {
+          if ((e.target as HTMLElement).tagName !== "IMG") return;
+          const el = e.currentTarget;
+          if (nearBottomRef.current) el.scrollTop = el.scrollHeight;
         }}
         className="flex-1 overflow-y-auto"
       >

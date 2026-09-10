@@ -496,6 +496,7 @@ export default function App() {
           <ChatPane
             agent={active}
             chat={chat}
+            sessionNonce={sessionNonce}
             busy={active ? busyIds.has(active.id) : false}
             onStart={onStart}
             onRestore={onRestore}

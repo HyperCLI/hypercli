@@ -55,15 +55,22 @@ export const genId = () => `m${++nextId}`;
 
 export function detailOf(rawInput: unknown): string | undefined {
   if (typeof rawInput === "string") return rawInput.trim() || undefined;
-  if (Array.isArray(rawInput)) return rawInput.map((item) => String(item)).join(" ");
+  if (Array.isArray(rawInput)) {
+    const parts = rawInput.map((item) => detailOf(item)).filter((part): part is string => Boolean(part));
+    return parts.join(" ") || undefined;
+  }
   if (!rawInput || typeof rawInput !== "object") return undefined;
   const input = rawInput as Record<string, unknown>;
   const keys = Object.keys(input);
   if (keys.length === 0 || keys.every((key) => key === "cwd" || key === "workingDirectory" || key === "working_directory")) return undefined;
   const preferred =
-    input.command ?? input.cmd ?? input.shell_command ?? input.filePath ?? input.file_path ?? input.path ?? input.pattern ?? input.url;
+    input.command ?? input.cmd ?? input.shell_command ?? input.filePath ?? input.file_path ?? input.path ?? input.pattern ?? input.url ??
+    (typeof input.text === "string" && (input.type === "text" || !input.type) ? input.text : undefined);
   if (typeof preferred === "string") return preferred;
-  if (Array.isArray(preferred)) return preferred.join(" ");
+  if (Array.isArray(preferred)) {
+    const parts = preferred.map((item) => detailOf(item)).filter((part): part is string => Boolean(part));
+    return parts.join(" ") || undefined;
+  }
   for (const key of ["input", "args", "arguments", "rawInput"]) {
     const nested = detailOf(input[key]);
     if (nested) return nested;
@@ -74,6 +81,22 @@ export function detailOf(rawInput: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function imageMarkdownOf(content: unknown): string | undefined {
+  if (Array.isArray(content)) {
+    const parts = content.map((item) => imageMarkdownOf(item)).filter((part): part is string => Boolean(part));
+    return parts.join("\n\n") || undefined;
+  }
+  if (!content || typeof content !== "object") return undefined;
+  const block = content as { type?: unknown; data?: unknown; mimeType?: unknown; uri?: unknown };
+  if (block.type !== "image") return undefined;
+  if (typeof block.uri === "string" && block.uri) return `![image](${block.uri})`;
+  if (typeof block.data === "string" && block.data) {
+    const mime = typeof block.mimeType === "string" && block.mimeType ? block.mimeType : "image/png";
+    return `![image](data:${mime};base64,${block.data})`;
+  }
+  return undefined;
 }
 
 export function runtimeMessageToChat(message: RuntimeChatMessage): ChatMessage {

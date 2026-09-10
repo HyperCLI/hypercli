@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, BriefcaseBusiness, Check, FileText, GitBranch, Handshake, Loader2, Mail, MessageCircle, Monitor, Palette, PlayCircle, Search, Smile, Users, Video, X } from "lucide-react";
-import { createAgent, type AgentSummary } from "../api";
+import { createAgent, largestAvailableAgentSize, type AgentSummary } from "../api";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona } from "../personas";
 import { Avatar } from "./Avatar";
 
@@ -78,7 +78,8 @@ export function NewAgentModal({
     setError(null);
     const runtime = family === "acp" ? acpRuntime : family;
     try {
-      const agent = await createAgent(agentName, runtime, undefined, runtime === "buzz-agent" ? {
+      const size = await largestAvailableAgentSize();
+      const agent = await createAgent(agentName, runtime, size, runtime === "buzz-agent" ? {
         image: image.trim() || undefined,
         buzzPrivateKeyNsec: buzzPrivateKeyNsec.trim() || undefined,
         buzzRelayUrl: buzzRelayUrl.trim() || undefined,

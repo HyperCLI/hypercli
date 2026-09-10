@@ -417,8 +417,27 @@ export async function deleteAgentAvatar(id: string): Promise<AgentAvatarUploadRe
 // Plans & usage — ts-sdk HyperAgent control plane.
 // ---------------------------------------------------------------------------
 
-export async function planSummary(): Promise<PlanSummary> {
-  const client = await sdk();
+const TIER_ORDER = ["large", "medium", "small"] as const;
+
+/**
+ * Largest tier with a free slot on the user's current plan, per the SDK's
+ * plan catalog (no hardcoded fallback: unavailable catalog → undefined,
+ * which lets the backend apply its default).
+ */
+export async function largestAvailableAgentSize(): Promise<"small" | "medium" | "large" | undefined> {
+  try {
+    const client = await sdk();
+    const inventory = (await client.agent.currentPlan()).slotInventory ?? {};
+    for (const tier of TIER_ORDER) {
+      if ((inventory[tier]?.available ?? 0) > 0) return tier;
+    }
+  } catch {
+    // Catalog unavailable — leave the choice to the backend default.
+  }
+  return undefined;
+}
+
+export async function planSummary(): Promise<PlanSummary> {  const client = await sdk();
   const plan = await client.agent.currentPlan();
   const renews = plan.agentSlots
     .map((slot) => slot.expiresAt)

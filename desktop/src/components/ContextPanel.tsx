@@ -1346,6 +1346,7 @@ function DangerZone({
   onDelete: (id: string) => void;
 }) {
   const [confirm, setConfirm] = useState<"stop" | "archive" | "delete" | null>(null);
+  const [visible, setVisible] = useState(false);
   const stopped = agent.state === "STOPPED";
   const archived = agent.state === "ARCHIVED";
   const failed = agent.state === "FAILED";
@@ -1354,7 +1355,10 @@ function DangerZone({
   // A failed agent is stopped-compute too: blocking archive and delete on it
   // used to say "stop the agent first" — a dead end with no way out.
   const inactive = stopped || failed;
-  useEffect(() => setConfirm(null), [agent.id]);
+  useEffect(() => {
+    setConfirm(null);
+    setVisible(false);
+  }, [agent.id]);
 
   return (
     <div className="space-y-3">
@@ -1365,9 +1369,21 @@ function DangerZone({
         {agent.hostname && <Row label="Host" value={agent.hostname} mono />}
       </dl>
       <div>
-        <div className="side-caption text-error mb-2">
-          DANGER ZONE
+        <div className="flex items-center justify-between mb-2">
+          <div className="side-caption text-error">
+            DANGER ZONE
+          </div>
+          <button
+            onClick={() => {
+              setConfirm(null);
+              setVisible((v) => !v);
+            }}
+            className="text-[11px] text-text-secondary hover:text-text-primary transition-colors"
+          >
+            {visible ? "Hide" : "Show"}
+          </button>
         </div>
+        {visible && (
         <div className="rounded-lg border border-error/40 bg-error-bg/40 divide-y divide-border">
           {deleted ? (
             <div className="px-3 py-2.5 text-[11px] text-text-secondary">
@@ -1423,6 +1439,7 @@ function DangerZone({
             </>
           )}
         </div>
+        )}
       </div>
     </div>
   );
