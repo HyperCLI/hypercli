@@ -59,8 +59,8 @@
         { "argv": ["restore", "--help"], "hidden": true },
         { "argv": ["token", "--help"], "hidden": true },
         { "argv": ["models", "--help"], "hidden": true },
+        { "argv": ["config", "--help"], "hidden": true },
         { "argv": ["config", "get", "--help"], "hidden": true },
-        { "argv": ["config", "set", "--help"], "hidden": true },
         { "argv": ["routes", "list", "--help"], "hidden": true },
         { "argv": ["routes", "add", "--help"], "hidden": true },
         { "argv": ["routes", "remove", "--help"], "hidden": true }

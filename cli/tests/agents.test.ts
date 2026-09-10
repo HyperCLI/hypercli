@@ -888,41 +888,35 @@ describe('hyper agents token', () => {
   });
 });
 
-// ---------- config / models (hidden, openclaw-only) ----------
+// ---------- config (hidden): launch_config dump ----------
 
 describe('hyper agents config', () => {
-  it('config on a hermes agent errors with runtime gating', async () => {
+  it('prints the launch config regardless of runtime', async () => {
     const d = createMockDeploymentsApi([agentFixture({ runtime: 'hermes-agent' })]);
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    const err = await runErr(ctx, ['config', 'get', ID_A]);
-
-    expect(err).toBeInstanceOf(CliError);
-    expect((err as Error).message).toBe(
-      'config is only supported on openclaw agents (this is hermes-agent)',
-    );
-  });
-
-  it('config get prints the gateway config as JSON', async () => {
-    const configGet = vi.fn(async () => ({ agents: { defaults: { model: 'm1' } } }));
-    const d = createMockDeploymentsApi([agentFixture({ configGet })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['config', 'get', ID_A]);
 
-    expect(configGet).toHaveBeenCalled();
-    expect(JSON.parse(stdout())).toEqual({ agents: { defaults: { model: 'm1' } } });
+    expect(JSON.parse(stdout())).toEqual({ env: { FOO: 'bar' }, image: 'img' });
   });
 
-  it('config set nests dotted --param keys and patches the gateway', async () => {
-    const configPatch = vi.fn(async () => {});
-    const d = createMockDeploymentsApi([agentFixture({ configPatch })]);
+  it('works without the get verb', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'opencode' })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'json');
+
+    await agents.run(ctx, ['config', ID_A, '--json']);
+
+    expect(JSON.parse(stdout())).toEqual({ env: { FOO: 'bar' }, image: 'img' });
+  });
+
+  it('config set is rejected with a pointer to the real mutators', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    await agents.run(ctx, ['config', 'set', ID_A, '--param', 'a.b=2', '--param', 'flag=true']);
+    const err = await runErr(ctx, ['config', 'set', ID_A, '--param', 'a.b=2']);
 
-    expect(configPatch).toHaveBeenCalledWith({ a: { b: 2 }, flag: true });
-    expect(stdout()).toContain('config patched');
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('launch config');
   });
 
   it('models on a goose agent errors with the same runtime gating', async () => {

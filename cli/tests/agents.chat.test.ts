@@ -565,13 +565,12 @@ describe('hyper agents chat — lifecycle', () => {
   });
 });
 
-// ---------- redaction fix on config get ----------
-describe('hyper agents config get redaction', () => {
+// ---------- redaction on config (launch_config) get ----------
+describe('hyper agents config redaction', () => {
   const configWithKey = () => ({ env: { OPENAI_API_KEY: OPENAI_KEY, plain: 'value' } });
 
   it('json output masks secret-shaped values', async () => {
-    const configGet = vi.fn(async () => configWithKey());
-    const agent = chatAgentFixture({ runtime: 'openclaw', configGet });
+    const agent = chatAgentFixture({ launchConfig: configWithKey() });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
 
     await agents.run(ctx, ['config', 'get', ID_A, '--json']);
@@ -583,14 +582,26 @@ describe('hyper agents config get redaction', () => {
   });
 
   it('table output masks secret-shaped values', async () => {
-    const configGet = vi.fn(async () => configWithKey());
-    const agent = chatAgentFixture({ runtime: 'openclaw', configGet });
+    const agent = chatAgentFixture({ launchConfig: configWithKey() });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');
 
     await agents.run(ctx, ['config', 'get', ID_A]);
 
     expect(stdout()).toContain('...cdef');
     expect(stdout()).toContain('value');
+    expect(stdout()).not.toContain(OPENAI_KEY);
+  });
+
+  it('strips secrets and registry_auth entirely', async () => {
+    const agent = chatAgentFixture({
+      launchConfig: { image: 'img', secrets: { token: OPENAI_KEY }, registry_auth: { password: OPENAI_KEY } },
+    });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+
+    await agents.run(ctx, ['config', ID_A, '--json']);
+
+    const payload = JSON.parse(stdout());
+    expect(payload).toEqual({ image: 'img' });
     expect(stdout()).not.toContain(OPENAI_KEY);
   });
 });

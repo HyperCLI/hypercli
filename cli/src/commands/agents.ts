@@ -286,32 +286,6 @@ function parseParams(items: string[]): Record<string, string> {
   return out;
 }
 
-/** --param k=v with dotted keys nested and JSON-ish value coercion. */
-function parseConfigParams(items: string[]): Record<string, unknown> {
-  const root: Record<string, unknown> = {};
-  for (const item of items) {
-    const eq = item.indexOf('=');
-    if (eq <= 0) throw new UsageError(`--param '${item}' must be KEY=VALUE with a nonempty key`);
-    const path = item.slice(0, eq).split('.').map((p) => p.trim());
-    if (path.some((p) => !p)) throw new UsageError(`--param '${item}' has an empty key segment`);
-    let raw: unknown = item.slice(eq + 1);
-    if (raw === 'true') raw = true;
-    else if (raw === 'false') raw = false;
-    else if (raw === 'null') raw = null;
-    else if (typeof raw === 'string' && raw !== '' && !Number.isNaN(Number(raw))) raw = Number(raw);
-    let node = root;
-    for (const segment of path.slice(0, -1)) {
-      const next = node[segment];
-      if (!next || typeof next !== 'object' || Array.isArray(next)) {
-        node[segment] = {};
-      }
-      node = node[segment] as Record<string, unknown>;
-    }
-    node[path[path.length - 1]] = raw;
-  }
-  return root;
-}
-
 // ---------------------------------------------------------------------------
 // confirmation gate — only when interactive stdout, no --yes, not --json
 // ---------------------------------------------------------------------------
@@ -1134,7 +1108,7 @@ async function cmdToken(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// config / models (hidden, openclaw-only)
+// config (hidden) / models (hidden, openclaw-only)
 // ---------------------------------------------------------------------------
 
 function requireOpenClaw(agent: Agent, what: string): OpenClawAgent {
@@ -1147,42 +1121,25 @@ function requireOpenClaw(agent: Agent, what: string): OpenClawAgent {
 
 async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
   const [verb, ...rest] = args;
-  if (verb !== 'get' && verb !== 'set') {
-    throw new UsageError("usage: hyper agents config get|set <id> (--param k=v ... for set)");
+  if (verb === 'set') {
+    throw new UsageError(
+      'hyper agents config is read-only: it dumps the launch config applied at agent start. '
+      + 'Mutate it with hyper agents routes add|remove or the deployments env API.',
+    );
   }
-
-  if (verb === 'get') {
-    const parsed = parseCommandArgs(rest);
-    if (parsed.help) return printHelp();
-    const ref = onePositional(parsed, 'agent id');
-    const { d } = await adopt(ctx);
-    const agent = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
-    const openclaw = requireOpenClaw(agent, 'config');
-    const config = await api('read config', () => openclaw.configGet());
-    // Secrets live in the gateway config (provider api keys, bot tokens):
-    // redact before it reaches stdout in either output format.
-    const redacted = redactRecord(config);
-    ctx.output.result(redacted, JSON.stringify(redacted, null, 2));
-    return;
-  }
-
-  const parsed = parseCommandArgs(rest, { param: { type: 'string', multiple: true } });
+  const parsed = parseCommandArgs(verb === 'get' ? rest : args);
   if (parsed.help) return printHelp();
   const ref = onePositional(parsed, 'agent id');
-  const params = strList(parsed, 'param');
-  if (params.length === 0) {
-    throw new UsageError('config set needs at least one --param k=v (dots nest: --param a.b=c)');
-  }
-  const patch = parseConfigParams(params);
-
   const { d } = await adopt(ctx);
   const agent = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
-  const openclaw = requireOpenClaw(agent, 'config');
-  await api('patch config', () => openclaw.configPatch(patch));
-  ctx.output.result(
-    { patched: true, agent_id: agent.id, patch: redactRecord(patch) },
-    'config patched; the gateway is restarting',
+  // launch_config IS the agent config: the complete contract applied once at
+  // launch. It arrives with secrets already stripped; redact defense-in-depth.
+  const config = redactLaunchConfig(
+    (agent.launchConfig && typeof agent.launchConfig === 'object'
+      ? agent.launchConfig
+      : {}) as Record<string, unknown>,
   );
+  ctx.output.result(config, JSON.stringify(config, null, 2));
 }
 
 async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
