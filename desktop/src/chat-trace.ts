@@ -15,10 +15,17 @@ export interface PlanEntry {
   priority?: string;
 }
 
+export interface MessageAttachment {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  attachments?: MessageAttachment[];
   error?: boolean;
   thoughts: string[];
   toolCalls: ToolCallEntry[];

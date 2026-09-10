@@ -15,7 +15,7 @@ import {
   Sun,
 } from "lucide-react";
 import type { AgentSummary, AcpSessionInfo } from "../api";
-import { listAcpSessions } from "../api";
+import { listAcpSessions, listRuntimeSessions } from "../api";
 import { useTheme } from "../theme";
 import { useAppUpdate } from "../useAppUpdate";
 import { usePersona } from "../personas";
@@ -73,16 +73,21 @@ export function Sidebar({
   const live = agents.filter((a) => a.state !== "ARCHIVED" && a.state !== "DELETED");
   const archived = agents.filter((a) => a.state === "ARCHIVED");
 
-  // Fan out one short-lived session-lister per running ACP agent in parallel
-  // (the bridge is N-client, so this never fights the chat client), then
-  // close all. ~10 agents max per user, so a full sweep is cheap.
-  const acpAgentKey = live
-    .filter((a) => a.state === RUNNING && runtimeFamily(a.runtime) === "acp")
+  // Fan out one short-lived session-lister per running chattable agent in
+  // parallel (ACP agents over the bridge; runtime agents over their runtime
+  // session client), then close all. ~10 agents max per user, so a full
+  // sweep is cheap.
+  const sessionAgentKey = live
+    .filter((a) => {
+      if (a.state !== RUNNING) return false;
+      const family = runtimeFamily(a.runtime);
+      return family === "acp" || family === "openclaw" || family === "hermes";
+    })
     .map((a) => a.id)
     .sort()
     .join(",");
   useEffect(() => {
-    const ids = acpAgentKey ? acpAgentKey.split(",") : [];
+    const ids = sessionAgentKey ? sessionAgentKey.split(",") : [];
     if (ids.length === 0) return;
     let cancelled = false;
     const sweep = async () => {
@@ -91,7 +96,10 @@ export function Sidebar({
         const results = await Promise.all(
           ids.map(async (id) => {
             try {
-              const list = await listAcpSessions(id);
+              const agent = live.find((a) => a.id === id);
+              const list = agent && runtimeFamily(agent.runtime) === "acp"
+                ? await listAcpSessions(id)
+                : await listRuntimeSessions(id);
               return [id, list.sessions] as const;
             } catch {
               return [id, null] as const;
@@ -116,7 +124,7 @@ export function Sidebar({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [acpAgentKey]);
+  }, [sessionAgentKey]);
 
   const allSessions = live
     .flatMap((agent) =>
@@ -202,7 +210,7 @@ export function Sidebar({
         )}
       </div>
 
-      {acpAgentKey !== "" && (
+      {sessionAgentKey !== "" && (
         <>
           <div className="side-caption px-3.5 pt-1.5 pb-1 flex items-center justify-between">
             SESSIONS
@@ -245,7 +253,7 @@ export function Sidebar({
           </div>
         </>
       )}
-      {acpAgentKey === "" && <div className="flex-1" />}
+      {sessionAgentKey === "" && <div className="flex-1" />}
 
       <div className="border-t border-border px-2 py-2 flex items-center justify-between">
         <button

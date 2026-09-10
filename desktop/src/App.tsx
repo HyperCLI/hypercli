@@ -355,16 +355,23 @@ export default function App() {
   }, [activeId, activeAgentState]);
 
   const handleSelectSession = useCallback((agentId: string, sessionId: string) => {
-    localStorage.setItem(`acp-session:${agentId}`, sessionId);
+    const agent = agents.find((a) => a.id === agentId);
+    const storageKey = agent && runtimeFamily(agent.runtime) !== "acp"
+      ? `runtime-session:${agentId}`
+      : `acp-session:${agentId}`;
+    localStorage.setItem(storageKey, sessionId);
     setActiveId(agentId);
     setSessionNonce((n) => n + 1);
-  }, []);
+  }, [agents]);
 
   const handleNewSession = useCallback((agentId: string) => {
-    localStorage.removeItem(`acp-session:${agentId}`);
+    const agent = agents.find((a) => a.id === agentId);
+    localStorage.removeItem(
+      agent && runtimeFamily(agent.runtime) !== "acp" ? `runtime-session:${agentId}` : `acp-session:${agentId}`,
+    );
     setActiveId(agentId);
     setSessionNonce((n) => n + 1);
-  }, []);
+  }, [agents]);
 
   /**
    * Every mutation goes through the agent's machine, which owns the guard, the

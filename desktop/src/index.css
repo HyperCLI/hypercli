@@ -316,6 +316,26 @@ textarea:focus-visible {
     @apply w-8 h-8 shrink-0 rounded-lg text-white flex items-center justify-center disabled:opacity-40 transition-opacity;
   }
 
+  .attachment-chip {
+    @apply flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-text-secondary;
+  }
+
+  .attachment-thumb {
+    @apply h-5 w-5 rounded object-cover;
+  }
+
+  .attachment-remove {
+    @apply text-text-secondary hover:text-foreground transition-colors;
+  }
+
+  .attachment-echo-img {
+    @apply max-h-48 max-w-full rounded-lg border border-border object-contain;
+  }
+
+  .drop-target {
+    @apply outline-dashed outline-2 -outline-offset-4 outline-accent rounded-xl;
+  }
+
   .onboarding-primary {
     @apply rounded-lg bg-accent px-5 py-2 text-[12px] font-semibold text-white hover:bg-accent/90 transition-colors;
   }

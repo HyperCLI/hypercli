@@ -105,7 +105,6 @@ export function NewAgentModal({
             <div className="text-[13px] font-semibold">New agent</div>
             <div className="text-[11px] text-text-secondary">Create a teammate</div>
           </div>
-          <Progress step={step} />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -161,7 +160,12 @@ export function NewAgentModal({
             </button>
           )}
           {step < 2 ? (
-            <button type="button" onClick={() => setStep((current) => (current + 1) as Step)} className="onboarding-primary">
+            <button
+              type="button"
+              onClick={() => setStep((current) => (current + 1) as Step)}
+              disabled={step === 1 && !name.trim()}
+              className="onboarding-primary disabled:opacity-50 disabled:pointer-events-none"
+            >
               Next
             </button>
           ) : (
@@ -178,16 +182,6 @@ export function NewAgentModal({
           <X size={15} />
         </button>
       </main>
-    </div>
-  );
-}
-
-function Progress({ step }: { step: Step }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {[0, 1, 2].map((i) => (
-        <span key={i} className={`h-1 rounded-full transition-all ${i === step ? "w-5 bg-accent" : "w-1 bg-border-strong"}`} />
-      ))}
     </div>
   );
 }

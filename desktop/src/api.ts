@@ -202,6 +202,20 @@ export const logout = async () => {
 };
 export const acpCredentials = resolveCredentials;
 
+/**
+ * Browser sign-in round trip. `startLogin` opens the system browser on the
+ * desktop-login page (which redirects back to `hypercli://auth#token=…`);
+ * Rust emits the token as an `auth-token` event; `mintApiKey` exchanges it
+ * for a scoped, persisted machine key. The session token itself is never
+ * stored.
+ */
+export const startLogin = () => invoke<void>("start_login");
+export const mintApiKey = async ({ sessionToken }: { sessionToken: string }) => {
+  const status = await invoke<AuthStatus>("mint_api_key", { sessionToken });
+  resetSdkClient();
+  return status;
+};
+
 /** WebSocket URLs must come from the real host, never the dev proxy. */
 async function endpoints(): Promise<Endpoints> {
   return resolveEndpoints(await acpCredentials());
@@ -633,6 +647,27 @@ export async function agentShellUrl(id: string) {
   return url.toString();
 }
 
+// Exactly one interactive shell per agent: claimAgentShellSocket supersedes
+// any previous socket for the same agent, so remounts and reconnect races can
+// never stack shells.
+const agentShellSockets = new Map<string, WebSocket>();
+
+export function claimAgentShellSocket(id: string, socket: WebSocket): void {
+  const previous = agentShellSockets.get(id);
+  if (previous && previous !== socket && previous.readyState !== WebSocket.CLOSED) {
+    try {
+      previous.close(1000, "Superseded by a new shell");
+    } catch {
+      // Ignore close races; the old socket is dead either way.
+    }
+  }
+  agentShellSockets.set(id, socket);
+}
+
+export function releaseAgentShellSocket(id: string, socket: WebSocket): void {
+  if (agentShellSockets.get(id) === socket) agentShellSockets.delete(id);
+}
+
 export interface AcpSessionInfo {
   session_id: string;
   title: string | null;
@@ -643,6 +678,25 @@ export interface AcpSessionInfo {
 export interface AcpSessionList {
   sessions: AcpSessionInfo[];
   next_cursor: string | null;
+}
+
+/**
+ * Session listing for runtime-family agents (OpenClaw, Hermes). The canonical
+ * source is the runtime's own session client — for OpenClaw that is the
+ * gateway `sessions.list`, which also carries titles (`label` falls back to
+ * the gateway displayName in the SDK mapping).
+ */
+export async function listRuntimeSessions(id: string): Promise<AcpSessionList> {
+  const sessions = await withRuntimeSession(id, (session) => session.sessionsList());
+  return {
+    sessions: sessions.map((s) => ({
+      session_id: s.key,
+      title: s.label ?? null,
+      cwd: null,
+      updated_at: null,
+    })),
+    next_cursor: null,
+  };
 }
 
 export async function listAcpSessions(id: string): Promise<AcpSessionList> {

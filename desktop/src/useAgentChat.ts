@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CodingAgentAcpClient,
+  type ContentBlock,
   type RequestPermissionRequest,
   type SessionNotification,
 } from "../../ts-sdk/src/acp.ts";
@@ -15,13 +16,14 @@ import {
   runtimeMessageToChat,
   settleOpenToolCalls,
   type ChatMessage,
+  type MessageAttachment,
   type PlanEntry,
   type ToolCallEntry,
 } from "./chat-trace";
 import { abortRuntimeChat, runtimeChatCapability, runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
 import { runtimeStreamSink, type RuntimeStreamSink } from "./runtime-stream";
 
-export type { ChatMessage, PlanEntry, ToolCallEntry } from "./chat-trace";
+export type { ChatMessage, MessageAttachment, PlanEntry, ToolCallEntry } from "./chat-trace";
 export type { ActivityEntry } from "./activity-trace";
 
 export interface ApprovalOption {
@@ -588,9 +590,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   }, [agentId, running, runtime, supportsAcp, supportsRuntimeSession, retryNonce, sessionNonce, fold]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, attachments: MessageAttachment[] = []) => {
       const prompt = text.trim();
-      if (!prompt || !agentId) return;
+      if ((!prompt && attachments.length === 0) || !agentId) return;
       // The mount generation at send time. While the stream is in flight the
       // agent can change underneath us; events and post-stream writes from a
       // superseded mount must not land in its successor's transcript (the ACP
@@ -603,6 +605,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           id: genId(),
           role: "user",
           text: prompt,
+          ...(attachments.length ? { attachments } : {}),
           thoughts: [],
           toolCalls: [],
           plan: [],
@@ -614,6 +617,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       try {
         const currentAgent = latestAgentRef.current;
         if (supportsRuntimeSession && currentAgent) {
+          if (attachments.length) throw new Error("File attachments need an ACP-capable agent; this runtime only accepts text.");
           if (mountState !== "MOUNTED") throw new Error("Chat is still mounting. Try again in a moment.");
           const selectedRuntimeSessionKey = localStorage.getItem(runtimeSessionKey(currentAgent.id));
           const sink = runtimeStreamSink(selectedRuntimeSessionKey ?? "main", isCurrent, foldRuntimeEvent);
@@ -631,7 +635,29 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         const client = clientRef.current;
         const sessionId = sessionIdRef.current;
         if (!client || !sessionId) return;
-        await client.prompt(sessionId, prompt);
+        let content: string | ContentBlock[] = prompt;
+        if (attachments.length) {
+          const caps = client.initializeResponse?.agentCapabilities?.promptCapabilities;
+          const wantsFile = attachments.some((a) => !a.mimeType.startsWith("image/"));
+          if (wantsFile && caps?.embeddedContext !== true) {
+            throw new Error(`${latestAgentRef.current?.name ?? "This agent"} can't take file attachments, only images.`);
+          }
+          const blocks: ContentBlock[] = attachments.map((attachment) =>
+            attachment.mimeType.startsWith("image/")
+              ? { type: "image", data: attachment.dataBase64, mimeType: attachment.mimeType }
+              : {
+                  type: "resource",
+                  resource: {
+                    uri: `file:///${encodeURIComponent(attachment.name)}`,
+                    blob: attachment.dataBase64,
+                    mimeType: attachment.mimeType,
+                  },
+                },
+          );
+          if (prompt) blocks.push({ type: "text", text: prompt });
+          content = blocks;
+        }
+        await client.prompt(sessionId, content);
         if (!isCurrent()) return;
         setActivity(activityTraceRef.current.settleTurn("completed"));
         setMessages((prev) => settleOpenToolCalls(prev, "completed"));

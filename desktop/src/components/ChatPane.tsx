@@ -5,12 +5,14 @@ import {
   Mic,
   PanelLeftOpen,
   PanelRightOpen,
+  Paperclip,
   Plus,
   Share2,
   Square,
+  X,
 } from "lucide-react";
 import type { AgentSummary } from "../api";
-import type { AgentChat, ChatMessage } from "../useAgentChat";
+import type { AgentChat, ChatMessage, MessageAttachment } from "../useAgentChat";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
@@ -18,6 +20,44 @@ import { PlanList, ThinkingBlock, ToolCallRow } from "./ToolCallRow";
 import { ApprovalCard } from "./ApprovalCard";
 import { RUNNING, TRANSITIONAL, runtimeFamily } from "../agent-utils";
 import { canRuntimeChat } from "../runtime-client";
+
+const ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024;
+
+function readAttachment(file: File): Promise<MessageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.onload = () => {
+      const url = String(reader.result ?? "");
+      const comma = url.indexOf(",");
+      resolve({
+        name: file.name || "attachment",
+        mimeType: file.type || "application/octet-stream",
+        dataBase64: comma >= 0 ? url.slice(comma + 1) : url,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function AttachmentGlyph({ attachment }: { attachment: MessageAttachment }) {
+  if (attachment.mimeType.startsWith("image/")) {
+    return (
+      <img
+        src={`data:${attachment.mimeType};base64,${attachment.dataBase64}`}
+        alt={attachment.name}
+        className="attachment-thumb"
+      />
+    );
+  }
+  return <Paperclip size={11} />;
+}
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], {
@@ -108,6 +148,11 @@ export function ChatPane({
 }) {
   const persona = usePersona(agent?.id ?? null);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -190,7 +235,38 @@ export function ChatPane({
   const archived = agent.state === "ARCHIVED";
   const runtimeCanChat = canRuntimeChat(agent);
   const canCompose = chat.phase === "ready" && (family === "acp" || (runtimeCanChat && chat.mountState === "MOUNTED"));
-  const canSend = canCompose && draft.trim().length > 0 && !chat.busy;
+  const acceptsAttachments = canCompose && family === "acp";
+  const canSend = canCompose && (draft.trim().length > 0 || attachments.length > 0) && !chat.busy;
+
+  const addFiles = async (files: Iterable<File>) => {
+    setAttachError(null);
+    if (!acceptsAttachments) {
+      setAttachError("This agent can't take file attachments.");
+      return;
+    }
+    for (const file of files) {
+      if (file.size > ATTACHMENT_MAX_BYTES) {
+        setAttachError(`${file.name} is over ${formatBytes(ATTACHMENT_MAX_BYTES)} — too large to attach.`);
+        continue;
+      }
+      try {
+        const attachment = await readAttachment(file);
+        setAttachments((prev) => [...prev, attachment]);
+      } catch (error) {
+        setAttachError(error instanceof Error ? error.message : `Could not read ${file.name}.`);
+      }
+    }
+    // When new attachments arrive the follow-up question usually comes next.
+    textareaRef.current?.focus();
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDragging(false);
+    const files = event.dataTransfer?.files;
+    if (files?.length) void addFiles(files);
+  };
   const composerPlaceholder = chat.phase === "ready"
     ? `Message ${agent.name}…`
     : isRunning && runtimeCanChat
@@ -199,8 +275,10 @@ export function ChatPane({
 
   const submit = () => {
     if (!canSend) return;
-    chat.send(draft);
+    chat.send(draft, attachments);
     setDraft("");
+    setAttachments([]);
+    setAttachError(null);
     nearBottomRef.current = true;
   };
   const lastAssistant = [...chat.messages].reverse().find((message) => message.role === "assistant");
@@ -217,7 +295,20 @@ export function ChatPane({
     : null;
 
   return (
-    <section className="app-main">
+    <section
+      className={`app-main ${dragging ? "drop-target" : ""}`}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        if (event.dataTransfer?.types.includes("Files")) setDragging(true);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={() => {
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDragging(false);
+      }}
+      onDrop={handleDrop}
+    >
       <header className="app-header">
         <div data-tauri-drag-region className="drag-fill" />
         <div className="app-header-content px-5 gap-3">
@@ -410,6 +501,25 @@ export function ChatPane({
                   </span>
                 </div>
                 <div className={`message-body ${failed ? "message-body-error" : ""}`}>
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="mb-1.5 flex flex-wrap gap-1.5">
+                      {message.attachments.map((attachment, index) =>
+                        attachment.mimeType.startsWith("image/") ? (
+                          <img
+                            key={`${attachment.name}-${index}`}
+                            src={`data:${attachment.mimeType};base64,${attachment.dataBase64}`}
+                            alt={attachment.name}
+                            className="attachment-echo-img"
+                          />
+                        ) : (
+                          <span key={`${attachment.name}-${index}`} className="attachment-chip">
+                            <Paperclip size={11} />
+                            {attachment.name}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
                   {message.thoughts.length > 0 && (
                     <ThinkingBlock thoughts={message.thoughts} />
                   )}
@@ -452,10 +562,45 @@ export function ChatPane({
             {activeTrace}
           </div>
         )}
+        {attachments.length > 0 && (
+          <div className="mx-auto mb-2 flex max-w-[520px] flex-wrap gap-1.5">
+            {attachments.map((attachment, index) => (
+              <span key={`${attachment.name}-${index}`} className="attachment-chip">
+                <AttachmentGlyph attachment={attachment} />
+                <span className="max-w-40 truncate">{attachment.name}</span>
+                <button
+                  className="attachment-remove"
+                  onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== index))}
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {attachError && (
+          <div className="mx-auto mb-2 max-w-[520px] text-[11px] text-error">{attachError}</div>
+        )}
         <div className="composer">
-          <button className="composer-icon">
+          <button
+            className="composer-icon disabled:opacity-40"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!acceptsAttachments}
+            title="Attach a file"
+          >
             <Plus size={16} />
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              const files = event.target.files;
+              if (files?.length) void addFiles(files);
+              event.target.value = "";
+            }}
+          />
           <textarea
             ref={textareaRef}
             rows={1}
@@ -465,6 +610,13 @@ export function ChatPane({
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submit();
+              }
+            }}
+            onPaste={(e) => {
+              const files = e.clipboardData?.files;
+              if (files?.length) {
+                e.preventDefault();
+                void addFiles(files);
               }
             }}
             disabled={!canCompose}
