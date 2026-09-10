@@ -35,7 +35,6 @@ jobs:
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
       E2E_SPECS: ${{ matrix.spec }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,7 +53,6 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
-          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-"*
           E2E_IMAGE_FAMILY="e2e-agents-${{ matrix.lane }}" \
           PRUNE_BUILD_CACHE=1 \
           IMAGE_TAG="e2e-agents-${{ matrix.lane }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
@@ -66,9 +64,6 @@ jobs:
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          ARTIFACTS_DIR="${PLAYWRIGHT_ARTIFACTS_DIR}"
-          rm -rf "${ARTIFACTS_DIR}"
-          mkdir -p "${ARTIFACTS_DIR}"
           # Mint the identity's session JWT here, moments before the container
           # starts, so the spec itself needs no admin credentials or calls.
           TEST_USER_TOKEN="$(python3 .github/scripts/bootstrap_agents_e2e_user.py login \
@@ -88,19 +83,8 @@ jobs:
             -e E2E_SPECS \
             -e NOTIFY_API_KEY \
             -e GITHUB_RUN_URL \
-            -e E2E_ARTIFACTS_DIR=/artifacts \
-            -v "${ARTIFACTS_DIR}:/artifacts" \
             "${{ steps.build-e2e.outputs.e2e_image }}" \
             bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
-
-      - name: Upload Playwright artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-${{ matrix.lane }}-artifacts
-          path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
-          retention-days: 3
 
       - name: Cleanup local E2E resources
         if: always()
@@ -108,10 +92,6 @@ jobs:
         env:
           E2E_IMAGE: ${{ steps.build-e2e.outputs.e2e_image }}
         run: |
-          if [[ -d "${PLAYWRIGHT_ARTIFACTS_DIR}" ]]; then
-            sudo chown -R "$(id -u):$(id -g)" "${PLAYWRIGHT_ARTIFACTS_DIR}"
-          fi
-          rm -rf -- "${PLAYWRIGHT_ARTIFACTS_DIR}"
           if [[ -n "${E2E_IMAGE}" ]]; then
             docker image rm "${E2E_IMAGE}" || true
           fi

@@ -31,7 +31,6 @@ jobs:
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-privy-live-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,7 +42,6 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
-          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-privy-live-"*
           E2E_IMAGE_FAMILY="e2e-privy-live" \
           PRUNE_BUILD_CACHE=1 \
           IMAGE_TAG="e2e-privy-live-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
@@ -55,9 +53,6 @@ jobs:
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          ARTIFACTS_DIR="${PLAYWRIGHT_ARTIFACTS_DIR}"
-          rm -rf "${ARTIFACTS_DIR}"
-          mkdir -p "${ARTIFACTS_DIR}"
           docker run --rm --init \
             -e CI=true \
             -e TEST_BASE_URL \
@@ -69,18 +64,8 @@ jobs:
             -e NOTIFY_URL \
             -e NOTIFY_API_KEY \
             -e GITHUB_RUN_URL \
-            -e E2E_ARTIFACTS_DIR=/artifacts \
-            -v "${ARTIFACTS_DIR}:/artifacts" \
             "${{ steps.build-e2e.outputs.e2e_image }}" \
             bash -lc 'cd /workspace && ./.github/scripts/run_e2e_privy_live.sh'
-
-      - name: Upload Playwright artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: privy-final-artifacts
-          path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
-          if-no-files-found: ignore
 
       - name: Cleanup local E2E resources
         if: always()
@@ -88,7 +73,6 @@ jobs:
         env:
           E2E_IMAGE: ${{ steps.build-e2e.outputs.e2e_image }}
         run: |
-          rm -rf -- "${PLAYWRIGHT_ARTIFACTS_DIR}"
           if [[ -n "${E2E_IMAGE}" ]]; then
             docker image rm "${E2E_IMAGE}" || true
           fi
