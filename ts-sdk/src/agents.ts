@@ -3,6 +3,26 @@
  */
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
+
+// undici's native WebSocket (Node 18+) drops a permessage-deflate frame when
+// the peer's close frame and FIN land in the same TCP chunk, surfacing as a
+// 1006 with the final message lost. In Node always use the `ws` package;
+// everywhere else use the native implementation. Resolved per connection (not
+// module-load), and an overridden globalThis.WebSocket (e.g. a test stub) is
+// honored in every runtime.
+function preferredWebSocket(): typeof WebSocket {
+  const global = globalThis.WebSocket;
+  if (typeof process !== 'undefined' && typeof process.versions?.node === 'string' && global !== undefined) {
+    // Node's built-in WebSocket is `class _WebSocket extends EventTarget`
+    // (undici); anything else is a deliberate override.
+    if (Function.prototype.toString.call(global).startsWith('class _WebSocket')) {
+      return NodeWebSocket as unknown as typeof WebSocket;
+    }
+    return global;
+  }
+  return global ?? (NodeWebSocket as unknown as typeof WebSocket);
+}
+export { preferredWebSocket };
 import {
   agentSlotFromDict,
   parseAgentSlotSize,
@@ -5177,7 +5197,7 @@ export class Deployments {
     const token = validateAgentWsToken(rawToken, agentId, purpose) as AgentOperationTokenResponse;
     const parsed = new URL(token.ws_url);
     parsed.searchParams.set('token', token.token);
-    const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+    const WebSocketImpl = preferredWebSocket();
     let ws: WebSocket;
     try {
       ws = new WebSocketImpl(parsed.toString());
@@ -5391,7 +5411,7 @@ export class Deployments {
         }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal }));
         const eventUrl = new URL(token.ws_url);
         eventUrl.searchParams.set('token', token.token);
-        const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+        const WebSocketImpl = preferredWebSocket();
         const ws = new WebSocketImpl(eventUrl.toString());
         let readyAt: number | null = null;
         let closedAt: number | null = null;
@@ -6630,7 +6650,7 @@ export class Deployments {
       const parsed = new URL(tokenData.ws_url);
       parsed.searchParams.set('token', tokenData.token);
       parsed.searchParams.set('shell', tokenData.shell);
-      const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+      const WebSocketImpl = preferredWebSocket();
       const ws = new WebSocketImpl(parsed.toString());
       ws.binaryType = 'arraybuffer';
       return await new Promise<WebSocket>((resolve, reject) => {

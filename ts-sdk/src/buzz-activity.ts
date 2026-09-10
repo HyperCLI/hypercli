@@ -13,7 +13,6 @@
  * so decryption works with either the owner's nsec or the agent's
  * `BUZZ_PRIVATE_KEY` secret.
  */
-import NodeWebSocket from 'ws';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { extract as hkdfExtract, expand as hkdfExpand } from '@noble/hashes/hkdf.js';
 import { hmac } from '@noble/hashes/hmac.js';
@@ -22,6 +21,7 @@ import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from '@noble/hashes/
 import { chacha20 } from '@noble/ciphers/chacha.js';
 import { equalBytes } from '@noble/ciphers/utils.js';
 import { base64, bech32 } from '@scure/base';
+import { preferredWebSocket } from './agents.js';
 import type { Agent, Deployments } from './agents.js';
 
 export const BUZZ_OBSERVER_EVENT_KIND = 24200;
@@ -485,7 +485,7 @@ export async function subscribeBuzzActivity(
     if (closed) return;
     connectionCounter += 1;
     const subId = `buzz-activity-${connectionCounter}`;
-    const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+    const WebSocketImpl = preferredWebSocket();
     const socket = new WebSocketImpl(relayUrl);
     ws = socket as WebSocket;
 
@@ -655,7 +655,7 @@ export function resolveBuzzActivityRouteTarget(
  * `ws`-constructor URL also sidesteps Node-undici's WebSocket quirks.)
  */
 function openBuzzActivityRouteSocket(wsUrl: string): WebSocket {
-  const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+  const WebSocketImpl = preferredWebSocket();
   return new WebSocketImpl(wsUrl) as WebSocket;
 }
 

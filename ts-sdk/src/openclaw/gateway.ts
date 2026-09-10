@@ -3671,7 +3671,10 @@ export class GatewayClient {
       }
       parsed.searchParams.set("token", credential);
 
-      const useBrowserSocket = typeof globalThis.WebSocket !== "undefined";
+      // Match openSocket(): native WebSocket is browser-only. Node 18+ has a
+      // global undici WebSocket that loses frames when close+FIN coalesce, so
+      // Node must take the `ws` implementation.
+      const useBrowserSocket = "localStorage" in globalThis && typeof WebSocket !== "undefined";
       const socket: GatewaySocket = useBrowserSocket
         ? new WebSocket(parsed.toString())
         : new (await loadNodeWebSocket())(parsed.toString());
