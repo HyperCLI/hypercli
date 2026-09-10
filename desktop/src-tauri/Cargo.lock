@@ -1820,6 +1820,7 @@ dependencies = [
  "hypercli-sdk",
  "secrecy",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
