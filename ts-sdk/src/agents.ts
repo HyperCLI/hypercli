@@ -251,6 +251,8 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'HYPER_ACP_LOG',
   'HYPER_ACP_WS_TOKEN',
   'HYPER_ACP_AUTO_APPROVE_PERMISSION',
+  'HYPER_ACP_PERMISSIONS',
+  'HYPER_ACP_PERMISSION_MODE',
   // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
   'BUZZ_MANAGED_AGENT_START_NONCE',
 ]);
@@ -1184,8 +1186,104 @@ export interface HermesAgentStartOptions extends StartAgentOptions {
   cronEnabled?: boolean | null;
 }
 
+/** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
+export type PermissionMode =
+  | 'default'
+  | 'auto'
+  | 'bypass-permissions'
+  | 'accept-edits'
+  | 'plan'
+  | 'dont-ask'
+  | 'buzz-hosted';
+
+export type PermissionAction = 'allow' | 'ask' | 'deny';
+export type PermissionRules = Record<string, PermissionAction | Record<string, PermissionAction>>;
+
+// Canonical key order; the harness compares the serialized bytes
+// (buzz-backend-provider pins the buzz-hosted preset byte-for-byte).
+const PERMISSION_PRESETS: Record<PermissionMode, PermissionRules> = {
+  default: { '*': 'allow' },
+  auto: { '*': 'allow' },
+  'bypass-permissions': { '*': 'allow' },
+  'accept-edits': {
+    read: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    list: 'allow',
+    edit: 'allow',
+    todowrite: 'allow',
+    '*': 'ask',
+  },
+  plan: {
+    read: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    list: 'allow',
+    lsp: 'allow',
+    question: 'allow',
+    edit: 'deny',
+    bash: 'deny',
+    task: 'deny',
+    external_directory: 'deny',
+    skill: 'deny',
+    webfetch: 'deny',
+    websearch: 'deny',
+    '*': 'deny',
+  },
+  'dont-ask': {
+    read: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    list: 'allow',
+    '*': 'deny',
+  },
+  'buzz-hosted': {
+    read: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    list: 'allow',
+    lsp: 'allow',
+    todowrite: 'allow',
+    question: 'allow',
+    edit: 'allow',
+    doom_loop: 'deny',
+    external_directory: 'allow',
+    bash: {
+      'sprig *': 'allow',
+      'sprig': 'allow',
+      'buzz *': 'allow',
+      'buzz': 'allow',
+      'hyper *': 'allow',
+      'git *': 'allow',
+      '*': 'deny',
+    },
+    webfetch: 'allow',
+    websearch: 'allow',
+    skill: 'allow',
+    task: 'allow',
+    '*': 'deny',
+  },
+};
+
+/**
+ * Serialize the opencode ConfigPermissionV1 permission JSON for a preset
+ * mode, optionally layered with caller overrides. The output is what
+ * `HYPER_ACP_PERMISSIONS` carries in launch-config env; hyper-acp translates
+ * it to `OPENCODE_PERMISSION` at child spawn.
+ */
+export function buildPermissionsJson(mode: PermissionMode, overrides?: PermissionRules): string {
+  const preset = PERMISSION_PRESETS[mode] ?? PERMISSION_PRESETS.default;
+  return JSON.stringify(overrides ? { ...preset, ...overrides } : preset);
+}
+
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime'> {
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  /**
+   * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
+   * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
+   * strip the key entirely (buzz-backend-provider owns that env surface).
+   */
+  permissionMode?: PermissionMode;
   /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
@@ -4934,7 +5032,13 @@ export class Deployments {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...(options.env ?? {}),
     };
-    effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= 'default';
+    effectiveEnv.HYPER_ACP_PERMISSIONS ??= buildPermissionsJson(options.permissionMode ?? 'default');
+    if (options.permissionMode !== undefined) {
+      // Transition: legacy hyper-acp builds only read the mode var, so keep
+      // emitting it alongside the JSON when the caller chose a mode. A
+      // caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
+      effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= options.permissionMode;
+    }
     const effectiveSecrets: Record<string, string> = { ...(options.secrets ?? {}) };
     for (const key of ['BUZZ_PRIVATE_KEY', 'NOSTR_PRIVATE_KEY']) {
       const value = effectiveEnv[key];
@@ -4965,6 +5069,8 @@ export class Deployments {
         'HYPER_ACP_AGENT_COMMAND',
         'HYPER_ACP_AGENT_ARGS',
         'HYPER_ACP_AUTO_APPROVE_PERMISSION',
+        'HYPER_ACP_PERMISSIONS',
+        'HYPER_ACP_PERMISSION_MODE',
       ]) {
         delete effectiveEnv[key];
       }

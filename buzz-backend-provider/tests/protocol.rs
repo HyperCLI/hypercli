@@ -416,6 +416,11 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             expected["env"][key] = value.clone();
         }
         expected["env"]["HYPER_ACP_WS_URL"] = serde_json::json!(hyper_acp_ws_url);
+        // Provider-owned permission surface (not in the shared golden: SDK
+        // buzz launches strip these keys while the provider pins them).
+        expected["env"]["HYPER_ACP_PERMISSIONS"] =
+            serde_json::json!(buzz_backend_hypercli::BUZZ_HOSTED_PERMISSIONS_JSON);
+        expected["env"]["HYPER_ACP_PERMISSION_MODE"] = serde_json::json!("bypass-permissions");
         for (key, value) in contract["env"].as_object().unwrap() {
             expected["env"][key] = value.clone();
         }

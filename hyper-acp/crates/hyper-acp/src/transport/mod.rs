@@ -55,6 +55,17 @@ impl AcpFrameObserver {
 }
 
 pub(crate) fn spawn_acp_child(mut command: Command) -> Result<Child> {
+    let agent_program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
+    let permissions_raw = std::env::var(crate::capabilities::HYPER_ACP_PERMISSIONS_ENV).ok();
+    crate::capabilities::apply_spawn_permission_env(
+        &mut command,
+        &agent_program,
+        permissions_raw.as_deref(),
+    );
     command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

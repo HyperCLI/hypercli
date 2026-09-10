@@ -21,11 +21,18 @@
 //!   with an InvalidParams JSON-RPC error, and a rejected write creates
 //!   nothing on disk (the jail verdict precedes any `create_dir_all`).
 //! - `session/request_permission` passes through to the upstream client by
-//!   default. Setting `HYPER_ACP_PERMISSION_MODE` to `auto` or
-//!   `bypass-permissions`, or setting `HYPER_ACP_AUTO_APPROVE_PERMISSION` to a
-//!   truthy value (`1`, `true`, `yes`, `on`), makes the pod answer locally with
-//!   the first allow option (`allow_always` preferred over `allow_once`), or
-//!   `cancelled` when the request carries no options.
+//!   default. Setting `HYPER_ACP_PERMISSIONS` to a valid opencode
+//!   `ConfigPermissionV1` JSON object makes the pod gate locally on the JSON
+//!   catch-all: `"*": "allow"` auto-approves here, while `ask`/`deny` (or no
+//!   catch-all) keeps passing requests through. Invalid JSON is ignored with a
+//!   warning and the legacy knobs apply instead: `HYPER_ACP_PERMISSION_MODE`
+//!   set to `auto` or `bypass-permissions`, or `HYPER_ACP_AUTO_APPROVE_PERMISSION`
+//!   set to a truthy value (`1`, `true`, `yes`, `on`), makes the pod answer
+//!   locally with the first allow option (`allow_always` preferred over
+//!   `allow_once`), or `cancelled` when the request carries no options.
+//! - At the spawn boundary, a valid `HYPER_ACP_PERMISSIONS` JSON is also
+//!   translated verbatim to `OPENCODE_PERMISSION` on the child environment
+//!   when the resolved agent command is opencode; other runtimes ignore it.
 //!
 //! Every other frame — including unknown/exotic methods — is pumped byte
 //! unchanged, because the client may implement verbs the pod does not know.
@@ -68,6 +75,13 @@ use tokio::sync::{Mutex, mpsc};
 pub const HYPER_ACP_AUTO_APPROVE_PERMISSION_ENV: &str = "HYPER_ACP_AUTO_APPROVE_PERMISSION";
 /// Environment variable controlling ACP permission behavior.
 pub const HYPER_ACP_PERMISSION_MODE_ENV: &str = "HYPER_ACP_PERMISSION_MODE";
+/// Environment variable carrying the permission preset JSON (opencode
+/// `ConfigPermissionV1` shape) minted into launch-config env by the SDK /
+/// buzz-backend-provider. Valid JSON decides the pod-local permission gate
+/// and is translated to `OPENCODE_PERMISSION` for opencode children.
+pub const HYPER_ACP_PERMISSIONS_ENV: &str = "HYPER_ACP_PERMISSIONS";
+/// opencode's native permission config env var, set on the child at spawn.
+pub const OPENCODE_PERMISSION_ENV: &str = "OPENCODE_PERMISSION";
 
 /// JSON-RPC canonical error codes this terminator can emit.
 const JSONRPC_INTERNAL_ERROR: i64 = -32_603;
@@ -822,6 +836,12 @@ fn truthy_env(name: &str) -> bool {
 }
 
 fn auto_approve_permission_from_env() -> bool {
+    if let Ok(raw) = std::env::var(HYPER_ACP_PERMISSIONS_ENV)
+        && !raw.trim().is_empty()
+        && let Some(permissions) = parse_permissions_json(&raw)
+    {
+        return permissions_catch_all_allows(&permissions);
+    }
     if truthy_env(HYPER_ACP_AUTO_APPROVE_PERMISSION_ENV) {
         return true;
     }
@@ -831,6 +851,73 @@ fn auto_approve_permission_from_env() -> bool {
             "auto" | "bypass-permissions" | "bypasspermissions"
         )
     })
+}
+
+/// Parse the `HYPER_ACP_PERMISSIONS` value. Only JSON objects are valid;
+/// anything else is ignored with a warning so legacy env knobs still apply.
+fn parse_permissions_json(raw: &str) -> Option<Value> {
+    match serde_json::from_str::<Value>(raw.trim()) {
+        Ok(value) if value.is_object() => Some(value),
+        Ok(_) => {
+            tracing::warn!(
+                "ignoring {HYPER_ACP_PERMISSIONS_ENV}: expected a JSON permission object"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::warn!(%error, "ignoring invalid {HYPER_ACP_PERMISSIONS_ENV} JSON");
+            None
+        }
+    }
+}
+
+/// Pod-local gate: the JSON catch-all `"*": "allow"` (and only that) means
+/// `session/request_permission` is auto-approved on the pod, matching the
+/// legacy `HYPER_ACP_PERMISSION_MODE=auto` behavior.
+fn permissions_catch_all_allows(permissions: &Value) -> bool {
+    permissions
+        .get("*")
+        .and_then(Value::as_str)
+        .is_some_and(|action| action.eq_ignore_ascii_case("allow"))
+}
+
+/// Spawn boundary: translate `HYPER_ACP_PERMISSIONS` into the opencode child
+/// env. Returns the verbatim JSON when the resolved agent program is
+/// opencode and the value is a valid JSON object; `None` otherwise (invalid
+/// JSON warns once here; unknown runtimes are logged and left untouched).
+pub(crate) fn opencode_permission_translation(
+    agent_program: &str,
+    permissions_raw: Option<&str>,
+) -> Option<String> {
+    let raw = permissions_raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let basename = Path::new(agent_program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(agent_program);
+    if basename != "opencode" {
+        tracing::debug!(
+            agent_program,
+            "{HYPER_ACP_PERMISSIONS_ENV} set but ACP child is not opencode; \
+             not translating to {OPENCODE_PERMISSION_ENV}"
+        );
+        return None;
+    }
+    parse_permissions_json(raw)?;
+    Some(raw.to_owned())
+}
+
+/// Apply the permission translation to a child command about to be spawned.
+pub(crate) fn apply_spawn_permission_env(
+    command: &mut tokio::process::Command,
+    agent_program: &str,
+    permissions_raw: Option<&str>,
+) {
+    if let Some(json) = opencode_permission_translation(agent_program, permissions_raw) {
+        command.env(OPENCODE_PERMISSION_ENV, json);
+    }
 }
 
 #[cfg(test)]
@@ -1163,6 +1250,104 @@ mod tests {
 
         let cancelled = PodCapabilities::permission_auto_approve(Some(&json!({ "options": [] })));
         assert_eq!(cancelled["outcome"]["outcome"], json!("cancelled"));
+    }
+
+    #[test]
+    fn permissions_json_presets_validate() {
+        // allow-all presets (default/auto/bypass-permissions) auto-approve.
+        let allow_all = parse_permissions_json(r#"{"*":"allow"}"#).unwrap();
+        assert!(permissions_catch_all_allows(&allow_all));
+
+        // accept-edits asks on the catch-all: passes through.
+        let accept_edits = parse_permissions_json(
+            r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","edit":"allow","todowrite":"allow","*":"ask"}"#,
+        )
+        .unwrap();
+        assert!(!permissions_catch_all_allows(&accept_edits));
+
+        // plan and dont-ask deny the catch-all: passes through.
+        let plan = parse_permissions_json(
+            r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow","question":"allow","edit":"deny","bash":"deny","task":"deny","external_directory":"deny","skill":"deny","webfetch":"deny","websearch":"deny","*":"deny"}"#,
+        )
+        .unwrap();
+        assert!(!permissions_catch_all_allows(&plan));
+        let dont_ask = parse_permissions_json(
+            r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","*":"deny"}"#,
+        )
+        .unwrap();
+        assert!(!permissions_catch_all_allows(&dont_ask));
+
+        // buzz-hosted denies the catch-all and scopes bash by pattern.
+        let buzz_hosted = parse_permissions_json(
+            r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow","todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny","external_directory":"allow","bash":{"sprig *":"allow","sprig":"allow","buzz *":"allow","buzz":"allow","hyper *":"allow","git *":"allow","*":"deny"},"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}"#,
+        )
+        .unwrap();
+        assert!(!permissions_catch_all_allows(&buzz_hosted));
+        assert!(buzz_hosted["bash"].is_object());
+
+        // No catch-all at all: passes through.
+        let no_catch_all = parse_permissions_json(r#"{"read":"allow"}"#).unwrap();
+        assert!(!permissions_catch_all_allows(&no_catch_all));
+    }
+
+    #[test]
+    fn permissions_json_invalid_is_ignored() {
+        assert!(parse_permissions_json("not json").is_none());
+        assert!(parse_permissions_json(r#"["allow"]"#).is_none());
+        assert!(parse_permissions_json(r#""allow""#).is_none());
+        assert!(parse_permissions_json("").is_none());
+    }
+
+    #[test]
+    fn opencode_child_env_gets_opencode_permission() {
+        let mut command = tokio::process::Command::new("/usr/local/bin/opencode");
+        apply_spawn_permission_env(
+            &mut command,
+            "/usr/local/bin/opencode",
+            Some(r#"{"*":"allow"}"#),
+        );
+        let envs: Vec<_> = command.as_std().get_envs().collect();
+        assert_eq!(
+            envs,
+            [(
+                std::ffi::OsStr::new(OPENCODE_PERMISSION_ENV),
+                Some(std::ffi::OsStr::new(r#"{"*":"allow"}"#))
+            )]
+        );
+    }
+
+    #[test]
+    fn non_opencode_runtime_is_untouched() {
+        for program in [
+            "/usr/local/bin/codex-acp",
+            "/usr/local/bin/goose",
+            "opencode-wrapper",
+        ] {
+            let mut command = tokio::process::Command::new(program);
+            apply_spawn_permission_env(&mut command, program, Some(r#"{"*":"allow"}"#));
+            assert!(
+                command.as_std().get_envs().next().is_none(),
+                "no env injected for {program}"
+            );
+            // Translation helper agrees and hands back nothing.
+            assert_eq!(
+                opencode_permission_translation(program, Some(r#"{"*":"allow"}"#)),
+                None
+            );
+        }
+        // Invalid JSON never reaches the child even for opencode.
+        assert_eq!(
+            opencode_permission_translation("/usr/local/bin/opencode", Some("not json")),
+            None
+        );
+        assert_eq!(
+            opencode_permission_translation("/usr/local/bin/opencode", Some(r#"["allow"]"#)),
+            None
+        );
+        assert_eq!(
+            opencode_permission_translation("/usr/local/bin/opencode", None),
+            None
+        );
     }
 
     #[tokio::test]

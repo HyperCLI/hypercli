@@ -19,6 +19,7 @@ import {
   DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
   DEFAULT_BUZZ_RUST_LOG,
+  buildPermissionsJson,
   Deployments,
   GooseAgent,
   KimiCodeAgent,
@@ -121,7 +122,8 @@ describe('coding agents', () => {
       HYPER_WORKSPACES_BOOT_SYNC: '1',
       HYPER_WORKSPACES_DIR: '/home/node/shared',
       HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
-      HYPER_ACP_PERMISSION_MODE: 'default',
+      // Allow-all default: buzz is wide open until users tighten it.
+      HYPER_ACP_PERMISSIONS: '{"*":"allow"}',
     };
     expect(post.mock.calls[0][1].env).toEqual(expectedEnv);
     expect(post.mock.calls[0][1].routes).toEqual({});
@@ -149,7 +151,86 @@ describe('coding agents', () => {
 
     await deployments.createOpenCode({ env: { HYPER_ACP_PERMISSION_MODE: 'bypass-permissions' } });
 
+    // Legacy mode var passes through verbatim during the transition.
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('bypass-permissions');
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe('{"*":"allow"}');
+  });
+
+  it.each([
+    'default',
+    'auto',
+    'bypass-permissions',
+  ] as const)('buildPermissionsJson(%s) is allow-all', (mode) => {
+    expect(buildPermissionsJson(mode)).toBe('{"*":"allow"}');
+  });
+
+  it('buildPermissionsJson(plan) emits the read-only preset with denies', () => {
+    expect(buildPermissionsJson('plan')).toBe(
+      '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",' +
+      '"question":"allow","edit":"deny","bash":"deny","task":"deny",' +
+      '"external_directory":"deny","skill":"deny","webfetch":"deny","websearch":"deny","*":"deny"}',
+    );
+  });
+
+  it('buildPermissionsJson merges caller overrides over the preset', () => {
+    expect(buildPermissionsJson('plan', { bash: 'allow' })).toBe(
+      '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",' +
+      '"question":"allow","edit":"deny","bash":"allow","task":"deny",' +
+      '"external_directory":"deny","skill":"deny","webfetch":"deny","websearch":"deny","*":"deny"}',
+    );
+  });
+
+  it('seeds HYPER_ACP_PERMISSIONS from permissionMode and keeps the legacy var in transition', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({ permissionMode: 'plan' });
+
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe(buildPermissionsJson('plan'));
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('plan');
+  });
+
+  it('caller-supplied HYPER_ACP_PERMISSIONS env wins over the preset seed', async () => {
+    const post = vi.fn().mockResolvedValue(response('codex'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createCodex({ env: { HYPER_ACP_PERMISSIONS: '{"*":"ask"}' } });
+
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe('{"*":"ask"}');
+  });
+
+  it('strips caller-supplied permission env keys from Buzz launches', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      env: {
+        HYPER_ACP_PERMISSIONS: '{"*":"allow"}',
+        HYPER_ACP_PERMISSION_MODE: 'bypass-permissions',
+        HYPER_ACP_AUTO_APPROVE_PERMISSION: '1',
+      },
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    // buzz-backend-provider owns the permission env surface for Buzz pods.
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBeUndefined();
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBeUndefined();
+    expect(post.mock.calls[0][1].env.HYPER_ACP_AUTO_APPROVE_PERMISSION).toBeUndefined();
   });
 
   it('honors a coding-agent runtime scope override', async () => {

@@ -1026,6 +1026,19 @@ fn build_launch_request_with_inference_base(
         env.insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
     }
     env.insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
+    // Provider-owned permission surface: the buzz-hosted preset decides the
+    // pod-local permission gate AND lands on opencode children as
+    // OPENCODE_PERMISSION via hyper-acp's spawn-boundary translation. The
+    // bypass-permissions mode var stays for legacy hyper-acp builds that do
+    // not yet read the JSON.
+    env.insert(
+        "HYPER_ACP_PERMISSIONS".to_owned(),
+        BUZZ_HOSTED_PERMISSIONS_JSON.to_owned(),
+    );
+    env.insert(
+        "HYPER_ACP_PERMISSION_MODE".to_owned(),
+        "bypass-permissions".to_owned(),
+    );
     env.insert(
         "HYPER_ACP_WS_URL".to_owned(),
         hyper_acp_ws_url_from_api_base(inference_api_base),
@@ -1044,6 +1057,13 @@ fn build_launch_request_with_inference_base(
     request.env = env;
     Ok(request)
 }
+
+// Buzz-hosted permission preset (opencode ConfigPermissionV1 shape), kept
+// byte-for-byte in sync with `buildPermissionsJson("buzz-hosted")` in
+// ts-sdk/src/agents.ts. hyper-acp gates pod-local permission requests on the
+// `"*"` catch-all and forwards this verbatim as OPENCODE_PERMISSION to
+// opencode children.
+pub const BUZZ_HOSTED_PERMISSIONS_JSON: &str = r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow","todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny","external_directory":"allow","bash":{"sprig *":"allow","sprig":"allow","buzz *":"allow","buzz":"allow","hyper *":"allow","git *":"allow","*":"deny"},"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}"#;
 
 const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "BUZZ_PRIVATE_KEY",
@@ -1080,6 +1100,11 @@ const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "HYPER_ACP_WS_URL",
     "HYPER_ACP_AGENT_COMMAND",
     "HYPER_ACP_AGENT_ARGS",
+    // Permission env is provider-owned: callers must not smuggle a preset,
+    // legacy mode, or the auto-approve break-glass into a buzz-hosted pod.
+    "HYPER_ACP_PERMISSIONS",
+    "HYPER_ACP_PERMISSION_MODE",
+    "HYPER_ACP_AUTO_APPROVE_PERMISSION",
     "HYPER_ACP_TRACE_DB",
     // Injected only from the provider process env; callers can never set the
     // introspection CORS origin directly.
@@ -2445,6 +2470,73 @@ mod tests {
                 "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
             );
         }
+    }
+
+    #[test]
+    fn buzz_hosted_permissions_preset_is_pinned_byte_for_byte() {
+        // This literal must match buildPermissionsJson("buzz-hosted") in
+        // ts-sdk/src/agents.ts exactly; hyper-acp forwards it verbatim to
+        // opencode children as OPENCODE_PERMISSION.
+        assert_eq!(
+            BUZZ_HOSTED_PERMISSIONS_JSON,
+            r#"{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow","todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny","external_directory":"allow","bash":{"sprig *":"allow","sprig":"allow","buzz *":"allow","buzz":"allow","hyper *":"allow","git *":"allow","*":"deny"},"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}"#
+        );
+
+        let request = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            test_options(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            request.env["HYPER_ACP_PERMISSIONS"],
+            BUZZ_HOSTED_PERMISSIONS_JSON
+        );
+        assert_eq!(
+            request.env["HYPER_ACP_PERMISSION_MODE"],
+            "bypass-permissions"
+        );
+    }
+
+    #[test]
+    fn caller_supplied_permission_env_is_stripped_and_provider_values_win() {
+        let mut agent = test_agent();
+        agent.env_vars.extend([
+            (
+                "HYPER_ACP_PERMISSIONS".to_owned(),
+                r#"{"*":"allow"}"#.to_owned(),
+            ),
+            (
+                "HYPER_ACP_PERMISSION_MODE".to_owned(),
+                "bypasspermissions".to_owned(),
+            ),
+            (
+                "hyper_acp_auto_approve_permission".to_owned(),
+                "1".to_owned(),
+            ),
+        ]);
+
+        let request =
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                .unwrap();
+
+        assert_eq!(
+            request.env.get("HYPER_ACP_PERMISSIONS").map(String::as_str),
+            Some(BUZZ_HOSTED_PERMISSIONS_JSON)
+        );
+        assert_eq!(
+            request
+                .env
+                .get("HYPER_ACP_PERMISSION_MODE")
+                .map(String::as_str),
+            Some("bypass-permissions")
+        );
+        assert!(!request
+            .env
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("HYPER_ACP_AUTO_APPROVE_PERMISSION")));
     }
 
     #[test]
