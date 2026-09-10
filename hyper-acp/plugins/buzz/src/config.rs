@@ -426,29 +426,6 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_NO_MEMORY", conflicts_with = "memory")]
     pub no_memory: bool,
 
-    /// Require channel turns to end with a published reply.
-    ///
-    /// On by default. When a channel turn ends with non-empty assistant text
-    /// but no successful publish on the turn's channel, the plugin blind-signs
-    /// and relays the accumulated text itself (threaded under the triggering
-    /// event) so a reply is never silently lost. `BUZZ_AGENT_REQUIRE_REPLY`
-    /// (upstream buzz-agent name) is accepted as an alias.
-    #[arg(
-        long,
-        env = "BUZZ_ACP_REQUIRE_REPLY",
-        conflicts_with = "no_require_reply",
-        default_value_t = true
-    )]
-    pub require_reply: bool,
-
-    /// Disable the reply guard (`--require-reply` is on by default).
-    #[arg(
-        long,
-        env = "BUZZ_ACP_NO_REQUIRE_REPLY",
-        conflicts_with = "require_reply"
-    )]
-    pub no_require_reply: bool,
-
     /// Disable the `<base>` platform-context section prepended to every prompt.
     /// When set, agents receive only the persona `<system>` prompt with no Buzz orientation.
     #[arg(long, env = "BUZZ_ACP_NO_BASE_PROMPT")]
@@ -591,14 +568,6 @@ pub struct Config {
     /// `<core-memory>` section. On by default; disabled via the
     /// `--no-memory` / `BUZZ_ACP_NO_MEMORY` opt-out.
     pub memory_enabled: bool,
-    /// Whether channel turns must end with a published reply. When true
-    /// (default), a turn that ended with non-empty assistant text but no
-    /// successful publish on the turn's channel is completed by the plugin
-    /// itself: the accumulated text is blind-signed and relayed with the
-    /// triggering event as reply anchor. Env: `BUZZ_ACP_REQUIRE_REPLY`
-    /// (upstream-parity alias `BUZZ_AGENT_REQUIRE_REPLY`); either set to
-    /// `0`/`false` disables, `1`/`true` enables.
-    pub require_reply: bool,
     /// Desired LLM model ID. Applied after every `session_new_full()`.
     pub model: Option<String>,
     /// Persisted effort level value (e.g. "high", "medium", "low"). Held as a
@@ -932,20 +901,6 @@ pub fn propagate_legacy_env_vars() {
             }
         }
     }
-    // Upstream buzz-agent parity: `BUZZ_AGENT_REQUIRE_REPLY` is numeric
-    // (0/1) there; normalize to the clap-parsed bool vocabulary here.
-    if std::env::var("BUZZ_ACP_REQUIRE_REPLY").is_err() {
-        if let Ok(val) = std::env::var("BUZZ_AGENT_REQUIRE_REPLY") {
-            let normalized = match val.trim().to_ascii_lowercase().as_str() {
-                "1" | "true" | "yes" | "on" => Some("true"),
-                "0" | "false" | "no" | "off" => Some("false"),
-                _ => None,
-            };
-            if let Some(normalized) = normalized {
-                std::env::set_var("BUZZ_ACP_REQUIRE_REPLY", normalized);
-            }
-        }
-    }
 }
 
 impl Config {
@@ -1216,7 +1171,6 @@ impl Config {
             presence_enabled: !args.no_presence,
             typing_enabled: !args.no_typing,
             memory_enabled: args.memory && !args.no_memory,
-            require_reply: args.require_reply && !args.no_require_reply,
             model,
             effort_level: args.effort_level,
             session_title: args
@@ -1595,7 +1549,6 @@ mod tests {
             presence_enabled: true,
             typing_enabled: true,
             memory_enabled: true,
-            require_reply: true,
             model: None,
             effort_level: None,
             session_title: None,

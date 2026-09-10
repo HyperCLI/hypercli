@@ -799,9 +799,6 @@ pub struct PromptContext {
     /// `<core-memory>` section. On by default; disabled via
     /// `--no-memory` / `BUZZ_ACP_NO_MEMORY`.
     pub memory_enabled: bool,
-    /// When true, channel turns must end with a published reply; otherwise the
-    /// pool blind-signs and relays the accumulated assistant text itself.
-    pub require_reply: bool,
     /// Harness identity string for NIP-AM `harness` field. Derived from the
     /// configured `agent_command` at startup (e.g. `"goose"`, `"buzz-agent"`).
     pub harness_name: String,
@@ -2020,9 +2017,8 @@ fn with_canvas(prompt: Option<String>, canvas: Option<&str>) -> Option<String> {
 /// If the turn accumulated non-empty assistant text but nothing was published
 /// on `channel` (through either blind-sign surface) since `turn_started`, the
 /// plugin publishes the text itself — signed with the agent keys, threaded
-/// under `reply_to` when present. Call only for reply-required channel turns
-/// (`ctx.require_reply` and a channel source) with the agent's accumulated
-/// turn text already extracted.
+/// under `reply_to` when present. Call only for channel turns with the
+/// agent's accumulated turn text already extracted.
 ///
 /// Empty/whitespace text stays silent: an agent that produced nothing has
 /// nothing to fall back to. Publish failures are logged, not propagated — the
@@ -3035,20 +3031,18 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
-                        if ctx.require_reply {
-                            if let (Some(handle), Some(channel)) =
-                                (&ctx.publish_handle, source.channel_id())
-                            {
-                                let turn_text = agent.acp.take_turn_text();
-                                reply_fallback_publish(
-                                    handle,
-                                    channel,
-                                    &turn_text,
-                                    turn_started_instant,
-                                    fallback_reply_anchor,
-                                )
-                                .await;
-                            }
+                        if let (Some(handle), Some(channel)) =
+                            (&ctx.publish_handle, source.channel_id())
+                        {
+                            let turn_text = agent.acp.take_turn_text();
+                            reply_fallback_publish(
+                                handle,
+                                channel,
+                                &turn_text,
+                                turn_started_instant,
+                                fallback_reply_anchor,
+                            )
+                            .await;
                         }
                         let usage = agent.acp.take_turn_usage();
                         publish_agent_turn_metric(
@@ -3122,8 +3116,7 @@ pub async fn run_prompt_task(
                 );
                 agent.state.invalidate(&source);
             }
-
-            if matches!(stop_reason, StopReason::EndTurn) && ctx.require_reply {
+            if matches!(stop_reason, StopReason::EndTurn) {
                 if let (Some(handle), Some(channel)) = (&ctx.publish_handle, source.channel_id()) {
                     let turn_text = agent.acp.take_turn_text();
                     reply_fallback_publish(
@@ -8870,7 +8863,6 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             agent_keys: agent_keys.clone(),
             agent_owner_pubkey: owner_pubkey,
             memory_enabled: false,
-            require_reply: true,
             harness_name: "goose".to_string(),
             relay_url: "ws://127.0.0.1:3000".to_string(),
             publish_handle: None,

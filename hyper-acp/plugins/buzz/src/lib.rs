@@ -2794,7 +2794,6 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
             .as_deref()
             .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
         memory_enabled: config.memory_enabled,
-        require_reply: config.require_reply,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
         relay_url: config.relay_url.clone(),
         publish_handle,
@@ -8887,7 +8886,6 @@ mod build_mcp_servers_tests {
             presence_enabled: true,
             typing_enabled: true,
             memory_enabled: false,
-            require_reply: true,
             model: None,
             effort_level: None,
             session_title: None,
@@ -9113,7 +9111,6 @@ mod error_outcome_emission_tests {
             presence_enabled: true,
             typing_enabled: true,
             memory_enabled: false,
-            require_reply: true,
             model: None,
             effort_level: None,
             session_title: None,
