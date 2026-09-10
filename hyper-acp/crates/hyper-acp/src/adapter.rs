@@ -79,6 +79,8 @@ pub struct PromptAdapter {
 }
 
 impl PromptAdapter {
+    /// Create an adapter with the given prompt configuration. Identity is
+    /// unknown until the agent's `initialize` response is observed.
     #[must_use]
     pub fn new(config: PromptConfig) -> Self {
         Self {
@@ -151,7 +153,7 @@ impl PromptAdapter {
     ///
     /// When the client has sent `initialize` but the agent's response has not
     /// been observed on the agent-bound pump yet, the first `session/new`
-    /// waits (bounded by [`IDENTITY_WAIT`]) for the identity so the delivery
+    /// waits (bounded by `IDENTITY_WAIT`) for the identity so the delivery
     /// channel is chosen deterministically.
     ///
     /// # Errors
@@ -282,7 +284,7 @@ impl PromptAdapter {
 
     /// Wait for the agent identity when a client `initialize` passed through
     /// but its response has not been observed yet. No-op for unidentified
-    /// flows (no `initialize`) and bounded by [`IDENTITY_WAIT`].
+    /// flows (no `initialize`) and bounded by `IDENTITY_WAIT`.
     async fn wait_for_identity(&self) {
         loop {
             let notified = self.identity_notify.notified();
