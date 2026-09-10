@@ -19,7 +19,7 @@ buzz-sdk = { git = "https://github.com/block/buzz.git", rev = "0e878664b08cdf7fb
 buzz-persona = { git = "https://github.com/block/buzz.git", rev = "0e878664b08cdf7fb2d89d940bc2aa92cdc485f7" }
 
 nostr = { version = "0.44", features = ["nip44", "nip98"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "io-std", "signal", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "io-std", "signal", "process", "fs"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["rt", "codec"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

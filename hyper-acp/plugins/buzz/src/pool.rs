@@ -2050,6 +2050,7 @@ async fn reply_fallback_publish(
         content: capped,
         reply_to,
         mentions: Vec::new(),
+        files: Vec::new(),
     };
     match crate::publish::publish(handle, &params, channel).await {
         Ok(result) => tracing::info!(
@@ -10860,6 +10861,7 @@ done"#
             content: "from the model".to_string(),
             reply_to: None,
             mentions: Vec::new(),
+            files: Vec::new(),
         };
         crate::publish::publish(&handle, &params, channel)
             .await

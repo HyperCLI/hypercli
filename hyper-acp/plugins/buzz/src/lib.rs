@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod attachment;
 mod config;
 mod engram_fetch;
 mod filter;
@@ -2736,15 +2737,27 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
     //     server: each session/new injects a shim re-exec of this binary, and
     //     the bridge does scope check + sign + relay behind a session token.
     let publish_journal: publish::PublishJournal = Default::default();
-    let publish_handle = Some(publish::PublisherHandle::with_journal(
-        config.keys.clone(),
-        relay.event_publisher(),
-        publish_journal.clone(),
-    ));
-    let mcp_bridge = match mcp_bridge::McpBridge::start(
+    let attachment_ctx = {
+        let rest = relay.rest_client();
+        attachment::AttachmentContext::new(
+            rest.base_url,
+            std::path::PathBuf::from(&cwd),
+            rest.auth_tag_json,
+        )
+    };
+    let publish_handle = Some(
+        publish::PublisherHandle::with_journal(
+            config.keys.clone(),
+            relay.event_publisher(),
+            publish_journal.clone(),
+        )
+        .with_attachments(attachment_ctx.clone()),
+    );
+    let mcp_bridge = match mcp_bridge::McpBridge::start_with_attachments(
         config.keys.clone(),
         relay.event_publisher(),
         publish_journal,
+        Some(attachment_ctx),
     )
     .await
     {

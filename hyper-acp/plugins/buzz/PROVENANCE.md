@@ -80,6 +80,25 @@ Deliberate deviations:
   two-surface access model (publish tool vs. `buzz` CLI inside the dev-MCP
   shell). Event parsing, threading anchors, and queue semantics are
   unchanged from upstream; only the publish surface instructions differ.
+- Publish-side file attachments: `src/attachment.rs` pattern-ports upstream
+  `buzz-cli` (`client.rs::upload_file` / `sign_blossom_upload` /
+  `build_imeta_tag` and the `commands/messages.rs` content-append behavior)
+  so the blind-signed publish surfaces can attach files
+  (`PublishParams.files`, MCP `publish` tool `files` arg). Wire format is
+  upstream-identical: Blossom BUD-02 `PUT {relay-http-base}/upload` with a
+  kind-24242 auth event (`t=upload`, `x=<sha256>`, `expiration` 600s/3600s
+  video, `server=<relay authority>`), `Content-Type` + `X-SHA-256` headers,
+  the optional `x-auth-tag` membership header (shared with the plugin's
+  `RestClient`), a single 404/405 fallback to the legacy `/media/upload`
+  alias, `\n![image|video]({url})` markdown appended to the content, and one
+  NIP-92 imeta tag per upload (`url`, `m`, `x`, `size`, plus `dim`,
+  `blurhash` from the descriptor). Deliberate deltas from upstream: MIME is
+  resolved from a fixed extension allowlist (`.png`/`.jpg`/`.jpeg`/`.gif`/
+  `.webp`/`.mp4`/`.pdf`) instead of `infer` magic-byte sniffing; the
+  transient retry/backoff machinery is not ported (caller sees the failure);
+  the imeta tag carries the local basename as relay-allowlisted `filename`
+  but does not forward upstream's optional `thumb`/`duration` fields. Size
+  caps match upstream (50 MB non-video, 500 MB video).
 - `src/lib.rs` retains the dev-MCP `BUZZ_PRIVATE_KEY`/`BUZZ_AUTH_TAG` env
   injection as a documented residual: reads and non-publish writes still run
   through the dev MCP server. The agent child env no longer carries those

@@ -10,15 +10,18 @@
 //!   chain as the `publish` tool of the per-session `buzz` MCP server.
 //!
 //! Both surfaces converge on [`publish`]: params parse, channel-scope check,
+//! optional attachment upload (`attachment.rs`, Blossom BUD-02),
 //! `buzz_sdk::build_message` → `sign_with_keys` → [`RelayEventPublisher`]
 //! (the same chain used by `setup_mode::publish_setup_nudge`). The agent never
 //! sees `BUZZ_PRIVATE_KEY` — only the bound channel id and the relay outcome.
 
 use nostr::{EventId, Keys, PublicKey};
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::attachment::{self, AttachmentContext, AttachmentError};
 use crate::relay::RelayEventPublisher;
 
 /// Agent→client ACP extension method terminated by this plugin.
@@ -32,6 +35,14 @@ pub(crate) const MAX_CONTENT_BYTES: usize = 32 * 1024;
 /// Cap on explicit mention recipients per publish.
 pub(crate) const MAX_MENTIONS: usize = 32;
 
+/// Per-attachment byte cap for non-video uploads (images, PDFs). Mirrors
+/// upstream `buzz-cli` `MAX_IMAGE_BYTES`.
+pub(crate) const MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Per-attachment byte cap for video uploads. Mirrors upstream `buzz-cli`
+/// `MAX_VIDEO_BYTES`.
+pub(crate) const MAX_VIDEO_ATTACHMENT_BYTES: u64 = 500 * 1024 * 1024;
+
 /// Signing + relay access the plugin lends to a publish call.
 #[derive(Clone)]
 pub(crate) struct PublisherHandle {
@@ -42,6 +53,9 @@ pub(crate) struct PublisherHandle {
     /// turn that finished without a successful publish while carrying
     /// non-empty agent text is a missed reply.
     pub journal: PublishJournal,
+    /// Relay media endpoint context for file attachments; `None` disables the
+    /// `files` param (a publish carrying files then fails with a tool error).
+    pub attachments: Option<AttachmentContext>,
 }
 
 impl PublisherHandle {
@@ -53,6 +67,7 @@ impl PublisherHandle {
             keys,
             publisher,
             journal: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            attachments: None,
         }
     }
 
@@ -66,7 +81,14 @@ impl PublisherHandle {
             keys,
             publisher,
             journal,
+            attachments: None,
         }
+    }
+
+    /// Enable file attachments against the given relay media endpoint.
+    pub(crate) fn with_attachments(mut self, ctx: AttachmentContext) -> Self {
+        self.attachments = Some(ctx);
+        self
     }
 
     /// Wall-clock instant of the last successful publish into `channel`,
@@ -107,6 +129,11 @@ pub(crate) struct PublishParams {
     pub reply_to: Option<EventId>,
     /// Explicit notification recipients (hex or npub on the wire).
     pub mentions: Vec<PublicKey>,
+    /// Files to attach: absolute or workspace-relative paths. Each is
+    /// uploaded to the relay's Blossom endpoint (`attachment.rs`) before the
+    /// message is signed; the wire content gains `![image](url)` markdown and
+    /// the event gains one NIP-92 imeta tag per upload.
+    pub files: Vec<PathBuf>,
 }
 
 /// Publish failure, mapped to a JSON-RPC error at the transport boundary.
@@ -200,11 +227,30 @@ pub(crate) fn parse_params(params: &Value) -> Result<PublishParams, PublishError
         Some(_) => return Err(invalid("mentions must be an array of pubkeys".into())),
     };
 
+    let files = match params.get("files") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(s) = item.as_str() else {
+                    return Err(invalid("files entries must be path strings".into()));
+                };
+                if s.is_empty() {
+                    return Err(invalid("files entries must be non-empty paths".into()));
+                }
+                out.push(PathBuf::from(s));
+            }
+            out
+        }
+        Some(_) => return Err(invalid("files must be an array of path strings".into())),
+    };
+
     Ok(PublishParams {
         channel_id,
         content,
         reply_to,
         mentions,
+        files,
     })
 }
 
@@ -240,13 +286,48 @@ pub(crate) async fn publish(
     let mention_hex: Vec<String> = params.mentions.iter().map(PublicKey::to_hex).collect();
     let mention_refs: Vec<&str> = mention_hex.iter().map(String::as_str).collect();
 
+    // Upload attachments first (matching upstream `messages send`): every
+    // file becomes one imeta tag plus a markdown image/video link appended to
+    // the content. The agent-supplied content cap is enforced at parse time;
+    // appended link lines are short and stay well under the SDK's own cap.
+    let mut content = params.content.clone();
+    let mut media_tags: Vec<Vec<String>> = Vec::new();
+    if !params.files.is_empty() {
+        let ctx = handle.attachments.as_ref().ok_or_else(|| {
+            PublishError::Transport(
+                "file attachments unavailable: no relay media endpoint configured".to_string(),
+            )
+        })?;
+        for file in &params.files {
+            let media = attachment::upload_file(&handle.keys, ctx, file)
+                .await
+                .map_err(|e| match e {
+                    AttachmentError::Read { .. }
+                    | AttachmentError::NotAFile(_)
+                    | AttachmentError::UnsupportedType(_)
+                    | AttachmentError::TooLarge { .. } => {
+                        PublishError::InvalidParams(e.to_string())
+                    }
+                    other => PublishError::Transport(other.to_string()),
+                })?;
+            if media.mime_type.starts_with("video/") {
+                content.push_str("\n![video](");
+            } else {
+                content.push_str("\n![image](");
+            }
+            content.push_str(&media.url);
+            content.push(')');
+            media_tags.push(media.imeta_tag());
+        }
+    }
+
     let builder = buzz_sdk::build_message(
         channel_id,
-        &params.content,
+        &content,
         thread_ref.as_ref(),
         &mention_refs,
         false,
-        &[],
+        &media_tags,
     )
     .map_err(|e| PublishError::Transport(format!("build error: {e}")))?;
 
@@ -376,6 +457,7 @@ mod tests {
             content: "ship it".into(),
             reply_to: Some(reply),
             mentions: vec![mention],
+            files: Vec::new(),
         };
 
         let result = publish(&handle, &params, ch).await.expect("publish ok");
@@ -451,5 +533,200 @@ mod tests {
             "dead relay must be Transport, got {err:?}"
         );
         assert_eq!(err.code(), -32603);
+    }
+
+    #[test]
+    fn parse_accepts_and_validates_files() {
+        let p = parse_params(&serde_json::json!({
+            "content": "x",
+            "files": ["shot.png", "/abs/report.pdf"],
+        }))
+        .unwrap();
+        assert_eq!(
+            p.files,
+            vec![
+                std::path::PathBuf::from("shot.png"),
+                std::path::PathBuf::from("/abs/report.pdf"),
+            ]
+        );
+
+        let default = parse_params(&params_json("x")).unwrap();
+        assert!(default.files.is_empty(), "files defaults to empty");
+
+        for body in [
+            serde_json::json!({"content": "x", "files": "shot.png"}),
+            serde_json::json!({"content": "x", "files": [42]}),
+            serde_json::json!({"content": "x", "files": [""]}),
+        ] {
+            assert!(
+                matches!(parse_params(&body), Err(PublishError::InvalidParams(_))),
+                "body {body} must be invalid params"
+            );
+        }
+    }
+
+    /// Publish-with-files fixture: mock Blossom door + shared journal handle.
+    struct AttachmentFixture {
+        handle: PublisherHandle,
+        published: tokio::sync::mpsc::Receiver<nostr::Event>,
+        server: crate::attachment::test_support::MockUploadServer,
+        dir: std::path::PathBuf,
+        sha: String,
+    }
+
+    impl Drop for AttachmentFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    async fn attachment_fixture(contents: &[u8], name: &str) -> AttachmentFixture {
+        use crate::attachment::test_support::{descriptor_json, mock_upload_server};
+        use sha2::{Digest, Sha256};
+
+        let dir = std::env::temp_dir().join(format!("buzz-publish-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        std::fs::write(dir.join(name), contents).expect("write temp file");
+        let sha = hex::encode(Sha256::digest(contents));
+        let expected_sha = sha.clone();
+        let server = mock_upload_server(move |req| {
+            (
+                200,
+                descriptor_json(
+                    "http://r",
+                    &expected_sha,
+                    "image/png",
+                    req.body.len(),
+                    ",\"dim\":\"2x2\"",
+                ),
+            )
+        })
+        .await;
+        let (publisher, published) = RelayEventPublisher::test_pair();
+        let ctx = crate::attachment::AttachmentContext::new(server.base.clone(), dir.clone(), None);
+        let handle = PublisherHandle::new(Keys::generate(), publisher).with_attachments(ctx);
+        AttachmentFixture {
+            handle,
+            published,
+            server,
+            dir,
+            sha,
+        }
+    }
+
+    fn imeta_of(event: &nostr::Event) -> Vec<String> {
+        event
+            .tags
+            .iter()
+            .map(|t| t.as_slice().to_vec())
+            .find(|t| t.first().map(String::as_str) == Some("imeta"))
+            .expect("imeta tag present")
+    }
+
+    #[tokio::test]
+    async fn publish_uploads_file_appends_markdown_and_imeta() {
+        let mut fx = attachment_fixture(b"\x89PNG\r\n\x1a\nimg", "shot.png").await;
+        let ch = Uuid::new_v4();
+        let params = parse_params(&serde_json::json!({
+            "content": "see this",
+            "files": ["shot.png"],
+        }))
+        .unwrap();
+        publish(&fx.handle, &params, ch).await.expect("publish ok");
+
+        let event = fx.published.recv().await.expect("event relayed");
+        event.verify().expect("event signature must verify");
+        assert_eq!(
+            event.content,
+            format!("see this\n![image](http://r/media/{}.png)", fx.sha),
+            "markdown link appended to content"
+        );
+        assert_eq!(
+            imeta_of(&event),
+            vec![
+                "imeta".to_string(),
+                format!("url http://r/media/{}.png", fx.sha),
+                "m image/png".to_string(),
+                format!("x {}", fx.sha),
+                "size 11".to_string(),
+                "dim 2x2".to_string(),
+                "filename shot.png".to_string(),
+            ],
+            "imeta tag carries descriptor + basename"
+        );
+        // The upload hit the primary BUD-02 endpoint.
+        let req = fx.server.requests.recv().await.expect("upload recorded");
+        assert_eq!(req.method, "PUT");
+        assert_eq!(req.path, "/upload");
+    }
+
+    #[tokio::test]
+    async fn publish_missing_attachment_is_invalid_params_and_relays_nothing() {
+        let mut fx = attachment_fixture(b"x", "exists.png").await;
+        let params = parse_params(&serde_json::json!({
+            "content": "x",
+            "files": ["missing.png"],
+        }))
+        .unwrap();
+        let err = publish(&fx.handle, &params, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, PublishError::InvalidParams(_)),
+            "missing file must be InvalidParams, got {err:?}"
+        );
+        assert!(
+            err.to_string().contains("missing.png"),
+            "error names the file: {err}"
+        );
+        tokio::time::timeout(std::time::Duration::from_millis(100), fx.published.recv())
+            .await
+            .expect_err("failed attachment must not reach the relay");
+    }
+
+    #[tokio::test]
+    async fn publish_oversize_attachment_is_invalid_params() {
+        let mut fx = attachment_fixture(b"x", "seed.png").await;
+        let path = fx.dir.join("huge.png");
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_ATTACHMENT_BYTES + 1)
+            .unwrap();
+        let params = parse_params(&serde_json::json!({
+            "content": "x",
+            "files": ["huge.png"],
+        }))
+        .unwrap();
+        let err = publish(&fx.handle, &params, Uuid::new_v4())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PublishError::InvalidParams(_)));
+        assert!(
+            err.to_string().contains("max"),
+            "error states the cap: {err}"
+        );
+        // No upload request was sent for the oversize file.
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            fx.server.requests.recv(),
+        )
+        .await
+        .expect_err("oversize file must not be uploaded");
+    }
+
+    #[tokio::test]
+    async fn publish_files_requires_an_attachment_endpoint() {
+        let (handle, _rx) = test_handle();
+        let params = parse_params(&serde_json::json!({
+            "content": "x",
+            "files": ["shot.png"],
+        }))
+        .unwrap();
+        let err = publish(&handle, &params, Uuid::new_v4()).await.unwrap_err();
+        assert!(
+            matches!(err, PublishError::Transport(_)),
+            "no endpoint must be a Transport failure, got {err:?}"
+        );
+        assert!(err.to_string().contains("unavailable"), "{err}");
     }
 }

@@ -26,6 +26,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use uuid::Uuid;
 
 use crate::acp::{EnvVar, McpServer};
+use crate::attachment::AttachmentContext;
 use crate::mcp_shim;
 use crate::publish::{self, PublisherHandle};
 use crate::relay::RelayEventPublisher;
@@ -47,7 +48,8 @@ fn publish_tool_definition() -> Value {
             The harness blind-signs and relays it as you — you hold no keys. \
             Use reply_to (64-char hex event id) to keep the reply threaded; \
             omit it for a channel-root post. Pass notify recipients as hex or \
-            npub strings in mentions.",
+            npub strings in mentions. Pass files to attach uploads from your \
+            workspace.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -63,6 +65,15 @@ fn publish_tool_definition() -> Value {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Optional hex or npub pubkeys to notify.",
+                },
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional files to attach: absolute or \
+                        workspace-relative paths (.png, .jpg/.jpeg, .gif, \
+                        .webp, .mp4, .pdf; max 50 MB each, 500 MB for video). \
+                        Each is uploaded to the relay and linked as a markdown \
+                        image with NIP-92 imeta metadata.",
                 },
             },
             "required": ["content"],
@@ -86,21 +97,37 @@ impl Drop for McpBridge {
 }
 
 impl McpBridge {
-    /// Bind the loopback listener and spawn the accept loop.
-    ///
-    /// `handle` supplies the signing keys and relay publisher used for every
-    /// authenticated publish; neither ever leaves this process. `journal` is
-    /// shared with the `buzz/publish` ACP handle so the turn-end reply guard
-    /// sees publishes regardless of which surface carried them.
+    /// Test-only convenience: start without an attachment endpoint.
+    #[cfg(test)]
     pub(crate) async fn start(
         keys: nostr::Keys,
         publisher: RelayEventPublisher,
         journal: publish::PublishJournal,
     ) -> std::io::Result<Self> {
+        Self::start_with_attachments(keys, publisher, journal, None).await
+    }
+
+    /// Bind the loopback listener and spawn the accept loop.
+    ///
+    /// `handle` supplies the signing keys and relay publisher used for every
+    /// authenticated publish; neither ever leaves this process. `journal` is
+    /// shared with the `buzz/publish` ACP handle so the turn-end reply guard
+    /// sees publishes regardless of which surface carried them. `attachments`
+    /// enables the publish tool's `files` argument against the relay media
+    /// endpoint; `None` rejects attachment publishes with a tool error.
+    pub(crate) async fn start_with_attachments(
+        keys: nostr::Keys,
+        publisher: RelayEventPublisher,
+        journal: publish::PublishJournal,
+        attachments: Option<AttachmentContext>,
+    ) -> std::io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
         let registry: Arc<Mutex<HashMap<String, Uuid>>> = Arc::new(Mutex::new(HashMap::new()));
-        let handle = PublisherHandle::with_journal(keys, publisher, journal);
+        let mut handle = PublisherHandle::with_journal(keys, publisher, journal);
+        if let Some(ctx) = attachments {
+            handle = handle.with_attachments(ctx);
+        }
         let accept_registry = Arc::clone(&registry);
         let accept_task = tokio::spawn(async move {
             loop {
@@ -435,6 +462,13 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], json!("publish"));
         assert_eq!(tools[0]["inputSchema"]["required"], json!(["content"]));
+        let files = &tools[0]["inputSchema"]["properties"]["files"];
+        assert_eq!(files["type"], json!("array"));
+        assert_eq!(files["items"], json!({"type": "string"}));
+        assert_eq!(
+            tools[0]["inputSchema"]["additionalProperties"],
+            json!(false)
+        );
     }
 
     #[tokio::test]
@@ -534,5 +568,120 @@ mod tests {
         )
         .await;
         assert_eq!(resp["id"], json!(7));
+    }
+
+    /// Bridge fixture backed by the mock Blossom door; cwd is the temp dir.
+    async fn test_bridge_with_uploads(
+        file_bytes: &[u8],
+        file_name: &str,
+    ) -> (
+        McpBridge,
+        tokio::sync::mpsc::Receiver<nostr::Event>,
+        std::path::PathBuf,
+        String,
+        crate::attachment::test_support::MockUploadServer,
+    ) {
+        use crate::attachment::test_support::{descriptor_json, mock_upload_server};
+        use sha2::{Digest, Sha256};
+
+        let dir = std::env::temp_dir().join(format!("buzz-bridge-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        std::fs::write(dir.join(file_name), file_bytes).expect("write temp file");
+        let sha = hex::encode(Sha256::digest(file_bytes));
+        let expected_sha = sha.clone();
+        let server = mock_upload_server(move |req| {
+            (
+                200,
+                descriptor_json("http://r", &expected_sha, "image/png", req.body.len(), ""),
+            )
+        })
+        .await;
+        let ctx = AttachmentContext::new(server.base.clone(), dir.clone(), None);
+        let (publisher, rx) = RelayEventPublisher::test_pair();
+        let bridge = McpBridge::start_with_attachments(
+            nostr::Keys::generate(),
+            publisher,
+            Default::default(),
+            Some(ctx),
+        )
+        .await
+        .expect("bridge binds");
+        (bridge, rx, dir, sha, server)
+    }
+
+    #[tokio::test]
+    async fn publish_tool_uploads_files_and_emits_imeta() {
+        let (bridge, mut published, dir, sha, _server) =
+            test_bridge_with_uploads(b"\x89PNG\r\n\x1a\nzz", "pic.png").await;
+        let channel = Uuid::new_v4();
+        let (mut reader, mut writer) = authed_conn(&bridge, channel).await;
+
+        let resp = rpc(
+            &mut reader,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 8,
+                "method": "tools/call",
+                "params": {
+                    "name": "publish",
+                    "arguments": {"content": "done", "files": ["pic.png"]},
+                },
+            }),
+        )
+        .await;
+        assert_eq!(
+            resp["result"]["isError"],
+            json!(false),
+            "publish with files must succeed: {resp}"
+        );
+
+        let event = published.recv().await.expect("event relayed");
+        event.verify().expect("event signature must verify");
+        assert_eq!(
+            event.content,
+            format!("done\n![image](http://r/media/{sha}.png)")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|t| t.as_slice().first().map(String::as_str) == Some("imeta")),
+            "imeta tag emitted: {:?}",
+            event.tags
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn publish_tool_missing_file_is_a_tool_error() {
+        let (bridge, mut published, dir, _sha, _server) =
+            test_bridge_with_uploads(b"x", "seed.png").await;
+        let (mut reader, mut writer) = authed_conn(&bridge, Uuid::new_v4()).await;
+
+        let resp = rpc(
+            &mut reader,
+            &mut writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {
+                    "name": "publish",
+                    "arguments": {"content": "x", "files": ["nope.png"]},
+                },
+            }),
+        )
+        .await;
+        assert_eq!(resp["result"]["isError"], json!(true));
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("nope.png") && text.contains("cannot read attachment"),
+            "clear missing-file tool error: {text}"
+        );
+        tokio::time::timeout(std::time::Duration::from_millis(100), published.recv())
+            .await
+            .expect_err("tool error must not reach the relay");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

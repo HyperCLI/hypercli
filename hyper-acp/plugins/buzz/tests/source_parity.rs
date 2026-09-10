@@ -108,6 +108,9 @@ fn copied_buzz_sources_match_upstream_except_documented_entrypoint_diffs() {
         "src/main.rs",
         // No upstream counterpart: plugin-terminated blind-signing publish
         // core, in-process MCP bridge, and the agent-spawned stdio shim.
+        // `attachment.rs` pattern-ports upstream buzz-cli's Blossom upload
+        // (see PROVENANCE.md) for the publish-side `files` flow.
+        "src/attachment.rs",
         "src/mcp_bridge.rs",
         "src/mcp_shim.rs",
         "src/pool.rs",
