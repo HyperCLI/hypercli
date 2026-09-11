@@ -6,6 +6,7 @@ import {
   type UsageSummary,
 } from "../api";
 import {
+  USAGE_KEY_ROW_LIMIT,
   USAGE_RANGE_OPTIONS,
   activeKeyCount,
   agentUsageRows,
@@ -159,6 +160,7 @@ export function UsagePanel() {
         <AgentUsageSection
           rows={agentRows}
           status={sectionStatus(agents)}
+          periodLabel={periodLabel}
         />
       </div>
     </div>
@@ -260,6 +262,8 @@ function TokenUsageSection({
   const days = history ?? [];
   const hasData = days.some((day) => day.total_tokens > 0);
   const maxTokens = Math.max(...days.map((day) => day.total_tokens), 1);
+  const firstLabel = days.length ? usageDateLabel(days[0].date) : "";
+  const lastLabel = days.length ? usageDateLabel(days[days.length - 1].date) : "";
 
   return (
     <SectionCard title="Token usage" caption={periodLabel}>
@@ -306,7 +310,7 @@ function TokenUsageSection({
             })}
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[10px] text-text-secondary">
-            <span>{usageDateLabel(days[0].date)}</span>
+            <span>{firstLabel}</span>
             <span className="flex items-center gap-3">
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -317,7 +321,7 @@ function TokenUsageSection({
                 Completion
               </span>
             </span>
-            <span>{usageDateLabel(days[days.length - 1].date)}</span>
+            <span>{lastLabel === firstLabel ? "" : lastLabel}</span>
           </div>
         </div>
       )}
@@ -334,7 +338,11 @@ function KeyUsageSection({
   status: SectionStatus;
   periodLabel: string;
 }) {
-  const visible = keys.filter((key) => key.total_tokens > 0 || key.requests > 0);
+  const active = keys
+    .filter((key) => key.total_tokens > 0 || key.requests > 0)
+    .sort((a, b) => b.total_tokens - a.total_tokens);
+  const visible = active.slice(0, USAGE_KEY_ROW_LIMIT);
+  const hiddenCount = active.length - visible.length;
   const maxTokens = Math.max(...visible.map((key) => key.total_tokens), 1);
 
   return (
@@ -372,6 +380,11 @@ function KeyUsageSection({
               </div>
             );
           })}
+          {hiddenCount > 0 && (
+            <div className="pt-0.5 text-[10px] text-text-secondary">
+              +{hiddenCount} more {hiddenCount === 1 ? "key" : "keys"} with less usage
+            </div>
+          )}
         </div>
       )}
     </SectionCard>
@@ -381,12 +394,14 @@ function KeyUsageSection({
 function AgentUsageSection({
   rows,
   status,
+  periodLabel,
 }: {
   rows: UsageAgentRow[];
   status: SectionStatus;
+  periodLabel: string;
 }) {
   return (
-    <SectionCard title="Usage by agent">
+    <SectionCard title="Usage by agent" caption={periodLabel}>
       {status !== "ready" || rows.length === 0 ? (
         <SectionState status={status} emptyMessage="No agent usage in this period" />
       ) : (

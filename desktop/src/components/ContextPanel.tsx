@@ -1,18 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import {
+  Bell,
   CalendarClock,
   Camera,
+  Cpu,
   FileText,
   Folder,
   Maximize2,
+  Mic,
   Monitor,
   RefreshCw,
   Trash2,
+  Volume2,
+  X,
 } from "lucide-react";
-import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, claimAgentShellSocket, releaseAgentShellSocket, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, claimAgentShellSocket, hasAgentVoice, releaseAgentShellSocket, routinesDelete, routinesList, routinesUpdate, setAgentLaunchOverrides, validateAgentVoiceFile, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { setVoiceRepliesEnabled, voiceRepliesEnabled } from "../lib/voice-replies";
 import { describeRoutine } from "../schedule";
 import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
@@ -97,6 +103,9 @@ export function ContextPanel({
   onSetAgentRuntime,
   onUploadAgentAvatar,
   onDeleteAgentAvatar,
+  onUploadAgentVoice,
+  onDeleteAgentVoice,
+  voiceApiUnavailable,
 }: {
   agent: AgentSummary | null;
   tab: ContextTab;
@@ -109,6 +118,10 @@ export function ContextPanel({
   onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
+  onUploadAgentVoice: (id: string, file: File) => void;
+  onDeleteAgentVoice: (id: string) => void;
+  /** The avatar-audio routes answered 404/405 — show a disabled hint. */
+  voiceApiUnavailable: boolean;
 }) {
   return (
     <aside className="app-pane-right">
@@ -153,6 +166,9 @@ export function ContextPanel({
             onSetAgentRuntime={onSetAgentRuntime}
             onUploadAgentAvatar={onUploadAgentAvatar}
             onDeleteAgentAvatar={onDeleteAgentAvatar}
+            onUploadAgentVoice={onUploadAgentVoice}
+            onDeleteAgentVoice={onDeleteAgentVoice}
+            voiceApiUnavailable={voiceApiUnavailable}
           />
         )}
       </div>
@@ -1061,8 +1077,11 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
                     <div className="text-[12px] leading-snug break-words">{routine.prompt}</div>
                   )}
                   <div className="mt-1 text-[10px] text-text-secondary">
-                    {describeRoutine(routine)} · next {formatRoutineTime(routine.next_run_at)}
+                    {describeRoutine(routine)}
                     {routine.session_id ? ` · session ${routine.session_id}` : ""}
+                  </div>
+                  <div className="text-[10px] text-text-secondary">
+                    Next run {formatRoutineTime(routine.next_run_at)}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
@@ -1119,6 +1138,9 @@ function SettingsTab({
   onSetAgentRuntime,
   onUploadAgentAvatar,
   onDeleteAgentAvatar,
+  onUploadAgentVoice,
+  onDeleteAgentVoice,
+  voiceApiUnavailable,
 }: {
   agent: AgentSummary;
   onArchive: (id: string) => void;
@@ -1129,12 +1151,22 @@ function SettingsTab({
   onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
+  onUploadAgentVoice: (id: string, file: File) => void;
+  onDeleteAgentVoice: (id: string) => void;
+  voiceApiUnavailable: boolean;
 }) {
   const persona = usePersona(agent.id);
-  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [notify, setNotify] = useLocalBool(`desktop-ng-notify:${agent.id}`, true);
+  const [voiceReplies, setVoiceReplies] = useState(() => voiceRepliesEnabled(agent.id));
+  const [identityModal, setIdentityModal] = useState<"avatar" | "voice" | null>(null);
   const [avatarStyleOpen, setAvatarStyleOpen] = useState(false);
+  const [runtimeModalOpen, setRuntimeModalOpen] = useState(false);
   const desktopEnabled = agentHasDesktop(agent);
+  const voiceSet = hasAgentVoice(agent);
+  useEffect(() => {
+    setVoiceReplies(voiceRepliesEnabled(agent.id));
+    setIdentityModal(null);
+  }, [agent.id]);
 
   return (
     <div className="flex h-full flex-col">
@@ -1147,41 +1179,24 @@ function SettingsTab({
             color={persona.color}
             icon={persona.icon}
           />
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] text-text-secondary leading-snug">
-              Agents read each other's descriptions to decide who to hand work to.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) onUploadAgentAvatar(agent.id, file);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px]"
-              >
-                <Camera size={12} />
-                {agent.avatar_url ? "Change avatar" : "Upload avatar"}
-              </button>
-              {agent.avatar_url && (
-                <button
-                  type="button"
-                  onClick={() => onDeleteAgentAvatar(agent.id)}
-                  className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px]"
-                >
-                  <Trash2 size={12} />
-                  Remove
-                </button>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIdentityModal("avatar")}
+              className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px]"
+            >
+              <Camera size={12} />
+              Change avatar
+            </button>
+            <button
+              type="button"
+              disabled={voiceApiUnavailable}
+              onClick={() => setIdentityModal("voice")}
+              className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px] disabled:opacity-40"
+            >
+              <Mic size={12} />
+              Change voice
+            </button>
           </div>
         </div>
 
@@ -1275,8 +1290,24 @@ function SettingsTab({
       </div>
 
       <div className="border-t border-border pt-3">
-        <div className="text-[11px] text-text-secondary mb-1.5">Runtime</div>
-        <RuntimePicker agent={agent} onSetAgentRuntime={onSetAgentRuntime} />
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex items-center gap-2">
+            <Cpu size={14} className="shrink-0 text-text-secondary" />
+            <div>
+              <div className="text-[12px] font-medium">Runtime</div>
+              <div className="text-[10px] text-text-secondary leading-snug">
+                {runtimeLabel(agent.runtime)}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRuntimeModalOpen(true)}
+            className="shrink-0 text-[11px] text-text-secondary hover:text-text-primary transition-colors"
+          >
+            Change runtime
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
@@ -1300,10 +1331,46 @@ function SettingsTab({
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-        <div className="min-w-0">
-          <div className="text-[12px] font-medium">Notifications</div>
-          <div className="text-[10px] text-text-secondary leading-snug">
-            Get notified when this agent finishes or needs input.
+        <div className="min-w-0 flex items-center gap-2">
+          <Volume2 size={14} className="shrink-0 text-text-secondary" />
+          <div>
+            <div className="text-[12px] font-medium">Voice replies</div>
+            <div className="text-[10px] text-text-secondary leading-snug">
+              {voiceSet
+                ? "Agent replies read aloud — applies immediately."
+                : "Upload audio to have your agent speak"}
+            </div>
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={voiceReplies}
+          disabled={!voiceSet}
+          title={voiceSet ? undefined : "Upload audio to have your agent speak"}
+          onClick={() => {
+            setVoiceRepliesEnabled(agent.id, !voiceReplies);
+            setVoiceReplies(!voiceReplies);
+          }}
+          className={`shrink-0 w-8 h-[18px] rounded-full relative transition-colors disabled:opacity-40 ${
+            voiceReplies ? "bg-accent" : "bg-border-strong"
+          }`}
+        >
+          <span
+            className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${
+              voiceReplies ? "left-[16px]" : "left-[2px]"
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+        <div className="min-w-0 flex items-center gap-2">
+          <Bell size={14} className="shrink-0 text-text-secondary" />
+          <div>
+            <div className="text-[12px] font-medium">Notifications</div>
+            <div className="text-[10px] text-text-secondary leading-snug">
+              Get notified when this agent finishes or needs input.
+            </div>
           </div>
         </div>
         <button
@@ -1333,67 +1400,434 @@ function SettingsTab({
       <div className="shrink-0 border-t border-border bg-surface p-3">
         <DangerZone agent={agent} onArchive={onArchive} onRestore={onRestore} onStop={onStop} onDelete={onDelete} />
       </div>
+      {identityModal === "avatar" && (
+        <AvatarPickerModal
+          agent={agent}
+          onClose={() => setIdentityModal(null)}
+          onUpload={onUploadAgentAvatar}
+          onDelete={onDeleteAgentAvatar}
+        />
+      )}
+      {identityModal === "voice" && (
+        <VoicePickerModal
+          agent={agent}
+          voiceApiUnavailable={voiceApiUnavailable}
+          onClose={() => setIdentityModal(null)}
+          onUpload={onUploadAgentVoice}
+          onDelete={onDeleteAgentVoice}
+        />
+      )}
+      {runtimeModalOpen && (
+        <ChangeRuntimeModal
+          agent={agent}
+          onSetAgentRuntime={onSetAgentRuntime}
+          onClose={() => setRuntimeModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-function RuntimePicker({
+function IdentityModalShell({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <main
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="modal-card relative flex max-h-[86vh] w-[360px] max-w-[calc(100vw-32px)] flex-col overflow-hidden"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <div className="text-[13px] font-semibold">{title}</div>
+            <div className="text-[11px] text-text-secondary">{subtitle}</div>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        <button
+          onClick={onClose}
+          className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full text-text-secondary hover:bg-active-row hover:text-foreground transition-colors"
+        >
+          <X size={15} />
+        </button>
+      </main>
+    </div>
+  );
+}
+
+function AvatarPickerModal({
+  agent,
+  onClose,
+  onUpload,
+  onDelete,
+}: {
+  agent: AgentSummary;
+  onClose: () => void;
+  onUpload: (id: string, file: File) => void;
+  onDelete: (id: string) => void;
+}) {
+  const persona = usePersona(agent.id);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <IdentityModalShell title="Change avatar" subtitle="PNG, JPEG, WebP or GIF." onClose={onClose}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          onUpload(agent.id, file);
+          onClose();
+        }}
+      />
+      <div className="flex justify-center">
+        <Avatar
+          name={agent.name}
+          url={agent.avatar_url}
+          size={56}
+          color={persona.color}
+          icon={persona.icon}
+        />
+      </div>
+      <div className="mt-4 flex items-center justify-between">
+        {agent.avatar_url ? (
+          <button
+            type="button"
+            onClick={() => {
+              onDelete(agent.id);
+              onClose();
+            }}
+            className="text-[12px] text-error hover:underline"
+          >
+            Remove avatar
+          </button>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="ui-secondary-button"
+        >
+          Choose image
+        </button>
+      </div>
+    </IdentityModalShell>
+  );
+}
+
+function VoicePickerModal({
+  agent,
+  voiceApiUnavailable,
+  onClose,
+  onUpload,
+  onDelete,
+}: {
+  agent: AgentSummary;
+  voiceApiUnavailable: boolean;
+  onClose: () => void;
+  onUpload: (id: string, file: File) => void;
+  onDelete: (id: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  const voiceSet = hasAgentVoice(agent);
+  const status = voiceApiUnavailable
+    ? "Voice upload is not available in this environment."
+    : voiceSet
+      ? "Voice set"
+      : "No voice yet";
+
+  return (
+    <IdentityModalShell title="Change voice" subtitle={status} onClose={onClose}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm,.mp4,video/mp4,video/webm"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          const problem = validateAgentVoiceFile(file);
+          if (problem) {
+            setHint(problem);
+            return;
+          }
+          setHint(null);
+          onUpload(agent.id, file);
+          onClose();
+        }}
+      />
+      {hint && (
+        <p className="text-[10px] text-error leading-snug">{hint}</p>
+      )}
+      <div className={`flex items-center justify-between ${hint ? "mt-3" : ""}`}>
+        {voiceSet && !voiceApiUnavailable ? (
+          <button
+            type="button"
+            onClick={() => {
+              onDelete(agent.id);
+              onClose();
+            }}
+            className="text-[12px] text-error hover:underline"
+          >
+            Remove voice
+          </button>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          disabled={voiceApiUnavailable}
+          onClick={() => inputRef.current?.click()}
+          className="ui-secondary-button disabled:opacity-40"
+        >
+          Choose audio
+        </button>
+      </div>
+    </IdentityModalShell>
+  );
+}
+
+function launchConfigText(config: unknown, key: string): string {
+  if (!plainRecord(config)) return "";
+  const value = config[key];
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((part) => typeof part === "string")) return value.join(" ");
+  return "";
+}
+
+function splitCommand(input: string): string[] {
+  const words: string[] = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(input))) words.push(match[1] ?? match[2] ?? match[3]);
+  return words;
+}
+
+function launchConfigEnv(config: unknown): Record<string, string> {
+  if (!plainRecord(config) || !plainRecord(config.env)) return {};
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(config.env)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  return env;
+}
+
+function envRecordToText(env: Record<string, string>): string {
+  return Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n");
+}
+
+function parseEnvText(text: string): { env: Record<string, string> } | { error: string } {
+  const env: Record<string, string> = {};
+  const lines = text.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    const eq = line.indexOf("=");
+    if (eq < 1) return { error: `Line ${index + 1}: expected KEY=VALUE.` };
+    env[line.slice(0, eq)] = line.slice(eq + 1);
+  }
+  return { env };
+}
+
+function envTextMatches(text: string, current: Record<string, string>): boolean {
+  const parsed = parseEnvText(text);
+  if ("error" in parsed) return false;
+  const keys = Object.keys(parsed.env);
+  return keys.length === Object.keys(current).length && keys.every((key) => parsed.env[key] === current[key]);
+}
+
+function ChangeRuntimeModal({
   agent,
   onSetAgentRuntime,
+  onClose,
 }: {
   agent: AgentSummary;
   onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
+  onClose: () => void;
 }) {
   const current = agent.runtime ?? "generic";
+  const currentImage = launchConfigText(agent.launchConfig, "image");
+  const currentEntrypoint = launchConfigText(agent.launchConfig, "entrypoint");
+  const currentCommand = launchConfigText(agent.launchConfig, "command");
+  const currentEnv = launchConfigEnv(agent.launchConfig);
   const [selected, setSelected] = useState(current);
   const [resetImage, setResetImage] = useState(false);
+  const [image, setImage] = useState(currentImage);
+  const [entrypoint, setEntrypoint] = useState(currentEntrypoint);
+  const [command, setCommand] = useState(currentCommand);
+  const [envText, setEnvText] = useState(() => envRecordToText(currentEnv));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    setSelected(current);
+    setSelected(agent.runtime ?? "generic");
     setResetImage(false);
-  }, [agent.id, current]);
-  const dirty = selected !== current || resetImage;
+    setImage(launchConfigText(agent.launchConfig, "image"));
+    setEntrypoint(launchConfigText(agent.launchConfig, "entrypoint"));
+    setCommand(launchConfigText(agent.launchConfig, "command"));
+    setEnvText(envRecordToText(launchConfigEnv(agent.launchConfig)));
+    setError(null);
+    setSaving(false);
+  }, [agent.id]);
+  const trimmedImage = image.trim();
+  const trimmedEntrypoint = entrypoint.trim();
+  const trimmedCommand = command.trim();
+  const imageDirty = trimmedImage !== currentImage;
+  const entrypointDirty = trimmedEntrypoint !== currentEntrypoint;
+  const commandDirty = trimmedCommand !== currentCommand;
+  const envDirty = !envTextMatches(envText, currentEnv);
+  const dirty = selected !== current || resetImage || imageDirty || entrypointDirty || commandDirty || envDirty;
   const stopped = agent.state === "STOPPED";
 
+  const apply = async () => {
+    if (!dirty || saving) return;
+    const parsedEnv = parseEnvText(envText);
+    if ("error" in parsedEnv) {
+      setError(parsedEnv.error);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      // Runtime/reset first, then launch overrides — reset_image is itself an
+      // image write, so an explicit image must land after it.
+      if (selected !== current || resetImage) {
+        onSetAgentRuntime(agent.id, selected as ManagedAgentRuntime, resetImage);
+      }
+      if (imageDirty || entrypointDirty || commandDirty || envDirty) {
+        await setAgentLaunchOverrides(agent.id, {
+          ...(imageDirty ? { image: trimmedImage || null } : {}),
+          ...(entrypointDirty ? { entrypoint: trimmedEntrypoint ? splitCommand(trimmedEntrypoint) : null } : {}),
+          ...(commandDirty ? { command: trimmedCommand ? splitCommand(trimmedCommand) : null } : {}),
+          ...(envDirty ? { env: parsedEnv.env } : {}),
+        });
+      }
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : typeof e === "string" ? e : "Could not apply the runtime change.");
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="ui-field flex-1"
-        >
-          {MANAGED_RUNTIMES.map((runtime) => (
-            <option key={runtime} value={runtime}>
-              {runtimeLabel(runtime)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={!dirty}
-          onClick={() => onSetAgentRuntime(agent.id, selected as ManagedAgentRuntime, resetImage)}
-          className="ui-primary-button px-3 text-[12px] disabled:opacity-40"
-        >
-          Apply
-        </button>
+    <IdentityModalShell
+      title="Change runtime"
+      subtitle={`Current: ${runtimeLabel(agent.runtime)}`}
+      onClose={onClose}
+    >
+      <div className="space-y-3">
+        <div>
+          <div className="text-[11px] text-text-secondary mb-1.5">Runtime</div>
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            className="ui-field w-full"
+          >
+            {MANAGED_RUNTIMES.map((runtime) => (
+              <option key={runtime} value={runtime}>
+                {runtimeLabel(runtime)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <label className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetImage}
+            onChange={(e) => setResetImage(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Reset image to this runtime's default on next start
+            {resetImage && !stopped && (
+              <span className="block text-[10px] text-error mt-0.5">
+                Requires the agent stopped — stop it first.
+              </span>
+            )}
+          </span>
+        </label>
+        <div className="border-t border-border pt-3 text-[11px] font-medium text-text-secondary">
+          Overrides
+        </div>
+        <div>
+          <div className="text-[11px] text-text-secondary mb-1.5">Custom image</div>
+          <input
+            value={image}
+            onChange={(e) => setImage(e.target.value)}
+            placeholder="ghcr.io/you/image:tag"
+            className="ui-field w-full"
+          />
+        </div>
+        <div>
+          <div className="text-[11px] text-text-secondary mb-1.5">Custom entrypoint</div>
+          <input
+            value={entrypoint}
+            onChange={(e) => setEntrypoint(e.target.value)}
+            placeholder="/entrypoint.sh"
+            className="ui-field w-full"
+          />
+        </div>
+        <div>
+          <div className="text-[11px] text-text-secondary mb-1.5">Custom command</div>
+          <input
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="/usr/local/bin/opencode"
+            className="ui-field w-full"
+          />
+        </div>
+        <div>
+          <div className="text-[11px] text-text-secondary mb-1.5">Custom env</div>
+          <textarea
+            value={envText}
+            onChange={(e) => setEnvText(e.target.value)}
+            placeholder="KEY=VALUE"
+            rows={5}
+            spellCheck={false}
+            className="ui-field w-full resize-none font-mono"
+          />
+          <p className="mt-1 text-[10px] text-text-secondary leading-snug">
+            One KEY=VALUE per line — replaces all env on next start.
+          </p>
+        </div>
+        {error && <p className="text-[11px] text-error leading-snug">{error}</p>}
+        <div className="flex items-center justify-end gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="text-[12px] text-text-secondary hover:text-foreground transition-colors disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            disabled={!dirty || saving}
+            className="onboarding-primary min-w-20 disabled:opacity-50"
+          >
+            Apply
+          </button>
+        </div>
       </div>
-      <label className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
-        <input
-          type="checkbox"
-          checked={resetImage}
-          onChange={(e) => setResetImage(e.target.checked)}
-          className="mt-0.5"
-        />
-        <span>
-          Reset image to this runtime's default on next start
-          {resetImage && !stopped && (
-            <span className="block text-[10px] text-error mt-0.5">
-              Requires the agent stopped — stop it first.
-            </span>
-          )}
-        </span>
-      </label>
-    </div>
+    </IdentityModalShell>
   );
 }
 

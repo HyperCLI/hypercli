@@ -82,6 +82,9 @@ class FakePort implements AgentLifecyclePort {
   uploadAvatar = (_id: string, _file: File, signal: AbortSignal) =>
     this.record("uploadAvatar", signal);
   deleteAvatar = (_id: string, signal: AbortSignal) => this.record("deleteAvatar", signal);
+  uploadVoice = (_id: string, _file: File, signal: AbortSignal) =>
+    this.record("uploadVoice", signal);
+  deleteVoice = (_id: string, signal: AbortSignal) => this.record("deleteVoice", signal);
 }
 
 const AGENT = "agent-1";

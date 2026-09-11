@@ -107,3 +107,45 @@ describe("imageMarkdownOf", () => {
     expect(imageMarkdownOf({ type: "audio", data: "QUJD" })).toBeUndefined();
   });
 });
+
+describe("tool diff extraction", () => {
+  it("attaches edit diffs from tool_call args", () => {
+    const messages = foldAll([
+      {
+        type: "tool_call",
+        data: {
+          toolCallId: "t1",
+          title: "edit",
+          args: { filePath: "/workspace/app.ts", oldString: "a\n", newString: "b\n" },
+        },
+      },
+    ]);
+    expect(messages[0].toolCalls[0].diffs).toEqual([
+      { path: "/workspace/app.ts", oldText: "a\n", newText: "b\n" },
+    ]);
+  });
+
+  it("attaches diff content blocks from tool_result data", () => {
+    const messages = foldAll([
+      { type: "tool_call", data: { toolCallId: "t1", title: "edit" } },
+      {
+        type: "tool_result",
+        data: {
+          toolCallId: "t1",
+          title: "edit",
+          content: [{ type: "diff", path: "/w/x.ts", oldText: "1\n", newText: "2\n" }],
+        },
+      },
+    ]);
+    expect(messages[0].toolCalls[0].diffs).toEqual([
+      { path: "/w/x.ts", oldText: "1\n", newText: "2\n" },
+    ]);
+  });
+
+  it("leaves diffs undefined for non-file tools", () => {
+    const messages = foldAll([
+      { type: "tool_call", data: { toolCallId: "t1", title: "bash", args: { command: "ls" } } },
+    ]);
+    expect(messages[0].toolCalls[0].diffs).toBeUndefined();
+  });
+});

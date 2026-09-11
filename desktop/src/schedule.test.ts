@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
-  TIME_OPTIONS,
+  TIMEZONE_OPTIONS,
   buildCron,
   buildRunAt,
   describeRoutine,
   describeSchedule,
   draftFromRoutine,
+  formatGmtOffset,
   formatTime12h,
   isValidCron,
+  localTimeZoneLabel,
   ordinal,
+  parseUserTime,
+  timeZoneCityName,
+  timeZoneLabelFor,
   type ScheduleDraft,
 } from "./schedule";
 
@@ -36,12 +41,130 @@ describe("formatTime12h", () => {
   });
 });
 
-describe("TIME_OPTIONS", () => {
-  it("covers the full day in 15-minute increments", () => {
-    expect(TIME_OPTIONS).toHaveLength(96);
-    expect(TIME_OPTIONS[0]).toEqual({ value: "00:00", label: "12:00 AM" });
-    expect(TIME_OPTIONS[1]).toEqual({ value: "00:15", label: "12:15 AM" });
-    expect(TIME_OPTIONS[TIME_OPTIONS.length - 1]).toEqual({ value: "23:45", label: "11:45 PM" });
+describe("parseUserTime", () => {
+  it("parses 12-hour input", () => {
+    expect(parseUserTime("9")).toEqual({ hour: 9, minute: 0 });
+    expect(parseUserTime("9am")).toEqual({ hour: 9, minute: 0 });
+    expect(parseUserTime("9 AM")).toEqual({ hour: 9, minute: 0 });
+    expect(parseUserTime("9:30 PM")).toEqual({ hour: 21, minute: 30 });
+    expect(parseUserTime("9:30pm")).toEqual({ hour: 21, minute: 30 });
+    expect(parseUserTime("930pm")).toEqual({ hour: 21, minute: 30 });
+    expect(parseUserTime("0930AM")).toEqual({ hour: 9, minute: 30 });
+    expect(parseUserTime("12am")).toEqual({ hour: 0, minute: 0 });
+    expect(parseUserTime("12pm")).toEqual({ hour: 12, minute: 0 });
+    expect(parseUserTime("9:5 am")).toEqual({ hour: 9, minute: 5 });
+    expect(parseUserTime("9.30")).toEqual({ hour: 9, minute: 30 });
+    expect(parseUserTime("09:00")).toEqual({ hour: 9, minute: 0 });
+  });
+
+  it("parses 24-hour input", () => {
+    expect(parseUserTime("21:00")).toEqual({ hour: 21, minute: 0 });
+    expect(parseUserTime("21")).toEqual({ hour: 21, minute: 0 });
+    expect(parseUserTime("14:45")).toEqual({ hour: 14, minute: 45 });
+    expect(parseUserTime("1430")).toEqual({ hour: 14, minute: 30 });
+    expect(parseUserTime("0:30")).toEqual({ hour: 0, minute: 30 });
+  });
+
+  it("rejects invalid input", () => {
+    expect(parseUserTime("")).toBeNull();
+    expect(parseUserTime("   ")).toBeNull();
+    expect(parseUserTime("noon")).toBeNull();
+    expect(parseUserTime("9 o'clock")).toBeNull();
+    expect(parseUserTime("25")).toBeNull();
+    expect(parseUserTime("24:00")).toBeNull();
+    expect(parseUserTime("9:75")).toBeNull();
+    expect(parseUserTime("999")).toBeNull();
+    expect(parseUserTime("2400")).toBeNull();
+    expect(parseUserTime("21pm")).toBeNull();
+    expect(parseUserTime("0am")).toBeNull();
+    expect(parseUserTime("13 pm")).toBeNull();
+    expect(parseUserTime("9:")).toBeNull();
+  });
+});
+
+describe("formatGmtOffset", () => {
+  it("formats whole and fractional-hour offsets", () => {
+    expect(formatGmtOffset(0)).toBe("GMT+0");
+    expect(formatGmtOffset(120)).toBe("GMT+2");
+    expect(formatGmtOffset(-300)).toBe("GMT-5");
+    expect(formatGmtOffset(330)).toBe("GMT+5:30");
+    expect(formatGmtOffset(-570)).toBe("GMT-9:30");
+  });
+});
+
+describe("localTimeZoneLabel", () => {
+  it("leads with the GMT offset and appends short IANA names", () => {
+    const now = new Date();
+    const gmt = formatGmtOffset(-now.getTimezoneOffset());
+    expect(localTimeZoneLabel(now, "Europe/Athens")).toBe(`${gmt} (Europe/Athens)`);
+  });
+
+  it("omits missing, blank, or long IANA names", () => {
+    const now = new Date();
+    const gmt = formatGmtOffset(-now.getTimezoneOffset());
+    expect(localTimeZoneLabel(now, "")).toBe(gmt);
+    expect(localTimeZoneLabel(now, "  ")).toBe(gmt);
+    expect(localTimeZoneLabel(now, "Some/Absurdly_Long_Timezone_Name")).toBe(gmt);
+  });
+
+  it("resolves the local zone without injected arguments", () => {
+    expect(localTimeZoneLabel()).toMatch(/^GMT[+-]\d+(:\d{2})?( \(.+\))?$/);
+  });
+});
+
+describe("TIMEZONE_OPTIONS", () => {
+  it("offers a curated list across the GMT range", () => {
+    expect(TIMEZONE_OPTIONS.length).toBeGreaterThanOrEqual(25);
+    expect(TIMEZONE_OPTIONS.length).toBeLessThanOrEqual(40);
+    for (const option of TIMEZONE_OPTIONS) {
+      expect(option.label).toMatch(/^GMT[+-]\d+(:\d{2})? · .+$/);
+    }
+    const ids = TIMEZONE_OPTIONS.map((option) => option.id);
+    for (const id of [
+      "Pacific/Auckland",
+      "Asia/Tokyo",
+      "Asia/Shanghai",
+      "Asia/Dubai",
+      "Europe/Moscow",
+      "Europe/Berlin",
+      "Europe/London",
+      "UTC",
+      "America/New_York",
+      "America/Chicago",
+      "America/Denver",
+      "America/Los_Angeles",
+      "America/Sao_Paulo",
+      "Australia/Sydney",
+      "Asia/Kolkata",
+      "Asia/Kathmandu",
+    ]) {
+      expect(ids).toContain(id);
+    }
+  });
+});
+
+describe("timeZoneCityName", () => {
+  it("takes the last path segment and unescapes underscores", () => {
+    expect(timeZoneCityName("America/Sao_Paulo")).toBe("Sao Paulo");
+    expect(timeZoneCityName("UTC")).toBe("UTC");
+    expect(timeZoneCityName("America/Argentina/Buenos_Aires")).toBe("Buenos Aires");
+  });
+});
+
+describe("timeZoneLabelFor", () => {
+  const now = new Date("2026-01-15T12:00:00Z");
+
+  it("renders GMT offset and city for fixed zones", () => {
+    expect(timeZoneLabelFor("Asia/Kathmandu", now)).toBe("GMT+5:45 · Kathmandu");
+    expect(timeZoneLabelFor("Asia/Kolkata", now)).toBe("GMT+5:30 · Kolkata");
+    expect(timeZoneLabelFor("Europe/Moscow", now)).toBe("GMT+3 · Moscow");
+    expect(timeZoneLabelFor("UTC", now)).toBe("GMT+0 · UTC");
+    expect(timeZoneLabelFor("Pacific/Pago_Pago", now)).toBe("GMT-11 · Pago Pago");
+    expect(timeZoneLabelFor("Pacific/Kiritimati", now)).toBe("GMT+14 · Kiritimati");
+  });
+
+  it("falls back to the city name for unknown zones", () => {
+    expect(timeZoneLabelFor("Bogus/Zone", now)).toBe("Zone");
   });
 });
 
@@ -78,6 +201,11 @@ describe("buildCron", () => {
     expect(buildCron(draft({ frequency: "monthly", dayOfMonth: 15 }))).toBe("0 9 15 * *");
     expect(buildCron(draft({ frequency: "annually", month: 3, dayOfMonth: 15 }))).toBe("0 9 15 3 *");
     expect(buildCron(draft({ frequency: "none", date: "2026-09-14" }))).toBeNull();
+  });
+
+  it("keeps wall-time cron fields when a timezone is threaded through", () => {
+    expect(buildCron(draft({ frequency: "daily", time: "14:30" }), "Asia/Tokyo")).toBe("30 14 * * *");
+    expect(buildCron(draft({ frequency: "weekly", weekday: 3 }), "America/New_York")).toBe("0 9 * * 3");
   });
 });
 

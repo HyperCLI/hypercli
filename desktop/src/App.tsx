@@ -162,6 +162,9 @@ export default function App() {
   // whose GET can lag (`has_desktop`, `avatar_url`).
   const [createdAgent, setCreatedAgent] = useState<AgentSummary | null>(null);
   const [patches, setPatches] = useState<Record<string, Partial<AgentSummary>>>({});
+  // Set the first time the avatar-audio routes answer 404/405 — environment
+  // level, so it never clears within the session.
+  const [voiceApiUnavailable, setVoiceApiUnavailable] = useState(false);
 
   const toggleLeft = useCallback(() => {
     setLeftOpen((v) => {
@@ -366,12 +369,21 @@ export default function App() {
 
   useEffect(() => {
     if (!activeId || activeAgentState?.name !== "Stable") return;
-    const avatarUrl = activeAgentState.outcome?.avatarUrl;
-    if (avatarUrl === undefined) return;
-    setPatches((current) => ({
-      ...current,
-      [activeId]: { ...current[activeId], avatar_url: avatarUrl },
-    }));
+    const outcome = activeAgentState.outcome;
+    if (!outcome) return;
+    if (outcome.avatarUrl !== undefined) {
+      setPatches((current) => ({
+        ...current,
+        [activeId]: { ...current[activeId], avatar_url: outcome.avatarUrl! },
+      }));
+    }
+    if (outcome.voiceAudioUrl !== undefined) {
+      setPatches((current) => ({
+        ...current,
+        [activeId]: { ...current[activeId], avatar_audio_url: outcome.voiceAudioUrl! },
+      }));
+    }
+    if (outcome.voiceApiUnavailable) setVoiceApiUnavailable(true);
   }, [activeId, activeAgentState]);
 
   const handleSelectSession = useCallback((agentId: string, sessionId: string) => {
@@ -439,6 +451,14 @@ export default function App() {
 
   const onDeleteAgentAvatar = useCallback((id: string) => {
     command(id, "deleteAvatar");
+  }, [command]);
+
+  const onUploadAgentVoice = useCallback((id: string, file: File) => {
+    command(id, { op: "uploadVoice", file });
+  }, [command]);
+
+  const onDeleteAgentVoice = useCallback((id: string) => {
+    command(id, "deleteVoice");
   }, [command]);
 
   const onSetAgentDesktopEnabled = useCallback((id: string, enabled: boolean) => {
@@ -630,6 +650,9 @@ export default function App() {
               onSetAgentRuntime={onSetAgentRuntime}
               onUploadAgentAvatar={onUploadAgentAvatar}
               onDeleteAgentAvatar={onDeleteAgentAvatar}
+              onUploadAgentVoice={onUploadAgentVoice}
+              onDeleteAgentVoice={onDeleteAgentVoice}
+              voiceApiUnavailable={voiceApiUnavailable}
             />
           </div>
         )}

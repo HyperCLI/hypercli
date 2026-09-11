@@ -25,7 +25,7 @@ export function usagePeriodLabel(range: UsageRange) {
 }
 
 export function formatTokens(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value) || value < 0) return "---";
+  if (value == null || !Number.isFinite(value) || value < 0) return "—";
   if (value >= 999_500_000_000)
     return `${(value / 1_000_000_000_000).toFixed(value >= 10_000_000_000_000 ? 0 : 1)}T`;
   if (value >= 999_500_000)
@@ -127,26 +127,33 @@ export interface UsageAgentRow {
   total_tokens: number;
 }
 
+function hasUsageActivity(m: UsageMetrics) {
+  return (
+    m.total_tokens > 0 ||
+    m.prompt_tokens > 0 ||
+    m.completion_tokens > 0 ||
+    m.requests > 0
+  );
+}
+
 export function agentUsageRows(
   agents: import("./api").UsageAgentEntry[] | null,
   unattributed: UsageMetrics | null,
 ): UsageAgentRow[] {
-  const rows: UsageAgentRow[] = (agents ?? []).map((entry) => ({
-    id: entry.agent_id,
-    name: entry.name.trim() || entry.agent_id,
-    kind: "agent",
-    prompt_tokens: entry.prompt_tokens,
-    completion_tokens: entry.completion_tokens,
-    requests: entry.requests,
-    total_tokens: entry.total_tokens,
-  }));
-  if (
-    unattributed &&
-    (unattributed.total_tokens > 0 ||
-      unattributed.prompt_tokens > 0 ||
-      unattributed.completion_tokens > 0 ||
-      unattributed.requests > 0)
-  ) {
+  const rows: UsageAgentRow[] = (agents ?? [])
+    // The backend lists every agent on the account, including ones with no
+    // activity in the window; a table of all-zero rows reads as broken.
+    .filter(hasUsageActivity)
+    .map((entry) => ({
+      id: entry.agent_id,
+      name: entry.name.trim() || entry.agent_id,
+      kind: "agent",
+      prompt_tokens: entry.prompt_tokens,
+      completion_tokens: entry.completion_tokens,
+      requests: entry.requests,
+      total_tokens: entry.total_tokens,
+    }));
+  if (unattributed && hasUsageActivity(unattributed)) {
     rows.push({
       id: "usage:unattributed",
       name: "Unattributed usage",
@@ -168,4 +175,66 @@ export function usageDateLabel(value: string) {
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** Long key lists are sorted and clamped to this many rows in the panel. */
+export const USAGE_KEY_ROW_LIMIT = 8;
+
+// ---------------------------------------------------------------------------
+// ACP `usage_update` (per-turn context-window fill) — used/size are a
+// used-of-limit pair, not cumulative counters; cost.amount is a currency
+// float (dollars unless a currency code says otherwise).
+// ---------------------------------------------------------------------------
+
+export interface UsageUpdateInfo {
+  used?: number | null;
+  size?: number | null;
+  cost?: { amount?: number | null; currency?: string | null } | null;
+}
+
+function finiteNonNegative(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+function trimAmountDecimals(text: string, minimum = 2) {
+  const [int, frac] = text.split(".");
+  if (frac === undefined) return text;
+  const trimmed = frac.replace(/0+$/, "").padEnd(minimum, "0");
+  return `${int}.${trimmed}`;
+}
+
+export function formatCostAmount(
+  amount: number | null | undefined,
+  currency?: string | null,
+): string | null {
+  const value = finiteNonNegative(amount);
+  if (value == null) return null;
+  const text =
+    value >= 1 ? value.toFixed(2) : trimAmountDecimals(value.toFixed(4));
+  const code = currency?.trim() ?? "";
+  return !code || code === "USD" ? `$${text}` : `${text} ${code}`;
+}
+
+/**
+ * One-line label for an ACP `usage_update`. Never renders placeholders like
+ * "?" or NaN — unknown fields fall back to a bare note.
+ */
+export function usageUpdateText(info: UsageUpdateInfo): string {
+  const used = finiteNonNegative(info.used);
+  const size = finiteNonNegative(info.size);
+  let base: string;
+  if (used != null && size != null && size > 0) {
+    const pct = Math.max(0, Math.min(999, Math.round((used / size) * 100)));
+    base = `Context ${formatTokens(used)} of ${formatTokens(size)} tokens (${pct}%)`;
+  } else if (used != null) {
+    base = `Context ${formatTokens(used)} tokens used`;
+  } else if (size != null && size > 0) {
+    base = `Context window ${formatTokens(size)} tokens`;
+  } else {
+    base = "Context usage updated";
+  }
+  const cost = formatCostAmount(info.cost?.amount, info.cost?.currency);
+  return cost ? `${base} · ${cost}` : base;
 }

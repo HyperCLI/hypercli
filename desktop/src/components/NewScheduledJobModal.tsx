@@ -5,14 +5,20 @@ import { runtimeFamily } from "../agent-utils";
 import {
   DEFAULT_SCHEDULE,
   MONTH_NAMES,
-  TIME_OPTIONS,
+  TIMEZONE_OPTIONS,
   WEEKDAY_NAMES,
   buildCron,
   buildRunAt,
   dateInputValue,
   describeSchedule,
   draftFromRoutine,
+  formatGmtOffset,
+  formatTime12h,
   isValidCron,
+  pad2,
+  parseTime24,
+  parseUserTime,
+  timeZoneLabelFor,
   type RoutineFrequency,
   type ScheduleDraft,
 } from "../schedule";
@@ -78,27 +84,62 @@ export function NewScheduledJobModal({
       cancelled = true;
     };
   }, [agent.id, isAcp]);
-  const [delivery, setDelivery] = useState<"in-app" | "slack">("in-app");
+  const [timeText, setTimeText] = useState(() => {
+    const parsed = parseTime24(initialDraft.time);
+    return parsed ? formatTime12h(parsed.hour, parsed.minute) : "";
+  });
+  const timeValid = parseUserTime(timeText) !== null;
   const [showAdvanced, setShowAdvanced] = useState(initialDraft.rawCron.trim() !== "");
   const [templateOffset, setTemplateOffset] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detectedTz] = useState(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  });
+  const [tz, setTz] = useState(detectedTz);
+  const [tzPickerOpen, setTzPickerOpen] = useState(false);
+  const tzOptions = [
+    { id: detectedTz, label: `Auto (${timeZoneLabelFor(detectedTz)})` },
+    ...TIMEZONE_OPTIONS.filter((option) => option.id !== detectedTz),
+    ...(tz === detectedTz || TIMEZONE_OPTIONS.some((option) => option.id === tz)
+      ? []
+      : [{ id: tz, label: timeZoneLabelFor(tz) }]),
+  ];
 
   const update = (patch: Partial<ScheduleDraft>) => setDraft((current) => ({ ...current, ...patch }));
 
+  const changeTimeText = (value: string) => {
+    setTimeText(value);
+    const parsed = parseUserTime(value);
+    if (parsed) update({ time: `${pad2(parsed.hour)}:${pad2(parsed.minute)}` });
+  };
+
+  const normalizeTimeText = () => {
+    const parsed = parseUserTime(timeText) ?? parseTime24(draft.time);
+    setTimeText(parsed ? formatTime12h(parsed.hour, parsed.minute) : "");
+  };
+
+  const gmtLabel = tz === detectedTz ? formatGmtOffset(-new Date().getTimezoneOffset()) : timeZoneLabelFor(tz);
+
   const rawCron = draft.rawCron.trim();
   const runAt = buildRunAt(draft);
-  const scheduleReady = rawCron ? isValidCron(rawCron) : draft.frequency === "none" ? runAt !== null : true;
+  const scheduleReady =
+    timeValid && (rawCron ? isValidCron(rawCron) : draft.frequency === "none" ? runAt !== null : true);
   const canSave = prompt.trim() !== "" && scheduleReady && !saving;
+  const summarySuffix = rawCron || (draft.frequency === "none" && !draft.date.trim()) ? "" : ` ${gmtLabel}`;
   const summary = rawCron && !isValidCron(rawCron)
     ? "Cron expressions need exactly 5 fields, e.g. 0 9 * * 1-5"
-    : `Scheduled for: ${describeSchedule(draft)}`;
+    : `Scheduled for: ${describeSchedule(draft)}${summarySuffix}`;
   const templateChips = [0, 1].map((index) => TEMPLATES[(templateOffset + index) % TEMPLATES.length]);
 
   const save = async () => {
     const text = prompt.trim();
     if (!text || !scheduleReady || saving) return;
-    const cron = rawCron || (draft.frequency === "none" ? null : buildCron(draft));
+    const cron = rawCron || (draft.frequency === "none" ? null : buildCron(draft, tz));
     const oneTime = !rawCron && draft.frequency === "none" ? runAt : null;
     const trimmedName = name.trim();
     setSaving(true);
@@ -178,29 +219,14 @@ export function NewScheduledJobModal({
             </button>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div>
-              <div className="mb-1.5 text-[12px] text-text-secondary">Name</div>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Weekly Notion Digest"
-                className={`${FIELD_CLASS} w-full`}
-              />
-            </div>
-            <div>
-              <div className="mb-1.5 text-[12px] text-text-secondary">Post to</div>
-              <select
-                value={delivery}
-                onChange={(event) => setDelivery(event.target.value as "in-app" | "slack")}
-                className={`${FIELD_CLASS} w-full`}
-              >
-                <option value="in-app">In-app</option>
-                <option value="slack" disabled title="Coming soon">
-                  Slack
-                </option>
-              </select>
-            </div>
+          <div className="mt-5">
+            <div className="mb-1.5 text-[12px] text-text-secondary">Name</div>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Weekly Notion Digest"
+              className={`${FIELD_CLASS} w-full`}
+            />
           </div>
 
           {isAcp && (
@@ -297,18 +323,42 @@ export function NewScheduledJobModal({
                 className={FIELD_CLASS}
               />
             )}
-            <select
-              value={draft.time}
-              onChange={(event) => update({ time: event.target.value })}
-              className={FIELD_CLASS}
-            >
-              {TIME_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <input
+              type="text"
+              value={timeText}
+              onChange={(event) => changeTimeText(event.target.value)}
+              onBlur={normalizeTimeText}
+              placeholder="9:00 AM"
+              spellCheck={false}
+              className={`${FIELD_CLASS} w-24`}
+            />
+            {tzPickerOpen ? (
+              <select
+                value={tz}
+                onChange={(event) => setTz(event.target.value)}
+                aria-label="Timezone"
+                autoFocus
+                className={`${FIELD_CLASS} w-auto pr-6`}
+              >
+                {tzOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTzPickerOpen(true)}
+                className="shrink-0 text-[11px] text-text-secondary hover:text-text-primary transition-colors"
+              >
+                Select another timezone
+              </button>
+            )}
           </div>
+          {!timeValid && (
+            <div className="mt-1 text-[10px] text-text-secondary">Use a time like 9:00 AM or 21:00</div>
+          )}
 
           <div className="mt-4 rounded-lg border border-border bg-card">
             <button

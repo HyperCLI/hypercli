@@ -1,4 +1,5 @@
 import type { RuntimeChatEvent, RuntimeChatMessage } from "./api";
+import { diffPayloadsFromContent, diffPayloadsFromInput, type DiffPayload } from "./diff";
 
 export interface ToolCallEntry {
   id: string;
@@ -6,6 +7,7 @@ export interface ToolCallEntry {
   kind?: string;
   status: string;
   detail?: string;
+  diffs?: DiffPayload[];
   durationMs?: number;
 }
 
@@ -90,6 +92,28 @@ export function detailOf(rawInput: unknown): string | undefined {
   }
 }
 
+export function toolDiffsOf(...sources: unknown[]): DiffPayload[] | undefined {
+  for (const source of sources) {
+    const fromInput = diffPayloadsFromInput(source);
+    if (fromInput.length > 0) return fromInput;
+    const fromContent = diffPayloadsFromContent(source);
+    if (fromContent.length > 0) return fromContent;
+  }
+  return undefined;
+}
+
+export function mergeDiffs(existing: DiffPayload[] | undefined, incoming: DiffPayload[] | undefined): DiffPayload[] | undefined {
+  if (!incoming || incoming.length === 0) return existing;
+  if (!existing || existing.length === 0) return incoming;
+  const merged = [...existing];
+  for (const payload of incoming) {
+    const index = payload.path ? merged.findIndex((item) => item.path === payload.path) : -1;
+    if (index >= 0) merged[index] = payload;
+    else merged.push(payload);
+  }
+  return merged;
+}
+
 export function imageMarkdownOf(content: unknown): string | undefined {
   if (Array.isArray(content)) {
     const parts = content.map((item) => imageMarkdownOf(item)).filter((part): part is string => Boolean(part));
@@ -135,6 +159,7 @@ export function runtimeMessageToChat(message: RuntimeChatMessage): ChatMessage {
       title: tool.name,
       status: tool.result === undefined ? "in_progress" : "completed",
       detail: tool.result ?? detailOf(tool.args),
+      diffs: toolDiffsOf(tool.args),
     })),
     plan: [],
     ts: message.timestamp ?? Date.now(),
@@ -159,6 +184,15 @@ function runtimeToolDetail(event: RuntimeChatEvent) {
   const data = event.data ?? {};
   const value = data.args ?? data.arguments ?? data.input ?? data.rawInput;
   return detailOf(value ?? data);
+}
+
+function runtimeToolDiffs(event: RuntimeChatEvent): DiffPayload[] | undefined {
+  const data = event.data ?? {};
+  return toolDiffsOf(
+    data.args ?? data.arguments ?? data.input ?? data.rawInput,
+    data.content,
+    data.output ?? data.result,
+  );
 }
 
 function runtimeToolResult(event: RuntimeChatEvent) {
@@ -258,9 +292,10 @@ export class ChatTraceFolder {
       const current = openAssistant(newSegment);
       const existing = current.toolCalls.find((tool) => tool.id === id);
       const detail = runtimeToolDetail(event);
+      const diffs = runtimeToolDiffs(event);
       const tool: ToolCallEntry = existing
-        ? { ...existing, title, detail: detail ?? existing.detail, status: "in_progress" }
-        : { id, title, detail, status: "in_progress" };
+        ? { ...existing, title, detail: detail ?? existing.detail, status: "in_progress", diffs: mergeDiffs(existing.diffs, diffs) }
+        : { id, title, detail, status: "in_progress", diffs };
       if (!existing) this.toolStarts.set(id, Date.now());
       replaceLast({
         ...current,
@@ -284,11 +319,13 @@ export class ChatTraceFolder {
       const result = runtimeToolResult(event);
       const failed = event.data?.isError === true || event.data?.error === true;
       const hasResolved = current.toolCalls.some((tool) => tool.id === resolvedId);
+      const diffs = runtimeToolDiffs(event);
       const completed: ToolCallEntry = {
         id: resolvedId,
         title,
         status: failed ? "failed" : "completed",
         detail: result,
+        diffs,
         durationMs: started ? Date.now() - started : undefined,
       };
       replaceLast({
@@ -296,7 +333,7 @@ export class ChatTraceFolder {
         toolCalls: hasResolved
           ? current.toolCalls.map((tool) =>
               tool.id === resolvedId
-                ? { ...tool, status: completed.status, detail: result ?? tool.detail, durationMs: completed.durationMs ?? tool.durationMs }
+                ? { ...tool, status: completed.status, detail: result ?? tool.detail, diffs: mergeDiffs(tool.diffs, diffs), durationMs: completed.durationMs ?? tool.durationMs }
                 : tool,
             )
           : [...current.toolCalls, completed],

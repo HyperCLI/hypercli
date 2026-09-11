@@ -183,6 +183,62 @@ textarea:focus-visible {
     animation: tool-trace-scan 1.35s ease-in-out infinite;
   }
 
+  .diff-block {
+    @apply rounded-md border border-border bg-card overflow-hidden select-text;
+  }
+
+  .diff-header {
+    @apply w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-active-row transition-colors;
+  }
+
+  .diff-body {
+    @apply border-t border-border font-mono text-[11px] leading-[1.5] overflow-x-auto;
+  }
+
+  .diff-row {
+    @apply flex whitespace-pre;
+  }
+
+  .diff-row-add {
+    @apply bg-success/10;
+  }
+
+  .diff-row-del {
+    @apply bg-error/10;
+  }
+
+  .diff-lineno {
+    @apply w-8 shrink-0 pr-2 text-right text-[9.5px] leading-[1.6] text-text-secondary/60 select-none;
+  }
+
+  .diff-gutter {
+    @apply w-4 shrink-0 text-center select-none text-text-secondary;
+  }
+
+  .diff-row-add .diff-gutter {
+    @apply text-success;
+  }
+
+  .diff-row-del .diff-gutter {
+    @apply text-error;
+  }
+
+  .diff-text {
+    @apply pr-2 text-foreground/90;
+  }
+
+  .diff-row-add .diff-text {
+    @apply text-foreground;
+  }
+
+  .diff-row-context .diff-text {
+    @apply text-text-secondary;
+  }
+
+  .diff-more {
+    @apply w-full px-2.5 py-1.5 text-left text-[11px] text-text-secondary hover:bg-active-row hover:text-foreground transition-colors border-t border-border;
+  }
+
   .app-pane-left {
     width: var(--pane-left-width, 176px);
     @apply shrink-0 bg-surface border-r border-border flex flex-col;

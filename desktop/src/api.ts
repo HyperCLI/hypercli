@@ -18,7 +18,10 @@ import {
 } from "../../ts-sdk/src/session.ts";
 import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
 import { CodingAgentAcpPool, type AcpLease } from "../../ts-sdk/src/acp-pool.ts";
-import { agentsBridgeWsBase, defaultHyperAcpWsUrl } from "../../ts-sdk/src/agent-urls.ts";
+import { agentsBridgeWsBase, defaultHyperAcpWsUrl, resolveAgentsApiBase } from "../../ts-sdk/src/agent-urls.ts";
+import { HTTPClient } from "../../ts-sdk/src/http.ts";
+import { getAgentsWsUrlFromProductBase } from "../../ts-sdk/src/config.ts";
+import { VoiceSession } from "../../ts-sdk/src/voice-session.ts";
 import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
 import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
 import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
@@ -93,6 +96,12 @@ export interface AgentSummary {
   name: string;
   handle: string | null;
   avatar_url: string | null;
+  /**
+   * The agent's uploaded voice reference audio, when the backend has it.
+   * The field rolls out server-side independently of the SDK — absent, null,
+   * and empty all mean "no voice" (see {@link hasAgentVoice}).
+   */
+  avatar_audio_url: string | null;
   runtime: string | null;
   state: string;
   hostname: string | null;
@@ -103,12 +112,25 @@ export interface AgentSummary {
   routes?: unknown;
 }
 
+/**
+ * The backend's `avatar_audio_url` lands on the agent DTO before the SDK's
+ * `Agent` class picks it up (the class constructor keeps known fields only),
+ * so read it tolerantly from whichever shape the value arrives in. Anything
+ * that is not a non-empty string is "no voice".
+ */
+function avatarAudioUrlOf(agent: Agent): string | null {
+  const raw = agent as unknown as { avatarAudioUrl?: unknown; avatar_audio_url?: unknown };
+  const value = raw.avatarAudioUrl ?? raw.avatar_audio_url;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 export function agentSummary(agent: Agent): AgentSummary {
   return {
     id: agent.id,
     name: agent.displayName ?? agent.name ?? agent.id,
     handle: agent.handle,
     avatar_url: agent.avatarUrl,
+    avatar_audio_url: avatarAudioUrlOf(agent),
     runtime: agent.runtime,
     // Normalised once, at the boundary: the SDK's predicates uppercase their
     // input, so every comparison downstream is correct by construction
@@ -429,6 +451,34 @@ export async function setAgentRuntime(
   );
 }
 
+/**
+ * Custom image/entrypoint/command/env overrides. The backend's
+ * UpdateAgentRequest (extra="forbid") has no top-level image/command field,
+ * but accepts `launch_config`, so an override is written as a complete
+ * launch_config replacement rebuilt from the stored one (ts-sdk
+ * AgentLaunchConfig carries `image`, `entrypoint: string[]`,
+ * `command: string[]`, `env: Record<string, string>` and `secrets`).
+ * Env is a wholesale replacement map; secrets keep their
+ * `storedLaunchConfig`-recovered values.
+ */
+export async function setAgentLaunchOverrides(
+  id: string,
+  overrides: {
+    image?: string | null;
+    entrypoint?: string[] | null;
+    command?: string[] | null;
+    env?: Record<string, string> | null;
+  },
+): Promise<AgentSummary> {
+  const client = await sdk();
+  const launchConfig = await client.deployments.storedLaunchConfig(id);
+  if (overrides.image !== undefined) launchConfig.image = overrides.image;
+  if (overrides.entrypoint !== undefined) launchConfig.entrypoint = overrides.entrypoint ?? [];
+  if (overrides.command !== undefined) launchConfig.command = overrides.command ?? [];
+  if (overrides.env !== undefined) launchConfig.env = { ...(overrides.env ?? {}) };
+  return agentSummary(await client.deployments.update(id, { launchConfig }));
+}
+
 export async function uploadAgentAvatar(id: string, file: File): Promise<AgentAvatarUploadResult> {
   const client = await sdk();
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -442,6 +492,134 @@ export async function uploadAgentAvatar(id: string, file: File): Promise<AgentAv
 export async function deleteAgentAvatar(id: string): Promise<AgentAvatarUploadResult> {
   const client = await sdk();
   return client.deployments.deleteProfileImage(id);
+}
+
+// ---------------------------------------------------------------------------
+// Agent voice reference audio — the backend's avatar-audio routes mirror the
+// profile-image pipeline exactly (raw bytes POSTed as the body, a fixed
+// content-type allowlist, DELETE to remove). The SDK has no avatar-audio
+// method yet, so these two calls build on the SDK's own HTTPClient the same
+// way `Deployments.uploadProfileImage` does — same host policy (gateway REST
+// base, dev proxy when proxied), same raw-body transport.
+// ---------------------------------------------------------------------------
+
+/** Client-side cap. The backend's own is 10 MB; 15 MB keeps the message honest. */
+export const AGENT_VOICE_MAX_BYTES = 15 * 1024 * 1024;
+
+/** Content types the avatar-audio routes accept (backend profile_audio.py). */
+const PROFILE_AUDIO_CONTENT_TYPES = new Set([
+  "audio/wav",
+  "audio/x-wav",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/ogg",
+  "audio/webm",
+  "audio/mp4",
+  "video/mp4",
+  "video/webm",
+]);
+
+/** Extension fallback for pickers that hand back a blank or exotic MIME type. */
+const PROFILE_AUDIO_EXTENSION_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  webm: "audio/webm",
+  m4a: "audio/mp4",
+  m4b: "audio/mp4",
+  mp4: "video/mp4",
+};
+
+/**
+ * The content type to send for a picked file, or null when nothing maps. A
+ * file the picker described with an accepted type is trusted verbatim;
+ * otherwise the extension decides (m4a frequently arrives as no type at all).
+ */
+export function agentVoiceContentType(file: Pick<File, "type" | "name">): string | null {
+  const raw = (file.type || "").split(";")[0].trim().toLowerCase();
+  if (PROFILE_AUDIO_CONTENT_TYPES.has(raw)) return raw;
+  const dot = file.name.lastIndexOf(".");
+  if (dot < 0) return null;
+  return PROFILE_AUDIO_EXTENSION_TYPES[file.name.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+/**
+ * Pre-upload validation; the message string is for inline display, not the
+ * error bar. Returns null when the file is fine to send. An unrecognized
+ * content type is *not* a rejection here — `agentVoiceContentType` may still
+ * resolve it from the extension, and the backend has the final say.
+ */
+export function validateAgentVoiceFile(file: Pick<File, "size" | "type" | "name">): string | null {
+  if (!file.size) return "That file is empty — pick a clip that has sound recorded.";
+  if (file.size > AGENT_VOICE_MAX_BYTES) {
+    return "Audio is capped at 15 MB — trim the clip and try again.";
+  }
+  if (!agentVoiceContentType(file)) {
+    return "Pick an audio or video clip (MP3, WAV, M4A, OGG, WebM, MP4).";
+  }
+  return null;
+}
+
+export interface AgentVoiceUploadResult {
+  id: string;
+  avatar_audio_url: string | null;
+  /**
+   * The avatar-audio routes answered 404/405 — not present in this
+   * environment. Render the row disabled with a hint, not an error.
+   */
+  unavailable?: boolean;
+}
+
+/** Session-level environment probe, set by the first 404/405 from the routes. */
+let voiceApiUnavailable = false;
+
+/** True once the avatar-audio routes reported themselves absent (404/405). */
+export function agentVoiceApiUnavailable(): boolean {
+  return voiceApiUnavailable;
+}
+
+async function avatarAudioHttp(): Promise<HTTPClient> {
+  const [creds, ends] = await Promise.all([acpCredentials(), endpoints()]);
+  return new HTTPClient(resolveAgentsApiBase(ends.httpBase), creds.token);
+}
+
+export async function uploadAgentVoice(id: string, file: File): Promise<AgentVoiceUploadResult> {
+  const contentType = agentVoiceContentType(file);
+  if (!contentType) throw new Error("Unsupported audio type for agent voice reference.");
+  const http = await avatarAudioHttp();
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await http.postRaw<{ id: string; avatar_audio_url: string | null }>(
+      `/deployments/${id}/avatar-audio`,
+      bytes,
+      contentType,
+    );
+    return { id: result.id ?? id, avatar_audio_url: result.avatar_audio_url ?? null };
+  } catch (error) {
+    const status = httpStatusOf(error);
+    if (status === 404 || status === 405) {
+      voiceApiUnavailable = true;
+      return { id, avatar_audio_url: null, unavailable: true };
+    }
+    throw error;
+  }
+}
+
+export async function deleteAgentVoice(id: string): Promise<AgentVoiceUploadResult> {
+  const http = await avatarAudioHttp();
+  try {
+    const result = await http.delete<{ id: string; avatar_audio_url: string | null }>(
+      `/deployments/${id}/avatar-audio`,
+    );
+    return { id: result.id ?? id, avatar_audio_url: result.avatar_audio_url ?? null };
+  } catch (error) {
+    const status = httpStatusOf(error);
+    if (status === 404 || status === 405) {
+      voiceApiUnavailable = true;
+      return { id, avatar_audio_url: null, unavailable: true };
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -885,4 +1063,73 @@ export async function streamRuntimeMessage(
  */
 export async function runtimeChatAbort(id: string, sessionKey?: string, runId?: string): Promise<void> {
   await withRuntimeSession(id, (session) => session.chatAbort(sessionKey, runId));
+}
+
+// ---------------------------------------------------------------------------
+// Voice — read-aloud TTS over the agents /ws/voice socket.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the agent has a voice configured. The sole source is the agent's
+ * `avatar_audio_url` — missing, null, and blank all count as "no voice", so
+ * an agent roster loaded before the backend field exists simply renders the
+ * disabled speaker button.
+ */
+export function hasAgentVoice(agent: Pick<AgentSummary, "avatar_audio_url"> | null | undefined): boolean {
+  return Boolean(agent?.avatar_audio_url?.trim());
+}
+
+/**
+ * The TTS voice a read-aloud plays in for this agent.
+ *
+ * Seam, intentionally a no-op today: `VoiceSession.speak()` (ts-sdk
+ * voice-session.ts) only accepts a preset voice *name* (`voice?: string`),
+ * and the reference-audio path (`speakClone`) wants the audio bytes, not a
+ * URL — so `avatar_audio_url` cannot be threaded as a voice reference yet.
+ * TODO: return `agent.avatar_audio_url` once the voice API takes a voice
+ * reference (or fetch the reference bytes here for speakClone). Every
+ * read-aloud call site already passes this through `speechStream`, so wiring
+ * the agent's voice becomes a one-line change in this function.
+ */
+export function agentTtsVoice(
+  _agent: Pick<AgentSummary, "avatar_audio_url"> | null | undefined,
+): string | undefined {
+  return undefined;
+}
+
+
+export interface SpeechStream {
+  /** Ordered audio chunks (mp3), each a self-contained server-side split. */
+  chunks: AsyncGenerator<Uint8Array, void, undefined>;
+  /** Close the socket; also unblocks a pending chunk read. */
+  cancel: () => void;
+}
+
+/**
+ * One read-aloud request. A fresh request-scoped VoiceSession per call keeps
+ * the socket lifecycle trivial (open → speak → close); there is no reconnect
+ * loop to own. The WS URL is derived from the real upstream base, never the
+ * dev proxy (endpoints.ts): api.hypercli.com maps to
+ * wss://api.agents.hypercli.com/ws, which is the sanctioned direct-WS dial
+ * (AGENTS.md rule 4) and already present in CSP connect-src — so no HTTP to
+ * the backing service and no tauri.conf.json change.
+ */
+export async function speechStream(text: string, options: { voice?: string } = {}): Promise<SpeechStream> {
+  const [creds, ends] = await Promise.all([acpCredentials(), endpoints()]);
+  const session = new VoiceSession({
+    wsUrl: getAgentsWsUrlFromProductBase(ends.apiBase),
+    credential: creds.token,
+  });
+  await session.open();
+  const chunks = (async function* () {
+    try {
+      for await (const chunk of session.speak({ text, voice: options.voice, chunks: true })) {
+        yield chunk.audio;
+      }
+    } finally {
+      // Early break (a superseding read) cancels server-side, then closes.
+      session.close();
+    }
+  })();
+  return { chunks, cancel: () => session.close() };
 }

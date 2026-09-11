@@ -6,16 +6,19 @@ import {
   type SessionNotification,
 } from "../../ts-sdk/src/acp.ts";
 import type { AcpLease } from "../../ts-sdk/src/acp-pool.ts";
-import { acquireAcpClient, type AgentSummary, type RuntimeChatEvent } from "./api";
+import { acquireAcpClient, agentTtsVoice, type AgentSummary, type RuntimeChatEvent } from "./api";
 import { RUNNING, runtimeFamily } from "./agent-utils";
 import { ActivityTrace, type ActivityEntry } from "./activity-trace";
+import { usageUpdateText } from "./usage";
 import {
   ChatTraceFolder,
   detailOf,
   genId,
   imageMarkdownOf,
+  mergeDiffs,
   runtimeMessageToChat,
   settleOpenToolCalls,
+  toolDiffsOf,
   type ChatMessage,
   type MessageAttachment,
   type PlanEntry,
@@ -23,6 +26,7 @@ import {
 } from "./chat-trace";
 import { abortRuntimeChat, runtimeChatCapability, runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
 import { runtimeStreamSink, type RuntimeStreamSink } from "./runtime-stream";
+import { readAloud } from "./lib/read-aloud";
 
 export type { ChatMessage, MessageAttachment, PlanEntry, ToolCallEntry } from "./chat-trace";
 export type { ActivityEntry } from "./activity-trace";
@@ -130,10 +134,24 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const pendingUserEchoRef = useRef<string | null>(null);
   /** The in-flight runtime send, so Stop can abort the run it is streaming. */
   const runtimeSendRef = useRef<{ agentId: string; sink: RuntimeStreamSink } | null>(null);
+  /**
+   * Accumulated agent reply text for the in-flight turn (read-aloud source).
+   * Reset on each send; ACP chunks append in `fold`, runtime content events in
+   * `foldRuntimeEvent`.
+   */
+  const turnReplyRef = useRef("");
+  /** A cancelled turn is never read aloud, even if its stream ends cleanly. */
+  const suppressReadRef = useRef(false);
 
   useEffect(() => {
     latestAgentRef.current = agent;
   }, [agent]);
+
+  // Switching agents or unmounting the pane silences any in-flight read; the
+  // next chat reads for itself.
+  useEffect(() => {
+    return () => readAloud.stop();
+  }, [agentId]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -152,13 +170,13 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       return;
     }
     if (kind === "usage_update") {
-      const used = update.used as number | undefined;
-      const size = update.size as number | undefined;
-      const cost = update.cost as { amount?: number; currency?: string } | undefined;
-      const costText = cost?.amount != null ? ` ($${cost.amount.toFixed(4)} ${cost.currency ?? "USD"})` : "";
       pushActivity({
         kind: "usage",
-        title: `Usage · Tokens: ${used ?? "?"}/${size ?? "?"}${costText}`,
+        title: usageUpdateText({
+          used: update.used as number | undefined,
+          size: update.size as number | undefined,
+          cost: update.cost as { amount?: number; currency?: string } | undefined,
+        }),
       });
       return;
     }
@@ -251,6 +269,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       }
       if (kind === "agent_message_chunk") {
         const text = textOf(update.content);
+        if (text) turnReplyRef.current += text;
         const image = imageMarkdownOf(update.content);
         const appended = text || (image ? `\n\n${image}\n\n` : "");
         const last = next[next.length - 1];
@@ -286,6 +305,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           kind: update.kind as string | undefined,
           status: (update.status as string) ?? "pending",
           detail: detailOf(update.rawInput),
+          diffs: toolDiffsOf(update.rawInput, update.content),
         };
         const last = next[next.length - 1];
         const newSegment = last?.role === "assistant" && last.text.trim().length > 0;
@@ -314,6 +334,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         // row becomes expandable, not just a status flip.
         const updatedDetail =
           detailOf(update.rawInput) ?? detailOf(update.content) ?? detailOf(update.output);
+        const updatedDiffs = toolDiffsOf(update.content, update.rawInput, update.output);
         let handled = false;
         if (callId) {
           for (let i = next.length - 1; i >= 0; i -= 1) {
@@ -328,6 +349,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
                       status: status ?? t.status,
                       durationMs: durationMs ?? t.durationMs,
                       detail: updatedDetail ?? t.detail,
+                      diffs: mergeDiffs(t.diffs, updatedDiffs),
                     }
                   : t,
               ),
@@ -347,7 +369,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
               ...message,
               toolCalls: message.toolCalls.map((t, i) =>
                 i === index
-                  ? { ...t, status: status ?? t.status, detail: updatedDetail ?? t.detail }
+                  ? { ...t, status: status ?? t.status, detail: updatedDetail ?? t.detail, diffs: mergeDiffs(t.diffs, updatedDiffs) }
                   : t,
               ),
             };
@@ -366,6 +388,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const foldRuntimeEvent = useCallback((event: RuntimeChatEvent) => {
     if ((event.type === "content" || event.type === "commentary") && event.text) {
       setActivity(activityTraceRef.current.appendReplyText(event.text ?? ""));
+    }
+    if ((event.type === "content" || event.type === "commentary") && event.text) {
+      turnReplyRef.current = event.replace === true ? event.text : turnReplyRef.current + event.text;
     }
     if (event.type === "thinking" || event.type === "reasoning") {
       const text = event.text ?? "";
@@ -620,6 +645,11 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         },
       ]);
       pendingUserEchoRef.current = prompt;
+      // A new turn supersedes any in-flight read: the old reply trails off and
+      // the next one reads fresh.
+      turnReplyRef.current = "";
+      suppressReadRef.current = false;
+      readAloud.stop();
       setBusy(true);
       try {
         const currentAgent = latestAgentRef.current;
@@ -637,6 +667,11 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           if (!isCurrent()) return;
           setActivity(activityTraceRef.current.settleTurn("completed"));
           setMessages((prev) => settleOpenToolCalls(prev, "completed"));
+          if (!suppressReadRef.current) {
+            void readAloud.readIfEnabled(turnReplyRef.current, {
+              voice: agentTtsVoice(latestAgentRef.current),
+            });
+          }
           return;
         }
         const client = clientRef.current;
@@ -664,10 +699,17 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           if (prompt) blocks.push({ type: "text", text: prompt });
           content = blocks;
         }
-        await client.prompt(sessionId, content);
+        const response = await client.prompt(sessionId, content);
         if (!isCurrent()) return;
         setActivity(activityTraceRef.current.settleTurn("completed"));
         setMessages((prev) => settleOpenToolCalls(prev, "completed"));
+        // Only a clean end_turn is read aloud — cancelled / refused / truncated
+        // turns stay silent.
+        if (response.stopReason === "end_turn" && !suppressReadRef.current) {
+          void readAloud.readIfEnabled(turnReplyRef.current, {
+            voice: agentTtsVoice(latestAgentRef.current),
+          });
+        }
       } catch (e) {
         pendingUserEchoRef.current = null;
         if (!isCurrent()) return;
@@ -695,6 +737,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   );
 
   const cancel = useCallback(async () => {
+    // A cancelled turn is never read aloud, and any read already speaking stops.
+    suppressReadRef.current = true;
+    readAloud.stop();
     // A runtime send has no clientRef session to cancel; abort the run the
     // stream was tracking (run id included when it reported one) and clear
     // busy now rather than waiting for the stream to notice.

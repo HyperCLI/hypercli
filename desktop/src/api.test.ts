@@ -7,9 +7,22 @@
  * and a freshly minted token was written over a healthy one — invalidating
  * every live gateway session. Only a genuine 404 may mint.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError } from "../../ts-sdk/src/errors.ts";
-import { resetSdkClient, startAgent } from "./api";
+import {
+  agentSummary,
+  agentTtsVoice,
+  agentVoiceApiUnavailable,
+  agentVoiceContentType,
+  deleteAgentVoice,
+  hasAgentVoice,
+  resetSdkClient,
+  startAgent,
+  uploadAgentVoice,
+  validateAgentVoiceFile,
+} from "./api";
+
+const fetchCalls = vi.hoisted(() => ({ fn: vi.fn() }));
 
 const deployments = vi.hoisted(() => ({
   get: vi.fn(),
@@ -144,8 +157,7 @@ describe("startAgent (OpenClaw) gateway token", () => {
   });
 });
 
-describe("startAgent (Hermes)", () => {
-  beforeEach(() => {
+describe("startAgent (Hermes)", () => {  beforeEach(() => {
     resetSdkClient();
     vi.clearAllMocks();
     deployments.get.mockResolvedValue(hermesAgent);
@@ -163,5 +175,135 @@ describe("startAgent (Hermes)", () => {
     // No gateway token is minted for Hermes.
     expect(deployments.secret).not.toHaveBeenCalled();
     expect(deployments.setSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("agentSummary avatar_audio_url", () => {
+  // Plain-object agents, as the SDK class surfaces them (it keeps known
+  // fields only, so the raw snake_case value reaches us only in tests and
+  // during the backend rollout).
+  const asAgent = (fields: Record<string, unknown>) => fields as never;
+
+  it("passes the field through when the agent carries it", () => {
+    const summary = agentSummary(
+      asAgent({ ...openClawAgent, avatar_audio_url: "https://example.com/voice.mp3" }),
+    );
+    expect(summary.avatar_audio_url).toBe("https://example.com/voice.mp3");
+  });
+
+  it("accepts a camelCase field, as a future SDK Agent class would expose", () => {
+    const summary = agentSummary(
+      asAgent({ ...openClawAgent, avatarAudioUrl: "https://example.com/voice.mp3" }),
+    );
+    expect(summary.avatar_audio_url).toBe("https://example.com/voice.mp3");
+  });
+
+  it("maps absent, null, and blank to no voice", () => {
+    expect(agentSummary(asAgent(openClawAgent)).avatar_audio_url).toBeNull();
+    expect(agentSummary(asAgent({ ...openClawAgent, avatar_audio_url: null })).avatar_audio_url).toBeNull();
+    expect(agentSummary(asAgent({ ...openClawAgent, avatar_audio_url: "  " })).avatar_audio_url).toBeNull();
+  });
+
+  it("hasAgentVoice is true only for a non-empty url", () => {
+    expect(hasAgentVoice(null)).toBe(false);
+    expect(hasAgentVoice({ avatar_audio_url: null })).toBe(false);
+    expect(hasAgentVoice({ avatar_audio_url: "" })).toBe(false);
+    expect(hasAgentVoice({ avatar_audio_url: "https://example.com/voice.mp3" })).toBe(true);
+  });
+});
+
+describe("agentTtsVoice", () => {
+  it("returns nothing until the voice socket takes a voice reference", () => {
+    // The one-line seam: when speak() (or speakClone) accepts the agent's
+    // reference url, this becomes `agent.avatar_audio_url` and every
+    // read-aloud call site picks it up unchanged.
+    expect(agentTtsVoice(null)).toBeUndefined();
+    expect(agentTtsVoice({ avatar_audio_url: "https://example.com/voice.mp3" })).toBeUndefined();
+  });
+});
+
+describe("agent voice reference audio", () => {
+  beforeEach(() => {
+    fetchCalls.fn.mockReset();
+    vi.stubGlobal("fetch", fetchCalls.fn);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const okBody = { id: "agent-1", avatar_audio_url: "https://example.com/voice.mp3", s3_key: "k" };
+  const okResponse = () =>
+    new Response(JSON.stringify(okBody), { status: 200, headers: { "Content-Type": "application/json" } });
+
+  it("agentVoiceContentType trusts an accepted type and falls back to the extension", () => {
+    expect(agentVoiceContentType({ type: "audio/mpeg", name: "clip.bin" })).toBe("audio/mpeg");
+    expect(agentVoiceContentType({ type: "audio/mp4;codecs=mp4a", name: "clip.m4a" })).toBe("audio/mp4");
+    expect(agentVoiceContentType({ type: "", name: "Clip.WAV" })).toBe("audio/wav");
+    expect(agentVoiceContentType({ type: "application/octet-stream", name: "clip.mp3" })).toBe("audio/mpeg");
+    expect(agentVoiceContentType({ type: "video/mp4", name: "clip.mov" })).toBe("video/mp4");
+    expect(agentVoiceContentType({ type: "", name: "clip.flac" })).toBeNull();
+  });
+
+  it("validateAgentVoiceFile rejects empty, oversized, and unrecognizable files", () => {
+    expect(validateAgentVoiceFile({ size: 0, type: "audio/mpeg", name: "clip.mp3" })).toMatch(/empty/);
+    expect(validateAgentVoiceFile({ size: 16 * 1024 * 1024, type: "audio/mpeg", name: "clip.mp3" })).toMatch(/15 MB/);
+    expect(validateAgentVoiceFile({ size: 100, type: "image/png", name: "clip.png" })).toMatch(/audio or video/);
+    expect(validateAgentVoiceFile({ size: 100, type: "", name: "clip.m4a" })).toBeNull();
+    expect(validateAgentVoiceFile({ size: 100, type: "video/webm", name: "clip.webm" })).toBeNull();
+  });
+
+  it("uploadAgentVoice POSTs raw bytes to the avatar-audio route with the resolved content type", async () => {
+    fetchCalls.fn.mockResolvedValue(okResponse());
+    const file = new File([new Uint8Array([1, 2, 3])], "clip.m4a", { type: "" });
+    const result = await uploadAgentVoice("agent-1", file);
+    expect(result).toEqual({ id: "agent-1", avatar_audio_url: "https://example.com/voice.mp3" });
+    expect(fetchCalls.fn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchCalls.fn.mock.calls[0];
+    expect(url).toBe("https://api.hypercli.com/agents/deployments/agent-1/avatar-audio");
+    expect(init.method).toBe("POST");
+    expect(init.headers["Content-Type"]).toBe("audio/mp4");
+    expect(init.headers.Authorization).toBe("Bearer test-key");
+    expect(init.body).toBeInstanceOf(Uint8Array);
+  });
+
+  it("deleteAgentVoice issues DELETE on the avatar-audio route", async () => {
+    fetchCalls.fn.mockResolvedValue(
+      new Response(JSON.stringify({ id: "agent-1", avatar_audio_url: null, s3_key: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const result = await deleteAgentVoice("agent-1");
+    expect(result).toEqual({ id: "agent-1", avatar_audio_url: null });
+    const [url, init] = fetchCalls.fn.mock.calls[0];
+    expect(url).toBe("https://api.hypercli.com/agents/deployments/agent-1/avatar-audio");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it.each([404, 405])(
+    "a %i from the avatar-audio route reports unavailable instead of throwing",
+    async (status) => {
+      fetchCalls.fn.mockResolvedValue(
+        new Response(JSON.stringify({ detail: "not found" }), { status }),
+      );
+      const file = new File([new Uint8Array([1])], "clip.mp3", { type: "audio/mpeg" });
+      const result = await uploadAgentVoice("agent-1", file);
+      expect(result.unavailable).toBe(true);
+      expect(result.avatar_audio_url).toBeNull();
+      expect(agentVoiceApiUnavailable()).toBe(true);
+    },
+  );
+
+  it("other failures still throw", async () => {
+    fetchCalls.fn.mockResolvedValue(new Response(JSON.stringify({ detail: "nope" }), { status: 500 }));
+    const file = new File([new Uint8Array([1])], "clip.mp3", { type: "audio/mpeg" });
+    await expect(uploadAgentVoice("agent-1", file)).rejects.toBeInstanceOf(APIError);
+  });
+
+  it("uploadAgentVoice rejects when no content type resolves, before any fetch", async () => {
+    const file = new File([new Uint8Array([1])], "clip.flac", { type: "" });
+    await expect(uploadAgentVoice("agent-1", file)).rejects.toThrow(/unsupported/i);
+    expect(fetchCalls.fn).not.toHaveBeenCalled();
   });
 });

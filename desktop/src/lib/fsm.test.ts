@@ -55,6 +55,7 @@ function agent(id: string): AgentSummary {
     name: id,
     handle: null,
     avatar_url: null,
+    avatar_audio_url: null,
     runtime: "openclaw",
     state: "RUNNING",
     hostname: null,

@@ -81,7 +81,9 @@ export type AgentOp =
   | "setDesktopEnabled"
   | "setRuntime"
   | "uploadAvatar"
-  | "deleteAvatar";
+  | "deleteAvatar"
+  | "uploadVoice"
+  | "deleteVoice";
 
 /**
  * The single HTTP call in flight. Identical to {@link AgentOp} except that the
@@ -154,6 +156,10 @@ export interface AgentCommandOutcome {
   agent?: AgentRosterEntry | null;
   /** `uploadAvatar` / `deleteAvatar` only. */
   avatarUrl?: string | null;
+  /** `uploadVoice` / `deleteVoice` only. */
+  voiceAudioUrl?: string | null;
+  /** Set when the avatar-audio routes answered 404/405 — environment lacks them. */
+  voiceApiUnavailable?: boolean;
 }
 
 /**
@@ -180,16 +186,19 @@ export interface AgentLifecyclePort {
   ): Promise<AgentCommandOutcome | void>;
   uploadAvatar(id: string, file: File, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
   deleteAvatar(id: string, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
+  uploadVoice(id: string, file: File, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
+  deleteVoice(id: string, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
 }
 
 /** Ops that carry no argument, so `request("start")` is spellable. */
-export type SimpleAgentOp = Exclude<AgentOp, "setDesktopEnabled" | "setRuntime" | "uploadAvatar">;
+export type SimpleAgentOp = Exclude<AgentOp, "setDesktopEnabled" | "setRuntime" | "uploadAvatar" | "uploadVoice">;
 
 export type AgentCommand =
   | { op: SimpleAgentOp }
   | { op: "setDesktopEnabled"; enabled: boolean }
   | { op: "setRuntime"; runtime: ManagedAgentRuntime; resetImage: boolean }
-  | { op: "uploadAvatar"; file: File };
+  | { op: "uploadAvatar"; file: File }
+  | { op: "uploadVoice"; file: File };
 
 // ---------------------------------------------------------------------------
 // State
@@ -348,6 +357,8 @@ const VERB: Record<AgentStep, string> = {
   setRuntime: "Change runtime",
   uploadAvatar: "Upload avatar",
   deleteAvatar: "Remove avatar",
+  uploadVoice: "Upload voice audio",
+  deleteVoice: "Remove voice audio",
 };
 
 /**
@@ -376,6 +387,8 @@ export function targetReached(step: AgentStep, observed: string | null): boolean
     case "setRuntime":
     case "uploadAvatar":
     case "deleteAvatar":
+    case "uploadVoice":
+    case "deleteVoice":
       return true; // Degenerate: nothing to settle.
     default:
       return assertNever(step, "Unhandled step");
@@ -411,6 +424,8 @@ function allowedFor(observed: string | null, op: AgentOp): boolean {
     case "setRuntime":
     case "uploadAvatar":
     case "deleteAvatar":
+    case "uploadVoice":
+    case "deleteVoice":
       return true;
     default:
       return assertNever(op, "Unhandled op");
@@ -663,6 +678,13 @@ export class AgentMachine extends Machine<AgentState, AgentEvent> {
         return this.port.uploadAvatar(id, command.file, signal);
       case "deleteAvatar":
         return this.port.deleteAvatar(id, signal);
+      case "uploadVoice":
+        if (command.op !== "uploadVoice") {
+          return Promise.reject(new Error("uploadVoice requires a file"));
+        }
+        return this.port.uploadVoice(id, command.file, signal);
+      case "deleteVoice":
+        return this.port.deleteVoice(id, signal);
       default:
         return assertNever(step, "Unhandled step");
     }
@@ -970,6 +992,16 @@ export const apiAgentLifecyclePort: AgentLifecyclePort = {
   async deleteAvatar(id) {
     const result = await (await import("../api")).deleteAgentAvatar(id);
     return { avatarUrl: result.avatar_url ?? null };
+  },
+  async uploadVoice(id, file) {
+    const result = await (await import("../api")).uploadAgentVoice(id, file);
+    if (result.unavailable) return { voiceApiUnavailable: true };
+    return { voiceAudioUrl: result.avatar_audio_url };
+  },
+  async deleteVoice(id) {
+    const result = await (await import("../api")).deleteAgentVoice(id);
+    if (result.unavailable) return { voiceApiUnavailable: true };
+    return { voiceAudioUrl: result.avatar_audio_url };
   },
 };
 

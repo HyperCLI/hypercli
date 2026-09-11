@@ -61,18 +61,125 @@ export function formatTime12h(hour: number, minute: number): string {
   return `${h12}:${pad2(m)} ${suffix}`;
 }
 
-export const TIME_OPTIONS: { value: string; label: string }[] = (() => {
-  const options: { value: string; label: string }[] = [];
-  for (let hour = 0; hour < 24; hour += 1) {
-    for (let minute = 0; minute < 60; minute += 15) {
-      options.push({
-        value: `${pad2(hour)}:${pad2(minute)}`,
-        label: formatTime12h(hour, minute),
-      });
+export function parseUserTime(input: string): { hour: number; minute: number } | null {
+  const text = input.trim().toLowerCase().replace(/\s+/g, "");
+  if (!text) return null;
+  const meridiemMatch = /(a\.m\.|p\.m\.|am|pm)$/.exec(text);
+  const meridiem = meridiemMatch ? (meridiemMatch[1].startsWith("p") ? "pm" : "am") : null;
+  const core = meridiemMatch ? text.slice(0, -meridiemMatch[1].length) : text;
+  const match = /^(\d{1,4})(?:[:.](\d{1,2}))?$/.exec(core);
+  if (!match) return null;
+  let hour: number;
+  let minute: number;
+  if (match[2] !== undefined) {
+    hour = Number(match[1]);
+    minute = Number(match[2]);
+    if (minute > 59) return null;
+  } else if (match[1].length <= 2) {
+    hour = Number(match[1]);
+    minute = 0;
+  } else {
+    hour = Number(match[1].slice(0, -2));
+    minute = Number(match[1].slice(-2));
+    if (minute > 59) return null;
+  }
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour %= 12;
+    if (meridiem === "pm") hour += 12;
+  } else if (hour > 23) {
+    return null;
+  }
+  return { hour, minute };
+}
+
+export function formatGmtOffset(offsetMinutes: number): string {
+  const abs = Math.abs(offsetMinutes);
+  const hours = Math.floor(abs / 60);
+  const minutes = abs % 60;
+  return `GMT${offsetMinutes < 0 ? "-" : "+"}${hours}${minutes === 0 ? "" : `:${pad2(minutes)}`}`;
+}
+
+export function localTimeZoneLabel(now: Date = new Date(), timeZone?: string): string {
+  const gmt = formatGmtOffset(-now.getTimezoneOffset());
+  let name = timeZone;
+  if (name === undefined) {
+    try {
+      name = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      name = undefined;
     }
   }
-  return options;
-})();
+  const trimmed = name?.trim() ?? "";
+  return trimmed !== "" && trimmed.length <= 24 ? `${gmt} (${trimmed})` : gmt;
+}
+
+const STATIC_TIMEZONE_OFFSETS: Record<string, number> = {
+  "Pacific/Pago_Pago": -660,
+  "Pacific/Honolulu": -600,
+  "America/Anchorage": -540,
+  "America/Los_Angeles": -480,
+  "America/Denver": -420,
+  "America/Chicago": -360,
+  "America/New_York": -300,
+  "America/Santiago": -240,
+  "America/Sao_Paulo": -180,
+  "Atlantic/South_Georgia": -120,
+  "Atlantic/Azores": -60,
+  "Europe/London": 0,
+  UTC: 0,
+  "Europe/Berlin": 60,
+  "Africa/Lagos": 60,
+  "Europe/Helsinki": 120,
+  "Europe/Moscow": 180,
+  "Asia/Dubai": 240,
+  "Asia/Kabul": 270,
+  "Asia/Karachi": 300,
+  "Asia/Kolkata": 330,
+  "Asia/Kathmandu": 345,
+  "Asia/Dhaka": 360,
+  "Asia/Yangon": 390,
+  "Asia/Bangkok": 420,
+  "Asia/Shanghai": 480,
+  "Asia/Tokyo": 540,
+  "Australia/Darwin": 570,
+  "Australia/Sydney": 600,
+  "Pacific/Noumea": 660,
+  "Pacific/Auckland": 720,
+  "Pacific/Tongatapu": 780,
+  "Pacific/Kiritimati": 840,
+};
+
+export function gmtOffsetForTimeZone(timeZone: string, now: Date = new Date()): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" }).formatToParts(now);
+    const name = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+    const match = /^GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?$/.exec(name);
+    if (match) {
+      if (match[1] === undefined) return 0;
+      const minutes = Number(match[2]) * 60 + Number(match[3] ?? "0");
+      return match[1] === "-" ? -minutes : minutes;
+    }
+  } catch {
+  }
+  return STATIC_TIMEZONE_OFFSETS[timeZone] ?? null;
+}
+
+export function timeZoneCityName(timeZone: string): string {
+  return (timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ");
+}
+
+export function timeZoneLabelFor(timeZone: string, now: Date = new Date()): string {
+  const trimmed = timeZone.trim();
+  const offset = trimmed ? gmtOffsetForTimeZone(trimmed, now) : null;
+  if (offset === null) return trimmed ? timeZoneCityName(trimmed) : localTimeZoneLabel(now);
+  return `${formatGmtOffset(offset)} · ${timeZoneCityName(trimmed)}`;
+}
+
+export const TIMEZONE_OPTIONS: { id: string; label: string }[] = Object.keys(STATIC_TIMEZONE_OFFSETS).map((id) => ({
+  id,
+  label: timeZoneLabelFor(id),
+}));
 
 export function parseTime24(time: string): { hour: number; minute: number } | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
@@ -106,7 +213,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function buildCron(draft: ScheduleDraft): string | null {
+// timeZone is accepted so the caller's selection travels with the request, but the
+// cron fields are wall time as typed ("9:00 AM in zone X" -> hour 9). The backend
+// interprets cron in UTC, a pre-existing mismatch that stays unresolved here.
+export function buildCron(draft: ScheduleDraft, timeZone?: string): string | null {
+  void timeZone;
   const { hour, minute } = parseTime24(draft.time) ?? { hour: 9, minute: 0 };
   switch (draft.frequency) {
     case "none":

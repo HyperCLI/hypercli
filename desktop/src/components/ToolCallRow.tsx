@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import type { ChatMessage, ToolCallEntry } from "../useAgentChat";
+import { ToolCallDiffs } from "./DiffBlock";
 
 const STATUS_STYLE: Record<string, string> = {
   completed: "text-success",
@@ -10,12 +11,13 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export function ToolCallRow({ tool }: { tool: ToolCallEntry }) {
-  const [open, setOpen] = useState(tool.status !== "completed" || Boolean(tool.detail));
+  const hasDiffs = Boolean(tool.diffs?.length);
+  const [open, setOpen] = useState(tool.status !== "completed" || (Boolean(tool.detail) && !hasDiffs));
   const running = tool.status === "in_progress" || tool.status === "pending";
   const failed = tool.status === "failed";
   useEffect(() => {
-    if (tool.status === "completed" && !tool.detail) setOpen(false);
-  }, [tool.status, tool.detail]);
+    if (tool.status === "completed" && (!tool.detail || hasDiffs)) setOpen(false);
+  }, [tool.status, tool.detail, hasDiffs]);
   return (
     <div className={`tool-card tool-trace ${running ? "tool-trace-running" : ""}`}>
       <button
@@ -54,6 +56,11 @@ export function ToolCallRow({ tool }: { tool: ToolCallEntry }) {
           <code className="block text-[11px] font-mono text-text-secondary bg-surface rounded px-2 py-1.5 break-all whitespace-pre-wrap">
             {tool.detail}
           </code>
+        </div>
+      )}
+      {hasDiffs && (
+        <div className="px-2 pb-2 pt-0.5">
+          <ToolCallDiffs diffs={tool.diffs!} />
         </div>
       )}
     </div>

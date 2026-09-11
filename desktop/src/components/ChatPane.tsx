@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
+  Image,
   Loader2,
   Mic,
   PanelLeftOpen,
@@ -11,12 +12,15 @@ import {
   Square,
   X,
 } from "lucide-react";
-import type { AgentSummary } from "../api";
+import { hasAgentVoice, type AgentSummary } from "../api";
 import type { AgentChat, ChatMessage, MessageAttachment } from "../useAgentChat";
 import { readAttachment } from "../attachments";
+import { readAloud } from "../lib/read-aloud";
+import { readAloudEnabled, setReadAloudEnabled } from "../lib/voice-read";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
+import { ReadAloudButton } from "./ReadAloudButton";
 import { PlanList, ThinkingBlock, ToolCallRow } from "./ToolCallRow";
 import { ApprovalCard } from "./ApprovalCard";
 import { RUNNING, TRANSITIONAL, runtimeFamily } from "../agent-utils";
@@ -132,10 +136,13 @@ export function ChatPane({
 }) {
   const persona = usePersona(agent?.id ?? null);
   const [draft, setDraft] = useState("");
+  const [speakReplies, setSpeakReplies] = useState(() => readAloudEnabled());
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [now, setNow] = useState(Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -170,6 +177,15 @@ export function ChatPane({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [chat.busy]);
+
+  useEffect(() => {
+    if (!plusMenuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPlusMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [plusMenuOpen]);
 
   const reopenLeft = !leftOpen && (
     <button
@@ -297,6 +313,17 @@ export function ChatPane({
         <div data-tauri-drag-region className="drag-fill" />
         <div className="app-header-content px-5 gap-3">
           {reopenLeft}
+          {hasAgentVoice(agent) && (
+            <ReadAloudButton
+              hasVoice
+              enabled={speakReplies}
+              onToggle={(next) => {
+                setReadAloudEnabled(next);
+                setSpeakReplies(next);
+                if (!next) readAloud.stop();
+              }}
+            />
+          )}
           <Avatar
             name={agent.name}
             url={agent.avatar_url}
@@ -355,14 +382,6 @@ export function ChatPane({
               </>
             )}
           </span>
-          <button
-            onClick={() => exportChatHtml(agent.name, chat.messages)}
-            disabled={chat.messages.length === 0}
-            className="ui-icon-button-sm shrink-0 disabled:opacity-40"
-            title="Export chat as HTML"
-          >
-            <Share2 size={14} />
-          </button>
           {reopenRight}
         </div>
       </header>
@@ -565,19 +584,72 @@ export function ChatPane({
         {attachError && (
           <div className="mx-auto mb-2 max-w-[520px] text-[11px] text-error">{attachError}</div>
         )}
-        <div className="composer">
+        <div className="composer relative">
           <button
             className="composer-icon disabled:opacity-40"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setPlusMenuOpen((open) => !open)}
             disabled={!acceptsAttachments}
-            title="Attach a file"
+            title="More options"
           >
             <Plus size={16} />
           </button>
+          {plusMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setPlusMenuOpen(false)} />
+              <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[180px] rounded-lg border border-border bg-surface py-1 shadow-lg">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-foreground/5"
+                  onClick={() => {
+                    setPlusMenuOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <Paperclip size={14} />
+                  Attach file
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-foreground/5"
+                  onClick={() => {
+                    setPlusMenuOpen(false);
+                    mediaInputRef.current?.click();
+                  }}
+                >
+                  <Image size={14} />
+                  Attach media
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-foreground/5 disabled:opacity-40"
+                  disabled={chat.messages.length === 0}
+                  onClick={() => {
+                    setPlusMenuOpen(false);
+                    exportChatHtml(agent.name, chat.messages);
+                  }}
+                >
+                  <Share2 size={14} />
+                  Share this chat
+                </button>
+              </div>
+            </>
+          )}
           <input
             ref={fileInputRef}
             type="file"
             multiple
+            className="hidden"
+            onChange={(event) => {
+              const files = event.target.files;
+              if (files?.length) void addFiles(files);
+              event.target.value = "";
+            }}
+          />
+          <input
+            ref={mediaInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*,audio/*"
             className="hidden"
             onChange={(event) => {
               const files = event.target.files;
