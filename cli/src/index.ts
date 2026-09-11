@@ -73,9 +73,11 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  // Everything typed after the group name belongs to the group.
+  // Everything typed after the group name belongs to the group. Splice at the
+  // first positional token index, not indexOf(groupName) — a global flag value
+  // could duplicate the word.
   const groupArgs = [...argv];
-  groupArgs.splice(argv.indexOf(groupName), 1);
+  groupArgs.splice(top.firstPositionalIndex, 1);
 
   const ctx = buildContext(top.dev, top.format);
   const code = await group.run(ctx, groupArgs);

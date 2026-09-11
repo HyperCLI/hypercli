@@ -125,6 +125,8 @@ async function confirm(question: string): Promise<boolean> {
 // record shaping + schedule humanization
 //   describeSchedule is a camelCase port of desktop's describeRoutine
 //   (desktop/src/schedule.ts) — same humanizations, Routine fields directly.
+//   Keep in lockstep: tests/routines.test.ts mirrors the pinned matrix in
+//   desktop/src/schedule.test.ts; the first divergence should fail here.
 // ---------------------------------------------------------------------------
 
 function routineJson(routine: Routine): Record<string, unknown> {
@@ -180,7 +182,8 @@ function dateInputValue(value: Date): string {
   return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
 }
 
-function describeSchedule(routine: Routine): string {
+/** Exported for the desktop-parity test matrix in tests/routines.test.ts. */
+export function describeSchedule(routine: Routine): string {
   const runAt = routine.runAt?.trim();
   if (runAt) {
     const value = new Date(runAt);
@@ -227,9 +230,13 @@ async function cmdList(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, { agent: { type: 'string' } });
   if (parsed.help) return printHelp();
   const client = await ctx.client();
-  const agentFilter = str(parsed, 'agent');
+  const agentRef = str(parsed, 'agent');
+  // Same resolution contract as `create`: prefixes resolve against the roster,
+  // no match is a CliError — never pass a raw fragment to the backend (it
+  // expects a UUID and 422s).
+  const agentId = agentRef ? await resolveAgentRef(client.deployments, agentRef) : undefined;
   const routines = await api('list routines', () =>
-    client.routines.list(agentFilter ? { agentId: agentFilter } : {}));
+    client.routines.list(agentId ? { agentId } : {}));
   ctx.output.info(`total ${routines.length}`);
   ctx.output.result(
     routines.map(routineJson),
@@ -349,6 +356,10 @@ async function cmdDelete(ctx: CommandContext, args: string[]): Promise<void> {
 // one session/prompt turn, awaited to its stop reason.
 // ---------------------------------------------------------------------------
 
+/** Default run timeout — mirrors the backend executor
+    (routines/app/config.py: executor_turn_timeout_seconds = 1800). */
+const DEFAULT_RUN_TIMEOUT_SECONDS = 1800;
+
 type RunStage = 'connect' | 'session' | 'prompt';
 
 interface RunResult {
@@ -377,7 +388,7 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
   if (parsed.help) return printHelp();
   const routineId = onePositional(parsed, 'routine id');
   const wait = parsed.values.wait === true;
-  const timeoutMs = secondsFlag(parsed, 'timeout', 120);
+  const timeoutMs = secondsFlag(parsed, 'timeout', DEFAULT_RUN_TIMEOUT_SECONDS);
 
   const client = await ctx.client();
   const routine = await api('get routine', () => client.routines.get(routineId));
@@ -501,8 +512,10 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
     return;
   }
   const [sub] = pre.positionals;
+  // Splice at the first positional TOKEN — never indexOf the word, which can
+  // hit an earlier flag value (e.g. `routines --agent list list`).
   const subArgs = [...args];
-  subArgs.splice(args.indexOf(sub), 1);
+  subArgs.splice(pre.firstPositionalIndex, 1);
   switch (sub) {
     case 'list':
     case 'ls':

@@ -162,14 +162,26 @@ describe('hyper routines list', () => {
     expect(stderr()).toContain('total 2');
   });
 
-  it('passes --agent through as an agentId filter', async () => {
+  it('--agent resolves an id prefix before sending the filter', async () => {
+    const list = vi.fn(async () => []);
+    const deploymentsList = vi.fn(async () => [agentFixture()]);
+    const { ctx } = makeCtx(
+      fakeClient({ routines: { list }, deployments: { list: deploymentsList } }),
+      'table',
+    );
+
+    await routines.run(ctx, ['list', '--agent', 'aaaa']);
+
+    expect(list).toHaveBeenCalledWith({ agentId: ID_A });
+    expect(stdout()).toContain('No routines found.');
+  });
+
+  it('--agent with no match is a CliError and never lists', async () => {
     const list = vi.fn(async () => []);
     const { ctx } = makeCtx(fakeClient({ routines: { list } }), 'table');
 
-    await routines.run(ctx, ['list', '--agent', 'abcd']);
-
-    expect(list).toHaveBeenCalledWith({ agentId: 'abcd' });
-    expect(stdout()).toContain('No routines found.');
+    expect(await runErr(ctx, ['list', '--agent', 'zzzz'])).toBeInstanceOf(CliError);
+    expect(list).not.toHaveBeenCalled();
   });
 
   it('--json prints the full record bag as a single JSON value', async () => {
@@ -189,6 +201,20 @@ describe('hyper routines list', () => {
       enabled: true,
       next_run_at: '2026-09-14T09:00:00Z',
     });
+  });
+
+  it('--json emits only the JSON document on stdout; progress goes to stderr', async () => {
+    const list = vi.fn(async () => [routineFixture()]);
+    const { ctx } = makeCtx(fakeClient({ routines: { list } }), 'json');
+
+    await routines.run(ctx, ['list', '--json']);
+
+    const lines = stdout().split('\n').filter((line) => line.length > 0);
+    expect(lines).toHaveLength(1);
+    expect(() => JSON.parse(lines[0])).not.toThrow();
+    expect(stderr()).toContain('total 1');
+    expect(stdout()).not.toContain('total 1');
+    expect(stdout()).not.toContain('NAME');
   });
 });
 
@@ -522,5 +548,52 @@ describe('hyper routines --help', () => {
     const err = await runErr(ctx, ['creat']);
     expect(err).toBeInstanceOf(UsageError);
     expect(String((err as Error).message)).toContain("did you mean 'create'");
+  });
+
+  it('dispatch strips only the subcommand token when flags precede it', async () => {
+    const get = vi.fn(async () => routineFixture());
+    const { ctx } = makeCtx(fakeClient({ routines: { get } }), 'json');
+
+    // Splice-by-token-index contract: flags and their values stay intact; only
+    // the positional subcommand token is removed from the delegated argv.
+    await routines.run(ctx, ['-o', 'json', 'get', 'routine-1']);
+
+    expect(get).toHaveBeenCalledWith('routine-1');
+    const parsed = JSON.parse(stdout().trim()) as Record<string, unknown>;
+    expect(parsed.id).toBe('routine-1');
+  });
+});
+
+// ---------- describeSchedule parity with desktop ----------
+
+/**
+ * PINNED PARITY: describeSchedule is a manual camelCase port of desktop's
+ * describeRoutine. This matrix mirrors desktop/src/schedule.test.ts
+ * describeRoutine cases verbatim (snake_case run_at -> camelCase runAt) so
+ * the first humanization divergence fails loudly here. Keep both in
+ * lockstep: cli/src/commands/routines.ts and desktop/src/schedule.ts.
+ */
+describe('describeSchedule (desktop describeRoutine parity)', () => {
+  const withCron = (cron: string) => routineFixture({ cron, runAt: null });
+
+  it('describes known cron patterns', () => {
+    expect(routines.describeSchedule(withCron('0 9 * * 1'))).toBe('Mondays at 9:00 AM');
+    expect(routines.describeSchedule(withCron('0 9 * * 6'))).toBe('Saturdays at 9:00 AM');
+    expect(routines.describeSchedule(withCron('0 9 * * 1-5'))).toBe('Weekdays at 9:00 AM');
+    expect(routines.describeSchedule(withCron('30 14 * * *'))).toBe('Every day at 2:30 PM');
+    expect(routines.describeSchedule(withCron('5 * * * *'))).toBe('Hourly at :05');
+    expect(routines.describeSchedule(withCron('0 9 15 * *'))).toBe('Monthly on the 15th at 9:00 AM');
+    expect(routines.describeSchedule(withCron('0 0 1 1 *'))).toBe('January 1st at 12:00 AM');
+  });
+
+  it('describes one-time routines from run_at', () => {
+    const runAt = new Date(2026, 8, 14, 9, 30).toISOString();
+    expect(routines.describeSchedule(routineFixture({ cron: '', runAt }))).toBe(
+      'Once on 2026-09-14 at 9:30 AM',
+    );
+  });
+
+  it('falls back to the raw cron for unknown patterns', () => {
+    expect(routines.describeSchedule(withCron('*/7 * * * *'))).toBe('*/7 * * * *');
   });
 });

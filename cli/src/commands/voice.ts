@@ -26,12 +26,18 @@ import type { CommandContext } from '../core/types.js';
 
 export const name = 'voice';
 export const summary = 'Text-to-speech and transcription via the voice capability API.';
-export const usage = [
-  'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]',
-  'hyper voice design <text> --description DESCRIPTION [--out file.mp3] [--rest] [--json]',
-  'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--rest] [--json]',
-  'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]',
-];
+
+// Named so error messages cite the right subcommand; `usage` composes these
+// so a positional index can never drift away from the subcommand handler.
+const USAGE_TTS = 'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]';
+const USAGE_DESIGN =
+  'hyper voice design <text> --description DESCRIPTION [--out file.mp3] [--rest] [--json]';
+const USAGE_CLONE =
+  'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--rest] [--json]';
+const USAGE_TRANSCRIBE =
+  'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]';
+
+export const usage = [USAGE_TTS, USAGE_DESIGN, USAGE_CLONE, USAGE_TRANSCRIBE];
 
 const DEFAULT_VOICE = 'serena';
 const MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -259,7 +265,7 @@ async function tts(ctx: CommandContext, args: string[]): Promise<void> {
 
   const [text, ...rest] = parsed.positionals;
   if (!text || rest.length > 0) {
-    throw new UsageError(`usage: ${usage[0]}`);
+    throw new UsageError(`usage: ${USAGE_TTS}`);
   }
   const voice = typeof parsed.values.voice === 'string' ? parsed.values.voice : DEFAULT_VOICE;
   const stream = parsed.values.stream === true;
@@ -297,7 +303,7 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
 
   const [text, ...rest] = parsed.positionals;
   if (!text || rest.length > 0) {
-    throw new UsageError(`usage: ${usage[1]}`);
+    throw new UsageError(`usage: ${USAGE_CLONE}`);
   }
   const fileArg = typeof parsed.values.file === 'string' ? parsed.values.file : undefined;
   const urlArg = typeof parsed.values.url === 'string' ? parsed.values.url : undefined;
@@ -346,7 +352,7 @@ async function design(ctx: CommandContext, args: string[]): Promise<void> {
 
   const [text, ...rest] = parsed.positionals;
   if (!text || rest.length > 0) {
-    throw new UsageError(`usage: ${usage[1]}`);
+    throw new UsageError(`usage: ${USAGE_DESIGN}`);
   }
   const description = (
     typeof parsed.values.description === 'string' ? parsed.values.description :
@@ -395,7 +401,7 @@ async function transcribe(ctx: CommandContext, args: string[]): Promise<void> {
 
   const [audioFile, ...rest] = parsed.positionals;
   if (!audioFile || rest.length > 0) {
-    throw new UsageError(`usage: ${usage[2]}`);
+    throw new UsageError(`usage: ${USAGE_TRANSCRIBE}`);
   }
   const language = typeof parsed.values.language === 'string' ? parsed.values.language : undefined;
   const useRest = parsed.values.rest === true;
@@ -451,9 +457,11 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   }
   const [sub] = pre.positionals;
   // Hand the subcommand its own argv (original args minus the sub token)
-  // so flags survive strict re-parsing inside the subcommand.
+  // so flags survive strict re-parsing inside the subcommand. Splice at the
+  // index of the first positional TOKEN — never indexOf the word, which can
+  // hit an earlier flag value (e.g. `voice --voice tts tts "hello"`).
   const subArgs = [...args];
-  subArgs.splice(args.indexOf(sub), 1);
+  subArgs.splice(pre.subIndex, 1);
   switch (sub) {
     case 'tts':
       return tts(ctx, subArgs);
@@ -472,6 +480,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
 function parseUniversalGroup(args: string[]): {
   help: boolean;
   positionals: string[];
+  /** argv index of the first positional token (the subcommand), or -1. */
+  subIndex: number;
 } {
   const parsed = parseArgs({
     args,
@@ -492,9 +502,12 @@ function parseUniversalGroup(args: string[]): {
     },
     strict: false,
     allowPositionals: true,
+    tokens: true,
   });
+  const subToken = (parsed.tokens ?? []).find((token) => token.kind === 'positional');
   return {
     help: parsed.values.help === true,
     positionals: parsed.positionals,
+    subIndex: subToken?.index ?? -1,
   };
 }

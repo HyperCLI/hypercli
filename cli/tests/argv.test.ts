@@ -16,6 +16,17 @@ describe('parseUniversal', () => {
     expect(parsed.format).toBe('json');
   });
 
+  it('firstPositionalIndex indexes the group token, not a flag value', () => {
+    // Value-consuming flag before the group: splicing at firstPositionalIndex
+    // removes the right token; textually searching would hit the flag value.
+    const parsed = parseUniversal(['-o', 'json', 'agents', 'ls']);
+    expect(parsed.positionals[0]).toBe('agents');
+    expect(parsed.firstPositionalIndex).toBe(2);
+
+    expect(parseUniversal(['agents']).firstPositionalIndex).toBe(0);
+    expect(parseUniversal(['--json']).firstPositionalIndex).toBe(-1);
+  });
+
   it('resolveFormat rejects unknown formats', () => {
     expect(() => resolveFormat({ output: 'yaml' })).toThrow(UsageError);
     expect(resolveFormat({ output: 'table' })).toBe('table');

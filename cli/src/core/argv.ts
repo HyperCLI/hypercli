@@ -41,9 +41,16 @@ export interface ParsedArgs {
   help: boolean;
 }
 
-/** Back-compat aliases — same shape as ParsedArgs. */
-export type ParsedUniversal = ParsedArgs;
+/** Back-compat alias — same shape as ParsedArgs. */
 export type ParsedCommand = ParsedArgs;
+
+/** ParsedArgs plus the argv index of the first positional token — group
+    dispatchers splice at this index rather than textually searching for the
+    group/subcommand word, which can collide with an earlier flag value. */
+export interface ParsedUniversal extends ParsedArgs {
+  /** argv index of the first positional token, or -1 when there are none. */
+  firstPositionalIndex: number;
+}
 
 /** Resolve the output format from --json / --output. */
 export function resolveFormat(values: Record<string, unknown>): OutputFormat {
@@ -57,18 +64,21 @@ export function resolveFormat(values: Record<string, unknown>): OutputFormat {
 
 /** Non-strict scan of full argv: never throws on unknown flags. */
 export function parseUniversal(argv: string[]): ParsedUniversal {
-  const { values, positionals } = parseArgs({
+  const { values, positionals, tokens } = parseArgs({
     args: argv,
     options: UNIVERSAL_OPTIONS,
     strict: false,
     allowPositionals: true,
+    tokens: true,
   });
+  const firstPositional = (tokens ?? []).find((token) => token.kind === 'positional');
   return {
     values: values as Record<string, unknown>,
     positionals,
     format: resolveFormat(values as Record<string, unknown>),
     dev: values.dev === true,
     help: values.help === true,
+    firstPositionalIndex: firstPositional?.index ?? -1,
   };
 }
 

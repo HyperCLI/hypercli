@@ -575,6 +575,38 @@ describe('hyper voice', () => {
     expect(stdout()).toBe('');
   });
 
+  it('dispatch splices the subcommand TOKEN, not a same-named flag value', async () => {
+    const tts = vi.fn(async () => new Uint8Array([1]));
+    const client = fakeClient({ tts });
+    const ctx = makeCtx(client, 'json');
+    const outFile = join(workDir, 'splice.mp3');
+
+    // `tts` appears first as the --voice VALUE, then as the real subcommand,
+    // with other tokens in between — indexOf would remove the flag value,
+    // leaving `--voice` to consume `--out` and failing the strict re-parse.
+    await voice.run(ctx, ['--voice', 'tts', '--out', outFile, 'tts', 'hello world', '--json']);
+
+    expect(tts).toHaveBeenCalledWith({ text: 'hello world', voice: 'tts' });
+    expect(await readFile(outFile)).toEqual(Buffer.from([1]));
+  });
+
+  it('usage errors cite the subcommand that failed', async () => {
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    const capture = (args: string[]) =>
+      voice.run(ctx, args).then(
+        () => null,
+        (e: unknown) => e,
+      );
+
+    expect(String((await capture(['clone'])) as Error)).toContain('hyper voice clone <text>');
+    expect(String((await capture(['transcribe'])) as Error)).toContain(
+      'hyper voice transcribe <audio-file>',
+    );
+    expect(String((await capture(['design'])) as Error)).toContain('hyper voice design <text>');
+    expect(String((await capture(['tts'])) as Error)).toContain('hyper voice tts <text>');
+  });
+
   it('--help prints help without touching the API', async () => {
     const client = fakeClient();
     const ctx = makeCtx(client, 'table');
