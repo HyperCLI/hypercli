@@ -65,8 +65,8 @@ async function loadNodeWebSocket(): Promise<NodeWebSocketConstructor> {
   return (mod.default ?? mod) as NodeWebSocketConstructor;
 }
 
-function bytesFromAudio(audio: Uint8Array | ArrayBuffer): Uint8Array {
-  return audio instanceof Uint8Array ? audio : new Uint8Array(audio);
+function bytesFromAudio(audio: Uint8Array | ArrayBuffer): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(audio);
 }
 
 export class VoiceTranscriptionSession {
