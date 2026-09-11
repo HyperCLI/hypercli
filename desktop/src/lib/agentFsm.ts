@@ -51,6 +51,7 @@
  */
 
 import { RUNNING, TRANSITIONAL } from "../agent-utils";
+import type { ManagedAgentRuntime } from "../../../ts-sdk/src/agents.ts";
 import {
   classifyConnectionError,
   clearConnectionIssue,
@@ -173,7 +174,7 @@ export interface AgentLifecyclePort {
   ): Promise<AgentCommandOutcome | void>;
   setRuntime(
     id: string,
-    runtime: string,
+    runtime: ManagedAgentRuntime,
     resetImage: boolean,
     signal: AbortSignal,
   ): Promise<AgentCommandOutcome | void>;
@@ -187,7 +188,7 @@ export type SimpleAgentOp = Exclude<AgentOp, "setDesktopEnabled" | "setRuntime" 
 export type AgentCommand =
   | { op: SimpleAgentOp }
   | { op: "setDesktopEnabled"; enabled: boolean }
-  | { op: "setRuntime"; runtime: string; resetImage: boolean }
+  | { op: "setRuntime"; runtime: ManagedAgentRuntime; resetImage: boolean }
   | { op: "uploadAvatar"; file: File };
 
 // ---------------------------------------------------------------------------

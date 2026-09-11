@@ -362,7 +362,8 @@ describe('CodingAgent.acpConnect', () => {
     expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(2);
   });
 
-  it('rejects an in-flight prompt on socket drop, reconnects, replays session/load, and prompts again', async () => {    const bridge = await startBridge();
+  it('rejects an in-flight prompt on socket drop, reconnects, replays session/load, and prompts again', async () => {
+    const bridge = await startBridge();
     let holdPrompt = true;
     bridge.promptHook = (peer, frame) => {
       if (holdPrompt) return;

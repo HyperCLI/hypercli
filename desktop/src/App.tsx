@@ -9,6 +9,7 @@ import {
 } from "react";
 import { subscribeAgentUpdates, type AgentSummary } from "./api";
 import { TRANSITIONAL, runtimeFamily } from "./agent-utils";
+import type { ManagedAgentRuntime } from "../../ts-sdk/src/agents.ts";
 import type { ConnectionIssue } from "./lib/connection-errors";
 import { assertNever } from "./lib/machine";
 import { useMachine, usePooledMachine, usePooledMachines } from "./lib/use-machine";
@@ -300,6 +301,24 @@ export default function App() {
     sessionMachine.send({ type: "REFRESH" });
   }, [busySignature]);
 
+  // A failed one-shot op can leave an optimistic patch behind (the expected
+  // path: resetImage rejected on a non-stopped agent). Reconcile it from the
+  // server roster the moment the machine reports Failed.
+  useEffect(() => {
+    setPatches((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [id, state] of agentStates) {
+        if (state.name === "Failed" && next[id]?.runtime !== undefined) {
+          const { runtime: _dropped, ...rest } = next[id];
+          next[id] = rest;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [agentStates]);
+
   // Live updates. `mayOpenSubscriptions` is false in `degraded`, so a blocked
   // app stops dialling instead of retrying a socket that cannot open — and the
   // dependency is a boolean, never the roster, so a refresh cannot re-run this.
@@ -432,7 +451,7 @@ export default function App() {
     }
   }, [command]);
 
-  const onSetAgentRuntime = useCallback((id: string, runtime: string, resetImage: boolean) => {
+  const onSetAgentRuntime = useCallback((id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => {
     if (command(id, { op: "setRuntime", runtime, resetImage })) {
       setPatches((current) => ({
         ...current,

@@ -18,6 +18,7 @@ import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { MANAGED_RUNTIMES, RUNNING, isAgentRuntimeInactiveState, isDeletedState, runtimeLabel } from "../agent-utils";
+import type { ManagedAgentRuntime } from "../../../ts-sdk/src/agents.ts";
 import { useAgentLogs } from "../useAgentLogs";
 
 type Tab = "agent" | "status" | "settings";
@@ -105,7 +106,7 @@ export function ContextPanel({
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
   onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
-  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
+  onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
 }) {
@@ -1125,7 +1126,7 @@ function SettingsTab({
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
   onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
-  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
+  onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
 }) {
@@ -1341,7 +1342,7 @@ function RuntimePicker({
   onSetAgentRuntime,
 }: {
   agent: AgentSummary;
-  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
+  onSetAgentRuntime: (id: string, runtime: ManagedAgentRuntime, resetImage: boolean) => void;
 }) {
   const current = agent.runtime ?? "generic";
   const [selected, setSelected] = useState(current);
@@ -1370,7 +1371,7 @@ function RuntimePicker({
         <button
           type="button"
           disabled={!dirty}
-          onClick={() => onSetAgentRuntime(agent.id, selected, resetImage)}
+          onClick={() => onSetAgentRuntime(agent.id, selected as ManagedAgentRuntime, resetImage)}
           className="ui-primary-button px-3 text-[12px] disabled:opacity-40"
         >
           Apply

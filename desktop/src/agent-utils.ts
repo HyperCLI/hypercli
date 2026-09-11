@@ -6,25 +6,26 @@ import {
   AGENT_TRANSITIONAL_STATES,
   isAgentRuntimeInactiveState,
   isAgentTransitionalState,
+  type ManagedAgentRuntime,
 } from "../../ts-sdk/src/agents.ts";
 
 export const RUNNING = "RUNNING";
 export type RuntimeFamily = "openclaw" | "hermes" | "acp" | "generic";
-export const OPENCLAW_RUNTIMES = new Set(["openclaw", "openclaw-pro"]);
-export const HERMES_RUNTIMES = new Set(["hermes-agent"]);
-export const ACP_RUNTIMES = new Set(["opencode", "codex", "claude-code", "goose", "kimi-code", "buzz-agent"]);
-export const MANAGED_RUNTIMES: readonly string[] = [
+const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(["openclaw", "openclaw-pro"]);
+const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(["hermes-agent"]);
+const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(["opencode", "codex", "claude-code", "goose", "kimi-code", "buzz-agent"]);
+export const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
+export const HERMES_RUNTIMES: ReadonlySet<string> = HERMES_SET;
+export const ACP_RUNTIMES: ReadonlySet<string> = ACP_SET;
+// Derived from the family sets above so a runtime only ever appears once; the
+// satisfies pin makes an SDK union member missing from those sets a compile
+// error instead of a silent omission.
+export const MANAGED_RUNTIMES = [
   "generic",
-  "openclaw",
-  "openclaw-pro",
-  "hermes-agent",
-  "buzz-agent",
-  "opencode",
-  "codex",
-  "claude-code",
-  "goose",
-  "kimi-code",
-];
+  ...OPENCLAW_SET,
+  ...HERMES_SET,
+  ...ACP_SET,
+] as const satisfies readonly ManagedAgentRuntime[];
 export const TRANSITIONAL = AGENT_TRANSITIONAL_STATES;
 export { isAgentTransitionalState, isAgentRuntimeInactiveState };
 

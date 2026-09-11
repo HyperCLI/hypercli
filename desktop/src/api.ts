@@ -9,6 +9,7 @@ import {
   type AgentLogsTokenResponse,
   type AgentProfileImageUploadResult,
   type AgentShellTokenResponse,
+  type ManagedAgentRuntime,
 } from "../../ts-sdk/src/agents.ts";
 import {
   OpenClawSessionClient,
@@ -414,13 +415,13 @@ export async function setAgentDesktopEnabled(id: string, enabled: boolean): Prom
 
 export async function setAgentRuntime(
   id: string,
-  runtime: string,
+  runtime: ManagedAgentRuntime,
   resetImage: boolean,
 ): Promise<AgentSummary> {
   const client = await sdk();
   return agentSummary(
     await client.deployments.update(id, {
-      runtime: runtime as never,
+      runtime,
       ...(resetImage ? { resetImage: true } : {}),
     }),
   );

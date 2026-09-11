@@ -33,6 +33,7 @@ import {
   type HermesAgent,
   type HyperAgentGrantRedemptionResponse,
   type HyperCLI,
+  type ManagedAgentRuntime,
   type OpenClawAgent,
   type Routine,
   type RoutineCreateOptions,
@@ -78,19 +79,21 @@ const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /** desktop/src/agent-utils parity: only these runtimes get the token ceremony. */
-const OPENCLAW_RUNTIMES = new Set(['openclaw', 'openclaw-pro']);
-const HERMES_RUNTIMES = new Set(['hermes-agent']);
+const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro']);
+const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent']);
 /** CodingAgent family: chat rides the pod-side ACP bridge, never a gateway. */
-const ACP_RUNTIMES = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'buzz-agent']);
+const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'buzz-agent']);
+const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
+const HERMES_RUNTIMES: ReadonlySet<string> = HERMES_SET;
+const ACP_RUNTIMES: ReadonlySet<string> = ACP_SET;
 
 const KNOWN_COMMANDS = new Set([
   'ls', 'list', 'status', 'wait', 'create', 'start', 'chat', 'stop', 'delete', 'exec',
   'shell', 'logs', 'cp', 'activate', 'routines', 'set', ...HIDDEN,
 ]);
 
-const MANAGED_RUNTIMES = new Set([
-  'generic', 'openclaw', 'openclaw-pro', 'hermes-agent', 'buzz-agent',
-  'opencode', 'codex', 'claude-code', 'goose', 'kimi-code',
+const MANAGED_RUNTIMES: ReadonlySet<ManagedAgentRuntime> = new Set([
+  'generic', ...OPENCLAW_SET, ...HERMES_SET, ...ACP_SET,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -596,7 +599,7 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
     throw new UsageError(`unexpected extra arguments: ${parsed.positionals.slice(2).join(' ')}`);
   }
   const [ref, runtime] = parsed.positionals;
-  if (!MANAGED_RUNTIMES.has(runtime)) {
+  if (!MANAGED_RUNTIMES.has(runtime as ManagedAgentRuntime)) {
     throw new UsageError(
       `unknown runtime '${runtime}' (expected one of: ${[...MANAGED_RUNTIMES].join(', ')})`,
     );
@@ -605,7 +608,7 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
   const { d } = await adopt(ctx);
   const id = await resolveAgentRef(d, ref);
   const updated = await api('update agent', () =>
-    d.update(id, { runtime: runtime as never, ...(resetImage ? { resetImage: true } : {}) }));
+    d.update(id, { runtime: runtime as ManagedAgentRuntime, ...(resetImage ? { resetImage: true } : {}) }));
   ctx.output.result(
     recordJsonRecord(updated, `${dashboardBase(ctx)}/agents/${updated.id}`),
     `updated ${shortId(id)} runtime=${updated.runtime}${resetImage ? ' (image reset to default; applies on next start)' : ''}`,
