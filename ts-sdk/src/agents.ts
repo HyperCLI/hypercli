@@ -1142,6 +1142,10 @@ export interface UpdateAgentOptions {
   handle?: string | null;
   size?: string;
   launchConfig?: Record<string, any> | null;
+  /** Runtime family label; re-labeling is allowed at any time. */
+  runtime?: ManagedAgentRuntime;
+  /** Replace the stored launch image with the platform default for the (new or current) runtime on next start. Requires the agent stopped. */
+  resetImage?: boolean;
   /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
   refreshFromLagoon?: boolean;
   /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
@@ -5888,12 +5892,14 @@ export class Deployments {
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
-    // name, handle, size, launch_config. refresh_from_lagoon/error are rejected.
+    // name, handle, size, launch_config, runtime, reset_image. refresh_from_lagoon/error are rejected.
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size !== undefined) body.size = options.size;
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
+    if (options.runtime !== undefined) body.runtime = options.runtime;
+    if (options.resetImage !== undefined) body.reset_image = options.resetImage;
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
