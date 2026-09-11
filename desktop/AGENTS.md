@@ -220,13 +220,14 @@ irrelevant for WS.
 the gateway host — the gateway's `/ws` path is 404; its bridge is at
 `/agents/ws*`.
 
-### 7. Agent-scoped hosts (`*.hypercli.app`) are currently missing from CSP.
+### 7. Agent-scoped hosts (`*.hypercli.app`) are in CSP — keep them there.
 
 Agent files go to `https://<agent>.hypercli.app/_reef/...`; the OpenClaw/Hermes
-gateway is `wss://<agent>.hypercli.app`. Neither is in `connect-src`, so both are
-blocked in the packaged build. If you touch the files panel or runtime chat, you
-must add `https://*.hypercli.app` and/or `wss://*.hypercli.app` to `connect-src`
-**and** verify CORS at the Cloudflare edge for the packaged origin.
+gateway is `wss://<agent>.hypercli.app`. Both are covered by the
+`https://*.hypercli.app` / `wss://*.hypercli.app` `connect-src` entries (added
+when the files panel shipped). If you touch the files panel or runtime chat,
+still verify CORS at the Cloudflare edge for the packaged origin — CSP alone
+never implies the host answers our origin.
 
 ### 8. CSP has no `script-src`, so `eval` is blocked.
 

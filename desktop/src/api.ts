@@ -17,6 +17,7 @@ import {
   type AgentSessionMessage,
 } from "../../ts-sdk/src/session.ts";
 import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
+import { CodingAgentAcpPool, type AcpLease } from "../../ts-sdk/src/acp-pool.ts";
 import { agentsBridgeWsBase, defaultHyperAcpWsUrl } from "../../ts-sdk/src/agent-urls.ts";
 import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
 import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
@@ -345,6 +346,7 @@ export async function createAgent(
 export const archiveAgent = async (id: string) => agentSummary(await (await sdk()).deployments.archive(id));
 export const restoreAgent = async (id: string) => agentSummary(await (await sdk()).deployments.restore(id));
 export const deleteAgent = async (id: string) => {
+  dropAcpClient(id);
   await (await sdk()).deployments.delete(id);
 };
 
@@ -696,6 +698,31 @@ export interface AcpSessionList {
 }
 
 /**
+ * One ACP connection per agent, shared by every consumer. Two clients dialed
+ * to the same agent ride one stdio session through a tee'ing bridge and
+ * poison each other's request-id space (the sidebar sweep killed chat turns
+ * this way); the pool is the single connection authority — chat acquires a
+ * lease, the session sweep borrows one for `listSessions`, and the last
+ * release closes the socket.
+ */
+const acpPool = new CodingAgentAcpPool({
+  connect: async (key) =>
+    CodingAgentAcpClient.connect(await acpConnectTarget(key), {
+      clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
+    }),
+});
+
+/** Lease on the agent's shared ACP connection. */
+export async function acquireAcpClient(id: string): Promise<AcpLease> {
+  return acpPool.acquire(id);
+}
+
+/** Forget the pooled connection (agent left the roster / terminal state). */
+export function dropAcpClient(id: string): void {
+  acpPool.drop(id);
+}
+
+/**
  * Session listing for runtime-family agents (OpenClaw, Hermes). The canonical
  * source is the runtime's own session client — for OpenClaw that is the
  * gateway `sessions.list`, which also carries titles (`label` falls back to
@@ -715,11 +742,9 @@ export async function listRuntimeSessions(id: string): Promise<AcpSessionList> {
 }
 
 export async function listAcpSessions(id: string): Promise<AcpSessionList> {
-  const client = await CodingAgentAcpClient.connect(await acpConnectTarget(id), {
-    clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
-  });
+  const lease = await acquireAcpClient(id);
   try {
-    const response = await client.listSessions();
+    const response = await lease.client.listSessions();
     return {
       sessions: (response.sessions ?? []).map((session) => ({
         session_id: session.sessionId,
@@ -730,7 +755,7 @@ export async function listAcpSessions(id: string): Promise<AcpSessionList> {
       next_cursor: response.nextCursor ?? null,
     };
   } finally {
-    client.close();
+    lease.release();
   }
 }
 

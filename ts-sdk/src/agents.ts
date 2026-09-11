@@ -63,6 +63,7 @@ export {
   ACP_RECONNECT_DELAYS_MS,
   type CodingAgentAcpConnectOptions,
 } from './acp.js';
+export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 // Activity-transport error classes, re-exported here so consumers can classify
 // failures without pulling the SDK root entry (and its optional x402 peers)
 // into their bundle.

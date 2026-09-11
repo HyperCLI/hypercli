@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -10,6 +10,7 @@ import {
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
 } from '../src/acp.js';
+import { CodingAgentAcpPool } from '../src/acp-pool.js';
 
 const AGENT_ID = 'c0ffee00-0000-4000-8000-000000000001';
 
@@ -35,6 +36,7 @@ class FakeAcpPeer {
   public readonly frames: WireFrame[] = [];
   public readonly responses: WireFrame[] = [];
   public initializeCount = 0;
+  public socketClosed = false;
   private nextSession = 0;
   private nextServerId = 10_000;
 
@@ -44,6 +46,9 @@ class FakeAcpPeer {
   ) {
     socket.on('message', (data: Buffer) => {
       this.handle(JSON.parse(data.toString()) as WireFrame);
+    });
+    socket.on('close', () => {
+      this.socketClosed = true;
     });
   }
 
@@ -217,6 +222,7 @@ function acpAgent(bridge: FakeAcpBridge): OpenCodeAgent {
 
 const bridges: FakeAcpBridge[] = [];
 const clients: CodingAgentAcpClient[] = [];
+const pools: CodingAgentAcpPool[] = [];
 
 async function startBridge(options?: FakeAcpBridgeOptions): Promise<FakeAcpBridge> {
   const bridge = await new FakeAcpBridge(options).start();
@@ -230,6 +236,7 @@ function track(client: CodingAgentAcpClient): CodingAgentAcpClient {
 }
 
 afterEach(async () => {
+  for (const pool of pools.splice(0)) pool.close();
   for (const client of clients.splice(0)) client.close();
   for (const bridge of bridges.splice(0)) await bridge.close();
 });
@@ -476,5 +483,181 @@ describe('CodingAgent.acpConnect', () => {
     expect(closes).toEqual([expect.objectContaining({ code: 4401 })]);
     await expect(client.newSession()).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
     expect(bridge.peers).toHaveLength(1);
+  });
+});
+
+describe('CodingAgentAcpClient.addUpdateListener', () => {
+  function updateText(notification: { update: unknown }): string | null {
+    const update = notification.update as {
+      sessionUpdate: string;
+      content?: { type: string; text?: string };
+    };
+    if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
+      return update.content.text ?? null;
+    }
+    return null;
+  }
+
+  it('fans session/update out to every listener plus the legacy onUpdate', async () => {
+    const bridge = await startBridge();
+    const legacy: string[] = [];
+    const first: string[] = [];
+    const second: string[] = [];
+    const client = track(await acpAgent(bridge).acpConnect({
+      onUpdate: (notification) => legacy.push(updateText(notification) ?? ''),
+    }));
+    client.addUpdateListener((notification) => first.push(updateText(notification) ?? ''));
+    client.addUpdateListener((notification) => second.push(updateText(notification) ?? ''));
+
+    bridge.currentPeer.update('session-1', 'chunk');
+    await waitFor(() => first.length > 0 && second.length > 0 && legacy.length > 0);
+    expect(first).toEqual(['chunk']);
+    expect(second).toEqual(['chunk']);
+    expect(legacy).toEqual(['chunk']);
+  });
+
+  it('unsubscribe stops delivery to that listener only', async () => {
+    const bridge = await startBridge();
+    const first: string[] = [];
+    const second: string[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addUpdateListener((notification) => first.push(updateText(notification) ?? ''));
+    const offSecond = client.addUpdateListener((notification) => second.push(updateText(notification) ?? ''));
+
+    bridge.currentPeer.update('session-1', 'before');
+    await waitFor(() => first.length > 0 && second.length > 0);
+    offSecond();
+
+    bridge.currentPeer.update('session-1', 'after');
+    await waitFor(() => first.length > 1);
+    expect(first).toEqual(['before', 'after']);
+    expect(second).toEqual(['before']);
+  });
+
+  it('a throwing listener does not break the others', async () => {
+    const bridge = await startBridge();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const good: string[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    try {
+      client.addUpdateListener(() => {
+        throw new Error('listener blew up');
+      });
+      client.addUpdateListener((notification) => good.push(updateText(notification) ?? ''));
+
+      bridge.currentPeer.update('session-1', 'chunk');
+      await waitFor(() => good.length > 0);
+      expect(good).toEqual(['chunk']);
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
+describe('CodingAgentAcpPool', () => {
+  function startPool(bridge: FakeAcpBridge): CodingAgentAcpPool {
+    const pool = new CodingAgentAcpPool({
+      connect: () => acpAgent(bridge).acpConnect(),
+    });
+    pools.push(pool);
+    return pool;
+  }
+
+  it('shares one connection across concurrent acquires and closes it on the last release', async () => {
+    const bridge = await startBridge();
+    const pool = startPool(bridge);
+
+    const [leaseA, leaseB] = await Promise.all([pool.acquire('agent'), pool.acquire('agent')]);
+    expect(leaseA.client).toBe(leaseB.client);
+    expect(bridge.peers).toHaveLength(1);
+    expect(bridge.currentPeer.initializeCount).toBe(1);
+    expect(pool.size('agent')).toBe(2);
+    expect(pool.size()).toBe(1);
+
+    const peer = bridge.currentPeer;
+    leaseA.release();
+    expect(pool.size('agent')).toBe(1);
+    expect(peer.socketClosed).toBe(false);
+
+    leaseB.release();
+    await waitFor(() => peer.socketClosed);
+    expect(pool.size('agent')).toBe(0);
+    expect(pool.size()).toBe(0);
+
+    // A fresh acquire after the last release dials anew.
+    const leaseC = await pool.acquire('agent');
+    expect(leaseC.client).not.toBe(leaseA.client);
+    expect(leaseC.client.closed).toBe(false);
+    expect(bridge.peers).toHaveLength(2);
+    expect(bridge.currentPeer.initializeCount).toBe(1);
+  });
+
+  it('release is idempotent per lease', async () => {
+    const bridge = await startBridge();
+    const pool = startPool(bridge);
+    const lease = await pool.acquire('agent');
+    lease.release();
+    lease.release();
+    await waitFor(() => bridge.currentPeer.socketClosed);
+    expect(pool.size('agent')).toBe(0);
+  });
+
+  it('drop closes the shared client with a live lease, release afterwards is a no-op', async () => {
+    const bridge = await startBridge();
+    const pool = startPool(bridge);
+    const lease = await pool.acquire('agent');
+    const peer = bridge.currentPeer;
+
+    pool.drop('agent');
+    expect(lease.client.closed).toBe(true);
+    await waitFor(() => peer.socketClosed);
+    expect(pool.size('agent')).toBe(0);
+
+    lease.release();
+    expect(pool.size('agent')).toBe(0);
+    expect(bridge.peers).toHaveLength(1);
+
+    const fresh = await pool.acquire('agent');
+    expect(fresh.client).not.toBe(lease.client);
+    expect(fresh.client.closed).toBe(false);
+    expect(bridge.peers).toHaveLength(2);
+  });
+
+  it('forgets a client that closes itself on a terminal bridge code; next acquire dials fresh', async () => {
+    const bridge = await startBridge();
+    const pool = startPool(bridge);
+    const lease = await pool.acquire('agent');
+    const peer = bridge.currentPeer;
+
+    peer.closeWith(4401);
+    await waitFor(() => lease.client.closed && peer.socketClosed);
+    expect(pool.size('agent')).toBe(0);
+
+    const fresh = await pool.acquire('agent');
+    expect(fresh.client).not.toBe(lease.client);
+    expect(fresh.client.closed).toBe(false);
+    expect(bridge.peers).toHaveLength(2);
+    expect(bridge.currentPeer.initializeCount).toBe(1);
+  });
+
+  it('never hands out a client that terminal-closed while an acquire was pending', async () => {
+    const bridge = await startBridge();
+    const pool = startPool(bridge);
+    const leaseA = await pool.acquire('agent');
+
+    // B's handout continuation is already queued; the terminal close lands
+    // (synchronously, the way terminate() runs through close()) first.
+    const pendingB = pool.acquire('agent');
+    leaseA.client.close();
+    const leaseB = await pendingB;
+
+    expect(leaseB.client).not.toBe(leaseA.client);
+    expect(leaseB.client.closed).toBe(false);
+    expect(bridge.peers).toHaveLength(2);
+    leaseA.release();
+    leaseB.release();
+    await waitFor(() => bridge.currentPeer.socketClosed);
+    expect(pool.size('agent')).toBe(0);
   });
 });

@@ -1,3 +1,6 @@
+// Only fileTypeFromBlob is webview-safe. fileTypeFromFile/fileTypeFromStream
+// pull node:fs/promises via dynamic import — they minify into the bundle
+// regardless and throw if ever called from the webview. Do not import them.
 import { fileTypeFromBlob } from "file-type";
 import type { MessageAttachment } from "./chat-trace";
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CodingAgentAcpClient,
+  type CodingAgentAcpClient,
   type ContentBlock,
   type RequestPermissionRequest,
   type SessionNotification,
 } from "../../ts-sdk/src/acp.ts";
-import { acpConnectTarget, type AgentSummary, type RuntimeChatEvent } from "./api";
+import type { AcpLease } from "../../ts-sdk/src/acp-pool.ts";
+import { acquireAcpClient, type AgentSummary, type RuntimeChatEvent } from "./api";
 import { RUNNING, runtimeFamily } from "./agent-utils";
 import { ActivityTrace, type ActivityEntry } from "./activity-trace";
 import {
@@ -120,6 +121,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const messagesRef = useRef<ChatMessage[]>([]);
   const traceFolderRef = useRef(new ChatTraceFolder());
   const clientRef = useRef<CodingAgentAcpClient | null>(null);
+  const leaseRef = useRef<AcpLease | null>(null);
+  const subsRef = useRef<{ offUpdate: () => void; offClose: () => void } | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const generationRef = useRef(0);
   const mountKeyRef = useRef<string | null>(null);
@@ -493,56 +496,55 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     setLastAction(null);
 
     const connect = async () => {
-      const client = await CodingAgentAcpClient.connect(
-        await acpConnectTarget(agentId),
-        {
-          clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
-          onUpdate: (notification) => {
-            if (generationRef.current === generation) fold(notification);
-          },
-          onPermissionRequest: (params: RequestPermissionRequest) =>
-            new Promise((resolve) => {
-              if (generationRef.current !== generation) {
-                resolve({ outcome: { outcome: "cancelled" } });
-                return;
-              }
-              const toolCall = params.toolCall as {
-                toolCallId?: string;
-                title?: string;
-                kind?: string;
-              };
-              const request: ApprovalRequest = {
-                toolCallId: toolCall.toolCallId ?? "",
-                title: toolCall.title ?? "Permission requested",
-                kind: toolCall.kind,
-                options: (params.options ?? []) as ApprovalOption[],
-                respond: (optionId) => {
-                  setApprovals((prev) =>
-                    prev.filter((a) => a.toolCallId !== request.toolCallId),
-                  );
-                  resolve(
-                    optionId
-                      ? { outcome: { outcome: "selected", optionId } }
-                      : { outcome: { outcome: "cancelled" } },
-                  );
-                },
-              };
-              setApprovals((prev) => [...prev, request]);
-            }),
-          onError: () => {},
-          onClose: (event) => {
-            if (generationRef.current !== generation) return;
-            setConnected(false);
-            setPhase("error");
-            setError(event.reason || `Connection closed (${event.code})`);
-          },
-        },
-      );
+      const lease = await acquireAcpClient(agentId);
+      const client = lease.client;
       if (cancelled || generationRef.current !== generation) {
-        client.close();
+        lease.release();
         return;
       }
+      leaseRef.current = lease;
       clientRef.current = client;
+      const offUpdate = client.addUpdateListener((notification) => {
+        if (generationRef.current === generation) fold(notification);
+      });
+      client.setPermissionHandler((params: RequestPermissionRequest) =>
+        new Promise((resolve) => {
+          if (generationRef.current !== generation) {
+            resolve({ outcome: { outcome: "cancelled" } });
+            return;
+          }
+          const toolCall = params.toolCall as {
+            toolCallId?: string;
+            title?: string;
+            kind?: string;
+          };
+          const request: ApprovalRequest = {
+            toolCallId: toolCall.toolCallId ?? "",
+            title: toolCall.title ?? "Permission requested",
+            kind: toolCall.kind,
+            options: (params.options ?? []) as ApprovalOption[],
+            respond: (optionId) => {
+              setApprovals((prev) =>
+                prev.filter((a) => a.toolCallId !== request.toolCallId),
+              );
+              resolve(
+                optionId
+                  ? { outcome: { outcome: "selected", optionId } }
+                  : { outcome: { outcome: "cancelled" } },
+              );
+            },
+          };
+          setApprovals((prev) => [...prev, request]);
+        }),
+      );
+      const offClose = client.addCloseListener((event) => {
+        if (generationRef.current !== generation) return;
+        setConnected(false);
+        setPhase("error");
+        setError(event.reason || `Connection closed (${event.code})`);
+      });
+      subsRef.current = { offUpdate, offClose };
+
       setConnected(true);
       setMountState("READY");
 
@@ -584,8 +586,13 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       sessionIdRef.current = null;
       activityTraceRef.current.clear();
       traceFolderRef.current.clear();
-      clientRef.current?.close();
+      subsRef.current?.offUpdate();
+      subsRef.current?.offClose();
+      subsRef.current = null;
+      clientRef.current?.setPermissionHandler(null);
       clientRef.current = null;
+      leaseRef.current?.release();
+      leaseRef.current = null;
     };
   }, [agentId, running, runtime, supportsAcp, supportsRuntimeSession, retryNonce, sessionNonce, fold]);
 

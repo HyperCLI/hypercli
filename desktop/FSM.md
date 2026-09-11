@@ -189,9 +189,14 @@ Two consequences worth stating, because the current code gets both wrong:
 
 - **Files must not be gated on `running`.** Today `ContextPanel` only fetches
   when RUNNING, while its own caption promises stopped agents work.
-- **Sessions is a query, not a connection.** Today the sidebar opens a full ACP
-  socket per agent to list sessions, while chat opens its own to the same agent.
-  One connection per agent, owned by `agentMachine`, shared by both.
+- **Sessions is a query, not a connection.** The sidebar once opened a full
+  ACP socket per agent to list sessions, while chat opened its own to the
+  same agent — two clients sharing one stdio session through a tee'ing
+  bridge poison each other's request-id space. Now: one connection per
+  agent, owned by the `CodingAgentAcpPool` in `api.ts` (the SDK pool is the
+  connection authority — refcounted leases, last release closes), shared by
+  chat (lease + `addUpdateListener`/`setPermissionHandler`) and the sessions
+  sweep (`listSessions` on a borrowed lease).
 
 ---
 

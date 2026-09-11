@@ -463,7 +463,7 @@ export function ChatPane({
           {chat.messages.map((message) => {
             const failed = message.role === "assistant" && (message.error || message.text.startsWith("Send failed:"));
             return (
-            <div key={message.id} className="message-row">
+            <div key={message.id} className="message-row" data-role={message.role}>
               {message.role === "assistant" ? (
                 <Avatar
                   name={agent.name}

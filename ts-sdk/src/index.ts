@@ -404,6 +404,7 @@ export {
   type CodingAgentAcpConnectOptions,
   type CodingAgentAcpTarget,
 } from './acp.js';
+export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 
 export * from './hermes/gateway.js';
 export * from './session.js';

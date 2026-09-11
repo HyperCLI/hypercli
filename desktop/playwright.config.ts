@@ -14,31 +14,35 @@ import { defineConfig, devices } from "@playwright/test";
  *                     this suite creates real agents.
  */
 
-const port = Number(process.env.DESKTOP_E2E_PORT ?? 1420);
-const baseURL = process.env.DESKTOP_E2E_BASE_URL ?? `http://localhost:${port}`;
+// Vite is pinned to 1420 (vite.config.ts server.port); overriding the port
+// here would only desync the readiness probe from the server.
+const baseURL = process.env.DESKTOP_E2E_BASE_URL ?? "http://localhost:1420";
 
 export default defineConfig({
   testDir: "./e2e",
-  // create → RUNNING → a real model reply on dev routinely takes minutes.
-  timeout: 8 * 60_000,
+  // Internal budgets sum to ~11min (dialog 60s + roster 60s + composer 300s +
+  // reply 240s); the ceiling must cover them so real assertions report instead
+  // of a bare test timeout.
+  timeout: 11 * 60_000,
   expect: { timeout: 30_000 },
-  retries: 0,
   workers: 1,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    // Traces record request headers — including the Authorization bearer the
+    // dev-credential injection puts on every /api call — so they never run in
+    // CI where artifacts are uploaded. Video + the html report remain.
+    trace: process.env.CI ? "off" : "retain-on-failure",
     video: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
+    // Never reuse: the dev credential is baked into the bundle at server boot,
+    // and reusing a server started without HYPER_API_KEY fails the suite with
+    // a misleading sign-in screen. A fresh boot is seconds.
     command: "npm run dev -- --host 127.0.0.1 --strictPort",
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
-    env: {
-      HYPER_API_KEY: process.env.HYPER_API_KEY ?? "",
-      HYPER_API_BASE: process.env.HYPER_API_BASE ?? "https://api.dev.hypercli.com",
-    },
   },
 });

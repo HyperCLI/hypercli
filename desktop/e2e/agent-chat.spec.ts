@@ -13,11 +13,12 @@ import { expect, test } from "@playwright/test";
 
 const PREFIX = "desktop-e2e";
 const SUFFIX = `${(process.env.GITHUB_SHA ?? "local").slice(0, 7)}-${Date.now().toString(36).slice(-6)}`;
-// Backend rejects names over 32 characters: 12 + 1 + 7 + 1 + 6 = 27.
+// Backend rejects names over 32 characters: 11 + 1 + 7 + 1 + 6 = 26.
 const AGENT_NAME = `${PREFIX}-${SUFFIX}`;
 // Distinctive enough that the assistant echoing it back is the assertion, not
 // a guess; mirrors the CLI's CI_OK contract.
 const REPLY_TOKEN = "DESKTOP_E2E_OK";
+const PROMPT = `Reply with exactly: ${REPLY_TOKEN}`;
 
 const API_BASE = (process.env.HYPER_API_BASE ?? "https://api.dev.hypercli.com").replace(/\/+$/, "");
 const API_KEY = process.env.HYPER_API_KEY ?? "";
@@ -26,7 +27,7 @@ interface ListedAgent {
   id: string;
   name?: string | null;
   display_name?: string | null;
-  state: string;
+  state?: string;
 }
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
@@ -43,22 +44,39 @@ async function listAgents(): Promise<ListedAgent[]> {
   return Array.isArray(data) ? data : (data.items ?? []);
 }
 
-/** Stop-then-delete every e2e-prefixed agent; mirrors the CLI lifecycle sweep. */
-async function sweep(): Promise<string[]> {
-  const swept: string[] = [];
-  for (const agent of await listAgents()) {
-    const name = agent.name ?? agent.display_name ?? "";
-    if (!name.startsWith(PREFIX)) continue;
-    swept.push(name);
-    await api(`/deployments/${agent.id}/stop`, { method: "POST" }).catch(() => {});
-    await api(`/deployments/${agent.id}`, { method: "DELETE" }).catch(() => {});
+/**
+ * Stop, then delete once the agent actually settles. DELETE 409s on anything
+ * that isn't STOPPED/ARCHIVED, so firing it right behind the stop request —
+ * or at a CREATING/FAILED agent — just leaks it. Mirrors live.sh's
+ * stop → wait STOPPED → delete, with the wait expressed as delete retries.
+ */
+async function stopAndDelete(id: string, state?: string): Promise<void> {
+  if (state !== "CREATING") {
+    await api(`/deployments/${id}/stop`, { method: "POST" }).catch(() => {});
   }
-  return swept;
+  const deadline = Date.now() + 240_000;
+  let delay = 5_000;
+  while (Date.now() < deadline) {
+    const res = await api(`/deployments/${id}`, { method: "DELETE" }).catch(() => null);
+    if (res?.ok || res?.status === 404) return;
+    if (res && res.status !== 409) return; // unexpected failure — leave it to the sweep
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, 30_000);
+  }
 }
 
-async function stopAndDelete(id: string): Promise<void> {
-  await api(`/deployments/${id}/stop`, { method: "POST" }).catch(() => {});
-  await api(`/deployments/${id}`, { method: "DELETE" }).catch(() => {});
+/** Delete every e2e-prefixed agent; mirrors the CLI lifecycle sweep. */
+async function sweep(): Promise<void> {
+  let agents: ListedAgent[] = [];
+  try {
+    agents = await listAgents();
+  } catch {
+    return; // roster unavailable — cleanup must not mask the test result
+  }
+  for (const agent of agents) {
+    const name = agent.name ?? agent.display_name ?? "";
+    if (name.startsWith(PREFIX)) await stopAndDelete(agent.id, agent.state);
+  }
 }
 
 /** The agent id is not in the DOM; recover it from the roster by name. */
@@ -86,8 +104,6 @@ test.describe("desktop agent chat", () => {
   });
 
   test("create an opencode agent, chat, delete", async ({ page }) => {
-    test.setTimeout(8 * 60_000);
-
     if (process.env.E2E_NET_DEBUG) {
       page.on("request", (r) => console.log("REQ", r.method(), r.url()));
       page.on("response", async (r) => {
@@ -112,7 +128,16 @@ test.describe("desktop agent chat", () => {
 
     // "Get started" is async (createAgent): if it rejects, the modal stays open
     // with the error rendered — surface that text instead of a bare timeout.
-    await expect(page.getByRole("dialog")).toBeHidden({ timeout: 60_000 });
+    const dialog = page.getByRole("dialog");
+    await expect
+      .poll(
+        async () => {
+          if (!(await dialog.isVisible())) return "closed";
+          return (await dialog.innerText()).slice(0, 400);
+        },
+        { timeout: 60_000, intervals: [1_000, 2_000, 5_000] },
+      )
+      .toBe("closed");
 
     // The roster entry materializes when the create request resolves; poll for
     // it rather than racing a single lookup against the async submit.
@@ -120,31 +145,33 @@ test.describe("desktop agent chat", () => {
       .poll(async () => (createdId = await findAgentId(AGENT_NAME)), { timeout: 60_000, intervals: [2_000, 5_000, 10_000] })
       .not.toBeNull();
 
-    await page.getByRole("button", { name: "Start agent" }).click();
+    await page.getByRole("button", { name: "Start agent", exact: true }).click();
 
-    // A 429 (slot inventory full) surfaces as an in-app error bar — fail fast
-    // with its text instead of silently timing out. The composer unlocks only
-    // when the chat transport is ready, covering RUNNING + the ACP handshake.
-    const startError = page.getByText("Start agent failed");
+    // Start failures (429 slot inventory, offline, auth) surface in the app's
+    // error bar — fail fast with its text instead of silently timing out. The
+    // composer unlocks only when the chat transport is ready, covering
+    // RUNNING + the ACP handshake.
+    const errorBar = page.locator(".error-bar");
     const composer = page.getByPlaceholder(`Message ${AGENT_NAME}…`);
     await expect
       .poll(
         async () => {
-          if (await startError.isVisible()) return `start failed: ${await page.locator("body").innerText()}`.slice(0, 400);
+          if (await errorBar.isVisible()) return `start failed: ${(await errorBar.innerText()).slice(0, 400)}`;
           return (await composer.isEnabled()) ? "ready" : "waiting";
         },
         { timeout: 300_000, intervals: [2_000, 5_000, 10_000] },
       )
       .toBe("ready");
 
-    await composer.fill(`Reply with exactly: ${REPLY_TOKEN}`);
+    await composer.fill(PROMPT);
     await composer.press("Enter");
 
-    // The user message echoes immediately; require the token to arrive in an
-    // assistant row, i.e. a real round trip, not just our own bubble.
-    await expect(page.locator(".message-row").filter({ hasText: REPLY_TOKEN }).first())
-      .toBeVisible({ timeout: 240_000 });
-    const rows = await page.locator(".message-row").allTextContents();
-    expect(rows.some((row) => row.includes(REPLY_TOKEN))).toBe(true);
+    // .message-row matches our own bubble too, and the prompt contains the
+    // token — the assertion only means a round trip when it is an assistant
+    // row (data-role set in ChatPane for exactly this).
+    const assistantReply = page
+      .locator('.message-row[data-role="assistant"]')
+      .filter({ hasText: REPLY_TOKEN });
+    await expect(assistantReply.first()).toBeVisible({ timeout: 240_000 });
   });
 });

@@ -163,6 +163,9 @@ export class CodingAgentAcpClient {
   private initializeResponseValue: acp.InitializeResponse | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
+  private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
+  private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
+  private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
   private terminalError: CodingAgentAcpConnectionError | null = null;
   private lastCloseCode: number | null = null;
@@ -213,6 +216,44 @@ export class CodingAgentAcpClient {
   /** Session IDs this client created or loaded, in creation order. */
   get sessionIds(): string[] {
     return [...this.sessions.keys()];
+  }
+
+  /**
+   * Register a listener for every `session/update` notification. Listeners
+   * fire in addition to the legacy single `options.onUpdate` callback, which
+   * makes one shared connection usable by multiple subscribers (chat, session
+   * sweep, ...). Returns an unsubscribe function; a throwing listener is
+   * logged and does not break the others. `close()` clears all listeners.
+   */
+  addUpdateListener(listener: (notification: acp.SessionNotification) => void): () => void {
+    this.updateListeners.add(listener);
+    return () => {
+      this.updateListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Pooled-connection counterpart to `options.onClose`: fired once when the
+   * client goes terminal. Subscribers use it to tear down their own state
+   * without racing the pool's bookkeeping. Returns an unsubscribe function.
+   */
+  addCloseListener(listener: (event: { code: number; reason: string }) => void): () => void {
+    this.closeListeners.add(listener);
+    return () => {
+      this.closeListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Pooled-connection counterpart to `options.onPermissionRequest`: exactly
+   * one live permission responder. Re-registering replaces the previous one
+   * (a chat pane remount superseding its stale handler); clearing with `null`
+   * restores the default cancel-unanswered behavior. `close()` clears it.
+   */
+  setPermissionHandler(
+    handler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null,
+  ): void {
+    this.permissionHandler = handler;
   }
 
   /** Resolves on the next established connection; rejects once the client is terminal. */
@@ -450,6 +491,9 @@ export class CodingAgentAcpClient {
   close(): void {
     if (this.closedFlag) return;
     this.closedFlag = true;
+    this.updateListeners.clear();
+    this.closeListeners.clear();
+    this.permissionHandler = null;
     this.generation += 1;
     this.options.signal?.removeEventListener('abort', this.onAbort);
     if (this.reconnectTimer !== null) {
@@ -508,6 +552,9 @@ export class CodingAgentAcpClient {
   private buildApp(): acp.ClientApp {
     const app = acp.client({ name: this.clientName });
     app.onRequest(acp.methods.client.session.requestPermission, (context) => {
+      if (this.permissionHandler) {
+        return this.permissionHandler(context.params);
+      }
       if (this.options.onPermissionRequest) {
         return this.options.onPermissionRequest(context.params);
       }
@@ -515,6 +562,13 @@ export class CodingAgentAcpClient {
     });
     app.onNotification(acp.methods.client.session.update, (context) => {
       this.options.onUpdate?.(context.params);
+      for (const listener of [...this.updateListeners]) {
+        try {
+          listener(context.params);
+        } catch (error) {
+          console.error('ACP session/update listener threw', error);
+        }
+      }
     });
     if (this.options.onReadTextFile) {
       const handler = this.options.onReadTextFile;
@@ -680,8 +734,16 @@ export class CodingAgentAcpClient {
 
   private terminate(error: CodingAgentAcpConnectionError, code: number, reason: string): void {
     this.terminalError = error;
+    const listeners = [...this.closeListeners];
     this.close();
     this.options.onClose?.({ code, reason });
+    for (const listener of listeners) {
+      try {
+        listener({ code, reason });
+      } catch (listenerError) {
+        console.error('ACP close listener threw', listenerError);
+      }
+    }
   }
 
   private softError(error: Error): void {

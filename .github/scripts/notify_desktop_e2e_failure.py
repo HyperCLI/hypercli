@@ -53,11 +53,19 @@ def convert_webm_to_mp4(webm: Path) -> Path | None:
 
 
 artifact = None
+test_name = None
 video = newest("*.webm")
 if video:
+    test_name = video.parent.name
     artifact = convert_webm_to_mp4(video) or video
+    # Telegram caps media near 50MB; a long 720p capture can blow past it after
+    # base64. Fall back to the log tail rather than dropping the notification.
+    if artifact.stat().st_size > 40 * 1024 * 1024:
+        artifact = None
 if artifact is None:
     artifact = newest("*.png")
+    if artifact is not None:
+        test_name = artifact.parent.name
 
 lines = [
     "<b>❌ Desktop E2E Failed</b>",
@@ -66,7 +74,6 @@ lines = [
 ]
 
 if artifact is not None:
-    test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
     lines.insert(2, f"🧩 Test: <code>{test_name}</code>")
     media = base64.b64encode(artifact.read_bytes()).decode("ascii")
     media_filename = artifact.name
