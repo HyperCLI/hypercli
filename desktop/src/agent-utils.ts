@@ -13,6 +13,18 @@ export type RuntimeFamily = "openclaw" | "hermes" | "acp" | "generic";
 export const OPENCLAW_RUNTIMES = new Set(["openclaw", "openclaw-pro"]);
 export const HERMES_RUNTIMES = new Set(["hermes-agent"]);
 export const ACP_RUNTIMES = new Set(["opencode", "codex", "claude-code", "goose", "kimi-code", "buzz-agent"]);
+export const MANAGED_RUNTIMES: readonly string[] = [
+  "generic",
+  "openclaw",
+  "openclaw-pro",
+  "hermes-agent",
+  "buzz-agent",
+  "opencode",
+  "codex",
+  "claude-code",
+  "goose",
+  "kimi-code",
+];
 export const TRANSITIONAL = AGENT_TRANSITIONAL_STATES;
 export { isAgentTransitionalState, isAgentRuntimeInactiveState };
 

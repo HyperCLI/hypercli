@@ -78,6 +78,7 @@ export type AgentOp =
   | "restore"
   | "delete"
   | "setDesktopEnabled"
+  | "setRuntime"
   | "uploadAvatar"
   | "deleteAvatar";
 
@@ -170,16 +171,23 @@ export interface AgentLifecyclePort {
     enabled: boolean,
     signal: AbortSignal,
   ): Promise<AgentCommandOutcome | void>;
+  setRuntime(
+    id: string,
+    runtime: string,
+    resetImage: boolean,
+    signal: AbortSignal,
+  ): Promise<AgentCommandOutcome | void>;
   uploadAvatar(id: string, file: File, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
   deleteAvatar(id: string, signal: AbortSignal): Promise<AgentCommandOutcome | void>;
 }
 
 /** Ops that carry no argument, so `request("start")` is spellable. */
-export type SimpleAgentOp = Exclude<AgentOp, "setDesktopEnabled" | "uploadAvatar">;
+export type SimpleAgentOp = Exclude<AgentOp, "setDesktopEnabled" | "setRuntime" | "uploadAvatar">;
 
 export type AgentCommand =
   | { op: SimpleAgentOp }
   | { op: "setDesktopEnabled"; enabled: boolean }
+  | { op: "setRuntime"; runtime: string; resetImage: boolean }
   | { op: "uploadAvatar"; file: File };
 
 // ---------------------------------------------------------------------------
@@ -336,6 +344,7 @@ const VERB: Record<AgentStep, string> = {
   restore: "Restore",
   delete: "Delete",
   setDesktopEnabled: "Update desktop access",
+  setRuntime: "Change runtime",
   uploadAvatar: "Upload avatar",
   deleteAvatar: "Remove avatar",
 };
@@ -363,6 +372,7 @@ export function targetReached(step: AgentStep, observed: string | null): boolean
       // agent, and waiting for absence alone would hang the full deadline.
       return observed === ABSENT || observed?.toUpperCase() === "DELETED";
     case "setDesktopEnabled":
+    case "setRuntime":
     case "uploadAvatar":
     case "deleteAvatar":
       return true; // Degenerate: nothing to settle.
@@ -397,6 +407,7 @@ function allowedFor(observed: string | null, op: AgentOp): boolean {
     case "delete":
       return true;
     case "setDesktopEnabled":
+    case "setRuntime":
     case "uploadAvatar":
     case "deleteAvatar":
       return true;
@@ -639,6 +650,11 @@ export class AgentMachine extends Machine<AgentState, AgentEvent> {
           command.op === "setDesktopEnabled" ? command.enabled : false,
           signal,
         );
+      case "setRuntime":
+        if (command.op !== "setRuntime") {
+          return Promise.reject(new Error("setRuntime requires a runtime"));
+        }
+        return this.port.setRuntime(id, command.runtime, command.resetImage, signal);
       case "uploadAvatar":
         if (command.op !== "uploadAvatar") {
           return Promise.reject(new Error("uploadAvatar requires a file"));
@@ -942,6 +958,9 @@ export const apiAgentLifecyclePort: AgentLifecyclePort = {
   },
   async setDesktopEnabled(id, enabled) {
     return { agent: await (await import("../api")).setAgentDesktopEnabled(id, enabled) };
+  },
+  async setRuntime(id, runtime, resetImage) {
+    return { agent: await (await import("../api")).setAgentRuntime(id, runtime, resetImage) };
   },
   async uploadAvatar(id, file) {
     const result = await (await import("../api")).uploadAgentAvatar(id, file);

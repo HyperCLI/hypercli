@@ -77,6 +77,8 @@ class FakePort implements AgentLifecyclePort {
   delete = (_id: string, signal: AbortSignal) => this.record("delete", signal);
   setDesktopEnabled = (_id: string, _enabled: boolean, signal: AbortSignal) =>
     this.record("setDesktopEnabled", signal);
+  setRuntime = (_id: string, _runtime: string, _resetImage: boolean, signal: AbortSignal) =>
+    this.record("setRuntime", signal);
   uploadAvatar = (_id: string, _file: File, signal: AbortSignal) =>
     this.record("uploadAvatar", signal);
   deleteAvatar = (_id: string, signal: AbortSignal) => this.record("deleteAvatar", signal);
@@ -637,6 +639,23 @@ describe("AgentMachine — one-shot mutations", () => {
     await flush();
     expect(machine.state.name).toBe("Stable");
     expect(clock.pending).toBe(0);
+    machine.dispose();
+  });
+
+  it("setRuntime is a one-shot op that reaches the port with its arguments", async () => {
+    const port = new FakePort();
+    const clock = new FakeClock();
+    const machine = machineFor(port, clock, "RUNNING");
+
+    port.hold();
+    expect(machine.request({ op: "setRuntime", runtime: "openclaw", resetImage: true })).toBe(true);
+    expect(machine.state.name).toBe("Applying");
+    expect(machine.request("stop")).toBe(false);
+
+    port.settle({ agent: roster("RUNNING") });
+    await flush();
+    expect(machine.state.name).toBe("Stable");
+    expect(port.calls).toEqual(["setRuntime"]);
     machine.dispose();
   });
 

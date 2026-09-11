@@ -412,6 +412,20 @@ export async function setAgentDesktopEnabled(id: string, enabled: boolean): Prom
   return agentSummary(await client.deployments.get(id));
 }
 
+export async function setAgentRuntime(
+  id: string,
+  runtime: string,
+  resetImage: boolean,
+): Promise<AgentSummary> {
+  const client = await sdk();
+  return agentSummary(
+    await client.deployments.update(id, {
+      runtime: runtime as never,
+      ...(resetImage ? { resetImage: true } : {}),
+    }),
+  );
+}
+
 export async function uploadAgentAvatar(id: string, file: File): Promise<AgentAvatarUploadResult> {
   const client = await sdk();
   const bytes = new Uint8Array(await file.arrayBuffer());

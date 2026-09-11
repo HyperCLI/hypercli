@@ -17,7 +17,7 @@ import { describeRoutine } from "../schedule";
 import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
-import { RUNNING, isAgentRuntimeInactiveState, isDeletedState, runtimeLabel } from "../agent-utils";
+import { MANAGED_RUNTIMES, RUNNING, isAgentRuntimeInactiveState, isDeletedState, runtimeLabel } from "../agent-utils";
 import { useAgentLogs } from "../useAgentLogs";
 
 type Tab = "agent" | "status" | "settings";
@@ -93,6 +93,7 @@ export function ContextPanel({
   onStop,
   onDelete,
   onSetAgentDesktopEnabled,
+  onSetAgentRuntime,
   onUploadAgentAvatar,
   onDeleteAgentAvatar,
 }: {
@@ -104,6 +105,7 @@ export function ContextPanel({
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
   onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
+  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
 }) {
@@ -147,6 +149,7 @@ export function ContextPanel({
             onStop={onStop}
             onDelete={onDelete}
             onSetAgentDesktopEnabled={onSetAgentDesktopEnabled}
+            onSetAgentRuntime={onSetAgentRuntime}
             onUploadAgentAvatar={onUploadAgentAvatar}
             onDeleteAgentAvatar={onDeleteAgentAvatar}
           />
@@ -1112,6 +1115,7 @@ function SettingsTab({
   onStop,
   onDelete,
   onSetAgentDesktopEnabled,
+  onSetAgentRuntime,
   onUploadAgentAvatar,
   onDeleteAgentAvatar,
 }: {
@@ -1121,6 +1125,7 @@ function SettingsTab({
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
   onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
+  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
 }) {
@@ -1268,6 +1273,11 @@ function SettingsTab({
         </p>
       </div>
 
+      <div className="border-t border-border pt-3">
+        <div className="text-[11px] text-text-secondary mb-1.5">Runtime</div>
+        <RuntimePicker agent={agent} onSetAgentRuntime={onSetAgentRuntime} />
+      </div>
+
       <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
         <div className="min-w-0 flex items-center gap-2">
           <Monitor size={14} className="shrink-0 text-text-secondary" />
@@ -1322,6 +1332,66 @@ function SettingsTab({
       <div className="shrink-0 border-t border-border bg-surface p-3">
         <DangerZone agent={agent} onArchive={onArchive} onRestore={onRestore} onStop={onStop} onDelete={onDelete} />
       </div>
+    </div>
+  );
+}
+
+function RuntimePicker({
+  agent,
+  onSetAgentRuntime,
+}: {
+  agent: AgentSummary;
+  onSetAgentRuntime: (id: string, runtime: string, resetImage: boolean) => void;
+}) {
+  const current = agent.runtime ?? "generic";
+  const [selected, setSelected] = useState(current);
+  const [resetImage, setResetImage] = useState(false);
+  useEffect(() => {
+    setSelected(current);
+    setResetImage(false);
+  }, [agent.id, current]);
+  const dirty = selected !== current || resetImage;
+  const stopped = agent.state === "STOPPED";
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="ui-field flex-1"
+        >
+          {MANAGED_RUNTIMES.map((runtime) => (
+            <option key={runtime} value={runtime}>
+              {runtimeLabel(runtime)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!dirty}
+          onClick={() => onSetAgentRuntime(agent.id, selected, resetImage)}
+          className="ui-primary-button px-3 text-[12px] disabled:opacity-40"
+        >
+          Apply
+        </button>
+      </div>
+      <label className="flex items-start gap-2 text-[11px] text-text-secondary cursor-pointer">
+        <input
+          type="checkbox"
+          checked={resetImage}
+          onChange={(e) => setResetImage(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Reset image to this runtime's default on next start
+          {resetImage && !stopped && (
+            <span className="block text-[10px] text-error mt-0.5">
+              Requires the agent stopped — stop it first.
+            </span>
+          )}
+        </span>
+      </label>
     </div>
   );
 }

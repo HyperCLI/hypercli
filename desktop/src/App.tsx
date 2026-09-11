@@ -432,6 +432,15 @@ export default function App() {
     }
   }, [command]);
 
+  const onSetAgentRuntime = useCallback((id: string, runtime: string, resetImage: boolean) => {
+    if (command(id, { op: "setRuntime", runtime, resetImage })) {
+      setPatches((current) => ({
+        ...current,
+        [id]: { ...current[id], runtime },
+      }));
+    }
+  }, [command]);
+
   const onSignedIn = useCallback(() => {
     sessionMachine.send({ type: "KEY_SAVED" });
   }, []);
@@ -597,6 +606,7 @@ export default function App() {
               onStop={onStop}
               onDelete={onDelete}
               onSetAgentDesktopEnabled={onSetAgentDesktopEnabled}
+              onSetAgentRuntime={onSetAgentRuntime}
               onUploadAgentAvatar={onUploadAgentAvatar}
               onDeleteAgentAvatar={onDeleteAgentAvatar}
             />
