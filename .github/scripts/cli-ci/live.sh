@@ -106,7 +106,7 @@ case "${GROUP}/${SUB}" in
     "${CLI[@]}" skills export "${OUT}" --dev
     count="$(find "${OUT}" -name SKILL.md | wc -l)"
     [ "${count}" -ge 1 ] || { echo "skills export wrote no SKILL.md files" >&2; exit 1; }
-    head -n 1 "${OUT}/hypercli/SKILL.md" | grep -q '^# '
+    grep -q '^name: hypercli$' "${OUT}/hypercli/SKILL.md"
     echo "exported ${count} skills to ${OUT}"
     ;;
 
@@ -376,7 +376,14 @@ case "${GROUP}/${SUB}" in
       console.log(`tts json ok: ${record.bytes} bytes`);
     ' "${VOICE_TTS_JSON}" "${VOICE_AUDIO}"
 
-    "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json --dev > "${VOICE_TRANSCRIBE_JSON}"
+    if ! "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json --dev > "${VOICE_TRANSCRIBE_JSON}" 2>/tmp/hypercli-voice-transcribe.err; then
+      if grep -qF "STT worker is not configured" /tmp/hypercli-voice-transcribe.err; then
+        echo "SKIP voice/transcribe: dev STT worker is not configured" >&2
+        exit 0
+      fi
+      cat /tmp/hypercli-voice-transcribe.err >&2
+      exit 1
+    fi
     node -e '
       const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       if (!j || typeof j.text !== "string" || j.text.length === 0) throw new Error("transcript text missing");

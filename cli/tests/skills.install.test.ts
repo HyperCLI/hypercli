@@ -24,6 +24,7 @@ const ALL_NAMES = [
   'hypercli-auth',
   'hypercli-compute',
   'hypercli-flows',
+  'hypercli-knowledge',
   'hypercli-voice',
 ];
 
