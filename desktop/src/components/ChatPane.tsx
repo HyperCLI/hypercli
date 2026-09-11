@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { AgentSummary } from "../api";
 import type { AgentChat, ChatMessage, MessageAttachment } from "../useAgentChat";
+import { readAttachment } from "../attachments";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
@@ -22,23 +23,6 @@ import { RUNNING, TRANSITIONAL, runtimeFamily } from "../agent-utils";
 import { canRuntimeChat } from "../runtime-client";
 
 const ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024;
-
-function readAttachment(file: File): Promise<MessageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.onload = () => {
-      const url = String(reader.result ?? "");
-      const comma = url.indexOf(",");
-      resolve({
-        name: file.name || "attachment",
-        mimeType: file.type || "application/octet-stream",
-        dataBase64: comma >= 0 ? url.slice(comma + 1) : url,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

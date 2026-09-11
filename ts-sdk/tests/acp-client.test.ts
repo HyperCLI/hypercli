@@ -341,8 +341,28 @@ describe('CodingAgent.acpConnect', () => {
     expect(bridge.currentPeer.framesFor('session/list')).toHaveLength(1);
   });
 
-  it('rejects an in-flight prompt on socket drop, reconnects, replays session/load, and prompts again', async () => {
+  it('a server-side prompt error does not poison the connection or session (regression: octet-stream attachment rejection swallowed later turns)', async () => {
     const bridge = await startBridge();
+    let failNext = true;
+    bridge.promptHook = (peer, frame) => {
+      if (failNext) {
+        failNext = false;
+        peer.error(frame, -32603, "Internal error: 'media type: application/octet-stream' functionality not supported.");
+        return;
+      }
+      peer.finishPrompt(frame, 'end_turn');
+    };
+    const client = track(await acpAgent(bridge).acpConnect());
+    const session = await client.newSession();
+
+    await expect(client.prompt(session.sessionId, 'with attachment')).rejects.toThrow(/octet-stream/);
+
+    await expect(client.prompt(session.sessionId, 'plain follow-up')).resolves.toMatchObject({ stopReason: 'end_turn' });
+    expect(bridge.peers).toHaveLength(1);
+    expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(2);
+  });
+
+  it('rejects an in-flight prompt on socket drop, reconnects, replays session/load, and prompts again', async () => {    const bridge = await startBridge();
     let holdPrompt = true;
     bridge.promptHook = (peer, frame) => {
       if (holdPrompt) return;
