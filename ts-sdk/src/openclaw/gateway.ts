@@ -3974,6 +3974,11 @@ export class GatewayClient {
     const closeError = new Error(`gateway closed (${code}): ${reason || "no reason"}`);
     this.flushPending(closeError);
     this.notifyInternalStreamClose(closeError);
+    try {
+      this.onClose?.({ code, reason, error });
+    } catch {
+      // Close callbacks are observational and must not affect the FSM.
+    }
     if (!this.closed) {
       const detailCode =
         error && typeof error === "object"
@@ -4001,11 +4006,6 @@ export class GatewayClient {
       } catch {
         // Disconnect callbacks are observational and must not affect the FSM.
       }
-    }
-    try {
-      this.onClose?.({ code, reason, error });
-    } catch {
-      // Close callbacks are observational and must not affect the FSM.
     }
   }
 
