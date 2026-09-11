@@ -221,8 +221,10 @@ const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
  *   hyper agents status a1b2      — prefix of exactly one id/name/handle/hostname
  *   ambiguous                      — UsageError (exit 2) listing candidates
  *   no match                       — CliError (exit 1)
+ *
+ * Exported for `hyper routines` (routines.ts) so --agent resolves identically.
  */
-async function resolveAgentRef(d: Deployments, ref: string): Promise<string> {
+export async function resolveAgentRef(d: Deployments, ref: string): Promise<string> {
   const raw = String(ref ?? '').trim();
   if (!raw) throw new UsageError('missing agent id. See hyper agents --help.');
   if (FULL_UUID.test(raw)) return raw;

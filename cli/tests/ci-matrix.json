@@ -67,6 +67,19 @@
         { "argv": ["routes", "remove", "--help"], "hidden": true }
       ]
     },
+    "routines": {
+      "tests": ["routines"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["list", "--help"] },
+        { "argv": ["ls", "--help"], "alias": true },
+        { "argv": ["get", "--help"] },
+        { "argv": ["create", "--help"] },
+        { "argv": ["run", "--help"] },
+        { "argv": ["delete", "--help"] }
+      ]
+    },
     "jobs": {
       "tests": ["jobs"],
       "windows": false,
