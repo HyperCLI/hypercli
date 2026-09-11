@@ -45,6 +45,16 @@ import {
 } from './agent-urls.js';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import {
+  mergeControlUiAllowedOrigins,
+  OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
+} from './openclaw-control-ui-origin.js';
+export {
+  mergeControlUiAllowedOrigins,
+  normalizeControlUiOrigin,
+  OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
+  parseControlUiAllowedOrigins,
+} from './openclaw-control-ui-origin.js';
+import {
   subscribeBuzzActivity,
   subscribeBuzzActivityRoute,
   type BuzzActivityHandlers,
@@ -1177,6 +1187,13 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
   openClawRoutes?: OpenClawRouteOptions | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
   controlUiOriginLock?: boolean | null;
+  /**
+   * Additional control-UI origins merged into OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN
+   * at create time (union with any explicit env value and, unless the lock is
+   * disabled, the browser's location.origin). Entries that cannot be
+   * normalized to an allowed scheme are dropped.
+   */
+  controlUiAllowedOrigins?: string[] | null;
   cronEnabled?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
@@ -1185,6 +1202,16 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
   launchConfig?: Omit<AgentLaunchConfig, 'config'>;
   gatewayToken?: string | null;
+  /** Disable to skip refresh of the stored OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN on start. */
+  controlUiOriginLock?: boolean | null;
+  /**
+   * Control-UI origins to merge into the stored allow-list for this start.
+   * Unioned with the stored env value and the browser's location.origin;
+   * when any source produces origins the launch config is patched even when
+   * no launchConfig/gatewayToken change was requested. Node callers passing
+   * no origins stay patch-free.
+   */
+  controlUiAllowedOrigins?: string[] | null;
 }
 
 interface PreparedHostedSlack {
@@ -2503,9 +2530,19 @@ function prepareOpenClawLaunch(
     ?? secretGatewayToken
     ?? (generateGatewayToken ? randomHexToken(32) : null);
   if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-  if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
-    const controlUiOrigin = defaultControlUiAllowedOrigin();
-    if (controlUiOrigin) env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+  if (options.controlUiOriginLock !== false) {
+    // Union, not a single-origin fill: an explicit env value, caller-supplied
+    // origins, and this browser's location.origin all belong in the list.
+    // (Previously an explicit env suppressed the location origin, which is
+    // exactly what locked out whoever did not write the env.)
+    const controlUiOrigins = mergeControlUiAllowedOrigins(
+      options.controlUiAllowedOrigins ?? [],
+      env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV],
+      [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
+    );
+    if (controlUiOrigins.length > 0) {
+      env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(' ');
+    }
   }
 
   const slackOption = normalizeHostedSlackOption(options.slack);
@@ -5812,7 +5849,17 @@ export class Deployments {
     if (options.gatewayToken !== undefined && options.gatewayToken !== null && !gatewayToken) {
       throw new Error('gatewayToken must not be blank');
     }
-    const needsLaunchPatch = options.launchConfig !== undefined || gatewayToken !== null || desktop !== null;
+    // Refresh the stored control-UI origin lock on start whenever some source
+    // (caller origins or this browser's location) yields one. A Node caller
+    // passing no origins has nothing to add and produces no patch, so a plain
+    // CLI start stays patch-free.
+    const controlUiOriginLock = options.controlUiOriginLock !== false;
+    const hasControlUiOrigins = Boolean(options.controlUiAllowedOrigins?.length)
+      || defaultControlUiAllowedOrigin() !== null;
+    const needsLaunchPatch = options.launchConfig !== undefined
+      || gatewayToken !== null
+      || desktop !== null
+      || (controlUiOriginLock && hasControlUiOrigins);
     if (needsLaunchPatch) {
       if (options.dryRun) {
         throw new Error('dry-run start cannot carry launchConfig changes; update launchConfig first');
@@ -5838,6 +5885,16 @@ export class Deployments {
       // the Backend's own derivation from the Agent id, known here.
       HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
       HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
+      if (controlUiOriginLock && hasControlUiOrigins) {
+        const controlUiOrigins = mergeControlUiAllowedOrigins(
+          options.controlUiAllowedOrigins ?? [],
+          launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV],
+          [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
+        );
+        if (controlUiOrigins.length > 0) {
+          launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(' ');
+        }
+      }
       delete (launchConfig as { config?: unknown }).config;
       delete (launchConfig as { image?: unknown }).image;
       delete (launchConfig as { registry_url?: unknown }).registry_url;

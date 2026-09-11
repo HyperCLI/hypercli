@@ -58,7 +58,7 @@ function originLockIssue(agent: AgentSummary | null): ConnectionIssue | null {
         detail:
           `${agent.name} only accepts control from ${allowed}. This app runs at ${status.current}, ` +
           "whose scheme can't be recorded in the agent's allow-list.",
-        hint: "Restarting won't help on this platform. Control the agent from the web console, or ask for tauri:// origins to be supported.",
+        hint: "Restarting won't authorise an origin that can't be recorded. Control the agent from the web console.",
         agentId: agent.id,
         at: Date.now(),
       };

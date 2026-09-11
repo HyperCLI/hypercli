@@ -371,6 +371,13 @@ export {
   parseAgentLogFrame,
 } from './agents.js';
 
+export {
+  mergeControlUiAllowedOrigins,
+  normalizeControlUiOrigin,
+  OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
+  parseControlUiAllowedOrigins,
+} from './openclaw-control-ui-origin.js';
+
 // Buzz activity transport
 export {
   subscribeBuzzActivity,

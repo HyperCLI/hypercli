@@ -1218,6 +1218,93 @@ describe('Agents SDK', () => {
     expect(sent.routes).toEqual({ openclaw: { port: 18789, auth: false, prefix: '' } });
   });
 
+  it('startOpenClaw unions caller origins with the stored env and browser origin', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, {
+      env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://last-writer.example, https://console.hypercli.com' },
+    }).config;
+    const { patch, deployments } = installStoredProjection(stored);
+    vi.stubGlobal('location', { origin: 'https://console.hypercli.com' });
+
+    try {
+      await deployments.startOpenClaw(STORED_AGENT_ID, {
+        controlUiAllowedOrigins: ['tauri://localhost'],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const sent = patch.mock.calls[0][1].launch_config;
+    expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
+      .toBe('tauri://localhost https://last-writer.example https://console.hypercli.com');
+  });
+
+  it('startOpenClaw from a browser with no caller origins refreshes the stored env', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, {
+      env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://last-writer.example' },
+    }).config;
+    const { patch, deployments } = installStoredProjection(stored);
+    vi.stubGlobal('location', { origin: 'https://new-writer.example' });
+
+    try {
+      await deployments.startOpenClaw(STORED_AGENT_ID);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const sent = patch.mock.calls[0][1].launch_config;
+    expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
+      .toBe('https://last-writer.example https://new-writer.example');
+  });
+
+  it('startOpenClaw with the origin lock disabled does not patch the launch env', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, {
+      env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://last-writer.example' },
+    }).config;
+    const { patch, post, deployments } = installStoredProjection(stored);
+    vi.stubGlobal('location', { origin: 'https://new-writer.example' });
+
+    try {
+      await deployments.startOpenClaw(STORED_AGENT_ID, {
+        controlUiOriginLock: false,
+        controlUiAllowedOrigins: ['tauri://localhost'],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledWith(`/deployments/${STORED_AGENT_ID}/start`, undefined, { retries: 1 });
+  });
+
+  it('startOpenClaw in Node with no origins issues no launch patch', async () => {
+    // Regression: a plain CLI start must touch nothing. With no browser
+    // location and no caller origins there is nothing to write, so the start
+    // must not fetch or patch the launch config at all.
+    const stored: Record<string, any> = buildAgentConfig().config;
+    const { patch, deployments } = installStoredProjection(stored);
+
+    await deployments.startOpenClaw(STORED_AGENT_ID);
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('startOpenClaw never lets caller origins clobber the stored env', async () => {
+    // The single-origin regression: a start used to write only the caller's
+    // origin, evicting whoever started the agent last.
+    const stored: Record<string, any> = buildAgentConfig({}, {
+      env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://stored.example https://console.hypercli.com' },
+    }).config;
+    const { patch, deployments } = installStoredProjection(stored);
+
+    await deployments.startOpenClaw(STORED_AGENT_ID, {
+      controlUiAllowedOrigins: ['http://tauri.localhost', 'http://localhost:1420'],
+    });
+
+    const sent = patch.mock.calls[0][1].launch_config;
+    expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
+      .toBe('http://tauri.localhost http://localhost:1420 https://stored.example https://console.hypercli.com');
+  });
+
   it('reports the agent a runtime key speaks for through accessIdentity', async () => {
     const agentId = '11111111-1111-4111-8111-111111111111';
     const get = vi.fn().mockResolvedValue({

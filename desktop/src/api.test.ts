@@ -175,16 +175,17 @@ describe("startAgent (OpenClaw) gateway token", () => {
     );
   });
 
-  it("starts with the complete stored launch config, env merged not replaced", async () => {
+  it("states every origin this app can have and lets the SDK merge the rest", async () => {
     deployments.secret.mockResolvedValue({ value: "existing-token" });
     await startAgent("agent-1");
-    const options = deployments.startOpenClaw.mock.calls[0][1];
-    expect(options.launchConfig.env.FOO).toBe("1");
-    expect(options.launchConfig.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN).toContain("http://tauri.localhost");
-    // The complete replacement keys START requires, from the typed producer.
-    expect(options.launchConfig.secrets).toEqual({});
-    expect(options.launchConfig.registry_auth).toEqual({});
-    expect(options.launchConfig.runtime_scopes).toEqual([]);
+    expect(deployments.startOpenClaw).toHaveBeenCalledWith("agent-1", {
+      gatewayToken: "existing-token",
+      controlUiAllowedOrigins: ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420"],
+    });
+    // The stored launch config stays the SDK's problem: this app no longer
+    // fetches it to hand-assemble a launchConfig env.
+    expect(deployments.storedLaunchConfig).not.toHaveBeenCalled();
+    expect(deployments.startOpenClaw.mock.calls[0][1]).not.toHaveProperty("launchConfig");
   });
 });
 

@@ -471,6 +471,76 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
+  it('createOpenClaw unions caller origins, explicit env, and the browser origin', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    vi.stubGlobal('location', { origin: 'https://console.hypercli.com' });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    try {
+      await deployments.createOpenClaw({
+        name: 'test-agent',
+        dryRun: true,
+        controlUiAllowedOrigins: ['tauri://localhost'],
+        env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://old.hypercli.com' },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'tauri://localhost https://old.hypercli.com https://console.hypercli.com',
+      }),
+    }), { retries: 1 });
+  });
+
+  it('createOpenClaw writes no control-UI origin lock when told not to', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    vi.stubGlobal('location', { origin: 'https://console.hypercli.com' });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    try {
+      await deployments.createOpenClaw({ name: 'test-agent', dryRun: true, controlUiOriginLock: false });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN');
+  });
+
+  it('createOpenClaw without a browser origin omits the control-UI origin key', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({ name: 'test-agent', dryRun: true });
+
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN');
+  });
+
   it('startOpenClaw repairs the canonical gateway route before sending', async () => {
     const patch = vi.fn();
     const post = vi.fn().mockResolvedValue({

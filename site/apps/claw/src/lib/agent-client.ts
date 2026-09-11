@@ -98,16 +98,6 @@ function cloneStoredStartLaunchConfig(storedConfig: unknown, runtimeLabel: strin
   return launchConfig as unknown as AgentLaunchConfig;
 }
 
-function buildOpenClawStartLaunchConfig(storedConfig: AgentLaunchConfig, controlUiOrigin: string): AgentLaunchConfig {
-  const launchConfig = cloneStoredStartLaunchConfig(storedConfig, "OpenClaw") as unknown as Record<string, unknown>;
-  delete launchConfig.config;
-  launchConfig.env = {
-    ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
-    [CONTROL_UI_ALLOWED_ORIGIN_ENV]: controlUiOrigin,
-  };
-  return launchConfig as unknown as AgentLaunchConfig;
-}
-
 function buildHermesStartLaunchConfig(storedConfig: AgentLaunchConfig): AgentLaunchConfig {
   const launchConfig = cloneStoredStartLaunchConfig(storedConfig, "Hermes") as unknown as Record<string, unknown>;
   // Agents created before the launcher sent an image carry image: null; START
@@ -288,10 +278,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function currentUiOrigin(): string | null {
-  return currentControlUiOrigin();
-}
-
 function configuredUiOrigins(): string[] {
   return parseControlUiAllowedOrigins(process.env[CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV]);
 }
@@ -334,40 +320,19 @@ async function withUserSlackRelayLaunchConfig<T extends FrontendOpenClawCreateOp
 }
 
 function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>(options: T): T {
-  const origin = currentUiOrigin();
-  const env = { ...(options.env ?? {}) };
-  const configuredOrigins = configuredUiOrigins();
   const controlUiOriginLock = configuredUiOriginLock();
-
+  const env = { ...(options.env ?? {}) };
   if (!controlUiOriginLock) {
     delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
-    return {
-      ...options,
-      env,
-      controlUiOriginLock,
-    } as T;
   }
-
-  if (configuredOrigins.length === 0) {
-    delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
-    return {
-      ...options,
-      env,
-      controlUiOriginLock,
-    } as T;
-  }
-
-  const origins = [
-    ...parseControlUiAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
-    ...configuredOrigins,
-    ...(origin ? [origin] : []),
-  ].filter((value, index, list) => list.indexOf(value) === index);
-  env[CONTROL_UI_ALLOWED_ORIGIN_ENV] = origins[0] ?? "";
-
   return {
     ...options,
     env,
     controlUiOriginLock,
+    // The SDK merges these with the env value and this dashboard's origin at
+    // create time; a hand-written env here once collapsed the list to its
+    // first origin and locked out every other client.
+    controlUiAllowedOrigins: configuredUiOrigins(),
   } as T;
 }
 
@@ -512,15 +477,15 @@ export async function requestAgentStart(
   const isHermesRuntime = (current as { runtime?: string | null }).runtime === "hermes-agent";
   let accepted: SdkAgent;
   try {
-    const storedLaunchConfig = await agentClient.storedLaunchConfig(agentId);
     if (isHermesRuntime) {
+      const storedLaunchConfig = await agentClient.storedLaunchConfig(agentId);
       await agentClient.update(agentId, { launchConfig: buildHermesStartLaunchConfig(storedLaunchConfig) });
       accepted = await agentClient.startHermesAgent(agentId);
     } else {
-      const origin = currentControlUiOrigin();
-      if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-      await agentClient.update(agentId, { launchConfig: buildOpenClawStartLaunchConfig(storedLaunchConfig, origin) });
-      accepted = await agentClient.startOpenClaw(agentId);
+      accepted = await agentClient.startOpenClaw(agentId, {
+        controlUiAllowedOrigins: configuredUiOrigins(),
+        controlUiOriginLock: configuredUiOriginLock(),
+      });
     }
   } catch (error) {
     if (!isAgentLifecycleTimeout(error)) throw error;

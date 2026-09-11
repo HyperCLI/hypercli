@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { HyperCLI } from "../../../ts-sdk/src/client.ts";
 import {
-  controlUiOriginsToWrite,
+  mergeControlUiAllowedOrigins,
   normalizeControlUiOrigin,
   originLockStatus,
   parseControlUiAllowedOrigins,
@@ -188,9 +188,10 @@ describe("control-UI origin lock", () => {
   });
 
   it("rejects origins whose scheme cannot be recorded", () => {
-    // Tauri serves macOS and Linux from tauri://localhost. It cannot be
-    // written into the allow-list, so restarting will not authorise it.
-    expect(normalizeControlUiOrigin("tauri://localhost")).toBeNull();
+    // Tauri serves macOS and Linux from tauri://localhost. It is in the SDK's
+    // origin allowlist, recorded verbatim (URL.origin cannot represent it), so
+    // a restart does authorise the packaged app on any platform.
+    expect(normalizeControlUiOrigin("tauri://localhost")).toBe("tauri://localhost");
     expect(normalizeControlUiOrigin("javascript:alert(1)")).toBeNull();
     expect(normalizeControlUiOrigin("http://tauri.localhost")).toBe("http://tauri.localhost");
   });
@@ -216,10 +217,12 @@ describe("control-UI origin lock", () => {
     expect(status.authorized).toBe(true);
   });
 
-  it("reports macOS/Linux as unfixable rather than offering a restart", () => {
+  it("reports macOS/Linux as fixable by restart like every other shell", () => {
+    // `tauri://localhost` is expressible now, so a restart authorises the
+    // packaged macOS/Linux shell exactly the way it always did on Windows.
     const status = originLockStatus(locked("http://tauri.localhost"), "tauri://localhost");
     expect(status.authorized).toBe(false);
-    expect(status.expressible).toBe(false);
+    expect(status.expressible).toBe(true);
   });
 
   it("treats an agent with no lock as open", () => {
@@ -227,13 +230,18 @@ describe("control-UI origin lock", () => {
     expect(originLockStatus(null, "http://tauri.localhost").authorized).toBe(true);
   });
 
-  it("writes every origin this app can have, so starting from one place keeps the others", () => {
-    const written = parseControlUiAllowedOrigins(controlUiOriginsToWrite(locked("https://console.hypercli.com")));
-    expect(written).toContain("https://console.hypercli.com");
-    expect(written).toContain("http://tauri.localhost");
-    expect(written).toContain("http://localhost:1420");
-    // The unrepresentable one is dropped rather than written as garbage.
-    expect(written).not.toContain("tauri://localhost");
+  it("merges every origin this app can have, so starting from one place keeps the others", () => {
+    // startAgent states its three origins; the SDK merges them with whatever
+    // is already recorded, in first-seen order.
+    expect(mergeControlUiAllowedOrigins(
+      ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420"],
+      "https://console.hypercli.com http://tauri.localhost",
+    )).toEqual([
+      "http://tauri.localhost",
+      "tauri://localhost",
+      "http://localhost:1420",
+      "https://console.hypercli.com",
+    ]);
   });
 });
 

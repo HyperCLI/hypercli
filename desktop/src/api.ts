@@ -5,7 +5,6 @@ import {
   OpenClawAgent,
   type Agent,
   type AgentFileEntry,
-  type AgentLaunchConfig,
   type AgentLogsTokenResponse,
   type AgentProfileImageUploadResult,
   type AgentShellTokenResponse,
@@ -27,7 +26,6 @@ import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
 import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
 import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
 import { classifyConnectionError, clearConnectionIssue, httpStatusOf, reportConnectionError, type ConnectionIssue } from "./lib/connection-errors";
-import { controlUiOriginsToWrite } from "./lib/origin-lock";
 import { resolveCredentials, usingDevCredentials } from "./lib/credentials";
 import { resolveEndpoints, type Endpoints } from "./lib/endpoints";
 
@@ -288,23 +286,14 @@ export async function startAgent(id: string): Promise<AgentSummary> {
       gatewayToken = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
       await client.deployments.setSecret(id, "OPENCLAW_GATEWAY_TOKEN", gatewayToken);
     }
-    // START takes a *complete replacement* launch config, which the
-    // owner-facing projection can never be (`secrets`/`registry_auth` are
-    // redacted). `storedLaunchConfig` is the typed producer the SDK ships for
-    // exactly this round trip.
-    const stored = await client.deployments.storedLaunchConfig(id);
-    const launchConfig: Omit<AgentLaunchConfig, "config"> = {
-      ...stored,
-      env: {
-        ...stored.env,
-        // Every origin this app can legitimately have, merged with whatever is
-        // already recorded. Writing just our own origin (as this once did)
-        // evicts whoever started the agent last -- dev locks out the packaged
-        // app and vice versa. The shared parser accepts a space-separated list.
-        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: controlUiOriginsToWrite(agent.launchConfig),
-      },
-    };
-    const started = await client.deployments.startOpenClaw(id, { gatewayToken, launchConfig });
+    // Every origin this app can legitimately run at. The SDK merges these with
+    // whatever is already recorded on the agent rather than replacing it, so
+    // starting from one place stops evicting the others (dev vs packaged was
+    // the observed lockout).
+    const started = await client.deployments.startOpenClaw(id, {
+      gatewayToken,
+      controlUiAllowedOrigins: ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420"],
+    });
     return agentSummary(started);
   }
   if (HERMES_RUNTIMES.has(runtime)) {
