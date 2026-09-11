@@ -196,6 +196,7 @@ function createMockDeploymentsApi(
     createGoose: vi.fn(async () => stateful('new-goose', 'STOPPED')),
     createOpenCode: vi.fn(async () => stateful('new-opencode', 'STOPPED')),
     createBuzzAgent: vi.fn(async () => stateful('new-buzz', 'STOPPED')),
+    update: vi.fn(async (id: string) => byId(id)),
   };
   return { ...base, ...overrides };
 }
@@ -419,6 +420,57 @@ describe('hyper agents wait', () => {
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as Error).message).toContain('FAILED');
+  });
+});
+
+// ---------- set runtime ----------
+
+describe('hyper agents set runtime', () => {
+  it('PATCHes the runtime label and reports it', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw']);
+
+    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw' });
+    expect(stderr()).not.toContain(GW_TOKEN);
+  });
+
+  it('--reset-image forwards resetImage to the update call', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
+
+    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw', resetImage: true });
+  });
+
+  it('rejects an unknown runtime before touching the API', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'not-a-runtime']);
+
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('not-a-runtime');
+    expect(d.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing positionals', async () => {
+    const { ctx } = makeCtx(fakeClient(), 'table');
+
+    const err = await runErr(ctx, ['set', 'runtime', ID_A]);
+
+    expect(err).toBeInstanceOf(UsageError);
+  });
+
+  it('rejects unknown set fields', async () => {
+    const { ctx } = makeCtx(fakeClient(), 'table');
+
+    const err = await runErr(ctx, ['set', 'size', ID_A, 'large']);
+
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('size');
   });
 });
 

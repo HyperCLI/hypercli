@@ -43,6 +43,7 @@
         { "argv": ["wait", "--help"] },
         { "argv": ["create", "--help"] },
         { "argv": ["start", "--help"] },
+        { "argv": ["set", "runtime", "--help"] },
         { "argv": ["chat", "--help"] },
         { "argv": ["stop", "--help"] },
         { "argv": ["delete", "--help"] },

@@ -52,6 +52,7 @@ export const usage = [
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
   'hyper agents create <name> --runtime R [--model M] [--plan P] [--size S] [--param k=v ...] [--dry-run]',
   'hyper agents start <id>',
+  'hyper agents set runtime <id> <runtime> [--reset-image]',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
@@ -84,7 +85,12 @@ const ACP_RUNTIMES = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi
 
 const KNOWN_COMMANDS = new Set([
   'ls', 'list', 'status', 'wait', 'create', 'start', 'chat', 'stop', 'delete', 'exec',
-  'shell', 'logs', 'cp', 'activate', 'routines', ...HIDDEN,
+  'shell', 'logs', 'cp', 'activate', 'routines', 'set', ...HIDDEN,
+]);
+
+const MANAGED_RUNTIMES = new Set([
+  'generic', 'openclaw', 'openclaw-pro', 'hermes-agent', 'buzz-agent',
+  'opencode', 'codex', 'claude-code', 'goose', 'kimi-code',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -568,6 +574,41 @@ async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
   ctx.output.result(
     recordJsonRecord(started, `${dashboardBase(ctx)}/agents/${started.id}`),
     `starting ${shortId(started.id)} (${started.state})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// set — mutate one field on an existing agent
+// ---------------------------------------------------------------------------
+
+async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
+  const [field, ...rest] = args;
+  if (!field || field === '--help' || field === '-h') return printHelp();
+  if (field !== 'runtime') {
+    throw new UsageError(`unknown agents set field '${field}' (expected: runtime)`);
+  }
+  const parsed = parseCommandArgs(rest, {
+    'reset-image': { type: 'boolean', default: false },
+  });
+  if (parsed.help) return printHelp();
+  if (parsed.positionals.length < 2) throw new UsageError('missing agent id or runtime');
+  if (parsed.positionals.length > 2) {
+    throw new UsageError(`unexpected extra arguments: ${parsed.positionals.slice(2).join(' ')}`);
+  }
+  const [ref, runtime] = parsed.positionals;
+  if (!MANAGED_RUNTIMES.has(runtime)) {
+    throw new UsageError(
+      `unknown runtime '${runtime}' (expected one of: ${[...MANAGED_RUNTIMES].join(', ')})`,
+    );
+  }
+  const resetImage = parsed.values['reset-image'] === true;
+  const { d } = await adopt(ctx);
+  const id = await resolveAgentRef(d, ref);
+  const updated = await api('update agent', () =>
+    d.update(id, { runtime: runtime as never, ...(resetImage ? { resetImage: true } : {}) }));
+  ctx.output.result(
+    recordJsonRecord(updated, `${dashboardBase(ctx)}/agents/${updated.id}`),
+    `updated ${shortId(id)} runtime=${updated.runtime}${resetImage ? ' (image reset to default; applies on next start)' : ''}`,
   );
 }
 
@@ -1601,6 +1642,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdCreate(ctx, rest);
     case 'start':
       return cmdStart(ctx, rest);
+    case 'set':
+      return cmdSet(ctx, rest);
     case 'chat':
       return cmdChat(ctx, rest);
     case 'stop':
