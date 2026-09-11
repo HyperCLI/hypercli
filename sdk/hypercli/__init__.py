@@ -40,6 +40,7 @@ from .jobs import (
 from .renders import Render, RenderStatus
 from .voice import VoiceAPI
 from .voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
+from .voice_transcription import VoiceTranscriptionSession
 from .models import Model, ModelsAPI
 from .keys import ApiKey, KeysAPI, issue_api_key_from_jwt
 from .workspaces import (
@@ -217,6 +218,7 @@ __all__ = [
     "VoiceChunk",
     "VoiceSession",
     "VoiceStreamError",
+    "VoiceTranscriptionSession",
     "Model",
     "ModelsAPI",
     "DownloadUrl",

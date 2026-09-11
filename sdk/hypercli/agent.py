@@ -1116,6 +1116,10 @@ class HyperAgent:
         data = response.json()
         return [HyperAgentPlan.from_dict(plan) for plan in data.get("plans", [])]
 
+    def agent_types(self) -> HyperAgentTypeCatalog:
+        """Fetch the public agent type catalog: size presets and plan mapping."""
+        return HyperAgentTypeCatalog.from_dict(self._control_get("/types"))
+
     def current_plan(self) -> HyperAgentCurrentPlan:
         response = self._http._session.get(
             f"{self._control_base_url}/plans/current",

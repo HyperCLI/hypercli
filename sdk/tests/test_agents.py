@@ -3028,6 +3028,61 @@ def test_agents_update_and_resize(agents_client):
     assert patch_calls[1] == ("/deployments/agent-123", {"size": "large"})
 
 
+def test_agents_update_sends_runtime_and_reset_image(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "stopped",
+            "runtime": "opencode",
+            "cpu": 4,
+            "memory": 4,
+        }
+
+    agents_client._patch = fake_patch
+
+    updated = agents_client.update("agent-123", runtime="opencode", reset_image=True)
+    assert updated.runtime == "opencode"
+    assert patch_calls[0] == (
+        "/deployments/agent-123",
+        {"runtime": "opencode", "reset_image": True},
+    )
+
+    agents_client.update("agent-123", reset_image=False)
+    assert patch_calls[1] == ("/deployments/agent-123", {"reset_image": False})
+
+    agents_client.update("agent-123", name="still-here")
+    assert patch_calls[2] == ("/deployments/agent-123", {"name": "still-here"})
+
+
+def test_bound_agent_update_sends_runtime_and_reset_image(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "stopped",
+            "runtime": "codex",
+            "cpu": 2,
+            "memory": 2,
+        }
+
+    agents_client._patch = fake_patch
+    agent = Agent(id="agent-123", user_id="user-456", state="stopped", _deployments=agents_client)
+
+    updated = agent.update(runtime="codex", reset_image=True)
+
+    assert updated.runtime == "codex"
+    assert patch_calls == [
+        ("/deployments/agent-123", {"runtime": "codex", "reset_image": True})
+    ]
+
+
 def test_bound_agent_resize_delegates_to_deployments(agents_client):
     patch_calls = []
 

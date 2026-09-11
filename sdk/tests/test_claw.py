@@ -466,6 +466,38 @@ class TestHyperAgentClient:
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
 
+    def test_agent_types(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "types": [
+                {"id": "small", "name": "Small", "cpu": 0.5, "memory": 2},
+                {"id": "large", "name": "Large", "cpu": 2, "memory": 8},
+            ],
+            "plans": [
+                {
+                    "id": "team",
+                    "name": "Team",
+                    "price": 49,
+                    "agents": 1,
+                    "agent_type": "medium",
+                    "highlighted": True,
+                }
+            ],
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        catalog = agent.agent_types()
+
+        assert [preset.id for preset in catalog.types] == ["small", "large"]
+        assert catalog.types[0].cpu == 0.5
+        assert catalog.plans[0].agent_type == "medium"
+        assert catalog.plans[0].highlighted is True
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/types",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            params=None,
+        )
+
     def test_subscriptions(self, mock_http):
         mock_http._session.get.return_value.json.return_value = {
             "items": [

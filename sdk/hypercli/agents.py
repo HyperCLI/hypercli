@@ -2285,6 +2285,8 @@ class Agent:
         size: str | None = None,
         launch_config: dict | None = None,
         handle: str | None = None,
+        runtime: ManagedAgentRuntime | None = None,
+        reset_image: bool | None = None,
     ) -> "Agent":
         agent = self._require_deployments().update(
             self.id,
@@ -2292,6 +2294,8 @@ class Agent:
             size=size,
             launch_config=launch_config,
             handle=handle,
+            runtime=runtime,
+            reset_image=reset_image,
         )
         self.__dict__.update(agent.__dict__)
         self._deployments = agent._deployments
@@ -2482,6 +2486,8 @@ class HermesAgent(Agent):
         size: str | None = None,
         launch_config: dict | None = None,
         handle: str | None = None,
+        runtime: ManagedAgentRuntime | None = None,
+        reset_image: bool | None = None,
     ) -> "HermesAgent":
         api_server_key = self.api_server_key
         super().update(
@@ -2489,6 +2495,8 @@ class HermesAgent(Agent):
             size=size,
             launch_config=launch_config,
             handle=handle,
+            runtime=runtime,
+            reset_image=reset_image,
         )
         self.api_server_key = api_server_key
         return self
@@ -4733,6 +4741,8 @@ class Deployments:
         size: str | None = None,
         launch_config: dict | None = None,
         handle: str | None = None,
+        runtime: ManagedAgentRuntime | None = None,
+        reset_image: bool | None = None,
     ) -> Agent:
         body: dict[str, Any] = {}
         if name is not None:
@@ -4743,6 +4753,10 @@ class Deployments:
             body["size"] = size
         if launch_config is not None:
             body["launch_config"] = launch_config
+        if runtime is not None:
+            body["runtime"] = runtime
+        if reset_image is not None:
+            body["reset_image"] = bool(reset_image)
         resolved_agent_id = self.resolve_agent_id(agent_id)
         data = self._patch(f"{AGENTS_API_PREFIX}/{resolved_agent_id}", json=body)
         return self._hydrate_agent(data)
