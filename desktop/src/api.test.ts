@@ -16,6 +16,7 @@ import {
   agentTtsVoice,
   agentVoiceApiUnavailable,
   agentVoiceContentType,
+  createVoiceTranscriptionSession,
   deleteAgentVoice,
   hasAgentVoice,
   resetSdkClient,
@@ -69,6 +70,29 @@ vi.mock("../../ts-sdk/src/voice-session.ts", () => ({
 
     close() {
       voiceSessionMock.close();
+    }
+  },
+}));
+
+const transcriptionSessionMock = vi.hoisted(() => ({
+  open: vi.fn(),
+  close: vi.fn(),
+  constructed: [] as Array<{ wsUrl: string; credential: string; timeoutMs?: number }>,
+}));
+
+vi.mock("../../ts-sdk/src/voice-transcription-session.ts", () => ({
+  VoiceTranscriptionSession: class {
+    constructor(options: { wsUrl: string; credential: string; timeoutMs?: number }) {
+      transcriptionSessionMock.constructed.push(options);
+    }
+
+    async open() {
+      transcriptionSessionMock.open();
+      return this;
+    }
+
+    close() {
+      transcriptionSessionMock.close();
     }
   },
 }));
@@ -284,6 +308,29 @@ describe("speechStream", () => {
       sampleFormat: "s16le",
       bytesPerSample: 2,
     });
+  });
+});
+
+describe("createVoiceTranscriptionSession", () => {
+  beforeEach(() => {
+    transcriptionSessionMock.constructed.length = 0;
+    vi.clearAllMocks();
+  });
+
+  it("dials the agents WS base with the resolved credential and returns an open session", async () => {
+    const session = await createVoiceTranscriptionSession();
+    expect(transcriptionSessionMock.constructed[0]).toEqual({
+      wsUrl: "wss://api.agents.hypercli.com/ws",
+      credential: "test-key",
+      timeoutMs: undefined,
+    });
+    expect(transcriptionSessionMock.open).toHaveBeenCalledTimes(1);
+    expect(session).toBeTruthy();
+  });
+
+  it("threads a caller timeout through", async () => {
+    await createVoiceTranscriptionSession({ timeoutMs: 30_000 });
+    expect(transcriptionSessionMock.constructed[0].timeoutMs).toBe(30_000);
   });
 });
 

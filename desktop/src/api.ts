@@ -22,6 +22,7 @@ import { HTTPClient } from "../../ts-sdk/src/http.ts";
 import { getAgentsWsUrlFromProductBase } from "../../ts-sdk/src/config.ts";
 import { VoiceSession } from "../../ts-sdk/src/voice-session.ts";
 import type { VoiceAudioMetadata, VoiceChunkEvent } from "../../ts-sdk/src/voice-session.ts";
+import { VoiceTranscriptionSession } from "../../ts-sdk/src/voice-transcription-session.ts";
 import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
 import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
 import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
@@ -1183,4 +1184,31 @@ export async function speechStream(text: string, options: { voice?: string } = {
     }
   })();
   return { chunks, cancel: () => session.close() };
+}
+
+/**
+ * One push-to-talk dictation session over the agents `/ws/voice/transcribe`
+ * socket. Same dial policy as {@link speechStream}: the WS URL derives from
+ * the real upstream base (never the dev proxy — endpoints.ts) and the
+ * credential is the resolved API token; the host is already in CSP
+ * connect-src. The session is returned **open**; `lib/dictation.ts` owns the
+ * send/commit/close lifecycle from there.
+ *
+ * The protocol carries no container/format indicator — the SDK session sends
+ * only `token`, `language`, `model`, `response_format` and `prompt` as query
+ * params, and bare binary or `{event:"audio"}` frames after that — so the
+ * encoded MediaRecorder container (webm/mp4) is identified server-side from
+ * the buffered bytes, exactly as with the CLI's `hyper voice transcribe`.
+ */
+export async function createVoiceTranscriptionSession(
+  options: { timeoutMs?: number } = {},
+): Promise<VoiceTranscriptionSession> {
+  const [creds, ends] = await Promise.all([acpCredentials(), endpoints()]);
+  const session = new VoiceTranscriptionSession({
+    wsUrl: getAgentsWsUrlFromProductBase(ends.apiBase),
+    credential: creds.token,
+    timeoutMs: options.timeoutMs,
+  });
+  await session.open();
+  return session;
 }

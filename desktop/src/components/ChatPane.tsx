@@ -3,7 +3,6 @@ import {
   ArrowUp,
   Image,
   Loader2,
-  Mic,
   PanelLeftOpen,
   PanelRightOpen,
   Paperclip,
@@ -15,10 +14,12 @@ import {
 import { hasAgentVoice, type AgentSummary } from "../api";
 import type { AgentChat, ChatMessage, MessageAttachment } from "../useAgentChat";
 import { readAttachment } from "../attachments";
+import { insertTranscript } from "../lib/dictation";
 import { readAloud } from "../lib/read-aloud";
 import { readAloudEnabled, setReadAloudEnabled } from "../lib/voice-read";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
+import { DictationButton } from "./DictationButton";
 import { Markdown } from "./Markdown";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { PlanList, ThinkingBlock, ToolCallRow } from "./ToolCallRow";
@@ -148,6 +149,8 @@ export function ChatPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** Caret position a dictation insert asked for; applied by the draft effect. */
+  const pendingCaretRef = useRef<number | null>(null);
 
   const approvalCount = chat.approvals.length;
   useEffect(() => {
@@ -169,6 +172,12 @@ export function ChatPane({
     if (el) {
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      // A dictation insert restores focus and the caret to just after what it added.
+      if (pendingCaretRef.current !== null) {
+        el.focus();
+        el.setSelectionRange(pendingCaretRef.current, pendingCaretRef.current);
+        pendingCaretRef.current = null;
+      }
     }
   }, [draft]);
 
@@ -679,9 +688,18 @@ export function ChatPane({
             placeholder={composerPlaceholder}
             className="flex-1 bg-transparent outline-none resize-none text-[13px] py-1 placeholder:text-text-secondary disabled:opacity-60"
           />
-          <button className="composer-icon">
-            <Mic size={16} />
-          </button>
+          <DictationButton
+            disabled={!canCompose || chat.busy}
+            onTranscript={(text) => {
+              const el = textareaRef.current;
+              const selection = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+              setDraft((prev) => {
+                const inserted = insertTranscript(prev, text, selection);
+                pendingCaretRef.current = inserted.caret;
+                return inserted.draft;
+              });
+            }}
+          />
           {chat.busy ? (
             <button
               onClick={chat.cancel}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, PlugZap, RotateCw, ShieldAlert, WifiOff, X } from "lucide-react";
+import { AlertTriangle, MicOff, PlugZap, RotateCw, ShieldAlert, WifiOff, X } from "lucide-react";
 import {
   dismissConnectionIssue,
   subscribeConnectionIssues,
@@ -16,6 +16,7 @@ const ICONS: Record<ConnectionIssueKind, typeof AlertTriangle> = {
   "origin-lock": ShieldAlert,
   auth: ShieldAlert,
   server: AlertTriangle,
+  permission: MicOff,
   unknown: AlertTriangle,
 };
 
@@ -27,6 +28,7 @@ const TONE: Record<ConnectionIssueKind, "error" | "warning"> = {
   "origin-lock": "warning",
   auth: "warning",
   server: "error",
+  permission: "warning",
   unknown: "error",
 };
 

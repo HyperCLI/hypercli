@@ -19,6 +19,7 @@ export type ConnectionIssueKind =
   | "origin-lock"
   | "auth"
   | "server"
+  | "permission"
   | "unknown";
 
 export interface ConnectionIssueAction {
