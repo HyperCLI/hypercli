@@ -2,6 +2,7 @@
  * `hyper voice` — voice capability API.
  *
  *   hyper voice tts "hello"                  one-shot TTS (POST /voice/tts)
+ *   hyper voice design "hello" --description "warm narrator" design a voice over /ws/voice
  *   hyper voice clone "hello" --file ref.wav clone a voice from reference audio over /ws/voice
  *   hyper voice tts "hello" --stream         streaming TTS over /ws/voice
  *   hyper voice transcribe audio.wav         speech-to-text over /ws/voice/transcribe
@@ -27,6 +28,7 @@ export const name = 'voice';
 export const summary = 'Text-to-speech and transcription via the voice capability API.';
 export const usage = [
   'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]',
+  'hyper voice design <text> --description DESCRIPTION [--out file.mp3] [--rest] [--json]',
   'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--rest] [--json]',
   'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]',
 ];
@@ -44,6 +46,13 @@ const TTS_OPTIONS = {
 const CLONE_OPTIONS = {
   file: { type: 'string' },
   url: { type: 'string' },
+  out: { type: 'string' },
+  rest: { type: 'boolean', default: false },
+} as const;
+
+const DESIGN_OPTIONS = {
+  description: { type: 'string' },
+  desc: { type: 'string', short: 'd' },
   out: { type: 'string' },
   rest: { type: 'boolean', default: false },
 } as const;
@@ -328,6 +337,55 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   });
 }
 
+async function design(ctx: CommandContext, args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args, DESIGN_OPTIONS);
+  if (parsed.help) {
+    process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
+    return;
+  }
+
+  const [text, ...rest] = parsed.positionals;
+  if (!text || rest.length > 0) {
+    throw new UsageError(`usage: ${usage[1]}`);
+  }
+  const description = (
+    typeof parsed.values.description === 'string' ? parsed.values.description :
+      typeof parsed.values.desc === 'string' ? parsed.values.desc : ''
+  ).trim();
+  if (!description) {
+    throw new UsageError('voice design requires --description');
+  }
+  const outArg = typeof parsed.values.out === 'string' ? parsed.values.out : undefined;
+  if (!outArg && ctx.format === 'json') {
+    throw new UsageError('voice design --json requires --out');
+  }
+
+  const client = await ctx.client();
+  const stream = parsed.values.rest !== true;
+  let bytes: Uint8Array;
+  try {
+    bytes = stream
+      ? await collectStream(client.voice.designStream({ text, description }))
+      : await client.voice.design({ text, description });
+  } catch (err) {
+    throw new CliError(`design failed: ${describeError(err)}`);
+  }
+
+  if (!outArg) {
+    process.stdout.write(Buffer.from(bytes));
+    return;
+  }
+
+  const outFile = resolve(outArg);
+  await writeFile(outFile, bytes);
+  ctx.output.info(`saved ${outFile} (${bytes.byteLength} bytes)`);
+  const record = { out: outFile, description, bytes: bytes.byteLength };
+  ctx.output.result(ctx.format === 'json' ? { ...record, text, stream, format: 'mp3' } : record, {
+    columns: ['OUT', 'DESCRIPTION', 'BYTES'],
+    rows: [[outFile, description, String(bytes.byteLength)]],
+  });
+}
+
 async function transcribe(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, TRANSCRIBE_OPTIONS);
   if (parsed.help) {
@@ -399,6 +457,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   switch (sub) {
     case 'tts':
       return tts(ctx, subArgs);
+    case 'design':
+      return design(ctx, subArgs);
     case 'clone':
       return clone(ctx, subArgs);
     case 'transcribe':
@@ -424,6 +484,8 @@ function parseUniversalGroup(args: string[]): {
       file: { type: 'string' },
       url: { type: 'string' },
       voice: { type: 'string' },
+      description: { type: 'string' },
+      desc: { type: 'string', short: 'd' },
       language: { type: 'string' },
       rest: { type: 'boolean' },
       stream: { type: 'boolean' },

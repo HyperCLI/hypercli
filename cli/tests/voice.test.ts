@@ -69,6 +69,11 @@ interface FakeHandlers {
     text: string;
     refAudio: Uint8Array | ArrayBuffer;
   }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
+  design?: (options: { text: string; description: string }) => Promise<Uint8Array>;
+  designStream?: (options: {
+    text: string;
+    description: string;
+  }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -91,6 +96,12 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
         handlers.cloneStream ??
         (async function* () {
           yield chunkEvent(0, 1, new Uint8Array([8, 9]));
+        }),
+      design: handlers.design ?? (async () => new Uint8Array([6, 7])),
+      designStream:
+        handlers.designStream ??
+        (async function* () {
+          yield chunkEvent(0, 1, new Uint8Array([6, 7]));
         }),
     },
   } as unknown as HyperCLI;
@@ -326,6 +337,87 @@ describe('hyper voice', () => {
 
     expect(err).toBeTruthy();
     expect(exitCodeFor(err)).toBe(1);
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('design --description --out: streams designed audio and reports metadata', async () => {
+    const outFile = join(workDir, 'design.mp3');
+    const design = vi.fn(async () => new Uint8Array([9]));
+    const designStream = vi.fn(async function* () {
+      yield chunkEvent(0, 2, new Uint8Array([1, 2]));
+      yield chunkEvent(1, 2, new Uint8Array([3]));
+    });
+    const client = fakeClient({ design, designStream: designStream as never });
+    const ctx = makeCtx(client, 'json');
+
+    await voice.run(ctx, [
+      'design',
+      'designed voice text',
+      '--description',
+      'warm upbeat narrator',
+      '--out',
+      outFile,
+      '--json',
+    ]);
+
+    expect(designStream).toHaveBeenCalledWith({
+      text: 'designed voice text',
+      description: 'warm upbeat narrator',
+    });
+    expect(design).not.toHaveBeenCalled();
+    expect(await readFile(outFile)).toEqual(Buffer.from([1, 2, 3]));
+    const payload = JSON.parse(stdout());
+    expect(payload.out).toBe(outFile);
+    expect(payload.description).toBe('warm upbeat narrator');
+    expect(payload.bytes).toBe(3);
+    expect(payload.text).toBe('designed voice text');
+    expect(payload.stream).toBe(true);
+  });
+
+  it('design --desc --rest: uses REST assembled audio', async () => {
+    const outFile = join(workDir, 'design-rest.mp3');
+    const design = vi.fn(async () => new Uint8Array([4, 5]));
+    const designStream = vi.fn(fakeClient().voice.designStream as never);
+    const client = fakeClient({ design, designStream: designStream as never });
+    const ctx = makeCtx(client, 'json');
+
+    await voice.run(ctx, ['design', 'hello design', '--desc', 'calm voice', '--out', outFile, '--json', '--rest']);
+
+    expect(design).toHaveBeenCalledWith({
+      text: 'hello design',
+      description: 'calm voice',
+    });
+    expect(designStream).not.toHaveBeenCalled();
+    expect(await readFile(outFile)).toEqual(Buffer.from([4, 5]));
+    expect(JSON.parse(stdout()).stream).toBe(false);
+  });
+
+  it('design without --out writes audio bytes to stdout', async () => {
+    const designStream = vi.fn(async function* () {
+      yield chunkEvent(0, 1, Buffer.from('designed-audio'));
+    });
+    const client = fakeClient({ designStream: designStream as never });
+    const ctx = makeCtx(client, 'table');
+
+    await voice.run(ctx, ['design', 'hello', '--description', 'bright voice']);
+
+    expect(designStream).toHaveBeenCalledWith({
+      text: 'hello',
+      description: 'bright voice',
+    });
+    expect(stdout()).toBe('designed-audio');
+  });
+
+  it('design: requires a description', async () => {
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    const err: unknown = await voice.run(ctx, ['design', 'hello']).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeTruthy();
+    expect(exitCodeFor(err)).toBe(2);
     expect(ctx.client).not.toHaveBeenCalled();
   });
 

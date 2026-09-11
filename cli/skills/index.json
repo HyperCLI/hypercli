@@ -95,10 +95,12 @@
     },
     {
       "name": "hypercli-voice",
-      "description": "Generate speech with HyperCLI text-to-speech or voice clone commands, save audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation, clone reference handling, and voice-capability validation.",
+      "description": "Generate, design, clone, and transcribe speech with the TypeScript HyperCLI voice commands. Use for CLI speech generation, designed voices, clone reference handling, transcription, and voice-capability validation.",
       "commands": [
         "hyper voice tts --help",
+        "hyper voice design --help",
         "hyper voice clone --help",
+        "hyper voice transcribe --help",
         "hyper me",
         "hyper configure"
       ]

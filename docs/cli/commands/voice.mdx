@@ -35,6 +35,26 @@ Useful options:
 - `--out`
 - `--json`
 
+## design
+
+```bash
+hyper voice design "Hello" --description "warm upbeat narrator" --out designed.mp3
+hyper voice design "Hello" --desc "calm low-pitched narrator" --rest --out designed.mp3
+```
+
+Design creates a new voice from a text description instead of a reference file.
+By default, it opens the agents WebSocket `/ws/voice` endpoint and saves the
+collected audio chunks. `--rest` posts to `/agents/voice/design` and receives one
+assembled audio response instead. Without `--out`, design writes generated audio
+bytes to stdout; use `--out` with `--json`.
+
+Useful options:
+
+- `--description`, `--desc`, `-d`
+- `--out`
+- `--rest`
+- `--json`
+
 ## clone
 
 ```bash
@@ -83,12 +103,3 @@ Useful options:
 - `--rest`
 - `--out`
 - `--json`
-
-## Python CLI Notes
-
-The Python Typer CLI has additional voice options and aliases. For clone,
-`--ref` and `-r` are aliases for the local reference file, and Python also
-accepts `--file`. Python clone also defaults to `/ws/voice` chunks and supports
-`--rest`. Python TTS and clone still support Python-specific flags such as
-`--format`, `--timeout`, `--key`, and `--base-url`; those flags are not supported
-by the TypeScript CLI documented above.
