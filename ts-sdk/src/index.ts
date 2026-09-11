@@ -97,6 +97,7 @@ export {
   VoiceStreamError,
   encodeBase64,
   type VoiceSessionState,
+  type VoiceAudioMetadata,
   type VoiceChunkEvent,
   type VoiceSessionOptions,
   type SpeakOptions,

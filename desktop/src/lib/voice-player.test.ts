@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { VoicePlayer, type AudioContextLike, type BufferSourceLike } from "./voice-player";
+import { VoicePlayer, type AudioBufferLike, type AudioContextLike, type BufferSourceLike } from "./voice-player";
+
+class FakeBuffer implements AudioBufferLike {
+  readonly data: Float32Array[];
+
+  constructor(
+    readonly channels: number,
+    readonly length: number,
+    readonly sampleRate: number,
+  ) {
+    this.data = Array.from({ length: channels }, () => new Float32Array(length));
+  }
+
+  get duration(): number {
+    return this.length / this.sampleRate;
+  }
+
+  getChannelData(channel: number): Float32Array {
+    return this.data[channel];
+  }
+}
 
 class FakeSource implements BufferSourceLike {
-  buffer: { duration: number } | null = null;
+  buffer: ({ duration: number } & Partial<FakeBuffer>) | null = null;
   startedAt: number | null = null;
   stopped = false;
   onended: (() => void) | null = null;
@@ -28,6 +48,10 @@ class FakeContext implements AudioContextLike {
   async decodeAudioData(data: ArrayBuffer): Promise<{ duration: number }> {
     // First byte encodes the fake duration in whole seconds, for readable tests.
     return { duration: new Uint8Array(data)[0] ?? 1 };
+  }
+
+  createBuffer(numberOfChannels: number, length: number, sampleRate: number): FakeBuffer {
+    return new FakeBuffer(numberOfChannels, length, sampleRate);
   }
 
   createBufferSource(): FakeSource {
@@ -121,5 +145,27 @@ describe("VoicePlayer", () => {
     await flush();
     expect(ctx.sources).toHaveLength(0);
     expect(player.playing).toBe(false);
+  });
+
+  it("converts raw pcm chunks into AudioBuffers", async () => {
+    const ctx = new FakeContext();
+    const player = new VoicePlayer(() => ctx);
+    const audio = new Uint8Array([0x00, 0x80, 0x00, 0x00, 0xff, 0x7f]);
+    async function* chunks() {
+      yield {
+        requestId: "rpcm",
+        index: 0,
+        total: 1,
+        audio,
+        final: true,
+        metadata: { format: "pcm", sampleRate: 3, channels: 1, sampleFormat: "s16le", bytesPerSample: 2 },
+      };
+    }
+
+    player.speak(chunks());
+    await flush();
+    expect(ctx.sources).toHaveLength(1);
+    expect(ctx.sources[0].buffer?.duration).toBe(1);
+    expect((ctx.sources[0].buffer as FakeBuffer).getChannelData(0)).toEqual(Float32Array.of(-1, 0, 32767 / 32768));
   });
 });

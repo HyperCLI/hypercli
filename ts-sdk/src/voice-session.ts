@@ -10,12 +10,22 @@ import type NodeWebSocket from 'ws';
 
 export type VoiceSessionState = 'closed' | 'idle' | 'rendering' | 'receiving';
 
+export interface VoiceAudioMetadata {
+  format?: string;
+  contentType?: string;
+  sampleRate?: number;
+  channels?: number;
+  sampleFormat?: string;
+  bytesPerSample?: number;
+}
+
 export interface VoiceChunkEvent {
   requestId: string;
   index: number;
   total: number;
   audio: Uint8Array;
   final: boolean;
+  metadata?: VoiceAudioMetadata;
 }
 
 export interface VoiceSessionOptions {
@@ -81,6 +91,30 @@ export function encodeBase64(bytes: Uint8Array | ArrayBuffer): string {
 
 function randomRequestId(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
+}
+
+function metadataFromStartFrame(message: Record<string, unknown>): VoiceAudioMetadata {
+  const metadata = {
+    format: stringValue(message.format),
+    contentType: stringValue(message.content_type) ?? stringValue(message.contentType),
+    sampleRate: positiveNumber(message.sample_rate ?? message.sampleRate),
+    channels: positiveNumber(message.channels),
+    sampleFormat: stringValue(message.sample_format) ?? stringValue(message.sampleFormat),
+    bytesPerSample: positiveNumber(message.bytes_per_sample ?? message.bytesPerSample),
+  };
+  return Object.fromEntries(
+    Object.entries(metadata).filter((entry): entry is [keyof VoiceAudioMetadata, string | number] => entry[1] !== undefined),
+  );
 }
 
 interface Waiter {
@@ -239,6 +273,7 @@ export class VoiceSession {
       let expectedSeq = 0;
       let receivedChunks = 0;
       let sawFinal = false;
+      let metadata: VoiceAudioMetadata | undefined;
 
       while (true) {
         const remaining = deadline - Date.now();
@@ -259,6 +294,9 @@ export class VoiceSession {
         if (rid !== '' && rid !== requestId) continue;
 
         switch (message.type) {
+          case 'start':
+            metadata = metadataFromStartFrame(message);
+            break;
           case 'audio': {
             if (sawFinal) {
               throw new VoiceStreamError('protocol', 'Audio frame received after final chunk');
@@ -291,6 +329,7 @@ export class VoiceSession {
               total,
               audio,
               final,
+              metadata,
             };
             break;
           }

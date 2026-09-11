@@ -16,6 +16,7 @@ export {
   type CloneSpeakOptions,
   type DesignSpeakOptions,
   type SpeakOptions,
+  type VoiceAudioMetadata,
   type VoiceChunkEvent,
   type VoiceSessionOptions,
   type VoiceSessionState,

@@ -19,6 +19,7 @@ import {
   deleteAgentVoice,
   hasAgentVoice,
   resetSdkClient,
+  speechStream,
   startAgent,
   uploadAgentVoice,
   validateAgentAvatarFile,
@@ -38,11 +39,37 @@ const deployments = vi.hoisted(() => ({
   start: vi.fn(),
 }));
 
+const voiceSessionMock = vi.hoisted(() => ({
+  speak: vi.fn(),
+  close: vi.fn(),
+  constructed: [] as Array<{ wsUrl: string; credential: string }>,
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 vi.mock("../../ts-sdk/src/client.ts", () => ({
   HyperCLI: class {
     deployments = deployments;
+  },
+}));
+
+vi.mock("../../ts-sdk/src/voice-session.ts", () => ({
+  VoiceSession: class {
+    constructor(options: { wsUrl: string; credential: string }) {
+      voiceSessionMock.constructed.push(options);
+    }
+
+    async open() {
+      return this;
+    }
+
+    speak(options: Record<string, unknown>) {
+      return voiceSessionMock.speak(options);
+    }
+
+    close() {
+      voiceSessionMock.close();
+    }
   },
 }));
 
@@ -193,6 +220,69 @@ describe("agent files", () => {
 
     await expect(agentFiles("agent-1")).rejects.toThrow(/sign in again/i);
     expect(deployments.filesList).toHaveBeenCalledWith("agent-1", "");
+  });
+});
+
+describe("speechStream", () => {
+  beforeEach(() => {
+    resetSdkClient();
+    vi.clearAllMocks();
+    voiceSessionMock.constructed.length = 0;
+    voiceSessionMock.speak.mockImplementation(async function* (options: Record<string, unknown>) {
+      yield {
+        requestId: "rpcm",
+        index: 0,
+        total: 1,
+        audio: new Uint8Array([0, 0]),
+        final: true,
+        metadata: { format: "pcm", sampleRate: 24000, channels: 1, sampleFormat: "s16le", bytesPerSample: 2 },
+        options,
+      };
+    });
+  });
+
+  it("requests chunked pcm and returns metadata-bearing chunks", async () => {
+    const stream = await speechStream("Hello", { voice: "serena" });
+    const chunks = [];
+    for await (const chunk of stream.chunks) chunks.push(chunk);
+
+    expect(voiceSessionMock.constructed[0]).toEqual({
+      wsUrl: "wss://api.agents.hypercli.com/ws",
+      credential: "test-key",
+    });
+    expect(voiceSessionMock.speak).toHaveBeenCalledWith({
+      text: "Hello",
+      voice: "serena",
+      format: "pcm",
+      chunks: true,
+    });
+    expect(chunks[0].metadata?.format).toBe("pcm");
+    expect(voiceSessionMock.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds pcm fallback metadata when the stream start metadata is absent", async () => {
+    voiceSessionMock.speak.mockImplementation(async function* () {
+      yield {
+        requestId: "rpcm",
+        index: 0,
+        total: 1,
+        audio: new Uint8Array([0, 0]),
+        final: true,
+      };
+    });
+
+    const stream = await speechStream("Hello");
+    const chunks = [];
+    for await (const chunk of stream.chunks) chunks.push(chunk);
+
+    expect(chunks[0].metadata).toEqual({
+      format: "pcm",
+      contentType: "audio/pcm",
+      sampleRate: 24000,
+      channels: 1,
+      sampleFormat: "s16le",
+      bytesPerSample: 2,
+    });
   });
 });
 

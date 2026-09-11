@@ -22,6 +22,7 @@ import { agentsBridgeWsBase, defaultHyperAcpWsUrl, resolveAgentsApiBase } from "
 import { HTTPClient } from "../../ts-sdk/src/http.ts";
 import { getAgentsWsUrlFromProductBase } from "../../ts-sdk/src/config.ts";
 import { VoiceSession } from "../../ts-sdk/src/voice-session.ts";
+import type { VoiceAudioMetadata, VoiceChunkEvent } from "../../ts-sdk/src/voice-session.ts";
 import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
 import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
 import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
@@ -1151,11 +1152,20 @@ export function agentTtsVoice(
 
 
 export interface SpeechStream {
-  /** Ordered audio chunks (mp3), each a self-contained server-side split. */
-  chunks: AsyncGenerator<Uint8Array, void, undefined>;
+  /** Ordered TTS chunks with format metadata from the voice stream. */
+  chunks: AsyncGenerator<VoiceChunkEvent, void, undefined>;
   /** Close the socket; also unblocks a pending chunk read. */
   cancel: () => void;
 }
+
+const REQUESTED_PCM_METADATA: VoiceAudioMetadata = {
+  format: "pcm",
+  contentType: "audio/pcm",
+  sampleRate: 24_000,
+  channels: 1,
+  sampleFormat: "s16le",
+  bytesPerSample: 2,
+};
 
 /**
  * One read-aloud request. A fresh request-scoped VoiceSession per call keeps
@@ -1175,8 +1185,8 @@ export async function speechStream(text: string, options: { voice?: string } = {
   await session.open();
   const chunks = (async function* () {
     try {
-      for await (const chunk of session.speak({ text, voice: options.voice, chunks: true })) {
-        yield chunk.audio;
+      for await (const chunk of session.speak({ text, voice: options.voice, format: "pcm", chunks: true })) {
+        yield { ...chunk, metadata: { ...REQUESTED_PCM_METADATA, ...chunk.metadata } };
       }
     } finally {
       // Early break (a superseding read) cancels server-side, then closes.

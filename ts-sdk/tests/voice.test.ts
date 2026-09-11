@@ -205,4 +205,70 @@ describe('Voice API', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  it('preserves audio metadata from stream start frames', async () => {
+    const { WebSocketServer } = await import('ws');
+    const { VoiceSession } = await import('../src/voice-session.js');
+
+    const received: Array<Record<string, unknown>> = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => server.on('listening', () => resolve()));
+    const address = server.address();
+    const url = `ws://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+    server.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        received.push(message);
+        if (message.type !== 'speak') return;
+        const rid = String(message.request_id);
+        const audio = Buffer.from([0, 0, 255, 127]);
+        ws.send(JSON.stringify({
+          type: 'start',
+          request_id: rid,
+          format: 'pcm',
+          content_type: 'audio/pcm',
+          sample_rate: 24000,
+          channels: 1,
+          sample_format: 's16le',
+          bytes_per_sample: 2,
+        }));
+        ws.send(JSON.stringify({
+          type: 'audio',
+          request_id: rid,
+          seq: 0,
+          total: 1,
+          bytes: audio.length,
+          final: true,
+        }));
+        ws.send(audio);
+        ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
+      });
+    });
+
+    try {
+      const session = await new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' }).open();
+      const chunks = [];
+      for await (const chunk of session.speak({ text: 'pcm please', format: 'pcm' })) {
+        chunks.push(chunk);
+      }
+      expect(received[0]).toMatchObject({
+        type: 'speak',
+        op: 'tts',
+        text: 'pcm please',
+        format: 'pcm',
+        chunks: true,
+      });
+      expect(chunks[0].metadata).toEqual({
+        format: 'pcm',
+        contentType: 'audio/pcm',
+        sampleRate: 24000,
+        channels: 1,
+        sampleFormat: 's16le',
+        bytesPerSample: 2,
+      });
+      session.close();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
