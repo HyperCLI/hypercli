@@ -1,12 +1,19 @@
 # Desktop release pipeline modeled on Buzz's .github/workflows/release.yml:
 #
-#   setup ─► build (matrix: darwin-aarch64, darwin-x86_64, windows-x86_64,
+#   setup ─► build (matrix: darwin-universal, windows-x86_64,
 #            linux-x86_64) ─► sign-macos (self-hosted) ─► publish
 #
 #   * build produces unsigned bundles with the env-gated updater compiled in
 #     (HYPERCLI_UPDATER_PUBLIC_KEY + HYPERCLI_UPDATER_ENDPOINT) and updater
 #     artifacts signed with the Tauri updater key (createUpdaterArtifacts via
 #     desktop/scripts/build-release-config.mjs).
+#   * macOS is ONE universal build: --target universal-apple-darwin on
+#     macos-15 compiles aarch64 + x86_64 and lipos them into fat binaries, so
+#     sign-macos codesigns/notarizes a single .app and there is exactly one
+#     updater archive, HyperCLI_<version>_universal.app.tar.gz. The rolling
+#     latest.json publishes both per-arch keys (darwin-aarch64,
+#     darwin-x86_64) — installed clients request their own arch key — plus
+#     darwin-universal, all pointing at that same archive + signature.
 #   * sign-macos signs the .app with rcodesign (Developer ID cert pulled from
 #     the Pulumi stack — same pattern as sign-macos in
 #     .github/workflows/release-buzz-provider.yml), submits it to Apple and
@@ -144,22 +151,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: darwin-aarch64
+          - platform: darwin-universal
             runner: macos-15
-            triple: aarch64-apple-darwin
+            # Both Rust targets must be installed; the tauri CLI drives the
+            # per-arch cargo builds and lipos the binaries into one fat .app.
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
             # Unsigned .app only; DMG intentionally skipped (see header).
-            build_flags: --no-sign --bundles app
-          - platform: darwin-x86_64
-            runner: macos-15-intel
-            triple: x86_64-apple-darwin
-            build_flags: --no-sign --bundles app
+            build_flags: --no-sign --bundles app --target universal-apple-darwin
           - platform: windows-x86_64
             runner: windows-latest
-            triple: x86_64-pc-windows-msvc
+            targets: x86_64-pc-windows-msvc
             build_flags: --bundles nsis
           - platform: linux-x86_64
             runner: ubuntu-24.04
-            triple: x86_64-unknown-linux-gnu
+            targets: x86_64-unknown-linux-gnu
             build_flags: --bundles deb,appimage
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -174,7 +179,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95.0"
-          targets: ${{ matrix.triple }}
+          targets: ${{ matrix.targets }}
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'linux-x86_64'
@@ -280,8 +285,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_DIR="desktop/src-tauri/target/release/bundle/macos"
-          test -d "$APP_DIR/HyperCLI.app"
+          # --target universal-apple-darwin normally bundles under its own
+          # target-triple dir. Fall back to a tree scan so Tauri naming drift
+          # fails loudly instead of silently staging nothing.
+          APP_DIR="desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          if [[ ! -d "$APP_DIR/HyperCLI.app" ]]; then
+            mapfile -t CANDIDATES < <(
+              find desktop/src-tauri/target -mindepth 3 -maxdepth 4 -type d \
+                -path '*/release/bundle/macos' \
+                -exec test -d '{}/HyperCLI.app' \; -print
+            )
+            if [[ ${#CANDIDATES[@]} -ne 1 ]]; then
+              echo "::error::Expected exactly one bundle/macos dir containing HyperCLI.app, found ${#CANDIDATES[@]}: ${CANDIDATES[*]:-none}"
+              exit 1
+            fi
+            APP_DIR="${CANDIDATES[0]}"
+            echo "::warning::universal app staged from $APP_DIR (expected the universal-apple-darwin dir)"
+          fi
           mkdir -p stage
           tar -czf "stage/HyperCLI-${{ matrix.platform }}-unsigned.app.tar.gz" -C "$APP_DIR" HyperCLI.app
 
@@ -405,19 +425,16 @@ jobs:
             NOTARIZATION_STATUS="skipped"
             printf 'all\tno ASC API key configured\n' > notary-status/submissions.tsv
           fi
-          for PLATFORM in darwin-aarch64 darwin-x86_64; do
-            case "$PLATFORM" in
-              darwin-aarch64) ARCH_TAG="aarch64" ;;
-              darwin-x86_64)  ARCH_TAG="x64" ;;
-            esac
+          for PLATFORM in darwin-universal; do
             TARBALL="unsigned/HyperCLI-${PLATFORM}-unsigned.app.tar.gz"
             test -f "$TARBALL"
             STAGE="$WORK/stage-$PLATFORM"
             mkdir "$STAGE"
             tar -C "$STAGE" -xzf "$TARBALL"
 
-            # Recursive Developer ID signing of the bundle — the whole bundle
-            # is one Gatekeeper identity.
+            # Recursive Developer ID signing of the bundle — rcodesign signs
+            # the fat binaries a universal build contains; the whole bundle
+            # is one Gatekeeper identity and is notarized once.
             "$RCODESIGN" sign \
               --pem-file <(printf '%s' "$SIGNING_PEM") \
               --for-notarization \
@@ -472,7 +489,7 @@ jobs:
 
             # Buzz's re-sign dance: the updater tar.gz must contain the SIGNED
             # .app, so rebuild it here and re-sign with the Tauri updater key.
-            ARCHIVE="HyperCLI_${VERSION}_${ARCH_TAG}.app.tar.gz"
+            ARCHIVE="HyperCLI_${VERSION}_universal.app.tar.gz"
             tar -C "$STAGE" -czf "signed/$ARCHIVE" HyperCLI.app
             # `tauri signer sign` reads the key + password from the
             # environment — never pass the password via argv.
@@ -489,18 +506,11 @@ jobs:
           path: notary-status/submissions.tsv
           if-no-files-found: error
 
-      - name: Upload signed macOS updater archives (aarch64)
+      - name: Upload signed macOS updater archive
         uses: actions/upload-artifact@v4
         with:
-          name: updater-darwin-aarch64
-          path: signed-split/updater-darwin-aarch64/
-          if-no-files-found: error
-
-      - name: Upload signed macOS updater archives (x86_64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: updater-darwin-x86_64
-          path: signed-split/updater-darwin-x86_64/
+          name: updater-darwin-universal
+          path: signed-split/updater-darwin-universal/
           if-no-files-found: error
 
   publish:
@@ -539,7 +549,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          for platform in darwin-universal linux-x86_64 windows-x86_64; do
             dir="dist/updater/updater-$platform"
             archive=$(find "$dir" -type f ! -name '*.sig' | head -1)
             [[ -n "$archive" && -f "$archive.sig" ]] || {
@@ -627,8 +637,18 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://github.com/HyperCLI/hypercli/releases/download/$ROLLING_TAG"
+          DARWIN_DIR="dist/updater/updater-darwin-universal"
+          DARWIN_ARCHIVE=$(find "$DARWIN_DIR" -type f ! -name '*.sig' | head -1)
+          DARWIN_NAME=$(basename "$DARWIN_ARCHIVE")
           TRIPLES=()
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          # Installed clients request their per-arch key; every macOS key
+          # resolves to the same universal archive + signature. The updater
+          # extracts the .app.tar.gz wholesale, so one fat .app serves both
+          # arches regardless of which key the client asked for.
+          for key in darwin-aarch64 darwin-x86_64 darwin-universal; do
+            TRIPLES+=("${key}:${DARWIN_ARCHIVE}.sig:${BASE}/${DARWIN_NAME}")
+          done
+          for platform in linux-x86_64 windows-x86_64; do
             dir="dist/updater/updater-$platform"
             archive=$(find "$dir" -type f ! -name '*.sig' | head -1)
             name=$(basename "$archive")
@@ -638,7 +658,7 @@ jobs:
           cat latest.json
           # Verify every referenced archive is reachable before publishing
           # the manifest that points updaters at it.
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          for platform in darwin-universal linux-x86_64 windows-x86_64; do
             dir="dist/updater/updater-$platform"
             name=$(basename "$(find "$dir" -type f ! -name '*.sig' | head -1)")
             ok=false

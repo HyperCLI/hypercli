@@ -3,14 +3,16 @@
 # archives + signatures. Ported from Buzz's generate-oss-latest-json.sh.
 #
 # Platform keys are Tauri's: darwin-aarch64, darwin-x86_64, linux-x86_64,
-# windows-x86_64. Archive URLs point at the rolling `desktop-latest` release,
-# e.g. .../desktop-latest/HyperCLI_0.1.0_aarch64.app.tar.gz
+# windows-x86_64. Since the universal macOS build, both darwin-* keys (and
+# darwin-universal) point at the same fat archive + signature. Archive URLs
+# point at the rolling `desktop-latest` release,
+# e.g. .../desktop-latest/HyperCLI_0.1.0_universal.app.tar.gz
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: generate-oss-latest-json.sh <version> <platform-key:sig-file:archive-url>..." >&2
   echo "  e.g. generate-oss-latest-json.sh 0.1.0 \\" >&2
-  echo "         darwin-aarch64:/path/to/HyperCLI_0.1.0_aarch64.app.tar.gz.sig:https://github.com/HyperCLI/hypercli/releases/download/desktop-latest/HyperCLI_0.1.0_aarch64.app.tar.gz \\" >&2
+  echo "         darwin-aarch64:/path/to/HyperCLI_0.1.0_universal.app.tar.gz.sig:https://github.com/HyperCLI/hypercli/releases/download/desktop-latest/HyperCLI_0.1.0_universal.app.tar.gz \\" >&2
   echo "         windows-x86_64:/path/to/setup.exe.sig:https://github.com/HyperCLI/hypercli/releases/download/desktop-latest/HyperCLI_0.1.0_x64-setup.exe" >&2
   exit 1
 fi
