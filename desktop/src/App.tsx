@@ -552,7 +552,6 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col bg-background">
-      <UpdateBanner />
       {degraded && (
         <div className="flex shrink-0 items-center gap-3 border-b border-warning/40 bg-warning-bg px-4 py-1.5 text-[11px] text-warning">
           <span className="font-medium">{session.issue.title}</span>
@@ -617,12 +616,18 @@ export default function App() {
             onOpenLeft={toggleLeft}
             onOpenRight={toggleRight}
           />
-          <ErrorBar
-            agent={active}
-            onRestartAgent={onRestart}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onRetry={onRetry}
-          />
+          {/* Shared issue surface: floats below the 44px chat header (which
+              carries the traffic-light clearance), so nothing covers the
+              titlebar. Errors outrank info, so ErrorBar stacks first. */}
+          <div className="pointer-events-none absolute inset-x-0 top-[44px] z-20 flex flex-col gap-2 px-4 pt-3">
+            <ErrorBar
+              agent={active}
+              onRestartAgent={onRestart}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onRetry={onRetry}
+            />
+            <UpdateBanner />
+          </div>
         </div>
         {active && (
           <div

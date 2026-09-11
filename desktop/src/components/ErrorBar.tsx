@@ -96,8 +96,10 @@ export default function ErrorBar({
   ];
   if (issues.length === 0) return null;
 
+  // Cards only — the anchoring surface (absolute overlay below the 44px
+  // header) is owned by App.tsx so the update banner shares it.
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[44px] z-20 flex flex-col gap-2 px-4 pt-3">
+    <>
       {issues.map((issue) => {
         const Icon = ICONS[issue.kind];
         const tone = TONE[issue.kind];
@@ -153,6 +155,6 @@ export default function ErrorBar({
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

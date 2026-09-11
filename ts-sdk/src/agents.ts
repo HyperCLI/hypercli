@@ -1931,7 +1931,7 @@ export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | 
 }
 
 function browserDesktopRedirectPath(options: BrowserDesktopUrlOptions = {}): string {
-  const redirect = (options.redirect ?? 'vnc.html').trim() || 'vnc.html';
+  const redirect = (options.redirect ?? 'vnc_lite.html').trim() || 'vnc_lite.html';
   if (redirect.includes('\\')) {
     throw new Error('Desktop redirect must be a relative path');
   }
@@ -1944,10 +1944,17 @@ function browserDesktopRedirectPath(options: BrowserDesktopUrlOptions = {}): str
 
   if (options.resize !== null) {
     const resize = options.resize ?? 'scale';
-    if (resize.trim()) parsed.searchParams.set('resize', resize);
+    if (resize.trim()) {
+      // vnc_lite.html (the default viewer) takes `scale=true`; the full vnc.html
+      // UI takes `resize=scale`. Emit the parameter for whichever page the
+      // redirect targets.
+      const targetsLite = (parsed.pathname.endsWith('vnc_lite.html') || parsed.pathname.endsWith('vnc_auto.html'));
+      if (targetsLite) parsed.searchParams.set('scale', resize === 'scale' ? 'true' : resize);
+      else parsed.searchParams.set('resize', resize);
+    }
   }
 
-  const pathname = parsed.pathname.replace(/^\/+/, '') || 'vnc.html';
+  const pathname = parsed.pathname.replace(/^\/+/, '') || 'vnc_lite.html';
   return `${pathname}${parsed.search}${parsed.hash}`;
 }
 
@@ -6113,7 +6120,7 @@ export class Deployments {
     const base = agent.desktopUrl;
     if (!base) throw new Error('Desktop route is not enabled for this agent');
     const url = buildBrowserDesktopUrl(base, jwt, {
-      redirect: 'vnc.html?autoconnect=true',
+      redirect: 'vnc_lite.html',
       resize: 'scale',
       ...options,
     });

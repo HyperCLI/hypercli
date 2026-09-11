@@ -2587,7 +2587,7 @@ describe('Agents SDK', () => {
   it('builds browser desktop auth URLs with scaled noVNC redirects', () => {
     const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com', ' jwt-123 ');
 
-    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale');
+    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc_lite.html%3Fscale%3Dtrue');
   });
 
   it('hydrates new API agent fields without image_url fallback', () => {
@@ -2642,10 +2642,15 @@ describe('Agents SDK', () => {
 
   it('builds browser desktop auth URLs with query-preserving redirects', () => {
     const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com/', 'jwt-123', {
-      redirect: 'vnc.html?autoconnect=1&resize=remote',
+      redirect: 'vnc_lite.html?autoconnect=1',
     });
 
-    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fautoconnect%3D1%26resize%3Dscale');
+    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc_lite.html%3Fautoconnect%3D1%26scale%3Dtrue');
+
+    const full = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com/', 'jwt-123', {
+      redirect: 'vnc.html?autoconnect=true',
+    });
+    expect(full).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fautoconnect%3Dtrue%26resize%3Dscale');
   });
 
   it('exposes browser desktop auth URL construction on agents', () => {
@@ -2656,7 +2661,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.com',
     });
 
-    expect(agent.browserDesktopUrl('jwt-123')).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale');
+    expect(agent.browserDesktopUrl('jwt-123')).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc_lite.html%3Fscale%3Dtrue');
   });
 
   it('supports bound resize on hydrated agents', async () => {
