@@ -248,6 +248,24 @@ describe('Agents SDK', () => {
     expect(agent.managed).toBeNull();
   });
 
+  it('hydrates avatar_audio_url on get responses', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        state: 'running',
+        avatar_url: 'https://cdn.example.test/avatar.png',
+        avatar_audio_url: 'https://cdn.example.test/voice.mp3',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.avatarUrl).toBe('https://cdn.example.test/avatar.png');
+    expect(agent.avatarAudioUrl).toBe('https://cdn.example.test/voice.mp3');
+  });
+
   it('hydrates the public launch epoch and future public states', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
@@ -630,7 +648,7 @@ describe('Agents SDK', () => {
   it('preserves the deployment capacity envelope', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
-        items: [{ id: 'agent-123', state: 'RUNNING' }],
+        items: [{ id: 'agent-123', state: 'RUNNING', avatar_audio_url: 'https://cdn.example.test/voice.mp3' }],
         total_agents: 1,
         max_agents_per_account: 10,
         running_agents: 1,
@@ -652,6 +670,7 @@ describe('Agents SDK', () => {
     const capacity = await deployments.listWithCapacity();
 
     expect(capacity.items[0]?.id).toBe('agent-123');
+    expect(capacity.items[0]?.avatarAudioUrl).toBe('https://cdn.example.test/voice.mp3');
     expect(capacity.maxAgentsPerAccount).toBe(10);
     expect(capacity.runningAgents).toBe(1);
     expect(capacity.slots.large?.available).toBe(2);
@@ -2599,6 +2618,7 @@ describe('Agents SDK', () => {
       handle: 'claw',
       display_name: 'HyperClaw',
       avatar_url: 'https://cdn.example/avatar.png',
+      avatar_audio_url: 'https://cdn.example/voice.mp3',
       display_identity: {
         display_name: 'HyperClaw Coder',
         avatar_url: 'https://cdn.example/coder.png',
@@ -2616,6 +2636,7 @@ describe('Agents SDK', () => {
     expect(agent.handle).toBe('claw');
     expect(agent.displayName).toBe('HyperClaw');
     expect(agent.avatarUrl).toBe('https://cdn.example/avatar.png');
+    expect(agent.avatarAudioUrl).toBe('https://cdn.example/voice.mp3');
     expect(agent.displayIdentity).toEqual({
       display_name: 'HyperClaw Coder',
       avatar_url: 'https://cdn.example/coder.png',
@@ -2636,6 +2657,7 @@ describe('Agents SDK', () => {
       managed: false,
     } as any);
     expect(legacy.avatarUrl).toBeNull();
+    expect(legacy.avatarAudioUrl).toBeNull();
     expect(legacy.managed).toBe(false);
     expect(legacy.isLaunchable).toBe(false);
   });

@@ -1700,6 +1700,7 @@ export interface AgentStateFields {
   handle?: string | null;
   displayName?: string | null;
   avatarUrl?: string | null;
+  avatarAudioUrl?: string | null;
   displayIdentity?: Record<string, any> | null;
   runtime?: string | null;
   managed?: boolean | null;
@@ -1740,6 +1741,7 @@ export interface AgentHydrationData {
   handle?: string | null;
   display_name?: string | null;
   avatar_url?: string | null;
+  avatar_audio_url?: string | null;
   display_identity?: Record<string, any> | null;
   runtime?: string | null;
   managed?: boolean | null;
@@ -2232,6 +2234,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     handle: data.handle ?? null,
     displayName: data.display_name ?? data.name ?? null,
     avatarUrl: data.avatar_url ?? null,
+    avatarAudioUrl: data.avatar_audio_url ?? null,
     displayIdentity: data.display_identity ? structuredClone(data.display_identity) : null,
     runtime: data.runtime ?? null,
     managed: data.managed ?? null,
@@ -2842,6 +2845,7 @@ export class Agent {
   public readonly handle: string | null;
   public readonly displayName: string | null;
   public readonly avatarUrl: string | null;
+  public readonly avatarAudioUrl: string | null;
   public readonly displayIdentity: Record<string, any> | null;
   public readonly runtime: string | null;
   public readonly managed: boolean | null;
@@ -2882,6 +2886,7 @@ export class Agent {
     this.handle = fields.handle ?? null;
     this.displayName = fields.displayName ?? this.name;
     this.avatarUrl = fields.avatarUrl ?? null;
+    this.avatarAudioUrl = fields.avatarAudioUrl ?? null;
     this.displayIdentity = fields.displayIdentity ? structuredClone(fields.displayIdentity) : null;
     this.runtime = fields.runtime ?? null;
     this.managed = fields.managed ?? null;
