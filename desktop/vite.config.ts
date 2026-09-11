@@ -91,4 +91,9 @@ export default defineConfig(({ command }) => ({
   build: {
     target: "es2022",
   },
+  test: {
+    // Playwright owns desktop/e2e; vitest's default *.spec.ts glob would
+    // otherwise pick it up and fail (it expects a real browser + backend).
+    exclude: ["e2e/**", "**/node_modules/**", "dist/**"],
+  },
 }));

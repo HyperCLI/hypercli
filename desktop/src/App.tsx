@@ -36,6 +36,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { TutorialModal } from "./components/TutorialModal";
 import { NewAgentModal } from "./components/NewAgentModal";
 import ErrorBar from "./components/ErrorBar";
+import UpdateBanner from "./components/UpdateBanner";
 
 const LEFT_DEFAULT_WIDTH = 176;
 const RIGHT_DEFAULT_WIDTH = 272;
@@ -531,6 +532,7 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col bg-background">
+      <UpdateBanner />
       {degraded && (
         <div className="flex shrink-0 items-center gap-3 border-b border-warning/40 bg-warning-bg px-4 py-1.5 text-[11px] text-warning">
           <span className="font-medium">{session.issue.title}</span>
