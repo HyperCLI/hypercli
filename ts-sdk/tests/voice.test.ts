@@ -169,14 +169,16 @@ describe('Voice API', () => {
         received.push(message);
         if (message.type !== 'speak') return;
         const rid = String(message.request_id);
+        const audio = Buffer.from(`audio-${message.op}`);
         ws.send(JSON.stringify({
-          type: 'chunk',
+          type: 'audio',
           request_id: rid,
-          index: 0,
+          seq: 0,
           total: 1,
-          audio_b64: Buffer.from(`audio-${message.op}`).toString('base64'),
+          bytes: audio.length,
           final: true,
         }));
+        ws.send(audio);
         ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
       });
     });

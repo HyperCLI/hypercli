@@ -6,7 +6,7 @@ description: Text-to-speech, voice cloning, and speech-to-text commands.
 `hyper voice` contains the TypeScript CLI voice commands.
 
 Remote generation commands use the subscription voice API under
-`/agents/voice/*` and require a key with `voice:*`.
+`/agents/voice/*` or `/ws/voice` and require a key with `voice:*`.
 
 Global output format is controlled by `--json` or `--output json`. File
 destinations use `--out`.
@@ -40,6 +40,7 @@ Useful options:
 ```bash
 hyper voice clone "Hello" --file voice.wav --out cloned.mp3
 hyper voice clone "Hello" --url https://example.com/voice.wav --out cloned.mp3
+hyper voice clone "Hello" --file voice.wav --rest --out cloned.mp3
 ```
 
 Provide exactly one reference source:
@@ -53,11 +54,16 @@ private, link-local, multicast, and reserved IP literal targets. Reference audio
 is capped at 25MiB. Without `--out`, clone writes generated audio bytes to
 stdout; use `--out` with `--json`.
 
+By default, clone opens the agents WebSocket `/ws/voice` endpoint and saves the
+collected audio chunks. `--rest` posts to `/agents/voice/clone` and receives one
+assembled audio response instead.
+
 Useful options:
 
 - `--file`
 - `--url`
 - `--out`
+- `--rest`
 - `--json`
 
 ## transcribe
@@ -82,6 +88,7 @@ Useful options:
 
 The Python Typer CLI has additional voice options and aliases. For clone,
 `--ref` and `-r` are aliases for the local reference file, and Python also
-accepts `--file`. Python TTS and clone still support Python-specific flags such
-as `--format`, `--timeout`, `--key`, and `--base-url`; those flags are not
-supported by the TypeScript CLI documented above.
+accepts `--file`. Python clone also defaults to `/ws/voice` chunks and supports
+`--rest`. Python TTS and clone still support Python-specific flags such as
+`--format`, `--timeout`, `--key`, and `--base-url`; those flags are not supported
+by the TypeScript CLI documented above.

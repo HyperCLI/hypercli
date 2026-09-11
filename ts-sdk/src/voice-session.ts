@@ -79,24 +79,12 @@ export function encodeBase64(bytes: Uint8Array | ArrayBuffer): string {
   return btoa(binary);
 }
 
-function decodeBase64(value: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(value, 'base64'));
-  }
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
 function randomRequestId(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
 }
 
 interface Waiter {
-  resolve: (value: string) => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
 }
 
@@ -115,7 +103,7 @@ export class VoiceSession {
   private readonly credential: string;
   private readonly timeoutMs: number;
   private ws: WebSocket | NodeWebSocket | null = null;
-  private messages: string[] = [];
+  private messages: unknown[] = [];
   private waiter: Waiter | null = null;
   private closeError: Error | null = null;
 
@@ -134,9 +122,10 @@ export class VoiceSession {
         // Browsers cannot set WS headers — credential rides the token query param.
         const url = `${this.wsUrl}/voice?token=${encodeURIComponent(this.credential)}`;
         const ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
         this.ws = ws;
         ws.onopen = () => resolve();
-        ws.onmessage = (event: { data?: unknown }) => this.enqueue(String(event.data ?? ''));
+        ws.onmessage = (event: { data?: unknown }) => this.enqueue(event.data ?? '');
         ws.onerror = () => reject(new Error('voice WS connection failed'));
         ws.onclose = (event: { code?: number; reason?: string }) =>
           this.handleClose(event.code ?? 1006, String(event.reason ?? ''));
@@ -151,8 +140,8 @@ export class VoiceSession {
           });
           this.ws = ws;
           ws.on('open', () => resolve());
-          ws.on('message', (data: NodeWebSocket.RawData) =>
-            this.enqueue(typeof data === 'string' ? data : data.toString()));
+          ws.on('message', (data: NodeWebSocket.RawData, isBinary: boolean) =>
+            this.enqueue(isBinary ? data : textFromRaw(data)));
           ws.on('error', (error: Error) => reject(error));
           ws.on('close', (code: number, reason: Buffer) =>
             this.handleClose(code ?? 1006, reason?.toString() ?? ''));
@@ -247,34 +236,74 @@ export class VoiceSession {
         ...body,
       });
 
+      let expectedSeq = 0;
+      let receivedChunks = 0;
+      let sawFinal = false;
+
       while (true) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
           throw new VoiceStreamError('timeout', `voice stream timed out after ${this.timeoutMs}ms`);
         }
         const raw = await this.nextMessage(remaining);
+        if (typeof raw !== 'string' && !isTextBuffer(raw)) {
+          throw new VoiceStreamError('protocol', 'Unexpected binary frame without audio header');
+        }
         let message: Record<string, unknown>;
         try {
-          message = JSON.parse(raw) as Record<string, unknown>;
+          message = JSON.parse(textFromRaw(raw)) as Record<string, unknown>;
         } catch {
-          continue;
+          throw new VoiceStreamError('protocol', 'Expected JSON control frame');
         }
         const rid = String(message.request_id ?? '');
         if (rid !== '' && rid !== requestId) continue;
 
         switch (message.type) {
-          case 'chunk': {
+          case 'audio': {
+            if (sawFinal) {
+              throw new VoiceStreamError('protocol', 'Audio frame received after final chunk');
+            }
+            const seq = Number(message.seq ?? -1);
+            if (seq !== expectedSeq) {
+              throw new VoiceStreamError('protocol', `Unexpected audio sequence: expected ${expectedSeq}, got ${seq}`);
+            }
+            const expected = Number(message.bytes ?? -1);
+            if (expected < 0) {
+              throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
+            }
+            const payloadRaw = await this.nextMessage(Math.max(0, deadline - Date.now()));
+            const audio = bytesFromRaw(payloadRaw);
+            if (audio.length !== expected) {
+              throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
+            }
+            const total = Number(message.total ?? 1);
+            const final = Boolean(message.final);
+            if (total < 1 || seq >= total) {
+              throw new VoiceStreamError('protocol', `Invalid audio total ${total} for sequence ${seq}`);
+            }
+            expectedSeq += 1;
+            receivedChunks += 1;
+            sawFinal = final;
             this.state = 'receiving';
             yield {
               requestId,
-              index: Number(message.index ?? 0),
-              total: Number(message.total ?? 1),
-              audio: decodeBase64(String(message.audio_b64 ?? '')),
-              final: Boolean(message.final),
+              index: seq,
+              total,
+              audio,
+              final,
             };
             break;
           }
           case 'done':
+            if (message.total_chunks !== undefined && Number(message.total_chunks) !== receivedChunks) {
+              throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.total_chunks)}`);
+            }
+            if (message.chunks !== undefined && Number(message.chunks) !== receivedChunks) {
+              throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.chunks)}`);
+            }
+            if (receivedChunks > 0 && !sawFinal) {
+              throw new VoiceStreamError('protocol', 'Done received before final audio chunk');
+            }
             finished = true;
             return;
           case 'error':
@@ -304,7 +333,7 @@ export class VoiceSession {
     this.ws.send(JSON.stringify(message));
   }
 
-  private enqueue(raw: string): void {
+  private enqueue(raw: unknown): void {
     if (this.waiter) {
       const waiter = this.waiter;
       this.waiter = null;
@@ -325,7 +354,7 @@ export class VoiceSession {
     }
   }
 
-  private nextMessage(timeoutMs: number): Promise<string> {
+  private nextMessage(timeoutMs: number): Promise<unknown> {
     const queued = this.messages.shift();
     if (queued !== undefined) {
       return Promise.resolve(queued);
@@ -333,7 +362,7 @@ export class VoiceSession {
     if (!this.ws) {
       return Promise.reject(this.closeError ?? new Error('Session is not connected'));
     }
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiter = null;
         reject(new VoiceStreamError('timeout', `no message within ${Math.round(timeoutMs)}ms`));
@@ -350,4 +379,20 @@ export class VoiceSession {
       };
     });
   }
+}
+
+function isTextBuffer(raw: unknown): boolean {
+  return typeof Buffer !== 'undefined' && Buffer.isBuffer(raw);
+}
+
+function textFromRaw(raw: unknown): string {
+  if (Array.isArray(raw)) return Buffer.concat(raw as Buffer[]).toString();
+  return typeof raw === 'string' ? raw : Buffer.from(raw as Uint8Array).toString();
+}
+
+function bytesFromRaw(raw: unknown): Uint8Array {
+  if (raw instanceof Uint8Array) return raw;
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (Array.isArray(raw)) return new Uint8Array(Buffer.concat(raw as Buffer[]));
+  throw new VoiceStreamError('protocol', 'Expected binary audio payload after audio header');
 }

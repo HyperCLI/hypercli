@@ -75,7 +75,8 @@ Defaults are `voice: "serena"`, `language: "auto"`, and
 `responseFormat: "mp3"`. REST voice methods use SDK-relative `/voice/*` paths
 on the agents HTTP client, which resolve to `/agents/voice/*` at the product
 API host. Streaming methods connect to `/ws/voice` on the derived agents
-WebSocket base.
+WebSocket base. Streaming audio is delivered as ordered `audio` JSON headers,
+each followed immediately by one binary payload frame.
 
 ## `agent`
 

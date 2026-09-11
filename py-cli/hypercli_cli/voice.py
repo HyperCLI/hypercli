@@ -238,6 +238,53 @@ def _stream_voice(
         raise typer.Exit(1)
 
 
+def _stream_clone_voice(
+    api_key: str,
+    output: Path,
+    base_url: str | None,
+    *,
+    text: str,
+    ref_audio,
+    language: str,
+    x_vector_only: bool,
+    response_format: str,
+    timeout: float | None,
+) -> None:
+    """Stream cloned speech chunks over /ws/voice and save concatenated audio."""
+    import asyncio
+
+    from hypercli import VoiceStreamError
+
+    async def run() -> None:
+        client = _voice_client(api_key, base_url)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        total_bytes = 0
+        with output.open("wb") as handle:
+            async for chunk in client.voice.clone_stream(
+                text,
+                ref_audio=ref_audio,
+                language=language,
+                x_vector_only=x_vector_only,
+                response_format=response_format,
+                timeout=timeout,
+            ):
+                handle.write(chunk.audio)
+                total_bytes += len(chunk.audio)
+                console.print(
+                    f"[dim]chunk {chunk.index + 1}/{chunk.total} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
+                )
+        console.print(f"[green]✅ Saved {output} ({total_bytes / 1024:.1f} KB)[/green]")
+
+    try:
+        asyncio.run(run())
+    except VoiceStreamError as error:
+        console.print(f"[red]❌ {error.code}: {error.detail[:500]}[/red]")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]❌ File error: {e}[/red]")
+        raise typer.Exit(1)
+
+
 @app.command("transcribe")
 def transcribe(
     audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
@@ -314,7 +361,8 @@ def clone(
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     x_vector_only: bool = typer.Option(True, "--x-vector-only/--full-clone", help="Use x_vector_only mode (recommended)"),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
-    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    output: Path = typer.Option(None, "--out", "--output", "-o", help="Output audio file (default: output.<format>)"),
+    rest: bool = typer.Option(False, "--rest", help="Use REST assembled audio instead of WebSocket chunks"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
@@ -345,14 +393,28 @@ def clone(
         source = _download_audio(ref_audio_url or "")
         console.print(f"[dim]Reference: {ref_audio_url} ({len(source) / 1024:.1f} KB)[/dim]")
 
-    _post_voice(
-        "clone",
+    if rest:
+        _post_voice(
+            "clone",
+            api_key,
+            output,
+            base_url,
+            text=text,
+            ref_audio=source,
+            ref_text=ref_text,
+            language=language,
+            x_vector_only=x_vector_only,
+            response_format=format,
+            timeout=timeout,
+        )
+        return
+
+    _stream_clone_voice(
         api_key,
         output,
         base_url,
         text=text,
         ref_audio=source,
-        ref_text=ref_text,
         language=language,
         x_vector_only=x_vector_only,
         response_format=format,

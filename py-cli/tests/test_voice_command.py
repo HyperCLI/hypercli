@@ -124,14 +124,13 @@ def test_voice_clone_accepts_file_alias(monkeypatch, tmp_path):
     monkeypatch.setenv("HYPER_API_KEY", "hyper_api_test")
     captured = {}
 
-    def _fake_post_voice(endpoint, api_key, output, base_url=None, **kwargs):
-        captured["endpoint"] = endpoint
+    def _fake_stream_clone_voice(api_key, output, base_url=None, **kwargs):
         captured["api_key"] = api_key
         captured["output"] = output
         captured["base_url"] = base_url
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(voice, "_post_voice", _fake_post_voice)
+    monkeypatch.setattr(voice, "_stream_clone_voice", _fake_stream_clone_voice)
 
     ref = tmp_path / "ref.wav"
     ref.write_bytes(b"reference")
@@ -139,6 +138,37 @@ def test_voice_clone_accepts_file_alias(monkeypatch, tmp_path):
     result = runner.invoke(
         app,
         ["voice", "clone", "hello", "--file", str(ref), "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["kwargs"]["ref_audio"] == ref
+
+
+def test_voice_clone_rest_uses_assembled_audio(monkeypatch, tmp_path):
+    import hypercli_cli.voice as voice
+
+    monkeypatch.setenv("HYPER_API_KEY", "hyper_api_test")
+    captured = {}
+
+    def _fake_post_voice(endpoint, api_key, output, base_url=None, **kwargs):
+        captured["endpoint"] = endpoint
+        captured["api_key"] = api_key
+        captured["output"] = output
+        captured["base_url"] = base_url
+        captured["kwargs"] = kwargs
+
+    def _fake_stream_clone_voice(*args, **kwargs):
+        raise AssertionError("clone should not stream with --rest")
+
+    monkeypatch.setattr(voice, "_post_voice", _fake_post_voice)
+    monkeypatch.setattr(voice, "_stream_clone_voice", _fake_stream_clone_voice)
+
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"reference")
+    output = tmp_path / "clone.mp3"
+    result = runner.invoke(
+        app,
+        ["voice", "clone", "hello", "--file", str(ref), "--output", str(output), "--rest"],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -156,12 +186,11 @@ def test_voice_clone_downloads_url(monkeypatch, tmp_path):
         captured["url"] = url
         return b"downloaded-reference"
 
-    def _fake_post_voice(endpoint, api_key, output, base_url=None, **kwargs):
-        captured["endpoint"] = endpoint
+    def _fake_stream_clone_voice(api_key, output, base_url=None, **kwargs):
         captured["kwargs"] = kwargs
 
     monkeypatch.setattr(voice, "_download_audio", _fake_download)
-    monkeypatch.setattr(voice, "_post_voice", _fake_post_voice)
+    monkeypatch.setattr(voice, "_stream_clone_voice", _fake_stream_clone_voice)
 
     output = tmp_path / "clone.mp3"
     result = runner.invoke(
@@ -171,7 +200,6 @@ def test_voice_clone_downloads_url(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout
     assert captured["url"] == "https://example.test/ref.wav"
-    assert captured["endpoint"] == "clone"
     assert captured["kwargs"]["ref_audio"] == b"downloaded-reference"
 
 

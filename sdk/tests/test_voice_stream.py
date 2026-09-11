@@ -8,15 +8,16 @@ import websockets
 from hypercli.voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
 
 
-def _chunk_message(request_id: str, index: int, total: int, payload: bytes) -> str:
-    return json.dumps({
-        "type": "chunk",
+async def _send_audio(ws, request_id: str, index: int, total: int, payload: bytes) -> None:
+    await ws.send(json.dumps({
+        "type": "audio",
         "request_id": request_id,
-        "index": index,
+        "seq": index,
         "total": total,
-        "audio_b64": base64.b64encode(payload).decode("ascii"),
+        "bytes": len(payload),
         "final": index == total - 1,
-    })
+    }))
+    await ws.send(payload)
 
 
 async def _start_server(handler):
@@ -35,8 +36,8 @@ async def test_speak_yields_ordered_chunks_then_done():
         received.append(message)
         rid = message["request_id"]
         await ws.send(json.dumps({"type": "start", "request_id": rid, "format": "mp3"}))
-        await ws.send(_chunk_message(rid, 0, 2, b"first"))
-        await ws.send(_chunk_message(rid, 1, 2, b"second"))
+        await _send_audio(ws, rid, 0, 2, b"first")
+        await _send_audio(ws, rid, 1, 2, b"second")
         await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 2, "elapsed": 0.1}))
         await ws.wait_closed()
 
@@ -92,11 +93,68 @@ async def test_speak_raises_on_server_error():
 
 
 @pytest.mark.asyncio
+async def test_speak_rejects_binary_without_audio_header():
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        await ws.send(b"orphan")
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            with pytest.raises(VoiceStreamError, match="binary frame without audio header"):
+                async for _ in session.speak("hello"):
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_speak_rejects_non_monotonic_sequence():
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        rid = message["request_id"]
+        await _send_audio(ws, rid, 1, 2, b"second")
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            with pytest.raises(VoiceStreamError, match="Unexpected audio sequence"):
+                async for _ in session.speak("hello"):
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_speak_rejects_done_count_mismatch():
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        rid = message["request_id"]
+        await _send_audio(ws, rid, 0, 1, b"only")
+        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 2, "elapsed": 0.1}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            with pytest.raises(VoiceStreamError, match="Done chunk count mismatch"):
+                async for _ in session.speak("hello"):
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_speak_requires_idle_state():
     async def handler(ws):
         message = json.loads(await ws.recv())
         rid = message["request_id"]
-        await ws.send(_chunk_message(rid, 0, 2, b"first"))
+        await _send_audio(ws, rid, 0, 2, b"first")
         # Never send done — session stays mid-request.
         await ws.wait_closed()
 
@@ -128,7 +186,7 @@ async def test_early_break_sends_cancel():
             received.append(message)
             if message["type"] == "speak":
                 rid = message["request_id"]
-                await ws.send(_chunk_message(rid, 0, 3, b"first"))
+                await _send_audio(ws, rid, 0, 3, b"first")
             elif message["type"] == "cancel":
                 cancel_seen.set()
 
@@ -160,7 +218,7 @@ async def test_chunks_false_single_assembled_chunk():
         assert message["chunks"] is False
         rid = message["request_id"]
         await ws.send(json.dumps({"type": "start", "request_id": rid, "format": "mp3"}))
-        await ws.send(_chunk_message(rid, 0, 1, b"assembled-file"))
+        await _send_audio(ws, rid, 0, 1, b"assembled-file")
         await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
         await ws.wait_closed()
 
@@ -185,7 +243,7 @@ async def test_speak_clone_sends_op_and_reference_audio():
         received.append(message)
         rid = message["request_id"]
         await ws.send(json.dumps({"type": "start", "request_id": rid, "format": "mp3"}))
-        await ws.send(_chunk_message(rid, 0, 1, b"cloned-audio"))
+        await _send_audio(ws, rid, 0, 1, b"cloned-audio")
         await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
         await ws.wait_closed()
 
@@ -214,7 +272,7 @@ async def test_speak_design_sends_op_and_instruct():
         message = json.loads(await ws.recv())
         received.append(message)
         rid = message["request_id"]
-        await ws.send(_chunk_message(rid, 0, 1, b"designed-audio"))
+        await _send_audio(ws, rid, 0, 1, b"designed-audio")
         await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
         await ws.wait_closed()
 
@@ -241,7 +299,7 @@ async def test_speak_tts_sends_op_tts():
         message = json.loads(await ws.recv())
         received.append(message)
         rid = message["request_id"]
-        await ws.send(_chunk_message(rid, 0, 1, b"tts-audio"))
+        await _send_audio(ws, rid, 0, 1, b"tts-audio")
         await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
         await ws.wait_closed()
 
@@ -271,7 +329,7 @@ async def test_clone_and_design_stream_conveniences(monkeypatch):
             if message["type"] != "speak":
                 continue
             rid = message["request_id"]
-            await ws.send(_chunk_message(rid, 0, 1, f"audio-{message['op']}".encode()))
+            await _send_audio(ws, rid, 0, 1, f"audio-{message['op']}".encode())
             await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
 
     server, url = await _start_server(handler)

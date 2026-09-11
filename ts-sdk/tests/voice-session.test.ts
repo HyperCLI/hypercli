@@ -2,15 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket as ServerSocket } from 'ws';
 import { VoiceSession, VoiceStreamError } from '../src/voice-session.js';
 
-function chunkMessage(requestId: string, index: number, total: number, payload: string): string {
-  return JSON.stringify({
-    type: 'chunk',
+function sendAudio(ws: ServerSocket, requestId: string, index: number, total: number, payload: string): void {
+  const bytes = Buffer.from(payload);
+  ws.send(JSON.stringify({
+    type: 'audio',
     request_id: requestId,
-    index,
+    seq: index,
     total,
-    audio_b64: Buffer.from(payload).toString('base64'),
+    bytes: bytes.length,
     final: index === total - 1,
-  });
+  }));
+  ws.send(bytes);
 }
 
 describe('VoiceSession', () => {
@@ -49,8 +51,8 @@ describe('VoiceSession', () => {
       if (message.type !== 'speak') return;
       const rid = String(message.request_id);
       ws.send(JSON.stringify({ type: 'start', request_id: rid, format: 'mp3' }));
-      ws.send(chunkMessage(rid, 0, 2, 'first'));
-      ws.send(chunkMessage(rid, 1, 2, 'second'));
+      sendAudio(ws, rid, 0, 2, 'first');
+      sendAudio(ws, rid, 1, 2, 'second');
       ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 2, elapsed: 0.1 }));
     });
 
@@ -116,11 +118,74 @@ describe('VoiceSession', () => {
     session.close();
   });
 
+  it('rejects binary without an audio header', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      // The malformed frame is injected below so the test does not depend on
+      // ws' server-side text/binary frame inference for Buffer values.
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+
+    try {
+      const iterate = async () => {
+        for await (const _chunk of session.speak({ text: 'hello' })) {
+          // no-op
+        }
+      };
+      const result = expect(iterate()).rejects.toThrow(/binary frame without audio header/);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      (session as unknown as { enqueue(raw: unknown): void }).enqueue(new Uint8Array([1, 2, 3]));
+      await result;
+    } finally {
+      session.close();
+    }
+  });
+
+  it('rejects non-monotonic audio sequence numbers', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      sendAudio(ws, String(message.request_id), 1, 2, 'second');
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+
+    const iterate = async () => {
+      for await (const _chunk of session.speak({ text: 'hello' })) {
+        // no-op
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/Unexpected audio sequence/);
+    session.close();
+  });
+
+  it('rejects done chunk count mismatches', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      const rid = String(message.request_id);
+      sendAudio(ws, rid, 0, 1, 'only');
+      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 2, elapsed: 0.1 }));
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+
+    const iterate = async () => {
+      for await (const _chunk of session.speak({ text: 'hello' })) {
+        // no-op
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/Done chunk count mismatch/);
+    session.close();
+  });
+
   it('rejects a second speak while a request is in flight', async () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;
       const rid = String(message.request_id);
-      ws.send(chunkMessage(rid, 0, 3, 'first'));
+      sendAudio(ws, rid, 0, 3, 'first');
       // Never send done — session stays mid-request.
     });
 
@@ -147,7 +212,7 @@ describe('VoiceSession', () => {
     await startServer((ws, message) => {
       if (message.type === 'speak') {
         const rid = String(message.request_id);
-        ws.send(chunkMessage(rid, 0, 3, 'first'));
+        sendAudio(ws, rid, 0, 3, 'first');
       } else if (message.type === 'cancel') {
         cancelSeen?.();
       }
@@ -178,7 +243,7 @@ describe('VoiceSession', () => {
       expect(message.chunks).toBe(false);
       const rid = String(message.request_id);
       ws.send(JSON.stringify({ type: 'start', request_id: rid, format: 'mp3' }));
-      ws.send(chunkMessage(rid, 0, 1, 'assembled-file'));
+      sendAudio(ws, rid, 0, 1, 'assembled-file');
       ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
     });
 
@@ -199,7 +264,7 @@ describe('VoiceSession', () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;
       const rid = String(message.request_id);
-      ws.send(chunkMessage(rid, 0, 1, 'cloned-audio'));
+      sendAudio(ws, rid, 0, 1, 'cloned-audio');
       ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
     });
 
@@ -229,7 +294,7 @@ describe('VoiceSession', () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;
       const rid = String(message.request_id);
-      ws.send(chunkMessage(rid, 0, 1, 'designed-audio'));
+      sendAudio(ws, rid, 0, 1, 'designed-audio');
       ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
     });
 
@@ -250,7 +315,7 @@ describe('VoiceSession', () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;
       const rid = String(message.request_id);
-      ws.send(chunkMessage(rid, 0, 1, 'tts-audio'));
+      sendAudio(ws, rid, 0, 1, 'tts-audio');
       ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
     });
 

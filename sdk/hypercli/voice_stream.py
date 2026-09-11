@@ -15,7 +15,6 @@ Usage:
         handle(chunk.audio)
 """
 import asyncio
-import base64
 import contextlib
 import json
 import uuid
@@ -210,29 +209,59 @@ class VoiceSession:
                 "chunks": chunks,
                 **body,
             }))
+            expected_seq = 0
+            received_chunks = 0
+            saw_final = False
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError(f"voice stream timed out after {timeout or self._timeout:.0f}s")
                 raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+                if isinstance(raw, bytes):
+                    raise VoiceStreamError("protocol", "Unexpected binary frame without audio header")
                 try:
                     message = json.loads(raw)
                 except ValueError:
-                    continue
+                    raise VoiceStreamError("protocol", "Expected JSON control frame")
                 if message.get("request_id") not in ("", rid):
                     continue
 
                 msg_type = message.get("type")
-                if msg_type == "chunk":
+                if msg_type == "audio":
+                    if saw_final:
+                        raise VoiceStreamError("protocol", "Audio frame received after final chunk")
+                    seq = int(message.get("seq", -1))
+                    if seq != expected_seq:
+                        raise VoiceStreamError("protocol", f"Unexpected audio sequence: expected {expected_seq}, got {seq}")
+                    expected = int(message.get("bytes", -1))
+                    if expected < 0:
+                        raise VoiceStreamError("protocol", "Audio header has invalid byte length")
+                    payload = await asyncio.wait_for(self._ws.recv(), timeout=max(0.0, deadline - asyncio.get_running_loop().time()))
+                    if not isinstance(payload, bytes):
+                        raise VoiceStreamError("protocol", "Expected binary audio payload after audio header")
+                    if expected != len(payload):
+                        raise VoiceStreamError("protocol", f"Audio payload length mismatch: expected {expected}, got {len(payload)}")
+                    total = int(message.get("total", 1))
+                    final = bool(message.get("final"))
+                    if total < 1 or seq >= total:
+                        raise VoiceStreamError("protocol", f"Invalid audio total {total} for sequence {seq}")
+                    expected_seq += 1
+                    received_chunks += 1
+                    saw_final = final
                     self.state = "receiving"
                     yield VoiceChunk(
                         request_id=rid,
-                        index=int(message.get("index", 0)),
-                        total=int(message.get("total", 1)),
-                        audio=base64.b64decode(message.get("audio_b64") or ""),
-                        final=bool(message.get("final")),
+                        index=seq,
+                        total=total,
+                        audio=payload,
+                        final=final,
                     )
                 elif msg_type == "done":
+                    total_done = message.get("total_chunks", message.get("chunks"))
+                    if total_done is not None and int(total_done) != received_chunks:
+                        raise VoiceStreamError("protocol", f"Done chunk count mismatch: expected {received_chunks}, got {total_done}")
+                    if received_chunks and not saw_final:
+                        raise VoiceStreamError("protocol", "Done received before final audio chunk")
                     finished = True
                     return
                 elif msg_type == "error":

@@ -65,6 +65,10 @@ interface FakeHandlers {
     language?: string;
   }) => AsyncGenerator<VoiceTranscriptionEvent, void, undefined>;
   clone?: (options: { text: string; refAudio: Uint8Array | ArrayBuffer }) => Promise<Uint8Array>;
+  cloneStream?: (options: {
+    text: string;
+    refAudio: Uint8Array | ArrayBuffer;
+  }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -83,6 +87,11 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
           yield { type: 'transcript.final', text: 'stream transcript' };
         }),
       clone: handlers.clone ?? (async () => new Uint8Array([8, 9])),
+      cloneStream:
+        handlers.cloneStream ??
+        (async function* () {
+          yield chunkEvent(0, 1, new Uint8Array([8, 9]));
+        }),
     },
   } as unknown as HyperCLI;
 }
@@ -187,30 +196,56 @@ describe('hyper voice', () => {
     const refFile = join(workDir, 'ref.wav');
     const outFile = join(workDir, 'clone.mp3');
     await writeFile(refFile, Buffer.from('reference-audio'));
-    const cloned = new Uint8Array([3, 4, 5]);
-    const clone = vi.fn(async () => cloned);
-    const client = fakeClient({ clone });
+    const clone = vi.fn(async () => new Uint8Array([9]));
+    const cloneStream = vi.fn(async function* () {
+      yield chunkEvent(0, 2, new Uint8Array([3, 4]));
+      yield chunkEvent(1, 2, new Uint8Array([5]));
+    });
+    const client = fakeClient({ clone, cloneStream: cloneStream as never });
     const ctx = makeCtx(client, 'json');
 
     await voice.run(ctx, ['clone', 'hello clone', '--file', refFile, '--out', outFile, '--json']);
+
+    expect(cloneStream).toHaveBeenCalledWith({
+      text: 'hello clone',
+      refAudio: Buffer.from('reference-audio'),
+    });
+    expect(clone).not.toHaveBeenCalled();
+    expect(await readFile(outFile)).toEqual(Buffer.from([3, 4, 5]));
+    const payload = JSON.parse(stdout());
+    expect(payload.out).toBe(outFile);
+    expect(payload.source).toBe(refFile);
+    expect(payload.bytes).toBe(3);
+    expect(payload.text).toBe('hello clone');
+    expect(payload.stream).toBe(true);
+  });
+
+  it('clone --rest: uses REST assembled audio', async () => {
+    const refFile = join(workDir, 'ref.wav');
+    const outFile = join(workDir, 'clone.mp3');
+    await writeFile(refFile, Buffer.from('reference-audio'));
+    const clone = vi.fn(async () => new Uint8Array([6, 7]));
+    const cloneStream = vi.fn(fakeClient().voice.cloneStream as never);
+    const client = fakeClient({ clone, cloneStream: cloneStream as never });
+    const ctx = makeCtx(client, 'json');
+
+    await voice.run(ctx, ['clone', 'hello clone', '--file', refFile, '--out', outFile, '--json', '--rest']);
 
     expect(clone).toHaveBeenCalledWith({
       text: 'hello clone',
       refAudio: Buffer.from('reference-audio'),
     });
-    expect(await readFile(outFile)).toEqual(Buffer.from(cloned));
-    const payload = JSON.parse(stdout());
-    expect(payload.out).toBe(outFile);
-    expect(payload.source).toBe(refFile);
-    expect(payload.bytes).toBe(cloned.byteLength);
-    expect(payload.text).toBe('hello clone');
+    expect(cloneStream).not.toHaveBeenCalled();
+    expect(await readFile(outFile)).toEqual(Buffer.from([6, 7]));
+    expect(JSON.parse(stdout()).stream).toBe(false);
   });
 
   it('clone --url without --out: fetches reference audio and writes audio bytes to stdout', async () => {
     globalThis.fetch = vi.fn(async () => new Response(Buffer.from('remote-reference'))) as typeof fetch;
-    const cloned = Buffer.from('cloned-audio');
-    const clone = vi.fn(async () => cloned);
-    const client = fakeClient({ clone });
+    const cloneStream = vi.fn(async function* () {
+      yield chunkEvent(0, 1, Buffer.from('cloned-audio'));
+    });
+    const client = fakeClient({ cloneStream: cloneStream as never });
     const ctx = makeCtx(client, 'table');
 
     await voice.run(ctx, ['clone', 'hello', '--url', 'https://example.test/ref.wav']);
@@ -219,7 +254,7 @@ describe('hyper voice', () => {
       redirect: 'manual',
       signal: expect.any(AbortSignal),
     }));
-    expect(clone).toHaveBeenCalledWith({
+    expect(cloneStream).toHaveBeenCalledWith({
       text: 'hello',
       refAudio: Buffer.from('remote-reference'),
     });

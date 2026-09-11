@@ -2,7 +2,7 @@
  * `hyper voice` — voice capability API.
  *
  *   hyper voice tts "hello"                  one-shot TTS (POST /voice/tts)
- *   hyper voice clone "hello" --file ref.wav clone a voice from reference audio
+ *   hyper voice clone "hello" --file ref.wav clone a voice from reference audio over /ws/voice
  *   hyper voice tts "hello" --stream         streaming TTS over /ws/voice
  *   hyper voice transcribe audio.wav         speech-to-text over /ws/voice/transcribe
  *   hyper voice transcribe audio.wav --rest  one-shot STT (POST /voice/transcribe)
@@ -27,7 +27,7 @@ export const name = 'voice';
 export const summary = 'Text-to-speech and transcription via the voice capability API.';
 export const usage = [
   'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]',
-  'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--json]',
+  'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--rest] [--json]',
   'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]',
 ];
 
@@ -45,6 +45,7 @@ const CLONE_OPTIONS = {
   file: { type: 'string' },
   url: { type: 'string' },
   out: { type: 'string' },
+  rest: { type: 'boolean', default: false },
 } as const;
 
 const TRANSCRIBE_OPTIONS = {
@@ -302,9 +303,12 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   const source = fileArg ? resolve(fileArg) : urlArg!;
   const refAudio = fileArg ? await readReferenceFile(source) : await readUrlBytes(source);
   const client = await ctx.client();
+  const stream = parsed.values.rest !== true;
   let bytes: Uint8Array;
   try {
-    bytes = await client.voice.clone({ text, refAudio });
+    bytes = stream
+      ? await collectStream(client.voice.cloneStream({ text, refAudio }))
+      : await client.voice.clone({ text, refAudio });
   } catch (err) {
     throw new CliError(`clone failed: ${describeError(err)}`);
   }
@@ -318,7 +322,7 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   await writeFile(outFile, bytes);
   ctx.output.info(`saved ${outFile} (${bytes.byteLength} bytes)`);
   const record = { out: outFile, source, bytes: bytes.byteLength };
-  ctx.output.result(ctx.format === 'json' ? { ...record, text, format: 'mp3' } : record, {
+  ctx.output.result(ctx.format === 'json' ? { ...record, text, stream, format: 'mp3' } : record, {
     columns: ['OUT', 'SOURCE', 'BYTES'],
     rows: [[outFile, source, String(bytes.byteLength)]],
   });

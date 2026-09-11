@@ -172,10 +172,10 @@ async for chunk in client.voice.tts_stream("Hello from HyperCLI", voice="serena"
 
 The streaming request frame is a JSON message with `type="speak"`, an
 `op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
-The server replies with ordered `chunk` messages containing base64 audio, then
-`done`; server errors raise `VoiceStreamError`. A session handles one request
-at a time, and breaking the iterator early sends `{"type": "cancel"}` for the
-request.
+The server replies with `start`, then ordered `audio` JSON headers followed
+immediately by binary payload frames, then `done`; server errors raise
+`VoiceStreamError`. A session handles one request at a time, and breaking the
+iterator early sends `{"type": "cancel"}` for the request.
 
 ### Use backend `/ws/*` for logs and shells
 
