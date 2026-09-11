@@ -130,7 +130,10 @@ jobs:
           npm ci --no-fund --no-audit
           # Other live suites run Playwright inside a baked docker image; this
           # job runs on the host, so install the browser's system deps too.
-          sudo npx playwright install --with-deps chromium
+          # Deps under sudo; the browser itself WITHOUT sudo so it lands in
+          # the runner user's cache (~/.cache/ms-playwright), not root's.
+          sudo npx playwright install-deps chromium
+          npx playwright install chromium
 
       - name: Run desktop e2e
         id: e2e
