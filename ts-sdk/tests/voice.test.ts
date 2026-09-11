@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VoiceAPI } from '../src/voice.js';
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
 
 describe('Voice API', () => {
   it('posts TTS payload to agents voice route', async () => {
@@ -101,6 +108,51 @@ describe('Voice API', () => {
       },
     });
   });
+
+  it('posts transcription audio as multipart form data', async () => {
+    let receivedUrl = '';
+    let receivedHeaders: HeadersInit | undefined;
+    let receivedForm: FormData | undefined;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      receivedUrl = String(url);
+      receivedHeaders = init?.headers;
+      receivedForm = init?.body as FormData;
+      return new Response(JSON.stringify({ text: 'hello world' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const http = { base: 'https://api.test/agents', credential: 'hyper_api_test' };
+    const result = await new VoiceAPI(http as any).transcribe({
+      audio: new Uint8Array([1, 2, 3]),
+      filename: 'speech.wav',
+      language: 'en',
+      model: 'tiny',
+      responseFormat: 'json',
+      prompt: 'names',
+    });
+
+    expect(result.text).toBe('hello world');
+    expect(receivedUrl).toBe('https://api.test/agents/voice/transcribe');
+    expect(receivedHeaders).toEqual({ Authorization: 'Bearer hyper_api_test' });
+    expect(receivedForm?.get('language')).toBe('en');
+    expect(receivedForm?.get('model')).toBe('tiny');
+    expect(receivedForm?.get('response_format')).toBe('json');
+    expect(receivedForm?.get('prompt')).toBe('names');
+    const file = receivedForm?.get('file');
+    expect(file).toBeInstanceOf(Blob);
+    expect((file as Blob).size).toBe(3);
+  });
+
+  it('returns plain-text transcription responses', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('plain transcript', { status: 200 })) as typeof fetch;
+    const http = { base: 'https://api.test/agents', credential: 'hyper_api_test' };
+
+    await expect(new VoiceAPI(http as any).transcribe({ audio: new Uint8Array([1]) }))
+      .resolves.toEqual({ text: 'plain transcript' });
+  });
+
   it('cloneStream and designStream ride a session with the right ops', async () => {
     const { WebSocketServer } = await import('ws');
     const { VoiceAPI } = await import('../src/voice.js');

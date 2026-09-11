@@ -5,11 +5,13 @@
  * a fake HyperCLI straight through ctx, capturing stdout/stderr via spies.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HyperCLI, VoiceChunkEvent } from '@hypercli.com/sdk';
+import { VoiceAPI, VoiceTranscriptionSession } from '@hypercli.com/sdk';
+import type { HyperCLI, VoiceChunkEvent, VoiceTranscriptionEvent } from '@hypercli.com/sdk';
+import { WebSocketServer } from 'ws';
 import * as voice from '../src/commands/voice.js';
 import { exitCodeFor, printError } from '../src/core/errors.js';
 import { createOutput } from '../src/core/output.js';
@@ -19,6 +21,7 @@ let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 let stdoutChunks: string[];
 let stderrChunks: string[];
+const originalFetch = globalThis.fetch;
 
 const stdout = () => stdoutChunks.join('');
 const stderr = () => stderrChunks.join('');
@@ -37,8 +40,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  globalThis.fetch = originalFetch;
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
+  vi.restoreAllMocks();
 });
 
 // ---------- fixtures ----------
@@ -53,6 +58,12 @@ interface FakeHandlers {
     text: string;
     voice?: string;
   }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
+  transcribe?: (options: { audio: Uint8Array; filename?: string; language?: string }) => Promise<{ text: string }>;
+  transcribeStream?: (options: {
+    audio: Uint8Array;
+    filename?: string;
+    language?: string;
+  }) => AsyncGenerator<VoiceTranscriptionEvent, void, undefined>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -63,6 +74,12 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
         handlers.ttsStream ??
         (async function* () {
           yield chunkEvent(0, 1, new Uint8Array([1, 2, 3]));
+        }),
+      transcribe: handlers.transcribe ?? (async () => ({ text: 'hello transcript' })),
+      transcribeStream:
+        handlers.transcribeStream ??
+        (async function* () {
+          yield { type: 'transcript.final', text: 'stream transcript' };
         }),
     },
   } as unknown as HyperCLI;
@@ -162,6 +179,138 @@ describe('hyper voice', () => {
     expect(err).toBeTruthy();
     expect(exitCodeFor(err)).toBe(2);
     expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('transcribe --rest: uses REST, prints text, and passes file metadata', async () => {
+    const audio = Buffer.from([1, 2, 3]);
+    const audioFile = join(workDir, 'speech.wav');
+    await writeFile(audioFile, audio);
+    const transcribe = vi.fn(async () => ({ text: 'hello world' }));
+    const client = fakeClient({ transcribe: transcribe as never });
+    const ctx = makeCtx(client, 'table');
+
+    await voice.run(ctx, ['transcribe', audioFile, '--language', 'en', '--rest']);
+
+    expect(transcribe).toHaveBeenCalledWith({
+      audio,
+      filename: 'speech.wav',
+      language: 'en',
+    });
+    expect(stdout()).toBe('hello world\n');
+  });
+
+  it('transcribe --rest: real SDK path posts to /voice/transcribe', async () => {
+    const audioFile = join(workDir, 'speech.wav');
+    await writeFile(audioFile, Buffer.from([1, 2, 3]));
+    let receivedUrl = '';
+    let receivedForm: FormData | undefined;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      receivedUrl = String(url);
+      receivedForm = init?.body as FormData;
+      return new Response(JSON.stringify({ text: 'routed transcript' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const client = {
+      voice: new VoiceAPI({ base: 'https://api.test/agents', credential: 'hyper_api_test' } as never),
+    } as unknown as HyperCLI;
+    const ctx = makeCtx(client, 'table');
+
+    await voice.run(ctx, ['transcribe', audioFile, '--language', 'en', '--rest']);
+
+    expect(receivedUrl).toBe('https://api.test/agents/voice/transcribe');
+    expect(receivedForm?.get('language')).toBe('en');
+    expect((receivedForm?.get('file') as Blob).size).toBe(3);
+    expect(stdout()).toBe('routed transcript\n');
+  });
+
+  it('transcribe --out --json: writes transcript and emits JSON metadata', async () => {
+    const audioFile = join(workDir, 'speech.wav');
+    const outFile = join(workDir, 'transcript.txt');
+    await writeFile(audioFile, Buffer.from([1]));
+    const client = fakeClient({ transcribe: async () => ({ text: 'saved text' }) });
+    const ctx = makeCtx(client, 'json');
+
+    await voice.run(ctx, ['transcribe', audioFile, '--out', outFile, '--json', '--rest']);
+
+    expect(await readFile(outFile, 'utf8')).toBe('saved text');
+    const payload = JSON.parse(stdout());
+    expect(payload.text).toBe('saved text');
+    expect(payload.out).toBe(outFile);
+    expect(payload.stream).toBe(false);
+  });
+
+  it('transcribe: defaults to WS and collects transcript.final', async () => {
+    const audioFile = join(workDir, 'speech.wav');
+    await writeFile(audioFile, Buffer.from([4, 5]));
+    const transcribe = vi.fn(async () => ({ text: 'rest' }));
+    const transcribeStream = vi.fn(async function* () {
+      yield { type: 'transcript.delta', text: 'partial', delta: 'partial' };
+      yield { type: 'transcript.final', text: 'final text' };
+    });
+    const client = fakeClient({ transcribe: transcribe as never, transcribeStream: transcribeStream as never });
+    const ctx = makeCtx(client, 'table');
+
+    await voice.run(ctx, ['transcribe', audioFile]);
+
+    expect(transcribeStream).toHaveBeenCalledWith({
+      audio: Buffer.from([4, 5]),
+      language: undefined,
+    });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(stdout()).toBe('final text\n');
+  });
+
+  it('transcribe: default real SDK path connects to /ws/voice/transcribe', async () => {
+    const audioFile = join(workDir, 'speech.wav');
+    await writeFile(audioFile, Buffer.from([4, 5]));
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((resolve) => server.on('listening', () => resolve()));
+    const address = server.address();
+    const wsUrl = `ws://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/ws`;
+    let requestUrl = '';
+    const received: Buffer[] = [];
+    server.on('connection', (ws, request) => {
+      requestUrl = request.url ?? '';
+      ws.send(JSON.stringify({ event: 'ready' }));
+      ws.on('message', (raw) => {
+        const value = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
+        received.push(value);
+        let message: Record<string, unknown> = {};
+        try {
+          message = JSON.parse(value.toString()) as Record<string, unknown>;
+        } catch {
+          // binary audio frame
+        }
+        if (message.event === 'commit') {
+          ws.send(JSON.stringify({ event: 'transcript.final', text: 'ws routed transcript' }));
+        }
+      });
+    });
+    const session = new VoiceTranscriptionSession({ wsUrl, credential: 'hyper_api_test', language: 'en' });
+    const client = {
+      voice: {
+        transcribeStream: async function* (options: { audio: Uint8Array; language?: string }) {
+          await session.open();
+          yield* session.transcribe(options.audio);
+        },
+      },
+    } as unknown as HyperCLI;
+    const ctx = makeCtx(client, 'table');
+
+    try {
+      await voice.run(ctx, ['transcribe', audioFile, '--language', 'en']);
+    } finally {
+      session.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    expect(requestUrl.startsWith('/ws/voice/transcribe?')).toBe(true);
+    expect(new URLSearchParams(requestUrl.split('?')[1]).get('language')).toBe('en');
+    expect(received[0]).toEqual(Buffer.from([4, 5]));
+    expect(JSON.parse(received[1].toString())).toEqual({ event: 'commit' });
+    expect(stdout()).toBe('ws routed transcript\n');
   });
 
   it('tts: SDK failure -> CliError (exit 1), no file written', async () => {

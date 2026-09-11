@@ -86,6 +86,9 @@ export {
   type TTSOptions,
   type CloneOptions,
   type DesignOptions,
+  type TranscribeOptions,
+  type TranscribeStreamOptions,
+  type TranscriptionResult,
 } from './voice.js';
 
 // Voice streaming session
@@ -100,6 +103,17 @@ export {
   type CloneSpeakOptions,
   type DesignSpeakOptions,
 } from './voice-session.js';
+
+export {
+  VoiceTranscriptionSession,
+  type TranscriptionStartOptions,
+  type VoiceTranscriptDeltaEvent,
+  type VoiceTranscriptFinalEvent,
+  type VoiceTranscriptionAckEvent,
+  type VoiceTranscriptionEvent,
+  type VoiceTranscriptionSessionOptions,
+  type VoiceTranscriptionSessionState,
+} from './voice-transcription-session.js';
 
 // User API
 export {

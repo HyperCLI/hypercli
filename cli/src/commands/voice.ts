@@ -1,27 +1,30 @@
 /**
- * `hyper voice` — text-to-speech via the voice capability API.
+ * `hyper voice` — voice capability API.
  *
  *   hyper voice tts "hello"                  one-shot TTS (POST /voice/tts)
  *   hyper voice tts "hello" --stream         streaming TTS over /ws/voice
+ *   hyper voice transcribe audio.wav         speech-to-text over /ws/voice/transcribe
+ *   hyper voice transcribe audio.wav --rest  one-shot STT (POST /voice/transcribe)
  *
  * Generation goes through the remote voice API. Audio is written with
  * node:fs/promises; stdout stays machine-usable.
  */
 
-import { writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { APIError } from '@hypercli.com/sdk';
-import type { VoiceChunkEvent } from '@hypercli.com/sdk';
+import type { VoiceChunkEvent, VoiceTranscriptionEvent } from '@hypercli.com/sdk';
 import { parseCommandArgs } from '../core/argv.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
 
 export const name = 'voice';
-export const summary = 'Text-to-speech via the voice capability API.';
+export const summary = 'Text-to-speech and transcription via the voice capability API.';
 export const usage = [
   'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]',
+  'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]',
 ];
 
 const DEFAULT_VOICE = 'serena';
@@ -30,6 +33,12 @@ const TTS_OPTIONS = {
   out: { type: 'string' },
   voice: { type: 'string' },
   stream: { type: 'boolean', default: false },
+} as const;
+
+const TRANSCRIBE_OPTIONS = {
+  language: { type: 'string' },
+  out: { type: 'string' },
+  rest: { type: 'boolean', default: false },
 } as const;
 
 function describeError(err: unknown): string {
@@ -46,6 +55,17 @@ async function collectStream(
     if (chunk.audio && chunk.audio.byteLength > 0) parts.push(Buffer.from(chunk.audio));
   }
   return Buffer.concat(parts);
+}
+
+async function collectTranscript(
+  events: AsyncGenerator<VoiceTranscriptionEvent, void, undefined>,
+): Promise<string> {
+  let text = '';
+  for await (const event of events) {
+    if (event.type === 'transcript.final') return event.text;
+    if (event.type === 'transcript.delta') text += event.delta || event.text;
+  }
+  return text;
 }
 
 // ---------- tts (remote voice API) ----------
@@ -88,6 +108,61 @@ async function tts(ctx: CommandContext, args: string[]): Promise<void> {
   });
 }
 
+async function transcribe(ctx: CommandContext, args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args, TRANSCRIBE_OPTIONS);
+  if (parsed.help) {
+    process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
+    return;
+  }
+
+  const [audioFile, ...rest] = parsed.positionals;
+  if (!audioFile || rest.length > 0) {
+    throw new UsageError(`usage: ${usage[1]}`);
+  }
+  const language = typeof parsed.values.language === 'string' ? parsed.values.language : undefined;
+  const useRest = parsed.values.rest === true;
+  const stream = !useRest;
+  const outArg = typeof parsed.values.out === 'string' ? parsed.values.out : undefined;
+  const file = resolve(audioFile);
+  const outFile = outArg ? resolve(outArg) : undefined;
+
+  const audio = await readFile(file);
+  const client = await ctx.client();
+  let text: string;
+  try {
+    if (stream) {
+      text = await collectTranscript(client.voice.transcribeStream({
+        audio,
+        language,
+      }));
+    } else {
+      const result = await client.voice.transcribe({
+        audio,
+        filename: basename(file),
+        language,
+      });
+      text = result.text;
+    }
+  } catch (err) {
+    throw new CliError(`transcribe failed: ${describeError(err)}`);
+  }
+
+  if (outFile) {
+    await writeFile(outFile, text, 'utf8');
+    ctx.output.info(`saved ${outFile} (${text.length} chars)`);
+  }
+
+  const record: Record<string, unknown> = { text, file, out: outFile, language, stream };
+  if (outFile) {
+    ctx.output.result(record, {
+      columns: ['FILE', 'OUT', 'CHARS'],
+      rows: [[file, outFile, String(text.length)]],
+    });
+  } else {
+    ctx.output.result(record, text);
+  }
+}
+
 export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   // Non-strict pre-scan with the union of subcommand flags: --help routes to
   // group help regardless of position, strict errors stay in the subcommand.
@@ -104,6 +179,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   switch (sub) {
     case 'tts':
       return tts(ctx, subArgs);
+    case 'transcribe':
+      return transcribe(ctx, subArgs);
     default:
       throw new UsageError(`unknown voice command '${sub}'\nusage: ${usage.join('\n       ')}`);
   }
@@ -123,6 +200,8 @@ function parseUniversalGroup(args: string[]): {
       help: { type: 'boolean', short: 'h' },
       out: { type: 'string' },
       voice: { type: 'string' },
+      language: { type: 'string' },
+      rest: { type: 'boolean' },
       stream: { type: 'boolean' },
     },
     strict: false,

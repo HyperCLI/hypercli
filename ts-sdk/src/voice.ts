@@ -2,8 +2,13 @@
  * Voice capability API
  */
 import { getAgentsWsUrlFromProductBase } from './config.js';
-import type { HTTPClient } from './http.js';
+import { requestWithRetry, responseAPIError, type HTTPClient } from './http.js';
 import { VoiceSession, type VoiceChunkEvent } from './voice-session.js';
+import {
+  VoiceTranscriptionSession,
+  type TranscriptionStartOptions,
+  type VoiceTranscriptionEvent,
+} from './voice-transcription-session.js';
 
 export {
   VoiceSession,
@@ -15,6 +20,17 @@ export {
   type VoiceSessionOptions,
   type VoiceSessionState,
 } from './voice-session.js';
+
+export {
+  VoiceTranscriptionSession,
+  type TranscriptionStartOptions,
+  type VoiceTranscriptDeltaEvent,
+  type VoiceTranscriptFinalEvent,
+  type VoiceTranscriptionAckEvent,
+  type VoiceTranscriptionEvent,
+  type VoiceTranscriptionSessionOptions,
+  type VoiceTranscriptionSessionState,
+} from './voice-transcription-session.js';
 
 export interface TTSOptions {
   text: string;
@@ -37,6 +53,32 @@ export interface DesignOptions {
   description: string;
   language?: string;
   responseFormat?: string;
+}
+
+export interface TranscribeOptions {
+  audio: Uint8Array | ArrayBuffer | Blob;
+  filename?: string;
+  contentType?: string;
+  language?: string;
+  model?: string;
+  responseFormat?: string;
+  prompt?: string;
+  signal?: AbortSignal;
+}
+
+export interface TranscriptionResult {
+  text: string;
+  [key: string]: unknown;
+}
+
+export interface TranscribeStreamOptions {
+  audio: Uint8Array | ArrayBuffer | string;
+  language?: string;
+  model?: string;
+  responseFormat?: string;
+  prompt?: string;
+  base64?: boolean;
+  timeoutMs?: number;
 }
 
 function encodeBase64(bytes: Uint8Array | ArrayBuffer): string {
@@ -84,6 +126,37 @@ export class VoiceAPI {
     });
   }
 
+  async transcribe(options: TranscribeOptions): Promise<TranscriptionResult> {
+    const formData = new FormData();
+    const filename = options.filename ?? 'audio';
+    const audio = options.audio instanceof Blob
+      ? options.audio
+      : new Blob([options.audio as unknown as NonNullable<ConstructorParameters<typeof Blob>[0]>[number]], {
+        type: options.contentType ?? 'application/octet-stream',
+      });
+    formData.append('file', audio, filename);
+    if (options.language) formData.append('language', options.language);
+    if (options.model) formData.append('model', options.model);
+    if (options.responseFormat) formData.append('response_format', options.responseFormat);
+    if (options.prompt) formData.append('prompt', options.prompt);
+
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.http.base}/voice/transcribe`,
+      headers: { Authorization: `Bearer ${this.http.credential}` },
+      body: formData,
+      rawBody: true,
+      signal: options.signal,
+    });
+    if (response.status >= 400) throw await responseAPIError(response, 'POST');
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const data = await response.json() as Record<string, unknown>;
+      return { ...data, text: String(data.text ?? data.transcript ?? '') };
+    }
+    return { text: await response.text() };
+  }
+
   /**
    * Create a streaming VoiceSession over /ws/voice (call open() or use ttsStream()).
    */
@@ -93,6 +166,38 @@ export class VoiceAPI {
       credential: this.http.credential,
       timeoutMs: options?.timeoutMs,
     });
+  }
+
+  connectTranscription(options?: TranscriptionStartOptions & { timeoutMs?: number }): VoiceTranscriptionSession {
+    return new VoiceTranscriptionSession({
+      wsUrl: getAgentsWsUrlFromProductBase(this.http.base),
+      credential: this.http.credential,
+      timeoutMs: options?.timeoutMs,
+      language: options?.language,
+      model: options?.model,
+      responseFormat: options?.responseFormat,
+      prompt: options?.prompt,
+    });
+  }
+
+  async *transcribeStream(
+    options: TranscribeStreamOptions,
+  ): AsyncGenerator<VoiceTranscriptionEvent, void, undefined> {
+    const session = this.connectTranscription({
+      timeoutMs: options.timeoutMs,
+      language: options.language,
+      model: options.model,
+      responseFormat: options.responseFormat,
+      prompt: options.prompt,
+    });
+    await session.open();
+    try {
+      yield* session.transcribe(options.audio, {
+        base64: options.base64,
+      });
+    } finally {
+      session.close();
+    }
   }
 
   /**
