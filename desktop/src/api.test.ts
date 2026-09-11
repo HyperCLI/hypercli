@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError } from "../../ts-sdk/src/errors.ts";
 import {
+  agentAvatarContentType,
   agentSummary,
   agentFiles,
   agentTtsVoice,
@@ -20,6 +21,7 @@ import {
   resetSdkClient,
   startAgent,
   uploadAgentVoice,
+  validateAgentAvatarFile,
   validateAgentVoiceFile,
 } from "./api";
 
@@ -267,6 +269,25 @@ describe("agent voice reference audio", () => {
     expect(validateAgentVoiceFile({ size: 100, type: "image/png", name: "clip.png" })).toMatch(/audio or video/);
     expect(validateAgentVoiceFile({ size: 100, type: "", name: "clip.m4a" })).toBeNull();
     expect(validateAgentVoiceFile({ size: 100, type: "video/webm", name: "clip.webm" })).toBeNull();
+  });
+
+  it("agentAvatarContentType trusts an accepted image type and falls back to the extension", () => {
+    expect(agentAvatarContentType({ type: "image/png", name: "face.bin" })).toBe("image/png");
+    expect(agentAvatarContentType({ type: "", name: "Face.JPG" })).toBe("image/jpeg");
+    expect(agentAvatarContentType({ type: "application/octet-stream", name: "face.webp" })).toBe("image/webp");
+    expect(agentAvatarContentType({ type: "", name: "face.gif" })).toBe("image/gif");
+    expect(agentAvatarContentType({ type: "", name: "clip.mp3" })).toBeNull();
+    expect(agentAvatarContentType({ type: "", name: "noext" })).toBeNull();
+    expect(agentAvatarContentType({ type: "image/svg+xml", name: "face.svg" })).toBeNull();
+  });
+
+  it("validateAgentAvatarFile rejects empty and non-image files, accepts picker and drop shapes", () => {
+    expect(validateAgentAvatarFile({ size: 0, type: "image/png", name: "face.png" })).toMatch(/empty/);
+    expect(validateAgentAvatarFile({ size: 100, type: "audio/mpeg", name: "clip.mp3" })).toMatch(/image/);
+    expect(validateAgentAvatarFile({ size: 100, type: "", name: "notes.txt" })).toMatch(/image/);
+    expect(validateAgentAvatarFile({ size: 100, type: "image/jpeg", name: "face" })).toBeNull();
+    expect(validateAgentAvatarFile({ size: 100, type: "", name: "face.PNG" })).toBeNull();
+    expect(validateAgentAvatarFile({ size: 100, type: "image/webp", name: "face.webp" })).toBeNull();
   });
 
   it("uploadAgentVoice POSTs raw bytes to the avatar-audio route with the resolved content type", async () => {

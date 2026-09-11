@@ -479,13 +479,48 @@ export async function setAgentLaunchOverrides(
   return agentSummary(await client.deployments.update(id, { launchConfig }));
 }
 
+/** Content types the profile-image routes accept (matches the picker's `accept`). */
+const PROFILE_IMAGE_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/** Extension fallback for drops that arrive with a blank MIME type. */
+const PROFILE_IMAGE_EXTENSION_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/**
+ * The content type to send for an image, or null when nothing maps. Same rule
+ * as `agentVoiceContentType`: a recognized type is trusted verbatim, otherwise
+ * the extension decides.
+ */
+export function agentAvatarContentType(file: Pick<File, "type" | "name">): string | null {
+  const raw = (file.type || "").split(";")[0].trim().toLowerCase();
+  if (PROFILE_IMAGE_CONTENT_TYPES.has(raw)) return raw;
+  const dot = file.name.lastIndexOf(".");
+  if (dot < 0) return null;
+  return PROFILE_IMAGE_EXTENSION_TYPES[file.name.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+/**
+ * Pre-upload validation for picked or dropped avatar images; the message is
+ * for inline display, not the error bar (mirrors `validateAgentVoiceFile`).
+ */
+export function validateAgentAvatarFile(file: Pick<File, "size" | "type" | "name">): string | null {
+  if (!file.size) return "That file is empty — pick an image that has something in it.";
+  if (!agentAvatarContentType(file)) return "Pick an image (PNG, JPEG, WebP, GIF).";
+  return null;
+}
+
 export async function uploadAgentAvatar(id: string, file: File): Promise<AgentAvatarUploadResult> {
   const client = await sdk();
   const bytes = new Uint8Array(await file.arrayBuffer());
   return client.deployments.uploadProfileImage(
     id,
     bytes,
-    file.type || "image/png",
+    agentAvatarContentType(file) ?? (file.type || "image/png"),
   );
 }
 
