@@ -1,1 +1,3 @@
 dev-server.log 
+test-results/
+playwright-report/
