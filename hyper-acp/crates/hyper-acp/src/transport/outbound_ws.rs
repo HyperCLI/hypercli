@@ -323,6 +323,11 @@ async fn run_socket_era(
     };
     if context.had_prior_era {
         while child_outbound_rx.try_recv().is_ok() {}
+        // Turns started on the dead era can never see their responses; the
+        // observer must drop them along with the dead-era frames above.
+        if let Some(observer) = context.observer {
+            observer.reset_in_flight_turns();
+        }
     }
     match pump_socket(
         socket,

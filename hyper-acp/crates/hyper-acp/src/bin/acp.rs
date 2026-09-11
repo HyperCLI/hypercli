@@ -75,15 +75,24 @@ async fn run_host() -> Result<()> {
     let args = Args::parse();
     let child = child_command(&args)?;
     let prompt_config = hyper_acp::prompt::PromptConfig::from_env()?;
+    let turn_log = hyper_acp::transport::TurnLog::new();
     if let Some(ws_url) = args.ws_url {
-        Box::pin(hyper_acp::transport::outbound_ws::run_with_prompt(
-            ws_url,
-            child,
-            prompt_config,
-        ))
+        Box::pin(
+            hyper_acp::transport::outbound_ws::run_with_prompt_and_observer(
+                ws_url,
+                child,
+                prompt_config,
+                Some(turn_log.observer()),
+            ),
+        )
         .await
     } else {
-        hyper_acp::transport::stdio::run_with_prompt(child, prompt_config).await
+        hyper_acp::transport::stdio::run_with_prompt_and_observer(
+            child,
+            prompt_config,
+            Some(turn_log.observer()),
+        )
+        .await
     }
 }
 
