@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError } from "../../ts-sdk/src/errors.ts";
 import {
   agentSummary,
+  agentFiles,
   agentTtsVoice,
   agentVoiceApiUnavailable,
   agentVoiceContentType,
@@ -28,6 +29,7 @@ const deployments = vi.hoisted(() => ({
   get: vi.fn(),
   secret: vi.fn(),
   setSecret: vi.fn(),
+  filesList: vi.fn(),
   storedLaunchConfig: vi.fn(),
   startOpenClaw: vi.fn(),
   startHermesAgent: vi.fn(),
@@ -175,6 +177,20 @@ describe("startAgent (Hermes)", () => {  beforeEach(() => {
     // No gateway token is minted for Hermes.
     expect(deployments.secret).not.toHaveBeenCalled();
     expect(deployments.setSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent files", () => {
+  beforeEach(() => {
+    resetSdkClient();
+    vi.clearAllMocks();
+  });
+
+  it("explains the hidden 404 from a desktop key without file-token access", async () => {
+    deployments.filesList.mockRejectedValue(new APIError(404, "Agent not found"));
+
+    await expect(agentFiles("agent-1")).rejects.toThrow(/sign in again/i);
+    expect(deployments.filesList).toHaveBeenCalledWith("agent-1", "");
   });
 });
 

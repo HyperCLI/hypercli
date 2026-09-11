@@ -941,20 +941,37 @@ export async function listAcpSessions(id: string): Promise<AcpSessionList> {
 // Agent files — ts-sdk (Reef-backed).
 // ---------------------------------------------------------------------------
 
+const DESKTOP_FILE_ACCESS_ERROR =
+  "This desktop sign-in cannot open agent files. Sign in again to mint a file-enabled desktop key.";
+
+function isHiddenFileAccessRejection(error: unknown): boolean {
+  if (httpStatusOf(error) !== 404) return false;
+  return error instanceof Error && /agent not found/i.test(error.message);
+}
+
+async function withAgentFileAccess<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isHiddenFileAccessRejection(error)) throw new Error(DESKTOP_FILE_ACCESS_ERROR);
+    throw error;
+  }
+}
+
 export const agentFiles = async (id: string, path = ""): Promise<AgentFileEntry[]> =>
-  (await sdk()).deployments.filesList(id, path);
+  withAgentFileAccess(async () => (await sdk()).deployments.filesList(id, path));
 
 export const agentFileRead = async (id: string, path: string): Promise<string> =>
-  (await sdk()).deployments.fileRead(id, path, { maxBytes: 500_000 });
+  withAgentFileAccess(async () => (await sdk()).deployments.fileRead(id, path, { maxBytes: 500_000 }));
 
 export const agentFileReadBytes = async (id: string, path: string): Promise<Uint8Array<ArrayBuffer>> =>
   // The SDK builds this from `response.arrayBuffer()`, so the backing store is
   // always a plain ArrayBuffer and never shared. Narrowing it here lets callers
   // hand the bytes straight to Blob without re-copying them.
-  (await (await sdk()).deployments.fileReadBytes(id, path)) as Uint8Array<ArrayBuffer>;
+  (await withAgentFileAccess(async () => (await sdk()).deployments.fileReadBytes(id, path))) as Uint8Array<ArrayBuffer>;
 
 export const agentFileWrite = async (id: string, path: string, bytes: Uint8Array) => {
-  await (await sdk()).deployments.fileWriteBytes(id, path, bytes);
+  await withAgentFileAccess(async () => (await sdk()).deployments.fileWriteBytes(id, path, bytes));
 };
 
 // ---------------------------------------------------------------------------

@@ -8,10 +8,10 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 
-/// Capabilities held by a desktop-minted machine key: agent management plus
-/// the single model grant for the prompt-drafting helper, and `user:self` for
+/// Capabilities held by a desktop-minted machine key: agent management, scoped
+/// file-token minting, the model grant for prompt drafting, and `user:self` for
 /// account/plan reads. Never an unrestricted key.
-const DESKTOP_KEY_SCOPES: [&str; 3] = ["agents:*", "models:*", "user:self"];
+const DESKTOP_KEY_SCOPES: [&str; 4] = ["agents:*", "files:*", "models:*", "user:self"];
 
 /// Web login page. Its allowlist accepts the `hypercli://auth` scheme
 /// callback (site/apps/claw/src/app/desktop-login/page.tsx): the session token
