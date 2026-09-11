@@ -101,13 +101,13 @@ jobs:
           text = re.sub(r'(?m)^__version__ = ".*"$', f'__version__ = "{py_version}"', text, count=1)
           sdk_init.write_text(text)
 
-          cli_pyproject = root / "cli/pyproject.toml"
+          cli_pyproject = root / "py-cli/pyproject.toml"
           text = cli_pyproject.read_text()
           text = re.sub(r'(?m)^version = ".*"$', f'version = "{py_version}"', text, count=1)
           text = re.sub(r'hypercli-sdk(\[[^]]+\])?>[=][0-9A-Za-z.-]+', lambda m: f'hypercli-sdk{m.group(1) or ""}>={py_version}', text)
           cli_pyproject.write_text(text)
 
-          cli_init = root / "cli/hypercli_cli/__init__.py"
+          cli_init = root / "py-cli/hypercli_cli/__init__.py"
           text = cli_init.read_text()
           text = re.sub(r'(?m)^__version__ = ".*"$', f'__version__ = "{py_version}"', text, count=1)
           cli_init.write_text(text)
