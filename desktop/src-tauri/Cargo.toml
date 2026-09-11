@@ -4,7 +4,7 @@
 
 [package]
 name = "hypercli-desktop"
-version = "0.3.0"
+version = "0.3.1"
 description = "HyperCLI desktop agent client"
 edition = "2021"
 license = "MIT"
