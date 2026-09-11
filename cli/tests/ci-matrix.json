@@ -111,6 +111,7 @@
       "smokes": [
         { "argv": ["--help"] },
         { "argv": ["tts", "--help"] },
+        { "argv": ["clone", "--help"] },
         { "argv": ["transcribe", "--help"] }
       ]
     },

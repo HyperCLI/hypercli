@@ -84,10 +84,21 @@
       ]
     },
     {
+      "name": "hypercli-knowledge",
+      "description": "Upload and inspect platform files, manage durable HyperCLI shared knowledge workspaces, search/sync/download Markdown projections, control grants, and convert captions or documents into local OpenClaw memory. Use for hyper files, hyper workspaces, and hyper memory commands.",
+      "commands": [
+        "hyper files",
+        "hyper workspaces",
+        "hyper memory import",
+        "hyper memory"
+      ]
+    },
+    {
       "name": "hypercli-voice",
-      "description": "Generate speech with HyperCLI text-to-speech through hyper voice tts, save the audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation and voice-capability validation.",
+      "description": "Generate speech with HyperCLI text-to-speech or voice clone commands, save audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation, clone reference handling, and voice-capability validation.",
       "commands": [
         "hyper voice tts --help",
+        "hyper voice clone --help",
         "hyper me",
         "hyper configure"
       ]

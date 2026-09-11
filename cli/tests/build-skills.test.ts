@@ -67,7 +67,7 @@ describe('buildSkill', () => {
 });
 
 describe('SKILLS allowlist', () => {
-  it('is exactly the seven v1 skills in display order', () => {
+  it('is exactly the v1 skills in display order', () => {
     expect(SKILLS).toEqual([
       'hypercli',
       'hypercli-account',
@@ -75,6 +75,7 @@ describe('SKILLS allowlist', () => {
       'hypercli-auth',
       'hypercli-compute',
       'hypercli-flows',
+      'hypercli-knowledge',
       'hypercli-voice',
     ]);
   });

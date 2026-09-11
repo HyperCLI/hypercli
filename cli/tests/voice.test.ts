@@ -64,6 +64,7 @@ interface FakeHandlers {
     filename?: string;
     language?: string;
   }) => AsyncGenerator<VoiceTranscriptionEvent, void, undefined>;
+  clone?: (options: { text: string; refAudio: Uint8Array | ArrayBuffer }) => Promise<Uint8Array>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -81,6 +82,7 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
         (async function* () {
           yield { type: 'transcript.final', text: 'stream transcript' };
         }),
+      clone: handlers.clone ?? (async () => new Uint8Array([8, 9])),
     },
   } as unknown as HyperCLI;
 }
@@ -122,7 +124,7 @@ describe('hyper voice', () => {
     const onDisk = await readFile(outFile);
     expect(onDisk).toEqual(Buffer.from(audio));
     const payload = JSON.parse(stdout());
-    expect(payload.file).toBe(outFile);
+    expect(payload.out).toBe(outFile);
     expect(payload.voice).toBe('serena');
     expect(payload.bytes).toBe(audio.byteLength);
     expect(payload.text).toBe('hello world');
@@ -131,7 +133,7 @@ describe('hyper voice', () => {
     expect(stderr()).toContain(String(audio.byteLength));
   });
 
-  it('tts: table mode stdout gets the {file, voice, bytes} record', async () => {
+  it('tts: table mode stdout gets the {out, voice, bytes} record', async () => {
     const client = fakeClient({ tts: async () => new Uint8Array(10) });
     const ctx = makeCtx(client, 'table');
     const outFile = join(workDir, 'a.mp3');
@@ -178,6 +180,117 @@ describe('hyper voice', () => {
 
     expect(err).toBeTruthy();
     expect(exitCodeFor(err)).toBe(2);
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('clone --file --out: reads reference audio and saves cloned audio', async () => {
+    const refFile = join(workDir, 'ref.wav');
+    const outFile = join(workDir, 'clone.mp3');
+    await writeFile(refFile, Buffer.from('reference-audio'));
+    const cloned = new Uint8Array([3, 4, 5]);
+    const clone = vi.fn(async () => cloned);
+    const client = fakeClient({ clone });
+    const ctx = makeCtx(client, 'json');
+
+    await voice.run(ctx, ['clone', 'hello clone', '--file', refFile, '--out', outFile, '--json']);
+
+    expect(clone).toHaveBeenCalledWith({
+      text: 'hello clone',
+      refAudio: Buffer.from('reference-audio'),
+    });
+    expect(await readFile(outFile)).toEqual(Buffer.from(cloned));
+    const payload = JSON.parse(stdout());
+    expect(payload.out).toBe(outFile);
+    expect(payload.source).toBe(refFile);
+    expect(payload.bytes).toBe(cloned.byteLength);
+    expect(payload.text).toBe('hello clone');
+  });
+
+  it('clone --url without --out: fetches reference audio and writes audio bytes to stdout', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(Buffer.from('remote-reference'))) as typeof fetch;
+    const cloned = Buffer.from('cloned-audio');
+    const clone = vi.fn(async () => cloned);
+    const client = fakeClient({ clone });
+    const ctx = makeCtx(client, 'table');
+
+    await voice.run(ctx, ['clone', 'hello', '--url', 'https://example.test/ref.wav']);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('https://example.test/ref.wav', expect.objectContaining({
+      redirect: 'manual',
+      signal: expect.any(AbortSignal),
+    }));
+    expect(clone).toHaveBeenCalledWith({
+      text: 'hello',
+      refAudio: Buffer.from('remote-reference'),
+    });
+    expect(stdout()).toBe('cloned-audio');
+  });
+
+  it('clone: requires exactly one reference source', async () => {
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    const err: unknown = await voice.run(ctx, ['clone', 'hello']).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeTruthy();
+    expect(exitCodeFor(err)).toBe(2);
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('clone --url: rejects non-HTTPS and local/private/reserved IP literals before API use', async () => {
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    for (const url of [
+      'http://example.test/ref.wav',
+      'https://localhost/ref.wav',
+      'https://127.0.0.1/ref.wav',
+      'https://10.0.0.1/ref.wav',
+      'https://169.254.1.1/ref.wav',
+      'https://192.0.2.1/ref.wav',
+      'https://[::1]/ref.wav',
+      'https://[fe80::1]/ref.wav',
+      'https://[2001:db8::1]/ref.wav',
+    ]) {
+      const err: unknown = await voice.run(ctx, ['clone', 'hello', '--url', url]).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err, url).toBeTruthy();
+      expect(exitCodeFor(err), url).toBe(2);
+    }
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('clone --url: enforces max reference size from content-length', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(null, {
+      headers: { 'content-length': String(25 * 1024 * 1024 + 1) },
+    })) as typeof fetch;
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    const err: unknown = await voice.run(ctx, ['clone', 'hello', '--url', 'https://example.test/ref.wav']).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeTruthy();
+    expect(exitCodeFor(err)).toBe(1);
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+
+  it('clone --file: enforces max reference size before API use', async () => {
+    const refFile = join(workDir, 'large.wav');
+    await writeFile(refFile, Buffer.alloc(25 * 1024 * 1024 + 1));
+    const ctx = makeCtx(fakeClient(), 'table');
+
+    const err: unknown = await voice.run(ctx, ['clone', 'hello', '--file', refFile]).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeTruthy();
+    expect(exitCodeFor(err)).toBe(1);
     expect(ctx.client).not.toHaveBeenCalled();
   });
 

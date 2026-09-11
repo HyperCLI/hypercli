@@ -1,8 +1,11 @@
 """HyperCLI Voice API commands — TTS, clone, design"""
 import json
 import os
+from ipaddress import ip_address
+from socket import getaddrinfo, gaierror
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import typer
 from rich.console import Console
@@ -16,6 +19,8 @@ console = Console()
 HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEFAULT_API_BASE = "https://api.hypercli.com"
+MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024
+REFERENCE_AUDIO_TIMEOUT_SECONDS = 30
 
 
 def _get_api_key(key: str | None) -> str:
@@ -69,6 +74,99 @@ def _save_voice_output(output: Path, audio: bytes) -> None:
     output.write_bytes(audio)
     size_kb = len(audio) / 1024
     console.print(f"[green]✅ Saved {output} ({size_kb:.1f} KB)[/green]")
+
+
+def _validate_reference_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        console.print("[red]❌ Reference audio URL must be a valid HTTPS URL.[/red]")
+        raise typer.Exit(1)
+    host = parsed.hostname.lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        console.print("[red]❌ Reference audio URL cannot target localhost.[/red]")
+        raise typer.Exit(1)
+    try:
+        ip = ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            console.print("[red]❌ Reference audio URL cannot target private or local IP addresses.[/red]")
+            raise typer.Exit(1)
+    except ValueError:
+        pass
+    return url
+
+
+def _assert_safe_resolved_host(host: str) -> None:
+    try:
+        infos = getaddrinfo(host, None)
+    except gaierror:
+        return
+    for info in infos:
+        address = info[4][0]
+        try:
+            ip = ip_address(address)
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            console.print("[red]❌ Reference audio URL cannot resolve to private or local IP addresses.[/red]")
+            raise typer.Exit(1)
+
+
+def _download_audio(url: str) -> bytes:
+    import httpx
+
+    current_url = _validate_reference_url(url)
+
+    try:
+        for _ in range(6):
+            _assert_safe_resolved_host(urlparse(current_url).hostname or "")
+            with httpx.stream(
+                "GET",
+                current_url,
+                follow_redirects=False,
+                timeout=REFERENCE_AUDIO_TIMEOUT_SECONDS,
+                trust_env=False,
+            ) as response:
+                if response.status_code not in (301, 302, 303, 307, 308):
+                    response.raise_for_status()
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > MAX_REFERENCE_AUDIO_BYTES:
+                        console.print(f"[red]❌ Reference audio exceeds {MAX_REFERENCE_AUDIO_BYTES} bytes.[/red]")
+                        raise typer.Exit(1)
+                    chunks = []
+                    total = 0
+                    for chunk in response.iter_bytes():
+                        total += len(chunk)
+                        if total > MAX_REFERENCE_AUDIO_BYTES:
+                            console.print(f"[red]❌ Reference audio exceeds {MAX_REFERENCE_AUDIO_BYTES} bytes.[/red]")
+                            raise typer.Exit(1)
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+                location = response.headers.get("location")
+                if not location:
+                    response.raise_for_status()
+                    return b"".join(response.iter_bytes())
+                current_url = _validate_reference_url(urljoin(current_url, location))
+        else:
+            console.print("[red]❌ Reference audio URL redirected too many times.[/red]")
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except (TypeError, ValueError):
+        console.print("[red]❌ Invalid reference audio content length.[/red]")
+        raise typer.Exit(1)
+    except httpx.HTTPError as e:
+        console.print(f"[red]❌ Failed to download reference audio: {e}[/red]")
+        raise typer.Exit(1)
+
+
+def _read_reference_file(ref_audio: Path) -> Path:
+    if not ref_audio.exists():
+        console.print(f"[red]❌ Reference audio not found: {ref_audio}[/red]")
+        raise typer.Exit(1)
+    if ref_audio.stat().st_size > MAX_REFERENCE_AUDIO_BYTES:
+        console.print(f"[red]❌ Reference audio exceeds {MAX_REFERENCE_AUDIO_BYTES} bytes.[/red]")
+        raise typer.Exit(1)
+    return ref_audio
 
 
 def _handle_voice_error(error: APIError) -> None:
@@ -166,7 +264,7 @@ def tts(
     voice: str = typer.Option("serena", "--voice", "-v", help="Voice name (CustomVoice preset)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
-    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    output: Path = typer.Option(None, "--out", "--output", "-o", help="Output audio file (default: output.<format>)"),
     stream: bool = typer.Option(False, "--stream", help="Stream audio chunks over /ws/voice as they render"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
@@ -210,7 +308,8 @@ def tts(
 @app.command("clone")
 def clone(
     text: str = typer.Argument(..., help="Text to synthesize"),
-    ref_audio: Path = typer.Option(..., "--ref", "-r", help="Reference audio file (wav/mp3/ogg)"),
+    ref_audio: Path | None = typer.Option(None, "--ref", "--file", "-r", help="Reference audio file (wav/mp3/ogg)"),
+    ref_audio_url: str | None = typer.Option(None, "--url", help="Reference audio URL (wav/mp3/ogg)"),
     ref_text: str = typer.Option(None, "--ref-text", help="Transcript of the reference audio (required with --full-clone)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     x_vector_only: bool = typer.Option(True, "--x-vector-only/--full-clone", help="Use x_vector_only mode (recommended)"),
@@ -223,29 +322,36 @@ def clone(
     """Clone a voice from reference audio.
 
     Examples:
-      hyper voice clone "Hello" --ref voice.wav
+      hyper voice clone "Hello" --file voice.wav
+      hyper voice clone "Hello" --url https://example.com/voice.wav
       hyper voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
     """
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
 
-    if not ref_audio.exists():
-        console.print(f"[red]❌ Reference audio not found: {ref_audio}[/red]")
+    if (ref_audio is not None) + (ref_audio_url is not None) != 1:
+        console.print("[red]❌ Provide exactly one of --file/--ref or --url.[/red]")
         raise typer.Exit(1)
 
     if not x_vector_only and not ref_text:
         console.print("[red]❌ --full-clone (ICL mode) requires --ref-text with the transcript of the reference audio.[/red]")
         raise typer.Exit(1)
 
-    console.print(f"[dim]Reference: {ref_audio} ({ref_audio.stat().st_size / 1024:.1f} KB)[/dim]")
+    if ref_audio is not None:
+        source = _read_reference_file(ref_audio)
+        console.print(f"[dim]Reference: {ref_audio} ({ref_audio.stat().st_size / 1024:.1f} KB)[/dim]")
+    else:
+        source = _download_audio(ref_audio_url or "")
+        console.print(f"[dim]Reference: {ref_audio_url} ({len(source) / 1024:.1f} KB)[/dim]")
+
     _post_voice(
         "clone",
         api_key,
         output,
         base_url,
         text=text,
-        ref_audio=ref_audio,
+        ref_audio=source,
         ref_text=ref_text,
         language=language,
         x_vector_only=x_vector_only,

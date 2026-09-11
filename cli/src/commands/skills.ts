@@ -3,7 +3,7 @@
  *
  *   hyper skills                  inventory table: name, description, commands
  *   hyper skills list | ls        alias of bare `hyper skills`
- *   hyper skills <name-or-prefix> print the skill markdown verbatim (like cat)
+ *   hyper skills <name-or-prefix> print the skill body markdown (like cat)
  *   hyper skills export <dir>     write every bundled skill as <dir>/<name>/SKILL.md
  *   hyper skills install <agent-id> [--dir PATH]
  *
@@ -129,6 +129,14 @@ function findSkill(target: string): BundledSkill {
 
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
+}
+
+function displayMarkdown(markdown: string): string {
+  const normalized = markdown.replace(/\r\n/g, '\n');
+  if (!normalized.startsWith('---\n')) return normalized;
+  const end = normalized.indexOf('\n---', 4);
+  if (end === -1) return normalized;
+  return normalized.slice(end + '\n---'.length).replace(/^\n+/, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +421,6 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
       commands: skill.commands,
       markdown: skill.markdown,
     },
-    skill.markdown,
+    displayMarkdown(skill.markdown),
   );
 }

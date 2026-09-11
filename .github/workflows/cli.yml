@@ -305,6 +305,7 @@ jobs:
           - { group: files, sub: get }
           - { group: files, sub: delete }
           - { group: voice, sub: tts }
+          - { group: voice, sub: transcribe }
     steps:
       - uses: actions/checkout@v4
 

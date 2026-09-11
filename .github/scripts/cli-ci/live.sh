@@ -359,6 +359,36 @@ case "${GROUP}/${SUB}" in
     assert_fail 2 "unknown voice command 'bogus'" -- voice bogus
     ;;
 
+  voice/transcribe)
+    step "voice transcribe (live TTS audio -> REST STT)"
+    VOICE_TEXT="Hey this is hyper voice"
+    VOICE_AUDIO="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-XXXXXX.mp3")"
+    VOICE_TTS_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-tts-XXXXXX.json")"
+    VOICE_TRANSCRIBE_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-transcribe-XXXXXX.json")"
+    "${CLI[@]}" voice tts "${VOICE_TEXT}" --out "${VOICE_AUDIO}" --json --dev > "${VOICE_TTS_JSON}"
+    node -e '
+      const fs = require("fs");
+      const record = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const audio = process.argv[2];
+      if (record.out !== audio) throw new Error(`tts out mismatch: ${record.out} !== ${audio}`);
+      if (!Number.isInteger(record.bytes) || record.bytes <= 0) throw new Error(`tts bytes invalid: ${record.bytes}`);
+      if (fs.statSync(audio).size <= 0) throw new Error("tts audio file is empty");
+      console.log(`tts json ok: ${record.bytes} bytes`);
+    ' "${VOICE_TTS_JSON}" "${VOICE_AUDIO}"
+
+    "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json --dev > "${VOICE_TRANSCRIBE_JSON}"
+    node -e '
+      const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      if (!j || typeof j.text !== "string" || j.text.length === 0) throw new Error("transcript text missing");
+      const normalized = j.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const tokens = new Set(normalized.split(/\s+/).filter(Boolean));
+      for (const token of ["hyper", "voice"]) {
+        if (!tokens.has(token)) throw new Error(`transcript missing token ${token}: ${j.text}`);
+      }
+      console.log(`transcribe json ok: ${j.text}`);
+    ' "${VOICE_TRANSCRIBE_JSON}"
+    ;;
+
   *)
     echo "no live test defined for ${GROUP}/${SUB}" >&2
     exit 64

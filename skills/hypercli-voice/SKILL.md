@@ -1,9 +1,10 @@
 ---
 name: hypercli-voice
 description: >
-  Generate speech with HyperCLI text-to-speech through hyper voice tts,
-  save the audio with --out, and handle voice API errors and identity checks.
-  Use for CLI speech generation and voice-capability validation.
+  Generate speech with HyperCLI text-to-speech or voice clone commands,
+  save audio with --out, and handle voice API errors and identity checks.
+  Use for CLI speech generation, clone reference handling, and
+  voice-capability validation.
 ---
 
 # HyperCLI Voice
@@ -11,12 +12,10 @@ description: >
 Load the `hypercli-auth` skill before making a remote request. It defines
 the canonical authentication and credential-safety rules. Read
 `/opt/hypercli/docs/cli/commands/voice.mdx` when exact flags matter, and
-run `hyper voice tts --help` against the installed CLI before relying on
-remembered options.
+run `hyper voice tts --help` or `hyper voice clone --help` against the installed
+CLI before relying on remembered options.
 
 ## Text-to-speech
-
-The voice surface is a single command:
 
 ```bash
 hyper voice tts "Hello world"
@@ -28,14 +27,26 @@ directory; always pass an explicit destination path in automated work. The
 spoken text is sent to the remote service — do not submit private material
 without the user's intent.
 
+## Voice Clone
+
+```bash
+hyper voice clone "Hello world" --file reference.wav --out cloned.mp3
+hyper voice clone "Hello world" --url https://example.com/reference.wav --out cloned.mp3
+```
+
+Provide exactly one reference source: `--file` for local audio or `--url` for
+client-side HTTPS download before the SDK sends reference bytes. Use `--out` in
+automated work and whenever `--json` is requested. Treat clone reference audio as
+remote disclosure.
+
 ## Preflight
 
 1. Confirm the text, destination path, and that the user expects a remote
    voice call.
 2. Validate the identity and voice capability with `hyper me`; a valid
    account without the voice capability will fail.
-3. Treat synthesis text as remote disclosure, matching the rules in
-   `hypercli-auth`.
+3. Treat synthesis text and clone reference audio as remote disclosure,
+   matching the rules in `hypercli-auth`.
 
 ## Failure handling
 

@@ -24,6 +24,7 @@ const ALL_NAMES = [
   'hypercli-auth',
   'hypercli-compute',
   'hypercli-flows',
+  'hypercli-knowledge',
   'hypercli-voice',
 ];
 
@@ -68,7 +69,7 @@ beforeAll(async () => {
 });
 
 describe('hyper skills (inventory)', () => {
-  it('table lists all 7 bundled skills and fits 80 columns', async () => {
+  it('table lists all bundled skills and fits 80 columns', async () => {
     const { stdout, stderr } = await invoke([]);
     expect(stderr).toBe('');
     const [header] = stdout.split('\n');
@@ -112,7 +113,7 @@ describe('hyper skills (inventory)', () => {
 });
 
 describe('hyper skills <name>', () => {
-  it("prefix 'auth' resolves and cats the markdown verbatim", async () => {
+  it("prefix 'auth' resolves and cats the body markdown", async () => {
     const { stdout, stderr } = await invoke(['auth']);
     expect(stderr).toBe('');
     expect(stdout).toContain('HyperCLI Auth');
@@ -172,7 +173,7 @@ describe('hyper skills export', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('writes every bundled skill as <dir>/<name>/SKILL.md, byte-verbatim', async () => {
+  it('writes every bundled skill as <dir>/<name>/SKILL.md, byte-verbatim including frontmatter', async () => {
     const dir = join(tmp, 'nested', 'export');
     const { stdout, stderr } = await invoke(['export', dir]);
     for (const skillName of ALL_NAMES) {
@@ -185,6 +186,7 @@ describe('hyper skills export', () => {
         ),
       ) as { markdown: string };
       expect(readFileSync(file, 'utf8')).toBe(compiled.markdown);
+      expect(readFileSync(file, 'utf8').startsWith('---\nname:')).toBe(true);
       expect(stderr).toContain(`wrote ${join(dir, skillName, 'SKILL.md')}`);
     }
     expect(stdout).toContain(dir);

@@ -1,79 +1,87 @@
 ---
 title: hyper voice
-description: Text-to-speech, voice cloning, voice design, and streaming TTS commands.
+description: Text-to-speech, voice cloning, and speech-to-text commands.
 ---
 
-`hyper voice` contains the current voice commands.
+`hyper voice` contains the TypeScript CLI voice commands.
 
 Remote generation commands use the subscription voice API under
 `/agents/voice/*` and require a key with `voice:*`.
+
+Global output format is controlled by `--json` or `--output json`. File
+destinations use `--out`.
 
 ## tts
 
 ```bash
 hyper voice tts "Hello world"
-hyper voice tts "Bonjour" --voice eric --language french --format opus --output hello.opus
-hyper voice tts "Long text..." --stream
+hyper voice tts "Hello world" --voice ivy --out hello.mp3
+hyper voice tts "Long text..." --stream --out long.mp3
 ```
 
 Defaults:
 
 - `--voice serena`
-- `--language auto`
-- `--format mp3`
+- without `--out`, writes `tts-<timestamp>.mp3` in the current directory
 
 Without `--stream`, the command posts to `/agents/voice/tts`. With `--stream`,
-it opens the agents WebSocket `/ws/voice` endpoint and saves chunks as they
-arrive.
+it opens the agents WebSocket `/ws/voice` endpoint and saves the collected audio
+chunks.
 
 Useful options:
 
-- `--voice`, `-v`
-- `--language`, `-l`
-- `--format`, `-f`
-- `--output`, `-o`
+- `--voice`
 - `--stream`
-- `--timeout`
-- `--key`, `-k`
-- `--base-url`, `-b`
+- `--out`
+- `--json`
 
 ## clone
 
 ```bash
-hyper voice clone "Hello" --ref voice.wav
-hyper voice clone "Test" --ref ref.wav --language english --format mp3 --output cloned.mp3
+hyper voice clone "Hello" --file voice.wav --out cloned.mp3
+hyper voice clone "Hello" --url https://example.com/voice.wav --out cloned.mp3
 ```
 
-The CLI reads the reference audio file and the SDK sends it as
-`ref_audio_base64` to `/agents/voice/clone`.
+Provide exactly one reference source:
+
+- `--file` reads local reference audio.
+- `--url` downloads reference audio client-side, then sends the bytes through
+  the SDK.
+
+The TypeScript CLI accepts only HTTPS reference URLs and rejects localhost plus
+private, link-local, multicast, and reserved IP literal targets. Reference audio
+is capped at 25MiB. Without `--out`, clone writes generated audio bytes to
+stdout; use `--out` with `--json`.
 
 Useful options:
 
-- `--ref`, `-r`
-- `--language`, `-l`
-- `--x-vector-only` / `--full-clone`
-- `--format`, `-f`
-- `--output`, `-o`
-- `--timeout`
-- `--key`, `-k`
-- `--base-url`, `-b`
+- `--file`
+- `--url`
+- `--out`
+- `--json`
 
-## design
+## transcribe
 
 ```bash
-hyper voice design "Hello" --desc "deep male voice, British accent"
-hyper voice design "Test" --desc "young woman, cheerful" --format mp3 --output designed.mp3
+hyper voice transcribe speech.wav
+hyper voice transcribe speech.wav --language en
+hyper voice transcribe speech.wav --rest --out transcript.txt --json
 ```
 
-The CLI sends `description` through the SDK as the `instruct` field to
-`/agents/voice/design`.
+By default, transcription uses the agents WebSocket `/ws/voice/transcribe`.
+`--rest` posts to `/agents/voice/transcribe` instead.
 
 Useful options:
 
-- `--desc`, `-d`
-- `--language`, `-l`
-- `--format`, `-f`
-- `--output`, `-o`
-- `--timeout`
-- `--key`, `-k`
-- `--base-url`, `-b`
+- `--language`
+- `--rest`
+- `--out`
+- `--json`
+
+## Python CLI Notes
+
+The Python Typer CLI has additional voice options and aliases. For clone,
+`--ref` and `-r` are aliases for the local reference file, and Python also
+accepts `--file`. Python TTS and clone still support Python-specific flags such
+as `--format`, `--timeout`, `--key`, and `--base-url`; those flags are not
+supported by the TypeScript CLI documented above.

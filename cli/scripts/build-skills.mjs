@@ -3,10 +3,8 @@
  * Build bundled skills: read each allowlisted ../skills/<dir>/SKILL.md and
  * emit cli/skills/<name>.json plus cli/skills/index.json.
  *
- * Only names in SKILLS are compiled, in SKILLS (display) order. Other
- * source dirs — e.g. hypercli-knowledge, which targets consumers outside
- * the v1 CLI surface — stay in the repo but are never bundled. Stale
- * *.json outputs from skills that left the allowlist are removed.
+ * Only names in SKILLS are compiled, in SKILLS (display) order. Stale *.json
+ * outputs from skills that left the allowlist are removed.
  *
  * index.json is the runtime's single source of truth for listing and name
  * resolution: { skills: [{ name, description, commands }] } in display
@@ -24,7 +22,7 @@
  * - `description: >` / `description: |` starts a folded/literal block whose
  *   lines are the following more-indented lines.
  * - `description: plain text` is taken inline.
- * - Body = the markdown after the closing `---`.
+ * - markdown = original SKILL.md, including frontmatter.
  * - commands = backticked `hyper ...` mentions in the body, deduped in
  *   first-appearance order.
  *
@@ -50,6 +48,7 @@ export const SKILLS = [
   'hypercli-auth',
   'hypercli-compute',
   'hypercli-flows',
+  'hypercli-knowledge',
   'hypercli-voice',
 ];
 
@@ -122,7 +121,7 @@ export function buildSkill(source) {
   return {
     name,
     description: data.description || '',
-    markdown: body.trimEnd(),
+    markdown: source.replace(/\r\n/g, '\n').trimEnd(),
     commands: scrapeCommands(body),
   };
 }
