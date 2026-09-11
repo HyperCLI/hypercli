@@ -1045,7 +1045,7 @@ impl HyperCliClient {
                 "plan_id is required".to_owned(),
             ));
         }
-        let url = self.endpoint(&format!("billing/balance/{plan_id}"));
+        let url = self.endpoint(&format!("billing/balance/{}", encode_path_key(plan_id)));
         let mut request = json!({ "duration": duration });
         if let Some(tags) = tags {
             request["tags"] = json!(tags);
@@ -1110,7 +1110,7 @@ impl HyperCliClient {
                 "A canonical plan ID is required".to_owned(),
             ));
         }
-        let url = self.endpoint(&format!("x402/{plan_id}"));
+        let url = self.endpoint(&format!("x402/{}", encode_path_key(plan_id)));
         let mut request = Map::new();
         if let Some(quantity) = quantity {
             request.insert("quantity".to_owned(), json!(quantity));

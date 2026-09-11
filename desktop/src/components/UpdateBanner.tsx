@@ -11,10 +11,10 @@ import {
 
 /**
  * Strip at the top of the app shell when the updater found a newer release.
- * The action starts the download-and-restart flow from `useAppUpdate`; both
- * the action and × dismiss the banner for that version (a later release
- * re-shows it). The manual-download case (`status === "manual"`) has no
- * version attached to the check, so it stays in Settings → Updates only.
+ * The action starts the download-and-restart flow from `useAppUpdate`; the ×
+ * dismisses the banner for that version (a later release re-shows it). The
+ * manual-download case (`status === "manual"`) has no version attached to the
+ * check, so it stays in Settings → Updates only.
  */
 export default function UpdateBanner() {
   const { state, install } = useAppUpdate();
@@ -34,7 +34,9 @@ export default function UpdateBanner() {
 
   const version = availableVersion as string;
   const onUpdate = () => {
-    dismissUpdateBanner(version);
+    // No dismissal here: starting the download moves the hook out of
+    // "available" so the banner hides itself; on failure the dismissal gate
+    // must not suppress the reminder for a version the user never got.
     install();
   };
   const onDismiss = () => dismissUpdateBanner(version);

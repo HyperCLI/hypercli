@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { join } from "node:path";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import { DEV_PROXY_PREFIX, PROXY_PREFIXES } from "./src/lib/endpoints";
 
 /**
@@ -94,6 +95,7 @@ export default defineConfig(({ command }) => ({
   test: {
     // Playwright owns desktop/e2e; vitest's default *.spec.ts glob would
     // otherwise pick it up and fail (it expects a real browser + backend).
-    exclude: ["e2e/**", "**/node_modules/**", "dist/**"],
+    // Merge with vitest's defaults — assigning a fresh list drops them.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 }));

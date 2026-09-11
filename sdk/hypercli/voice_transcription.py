@@ -51,6 +51,7 @@ class VoiceTranscriptionSession:
             "prompt": prompt,
         }
         self._ws = None
+        self._pre_ready: list[dict[str, Any]] = []
         self.state = "closed"
 
     async def open(self) -> "VoiceTranscriptionSession":
@@ -115,7 +116,10 @@ class VoiceTranscriptionSession:
             raise RuntimeError("Session is not connected; call open() or use 'async with'")
         deadline = asyncio.get_running_loop().time() + self._timeout
         while True:
-            message = self._parse_message(await self._next_message(deadline))
+            if self._pre_ready:
+                message = self._pre_ready.pop(0)
+            else:
+                message = self._parse_message(await self._next_message(deadline))
             if message is None:
                 continue
             msg_type = message.get("type")
@@ -179,6 +183,9 @@ class VoiceTranscriptionSession:
                     str(message.get("code") or ""),
                     str(message.get("detail") or message.get("message") or ""),
                 )
+            # Parity with ts-sdk: messages arriving before ready are kept,
+            # not dropped, so an early ack/delta is not lost.
+            self._pre_ready.append(message)
 
     async def _next_message(self, deadline: float) -> str:
         if self._ws is None:
@@ -189,8 +196,19 @@ class VoiceTranscriptionSession:
                 "timeout",
                 f"voice transcription stream timed out after {self._timeout:.0f}s",
             )
-        raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
-        return raw if isinstance(raw, str) else raw.decode()
+        try:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+        except websockets.ConnectionClosed as closed:
+            raise VoiceStreamError(
+                "closed",
+                f"voice transcription stream closed: {closed.code} {closed.reason}".strip(),
+            ) from closed
+        if isinstance(raw, str):
+            return raw
+        try:
+            return raw.decode()
+        except UnicodeDecodeError as decode_error:
+            raise VoiceStreamError("bad-frame", "non-UTF8 frame on the transcription stream") from decode_error
 
     @staticmethod
     def _parse_message(raw: str) -> Optional[dict[str, Any]]:

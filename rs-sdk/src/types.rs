@@ -275,6 +275,7 @@ pub struct HyperAgentCurrentPlan {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct HyperAgentEntitlement {
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub user_id: String,

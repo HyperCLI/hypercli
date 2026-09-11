@@ -137,6 +137,10 @@ jobs:
         continue-on-error: true
         shell: bash
         working-directory: desktop
+        env:
+          # The self-hosted runners exhaust inotify watches (shared with other
+          # live suites); polling sidesteps ENOSPC from Vite's fs watcher.
+          CHOKIDAR_USEPOLLING: "true"
         run: |
           set -o pipefail
           npm run test:e2e 2>&1 | tee /tmp/desktop-e2e.log
