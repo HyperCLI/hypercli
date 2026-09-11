@@ -273,7 +273,7 @@ pub struct HyperAgentCurrentPlan {
     pub agent_slots: Vec<AgentSlot>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct HyperAgentEntitlement {
     pub id: String,
     #[serde(default)]
@@ -770,6 +770,117 @@ pub struct HyperAgentStripeBillingPortalResponse {
     pub url: String,
 }
 
+/// One resource preset advertised by `GET {agents}/types` (a vCPU/memory
+/// agent size).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct HyperAgentTypePreset {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub cpu: f64,
+    #[serde(default)]
+    pub memory: u64,
+}
+
+/// One plan advertised by `GET {agents}/types`, pinned to an agent size.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct HyperAgentTypePlan {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub price: u64,
+    #[serde(default)]
+    pub agents: u32,
+    #[serde(default)]
+    pub agent_type: String,
+    #[serde(default)]
+    pub highlighted: bool,
+}
+
+/// Advertised agent sizes and plan catalog (`GET {agents}/types`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct HyperAgentTypeCatalog {
+    #[serde(default)]
+    pub types: Vec<HyperAgentTypePreset>,
+    #[serde(default)]
+    pub plans: Vec<HyperAgentTypePlan>,
+}
+
+/// One grant record, returned when a grant code is redeemed or an
+/// entitlement is purchased from the account balance
+/// (`POST {agents}/billing/grants/redeem`,
+/// `POST {agents}/billing/balance/{plan_id}`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentGrant {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default, rename = "type")]
+    pub grant_type: String,
+    #[serde(default)]
+    pub plan_id: String,
+    /// Duration covered by the grant, in seconds.
+    #[serde(default)]
+    pub duration: u64,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub meta: Option<Value>,
+    #[serde(default)]
+    pub applied_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Result of redeeming a grant code or purchasing an entitlement from the
+/// account balance: the consumed grant and the entitlement it produced.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentGrantRedemption {
+    #[serde(default)]
+    pub grant: HyperAgentGrant,
+    #[serde(default)]
+    pub entitlement: HyperAgentEntitlement,
+    #[serde(default)]
+    pub payment: Option<HyperAgentPayment>,
+}
+
+/// Result of an x402 plan purchase (`POST {agents}/x402/{plan_id}`): the
+/// minted API key and the paid access window.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentX402CheckoutResponse {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub quantity: u64,
+    #[serde(default)]
+    pub bundle: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub amount_paid: String,
+    #[serde(default)]
+    pub duration_days: f64,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub tpm_limit: u64,
+    #[serde(default)]
+    pub rpm_limit: u64,
+}
+
 /// The agent product's view of the authenticated account
 /// (`GET {agents}/me`).
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -821,6 +932,51 @@ pub struct DeploymentLogsToken {
     pub expires_at: String,
     #[serde(default)]
     pub ws_url: String,
+}
+
+/// One decoded frame from the deployment logs WebSocket
+/// (`{agents}/ws/logs/{agent_id}`).
+///
+/// The socket opens with the replayed history as `Log` frames, sends
+/// `HistoryEnd` once replay is complete, then streams live `Log` frames. A
+/// frame that is not a recognisable envelope degrades to a log line rather
+/// than vanishing, so a pre-envelope or plain-text server stays readable.
+/// Unknown envelope events are ignored so future control frames never reach
+/// the log view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AgentLogFrame {
+    Log(String),
+    HistoryEnd,
+    Error(String),
+    Ignore,
+}
+
+/// Decode one raw text frame from the deployment logs WebSocket. Mirrors
+/// the TypeScript SDK's `parseAgentLogFrame`.
+pub fn parse_agent_log_frame(raw: &str) -> AgentLogFrame {
+    let Ok(payload) = serde_json::from_str::<Value>(raw) else {
+        return AgentLogFrame::Log(raw.to_owned());
+    };
+    let Some(event) = payload.get("event").and_then(Value::as_str) else {
+        return AgentLogFrame::Log(raw.to_owned());
+    };
+    match event {
+        "log" => AgentLogFrame::Log(match payload.get("log") {
+            Some(Value::String(line)) => line.clone(),
+            Some(other) => other.to_string(),
+            None => String::new(),
+        }),
+        "history_end" => AgentLogFrame::HistoryEnd,
+        "error" => {
+            let detail = payload
+                .get("detail")
+                .and_then(Value::as_str)
+                .filter(|detail| !detail.is_empty())
+                .unwrap_or("Log stream failed");
+            AgentLogFrame::Error(detail.to_owned())
+        }
+        _ => AgentLogFrame::Ignore,
+    }
 }
 
 /// Accept numeric values as JSON numbers or numeric strings; anything else
@@ -2153,6 +2309,46 @@ impl AgentCapacity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_log_frame_decodes_envelopes_and_degrades_plaintext() {
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"log","log":"line-1"}"#),
+            AgentLogFrame::Log("line-1".to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"log","log":5}"#),
+            AgentLogFrame::Log("5".to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"history_end"}"#),
+            AgentLogFrame::HistoryEnd
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"error","detail":"stream broke"}"#),
+            AgentLogFrame::Error("stream broke".to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"error","detail":""}"#),
+            AgentLogFrame::Error("Log stream failed".to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"event":"future_control"}"#),
+            AgentLogFrame::Ignore
+        );
+        assert_eq!(
+            parse_agent_log_frame("a plain log line"),
+            AgentLogFrame::Log("a plain log line".to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"{"no_event":true}"#),
+            AgentLogFrame::Log(r#"{"no_event":true}"#.to_owned())
+        );
+        assert_eq!(
+            parse_agent_log_frame(r#"["not","an","object"]"#),
+            AgentLogFrame::Log(r#"["not","an","object"]"#.to_owned())
+        );
+    }
 
     #[test]
     fn deployment_name_keeps_display_names_out_of_the_dns_contract() {

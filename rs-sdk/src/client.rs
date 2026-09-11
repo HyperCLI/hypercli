@@ -22,22 +22,23 @@ use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
-    AgentAccessIdentity, AgentCapacity, AgentDirectoryListing, AgentFileEntry,
-    AgentLaunchValueMutation, AgentsMe, ApiKey, AuthMe, ClientConfig,
-    CompleteDeploymentLaunchConfig, CreateApiKeyRequest, CreateDeploymentRequest,
+    parse_agent_log_frame, AgentAccessIdentity, AgentCapacity, AgentDirectoryListing,
+    AgentFileEntry, AgentLaunchValueMutation, AgentLogFrame, AgentsMe, ApiKey, AuthMe,
+    ClientConfig, CompleteDeploymentLaunchConfig, CreateApiKeyRequest, CreateDeploymentRequest,
     DeleteDeploymentResponse, Deployment, DeploymentAccessToken, DeploymentEnvironment,
     DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters, DeploymentLogsToken,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentAgentUsage, HyperAgentBillingInfo,
     HyperAgentBillingProfileFields, HyperAgentBillingProfileResponse, HyperAgentCurrentPlan,
-    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentKeyUsage, HyperAgentPayment,
-    HyperAgentPaymentsResponse, HyperAgentPlan, HyperAgentStripeBillingPortalResponse,
-    HyperAgentStripeCheckoutResponse, HyperAgentSubscriptionList,
-    HyperAgentSubscriptionMutationResult, HyperAgentSubscriptionSummary, HyperAgentUsageHistory,
-    HyperAgentUsageSummary, JobLifecycleEvent, LifecycleActionRequest, NativeRuntime,
-    RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
-    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
-    UpdateDeploymentRequest,
+    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentGrantRedemption,
+    HyperAgentKeyUsage, HyperAgentPayment, HyperAgentPaymentsResponse, HyperAgentPlan,
+    HyperAgentStripeBillingPortalResponse, HyperAgentStripeCheckoutResponse,
+    HyperAgentSubscriptionList, HyperAgentSubscriptionMutationResult,
+    HyperAgentSubscriptionSummary, HyperAgentTypeCatalog, HyperAgentUsageHistory,
+    HyperAgentUsageSummary, HyperAgentX402CheckoutResponse, JobLifecycleEvent,
+    LifecycleActionRequest, NativeRuntime, RuntimeAuthError, RuntimeAuthStatus,
+    RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
+    StartDeploymentRequest, UpdateDeploymentRequest,
 };
 
 type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -93,6 +94,29 @@ impl Default for FileApiReadyOptions {
             timeout: Duration::from_secs(90),
             consecutive: 2,
             poll_interval: Duration::from_secs(1),
+        }
+    }
+}
+
+/// Tuning for [`HyperCliClient::subscribe_deployment_logs`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeploymentLogsSubscribeOptions {
+    /// Historical lines to replay before live frames. `0` replays the whole
+    /// buffer.
+    pub tail_lines: usize,
+    /// Container whose logs are tailed.
+    pub container: String,
+    /// Keep reading live frames after the replayed history; when `false`
+    /// the subscription returns once the history marker arrives.
+    pub follow: bool,
+}
+
+impl Default for DeploymentLogsSubscribeOptions {
+    fn default() -> Self {
+        Self {
+            tail_lines: 100,
+            container: "reef".to_owned(),
+            follow: true,
         }
     }
 }
@@ -252,6 +276,59 @@ fn deployment_event_ws_url(raw_url: &str, token: &str) -> Result<Url, HyperCliEr
     }
     url.query_pairs_mut().append_pair("token", credential);
     Ok(url)
+}
+
+/// The minted logs locator is valid only for `/{ws}/logs/{agent_id}` with
+/// no credentials, query, or fragment: the returned URL is used verbatim
+/// with the short-lived token attached, so a locator that points anywhere
+/// else would leak that token.
+fn deployment_logs_ws_url(
+    raw_url: &str,
+    token: &str,
+    deployment_id: &str,
+    options: &DeploymentLogsSubscribeOptions,
+) -> Result<Url, HyperCliError> {
+    let credential = token.trim();
+    if credential.is_empty() {
+        return Err(HyperCliError::InvalidResponse(
+            "deployment logs token response omitted token".to_owned(),
+        ));
+    }
+    let mut url = Url::parse(raw_url)
+        .map_err(|_| HyperCliError::InvalidResponse("invalid deployment logs ws_url".to_owned()))?;
+    if !matches!(url.scheme(), "ws" | "wss")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != format!("/ws/logs/{deployment_id}")
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "invalid deployment logs ws_url".to_owned(),
+        ));
+    }
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("token", credential);
+        if !options.container.trim().is_empty() {
+            pairs.append_pair("container", options.container.trim());
+        }
+        pairs.append_pair("tail_lines", &options.tail_lines.to_string());
+    }
+    Ok(url)
+}
+
+fn validate_deployment_logs_token(
+    token: &DeploymentLogsToken,
+    deployment_id: &str,
+) -> Result<(), HyperCliError> {
+    if !token.agent_id.is_empty() && token.agent_id != deployment_id {
+        return Err(HyperCliError::InvalidResponse(
+            "logs token was minted for a different agent".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Percent-encode a single path segment (env/secret keys can contain
@@ -944,6 +1021,113 @@ impl HyperCliClient {
         self.get_json(&format!("billing/payments/{payment_id}"))
     }
 
+    /// Advertised agent size presets and the plan catalog
+    /// (`GET {agents}/types`).
+    pub fn agent_types(&self) -> Result<HyperAgentTypeCatalog, HyperCliError> {
+        self.get_json("types")
+    }
+
+    /// Purchase an entitlement from the account balance
+    /// (`POST {agents}/billing/balance/{plan_id}`). `duration` is in
+    /// seconds. A matching entitlement is extended in place only when
+    /// `extend_existing` is explicitly `Some(true)`; by default a new
+    /// entitlement is created.
+    pub fn purchase_entitlement_from_balance(
+        &self,
+        plan_id: &str,
+        duration: u64,
+        tags: Option<&[String]>,
+        extend_existing: Option<bool>,
+    ) -> Result<HyperAgentGrantRedemption, HyperCliError> {
+        let plan_id = plan_id.trim();
+        if plan_id.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "plan_id is required".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!("billing/balance/{plan_id}"));
+        let mut request = json!({ "duration": duration });
+        if let Some(tags) = tags {
+            request["tags"] = json!(tags);
+        }
+        if let Some(extend_existing) = extend_existing {
+            request["extend_existing"] = json!(extend_existing);
+        }
+        self.send_json(
+            "purchase_entitlement_from_balance",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Redeem a grant code (`POST {agents}/billing/grants/redeem`). Grants
+    /// create a new entitlement by default; a matching entitlement is
+    /// extended in place only when `extend_existing` is explicitly
+    /// `Some(true)`.
+    pub fn redeem_grant_code(
+        &self,
+        code: &str,
+        extend_existing: Option<bool>,
+    ) -> Result<HyperAgentGrantRedemption, HyperCliError> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "grant code is required".to_owned(),
+            ));
+        }
+        let url = self.endpoint("billing/grants/redeem");
+        let mut request = json!({ "code": code });
+        if let Some(extend_existing) = extend_existing {
+            request["extend_existing"] = json!(extend_existing);
+        }
+        self.send_json(
+            "redeem_grant_code",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Purchase a canonical plan via x402 (`POST {agents}/x402/{plan_id}`),
+    /// returning the minted key and the paid access window.
+    pub fn purchase_via_x402(
+        &self,
+        plan_id: &str,
+        quantity: Option<u32>,
+    ) -> Result<HyperAgentX402CheckoutResponse, HyperCliError> {
+        let plan_id = plan_id.trim();
+        if plan_id.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "A canonical plan ID is required".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!("x402/{plan_id}"));
+        let mut request = Map::new();
+        if let Some(quantity) = quantity {
+            request.insert("quantity".to_owned(), json!(quantity));
+        }
+        let request = Value::Object(request);
+        self.send_json(
+            "purchase_via_x402",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
     /// Create a Stripe Checkout session for a plan subscription
     /// (`POST {agents}/stripe/{plan_id}`).
     pub fn create_stripe_checkout(
@@ -1057,11 +1241,7 @@ impl HyperCliClient {
                 .post(&url)
                 .bearer_auth(self.api_key.expose_secret()),
         )?;
-        if !token.agent_id.is_empty() && token.agent_id != deployment_id {
-            return Err(HyperCliError::InvalidResponse(
-                "logs token was minted for a different agent".into(),
-            ));
-        }
+        validate_deployment_logs_token(&token, deployment_id)?;
         Ok(token)
     }
 
@@ -1322,6 +1502,86 @@ impl HyperCliClient {
             tokio::time::sleep(retry_delay).await;
             retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
         }
+    }
+
+    async fn create_deployment_logs_token(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentLogsToken, HyperCliError> {
+        let response = self
+            .async_http
+            .post(self.endpoint(&format!("deployments/{deployment_id}/logs/token")))
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(HyperCliError::Status(response.status()));
+        }
+        let token: DeploymentLogsToken = response
+            .json()
+            .await
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        validate_deployment_logs_token(&token, deployment_id)?;
+        Ok(token)
+    }
+
+    /// Snapshot-then-updates over one socket: the connection opens with the
+    /// replayed history, reports `history_end`, then streams live lines.
+    /// Each `log` frame is delivered to `handler`.
+    ///
+    /// One mechanism rather than a REST read plus a separate subscribe. The
+    /// two-step form leaves a seam between the two calls that no server
+    /// change can close, because the fetch and the subscribe share no lock;
+    /// the backend takes the history snapshot and registers the subscriber
+    /// under a single lock, so a line arriving mid-replay is delivered
+    /// exactly once.
+    ///
+    /// Deliberately does not reconnect. A reconnect replays history again,
+    /// which would duplicate lines into a consumer that has already rendered
+    /// them; reconnect policy belongs to the caller, which knows whether it
+    /// is resuming or restarting the view. Mirrors the TypeScript SDK's
+    /// `subscribeLogs`.
+    pub async fn subscribe_deployment_logs<F>(
+        &self,
+        deployment_id: &str,
+        options: &DeploymentLogsSubscribeOptions,
+        mut handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(&str),
+    {
+        let token = self.create_deployment_logs_token(deployment_id).await?;
+        let ws_url = deployment_logs_ws_url(&token.ws_url, &token.token, deployment_id, options)?;
+        // The URL now contains the short-lived token. Never let a connector
+        // error render that URL into an SDK error or trace.
+        let (mut socket, _) = connect_async(ws_url.as_str()).await.map_err(|_| {
+            HyperCliError::Transport("deployment logs websocket connection failed".to_owned())
+        })?;
+        while let Some(message) = socket.next().await {
+            match message {
+                Ok(Message::Text(value)) => match parse_agent_log_frame(value.as_ref()) {
+                    AgentLogFrame::Log(line) => handler(&line),
+                    AgentLogFrame::HistoryEnd if !options.follow => return Ok(()),
+                    AgentLogFrame::Error(detail) => {
+                        return Err(HyperCliError::InvalidResponse(detail));
+                    }
+                    AgentLogFrame::HistoryEnd | AgentLogFrame::Ignore => {}
+                },
+                Ok(Message::Ping(value)) => match socket.send(Message::Pong(value)).await {
+                    Ok(()) => {}
+                    Err(_) => break,
+                },
+                Ok(Message::Close(_)) => return Ok(()),
+                Err(_) => {
+                    return Err(HyperCliError::Transport(
+                        "deployment logs websocket connection failed".to_owned(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Subscribe to job-scoped GPU/job lifecycle ticks using the job key.
@@ -5989,5 +6249,333 @@ mod tests {
 
         assert_eq!(client.status().unwrap()["ok"], true);
         status.assert();
+    }
+
+    #[test]
+    fn agent_types_parse_the_advertised_catalog() {
+        let mut server = Server::new();
+        let types = server
+            .mock("GET", "/agents/types")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "types": [
+                        {"id": "small", "name": "Small", "cpu": 2, "memory": 4},
+                        {"id": "large", "name": "Large", "cpu": 8, "memory": 16}
+                    ],
+                    "plans": [
+                        {"id": "team", "name": "Team", "price": 99, "agents": 5, "agent_type": "small", "highlighted": true}
+                    ]
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let catalog = client.agent_types().unwrap();
+        assert_eq!(catalog.types.len(), 2);
+        assert_eq!(catalog.types[0].id, "small");
+        assert_eq!(catalog.types[1].cpu, 8.0);
+        assert_eq!(catalog.types[1].memory, 16);
+        assert_eq!(catalog.plans.len(), 1);
+        assert_eq!(catalog.plans[0].agent_type, "small");
+        assert!(catalog.plans[0].highlighted);
+        types.assert();
+    }
+
+    #[test]
+    fn balance_purchase_and_grant_redemption_match_the_billing_contract() {
+        let mut server = Server::new();
+        let purchase = server
+            .mock("POST", "/agents/billing/balance/team")
+            .match_body(Matcher::Json(
+                json!({"duration": 2_592_000, "tags": ["promo"], "extend_existing": true}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "grant": {
+                        "id": "grant-1", "user_id": "user-1", "entitlement_id": "ent-1",
+                        "type": "balance_purchase", "plan_id": "team", "duration": 2_592_000,
+                        "tags": ["promo"], "applied_at": "2026-09-01T00:00:00Z"
+                    },
+                    "entitlement": {"id": "ent-1", "plan_id": "team", "status": "active", "tpm_limit": 1000},
+                    "payment": {"id": "pay-1", "provider": "balance", "status": "paid", "amount": "0.00", "currency": "usd"}
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let redeem = server
+            .mock("POST", "/agents/billing/grants/redeem")
+            .match_body(Matcher::Json(json!({"code": "GRANT-CODE"})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "grant": {"id": "grant-2", "type": "code", "plan_id": "team", "duration": 2_592_000, "code": "GRANT-CODE"},
+                    "entitlement": {"id": "ent-2", "plan_id": "team", "status": "active"}
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let purchased = client
+            .purchase_entitlement_from_balance(
+                "team",
+                2_592_000,
+                Some(&["promo".to_owned()]),
+                Some(true),
+            )
+            .unwrap();
+        assert_eq!(purchased.grant.grant_type, "balance_purchase");
+        assert_eq!(purchased.grant.duration, 2_592_000);
+        assert_eq!(purchased.entitlement.id, "ent-1");
+        assert_eq!(purchased.entitlement.tpm_limit, 1000);
+        assert_eq!(purchased.payment.unwrap().provider, "balance");
+
+        let redeemed = client.redeem_grant_code("GRANT-CODE", None).unwrap();
+        assert_eq!(redeemed.grant.code.as_deref(), Some("GRANT-CODE"));
+        assert_eq!(redeemed.entitlement.id, "ent-2");
+        assert!(redeemed.payment.is_none());
+
+        assert!(client
+            .purchase_entitlement_from_balance("  ", 60, None, None)
+            .is_err());
+        assert!(client.redeem_grant_code("", None).is_err());
+        purchase.assert();
+        redeem.assert();
+    }
+
+    #[test]
+    fn purchase_via_x402_posts_to_the_canonical_plan_route() {
+        let mut server = Server::new();
+        let checkout = server
+            .mock("POST", "/agents/x402/team")
+            .match_body(Matcher::Json(json!({"quantity": 2})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "ok": true, "key": "sk-x402", "plan_id": "team", "quantity": 2,
+                    "bundle": {"small": 10}, "amount_paid": "198", "duration_days": 30,
+                    "expires_at": "2026-10-01T00:00:00Z", "tpm_limit": 2000, "rpm_limit": 60
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let purchased = client.purchase_via_x402("team", Some(2)).unwrap();
+        assert!(purchased.ok);
+        assert_eq!(purchased.key, "sk-x402");
+        assert_eq!(purchased.bundle["small"], 10);
+        assert_eq!(purchased.tpm_limit, 2000);
+
+        assert!(client.purchase_via_x402(" ", None).is_err());
+        checkout.assert();
+    }
+
+    async fn accept_deployment_logs_socket(
+        listener: &TcpListener,
+        captured_query: Arc<Mutex<Option<String>>>,
+    ) -> WebSocketStream<TcpStream> {
+        let (stream, _) = listener.accept().await.unwrap();
+        #[allow(clippy::result_large_err)]
+        accept_hdr_async(
+            stream,
+            |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+                *captured_query.lock().unwrap() =
+                    Some(request.uri().query().unwrap_or_default().to_owned());
+                Ok(response)
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deployment_logs_subscription_replays_history_then_stops_without_follow() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/logs/agent-1", listener.local_addr().unwrap());
+        let captured_query = Arc::new(Mutex::new(None));
+        let query_sink = Arc::clone(&captured_query);
+        let websocket = tokio::spawn(async move {
+            let mut socket = accept_deployment_logs_socket(&listener, query_sink).await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "log", "log": "history-1"})
+                        .to_string()
+                        .into(),
+                ))
+                .await;
+            let _ = socket
+                .send(Message::Text("a plain line".to_owned().into()))
+                .await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "history_end"}).to_string().into(),
+                ))
+                .await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        });
+        let mut server = Server::new_async().await;
+        let token = server
+            .mock("POST", "/agents/deployments/agent-1/logs/token")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agent_id": "agent-1", "token": "logs-token", "expires_at": "2026-09-09T00:00:00Z", "ws_url": ws_url}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let logs_client = client_for_async_test(&server).await;
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        let handler = move |line: &str| sink.lock().unwrap().push(line.to_owned());
+        let options = DeploymentLogsSubscribeOptions {
+            tail_lines: 50,
+            follow: false,
+            ..Default::default()
+        };
+        logs_client
+            .subscribe_deployment_logs("agent-1", &options, handler)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            captured.lock().unwrap().as_slice(),
+            ["history-1".to_owned(), "a plain line".to_owned()]
+        );
+        let query = captured_query.lock().unwrap().clone().unwrap();
+        let pairs: BTreeMap<String, String> = url::form_urlencoded::parse(query.as_bytes())
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        assert_eq!(pairs["token"], "logs-token");
+        assert_eq!(pairs["container"], "reef");
+        assert_eq!(pairs["tail_lines"], "50");
+        websocket.abort();
+        let _ = websocket.await;
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || drop(server))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deployment_logs_subscription_streams_live_lines_until_close() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/logs/agent-1", listener.local_addr().unwrap());
+        let websocket = tokio::spawn(async move {
+            let mut socket =
+                accept_deployment_logs_socket(&listener, Arc::new(Mutex::new(None))).await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "log", "log": "history-1"})
+                        .to_string()
+                        .into(),
+                ))
+                .await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "history_end"}).to_string().into(),
+                ))
+                .await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "log", "log": "live-1"}).to_string().into(),
+                ))
+                .await;
+            let _ = socket.close(None).await;
+        });
+        let mut server = Server::new_async().await;
+        let token = server
+            .mock("POST", "/agents/deployments/agent-1/logs/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agent_id": "agent-1", "token": "logs-token", "expires_at": "2026-09-09T00:00:00Z", "ws_url": ws_url}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let logs_client = client_for_async_test(&server).await;
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        let handler = move |line: &str| sink.lock().unwrap().push(line.to_owned());
+        logs_client
+            .subscribe_deployment_logs(
+                "agent-1",
+                &DeploymentLogsSubscribeOptions::default(),
+                handler,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            captured.lock().unwrap().as_slice(),
+            ["history-1".to_owned(), "live-1".to_owned()]
+        );
+        websocket.abort();
+        let _ = websocket.await;
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || drop(server))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deployment_logs_subscription_surfaces_error_frames() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/logs/agent-1", listener.local_addr().unwrap());
+        let websocket = tokio::spawn(async move {
+            let mut socket =
+                accept_deployment_logs_socket(&listener, Arc::new(Mutex::new(None))).await;
+            let _ = socket
+                .send(Message::Text(
+                    json!({"event": "error", "detail": "logs backend lost"})
+                        .to_string()
+                        .into(),
+                ))
+                .await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        });
+        let mut server = Server::new_async().await;
+        let token = server
+            .mock("POST", "/agents/deployments/agent-1/logs/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agent_id": "agent-1", "token": "logs-token", "expires_at": "2026-09-09T00:00:00Z", "ws_url": ws_url}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let logs_client = client_for_async_test(&server).await;
+
+        let error = logs_client
+            .subscribe_deployment_logs(
+                "agent-1",
+                &DeploymentLogsSubscribeOptions::default(),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, HyperCliError::InvalidResponse(detail) if detail == "logs backend lost")
+        );
+        websocket.abort();
+        let _ = websocket.await;
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || drop(server))
+            .await
+            .unwrap();
     }
 }
