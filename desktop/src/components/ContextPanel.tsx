@@ -16,7 +16,8 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
-import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, claimAgentShellSocket, hasAgentVoice, releaseAgentShellSocket, routinesDelete, routinesList, routinesUpdate, setAgentLaunchOverrides, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { agentDesktopFileToken, agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, claimAgentShellSocket, hasAgentVoice, releaseAgentShellSocket, routinesDelete, routinesList, routinesUpdate, setAgentLaunchOverrides, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { watchDesktopFileTokenRefresh } from "./desktop-file-token-refresh";
 import { AvatarPickerModal, IdentityModalShell, VoicePickerModal } from "./IdentityPickerModals";
 import { setVoiceRepliesEnabled, voiceRepliesEnabled } from "../lib/voice-replies";
 import { describeRoutine } from "../schedule";
@@ -235,6 +236,11 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
       .finally(() => setLoading(false));
   }, [available, url, loading, error, agent.id]);
 
+  useEffect(() => {
+    if (!url) return;
+    return watchDesktopFileTokenRefresh(agent.id, url, agentDesktopFileToken);
+  }, [url, agent.id]);
+
   const retry = () => {
     setUrl(null);
     setError(null);
@@ -269,6 +275,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
                 <iframe
                   title={`${agent.name} desktop`}
                   src={url}
+                  allow="clipboard-write"
                   className="pointer-events-none absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
                   style={{ transform: "scale(var(--desktop-scale, 0.25))" }}
                   ref={(el) => {
@@ -305,6 +312,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
                   <iframe
                     title={`${agent.name} desktop (interactive)`}
                     src={url ?? undefined}
+                    allow="clipboard-write"
                     className="absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
                     style={{ transform: "scale(var(--desktop-modal-scale, 1))" }}
                     ref={(el) => {

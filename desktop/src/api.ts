@@ -827,9 +827,66 @@ export const agentShellToken = async (id: string, shell?: string): Promise<Agent
   return client.deployments.shellToken(id, shell);
 };
 
+export interface AgentDesktopFileToken {
+  /** Reef file base the viewer PUTs dropped files to (the page's `rh`). */
+  url: string;
+  token: string;
+  /** Expiry in epoch seconds (the page's `fte`). */
+  expires_at: number;
+}
+
+/**
+ * Short-lived credential for the desktop viewer's drag-drop uploads.
+ * Wraps POST /deployments/{id}/files/token with the same payload validation
+ * the SDK applies to its private copy (the SDK does not export one; see
+ * AGENTS.md rule 2 — wrap here, don't patch the SDK).
+ */
+export async function agentDesktopFileToken(id: string): Promise<AgentDesktopFileToken> {
+  const [creds, ends] = await Promise.all([acpCredentials(), endpoints()]);
+  const http = new HTTPClient(resolveAgentsApiBase(ends.httpBase), creds.token);
+  const payload = await http.post<{ url?: unknown; token?: unknown; expires_at?: unknown }>(
+    `/deployments/${id}/files/token`,
+  );
+  const token = typeof payload?.token === "string" ? payload.token.trim() : "";
+  const expiresAtMs = Date.parse(typeof payload?.expires_at === "string" ? payload.expires_at : "");
+  let rh: URL;
+  try {
+    rh = new URL(typeof payload?.url === "string" ? payload.url : "");
+  } catch {
+    throw new Error("Backend returned an invalid agent file token response");
+  }
+  const loopback = rh.hostname === "localhost" || rh.hostname === "127.0.0.1";
+  if (
+    (!loopback && rh.protocol !== "https:") ||
+    !rh.hostname ||
+    rh.username ||
+    rh.password ||
+    rh.search ||
+    rh.hash ||
+    rh.pathname !== "/_reef" ||
+    !token ||
+    Number.isNaN(expiresAtMs)
+  ) {
+    throw new Error("Backend returned an invalid agent file token response");
+  }
+  return { url: rh.toString().replace(/\/+$/, ""), token, expires_at: Math.floor(expiresAtMs / 1000) };
+}
+
+const DESKTOP_VIEWER_PAGE = "hyper-desktop.html";
+
+/**
+ * hyper-desktop.html with the upload params the viewer expects. `ft` is
+ * short-lived on purpose; once it nears expiry the page asks the parent
+ * window for a fresh one over postMessage (DesktopSection answers).
+ */
 export async function agentDesktopUrl(id: string): Promise<AgentDesktopUrl> {
   const client = await sdk();
-  const { url, expiresAt } = await client.deployments.desktopUrl(id);
+  const files = await agentDesktopFileToken(id);
+  const viewer = `${DESKTOP_VIEWER_PAGE}?scale=true&rh=${encodeURIComponent(files.url)}&ft=${encodeURIComponent(files.token)}&fte=${files.expires_at}`;
+  const { url, expiresAt } = await client.deployments.desktopUrl(id, {
+    redirect: viewer,
+    resize: null,
+  });
   return { url, expires_at: expiresAt ? expiresAt.toISOString() : null };
 }
 
