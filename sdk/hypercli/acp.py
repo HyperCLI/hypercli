@@ -17,7 +17,10 @@ Parity across sibling SDKs:
   capability gate. There is deliberately NO auto-reconnect magic here: callers
   like the routines scheduler are one-shot per fire and own reconnect/retry
   semantics themselves.
-- Rust SDK (``rs-sdk``) and ``py-cli``: no ACP client at all.
+- Rust SDK (``rs-sdk``): ``AcpClient`` mirroring this module's framing,
+  capability gate, and error classification (``AcpError::Retryable`` /
+  ``AmbiguousDelivery`` / ``Request`` / ``Unavailable`` / ``Closed``).
+- ``py-cli``: no ACP client.
 
 Retry policy (mirrors the TypeScript client):
 
@@ -32,6 +35,10 @@ Retry policy (mirrors the TypeScript client):
   ``session/list``) before deciding whether to re-issue the prompt.
 - JSON-RPC error responses from the agent raise :class:`ACPRequestError` and
   are terminal protocol failures (not transport noise).
+- An explicit client close rejects pending non-prompt requests with
+  :class:`ACPClosedError` — terminal, never retryable — while pending prompt
+  turns still surface :class:`AmbiguousDeliveryError` (the prompt may already
+  be executing). This matches the Rust client's ``AcpError::Closed`` split.
 
 The default permission policy matches the TypeScript SDK: a raw client never
 auto-approves — inbound ``session/request_permission`` requests are answered
@@ -93,6 +100,16 @@ class AmbiguousDeliveryError(ACPError):
         )
         if cause is not None:
             self.__cause__ = cause
+
+
+class ACPClosedError(ACPError):
+    """Terminal failure: the client was closed explicitly.
+
+    Never classified as :class:`RetryableACPError`: retrying means opening a
+    brand-new client and the caller made the close decision. In-flight prompts
+    still surface :class:`AmbiguousDeliveryError`; this class covers the
+    non-prompt pending requests and any request attempted after close.
+    """
 
 
 class ACPRequestError(ACPError):
@@ -232,7 +249,7 @@ class ACPClient:
         if self._closed:
             return
         self._closed = True
-        self._fail_pending(ConnectionError("ACP client closed"))
+        self._fail_pending(ACPClosedError("ACP client closed"))
         self._update_listeners.clear()
         if self._reader is not asyncio.current_task():
             self._reader.cancel()
@@ -318,7 +335,7 @@ class ACPClient:
 
     async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self._closed:
-            raise ACPError("ACP client is closed")
+            raise ACPClosedError("ACP client is closed")
         frame_id = self._next_id
         self._next_id += 1
         future: asyncio.Future = asyncio.get_running_loop().create_future()

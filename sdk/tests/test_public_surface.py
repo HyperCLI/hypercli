@@ -14,6 +14,7 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "AGENT_TRANSITIONAL_STATES",
         "AGENT_WAIT_RUNNING_FAILURE_STATES",
         "ACPClient",
+        "ACPClosedError",
         "ACPError",
         "ACPPromptResult",
         "ACPRequestError",

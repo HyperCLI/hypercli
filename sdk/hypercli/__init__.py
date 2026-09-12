@@ -165,6 +165,7 @@ from .agent import (
 )
 from .acp import (
     ACPClient,
+    ACPClosedError,
     ACPError,
     ACPPromptResult,
     ACPRequestError,
@@ -382,6 +383,7 @@ __all__ = [
     "parse_hyper_agent_plan_id",
     # ACP (coding agent bridge)
     "ACPClient",
+    "ACPClosedError",
     "ACPError",
     "ACPPromptResult",
     "ACPRequestError",

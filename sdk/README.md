@@ -384,7 +384,10 @@ callers own retry semantics.
 
 SDK parity: the TypeScript SDK ships a full `CodingAgentAcpClient` (reconnect
 backoff, session replay, pooled listeners); this Python module is the one-shot
-counterpart with the same policy; the Rust SDK has no ACP client.
+counterpart with the same policy; the Rust SDK ships `AcpClient` mirroring the
+Python module's framing, capability gate, and error classification (including
+terminal `AcpError::Closed` on explicit close, mirrored here by
+`ACPClosedError`).
 
 ## OpenClaw Node Egress
 

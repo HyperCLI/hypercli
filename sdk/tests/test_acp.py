@@ -8,6 +8,7 @@ import websockets
 
 from hypercli.acp import (
     ACPClient,
+    ACPClosedError,
     ACPError,
     ACPRequestError,
     ACPUnavailableError,
@@ -222,6 +223,61 @@ async def test_prompt_is_never_resent_across_caller_driven_attempts():
             await bridge.stop()
     assert succeeded
     assert prompt_frames == 2  # one send per caller-driven attempt; no client ever resends
+
+
+@pytest.mark.asyncio
+async def test_explicit_close_fails_pending_non_prompt_requests_with_terminal_closed_error():
+    session_new_started = asyncio.Event()
+
+    async def hang_session_new(params):
+        session_new_started.set()
+        await asyncio.sleep(10)
+        return {"sessionId": "never"}
+
+    bridge = FakeAcpBridge(_handlers(**{"session/new": hang_session_new}))
+    url = await bridge.start()
+    try:
+        client = await ACPClient.connect(url, open_timeout=5.0)
+        pending = asyncio.create_task(client.new_session(cwd="/home/node"))
+        await asyncio.wait_for(session_new_started.wait(), timeout=5.0)
+        await client.close()
+        with pytest.raises(ACPClosedError, match="ACP client closed"):
+            await pending
+        assert isinstance(pending.exception(), ACPError)
+        # Terminal classification: explicit close is never retryable.
+        assert not isinstance(pending.exception(), RetryableACPError)
+        assert not isinstance(pending.exception(), AmbiguousDeliveryError)
+        # Requests after close fail with the same terminal error.
+        with pytest.raises(ACPClosedError, match="ACP client is closed"):
+            await client.new_session(cwd="/home/node")
+    finally:
+        await bridge.stop()
+
+
+@pytest.mark.asyncio
+async def test_explicit_close_keeps_pending_prompt_ambiguous():
+    prompt_started = asyncio.Event()
+
+    async def hang_prompt(params):
+        prompt_started.set()
+        await asyncio.sleep(10)
+        return {"stopReason": "end_turn"}
+
+    bridge = FakeAcpBridge(_handlers(**{"session/prompt": hang_prompt}))
+    url = await bridge.start()
+    try:
+        client = await ACPClient.connect(url, open_timeout=5.0)
+        session_id = await client.new_session(cwd="/home/node")
+        pending = asyncio.create_task(client.prompt(session_id, "run once"))
+        await asyncio.wait_for(prompt_started.wait(), timeout=5.0)
+        await client.close()
+        # The prompt frame already left: closing cannot retract it, so the
+        # pending turn stays AmbiguousDelivery (never retry, never Closed).
+        with pytest.raises(AmbiguousDeliveryError, match="ACP client closed"):
+            await pending
+    finally:
+        await bridge.stop()
+    assert len(bridge.params("session/prompt")) == 1
 
 
 @pytest.mark.asyncio
