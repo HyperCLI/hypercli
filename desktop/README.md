@@ -334,9 +334,11 @@ the `blob:` file previews.
   Leaving them in implies those hosts are a supported HTTP target. They are not.
 - `wss://api.hypercli.com` / `wss://api.dev.hypercli.com` only backstop
   `agentsBridgeWsBase()` (used by `agentLogsUrl` in `src/api.ts`), which
-  produces `wss://api.hypercli.com/ws`. That path is **404 on the gateway** — the
-  real bridge is `/agents/ws*`. The fallback is only reached when a logs token
-  omits `ws_url`, and when it is reached it fails.
+  produces `wss://api.hypercli.com/ws`. That path is **404 on the gateway** —
+  the gateway proxies no WS at all (`/agents/ws*` and `/ws` both refuse the
+  upgrade); the real bridge is `wss://api.agents.hypercli.com/ws`. The fallback
+  is only reached when a logs token omits `ws_url`, and when it is reached it
+  fails.
 
 ---
 

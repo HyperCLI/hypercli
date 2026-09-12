@@ -8,7 +8,6 @@ and efficiently in the codebase.
 - `site/`: Turbo monorepo (Next.js apps + shared UI)
   - `apps/main`: Marketing site (port 4000)
   - `apps/console`: User console/dashboard (port 4001)
-  - `apps/chat`: Chat UI (port 4002)
   - `apps/claw`: HyperClaw agent management UI (port 4003)
   - `packages/shared-ui`: Shared components/styles
 - `scripts/`: Python tooling for ComfyUI template docs
@@ -50,7 +49,7 @@ These are referenced by Turbo and the apps (see `site/turbo.json`):
 - `NEXT_PUBLIC_AUTH_DEBUG`
 - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`
 
-Most features are frontend-only, but auth, billing, and chat require live API
+Most features are frontend-only, but auth and billing require live API
 endpoints. There is no backend service in this repo.
 
 ## Common commands (from `site/`)

@@ -171,10 +171,12 @@ it is CSP-gated — see rule 6.
 
 | Path | Gateway `api.hypercli.com` | Notes |
 |---|---|---|
-| `/agents/*` | served | deployments, routines, plans, usage |
+| `/agents/*` | served | REST only: deployments, routines, plans, usage |
 | `/v1/*` | served | `/v1/models` 200 (and CORS-enabled on both hosts); `/v1/usage/*` is 404 on *both* |
-| `/agents/ws*` | served | the WS bridge |
-| `/ws` | **404** | the bridge is *not* at the gateway root |
+| `/workspaces` | served | workspaces REST |
+| `/routines` | served | routines REST |
+| `/slack` | served | slack REST |
+| `/ws` | **404** | the gateway proxies no WS at all; WS goes to the backing service |
 
 **Why it looks fine in dev:** dev REST rides the same-origin Vite proxy (and,
 historically, the Node dev bridge and the Rust proxy), where CORS does not
@@ -219,8 +221,8 @@ irrelevant for WS.
 
 **Corollary:** backend token endpoints return **absolute** `ws_url`s pointing at
 `wss://api.agents.hypercli.com/...`. Use them verbatim. Do not "correct" them to
-the gateway host — the gateway's `/ws` path is 404; its bridge is at
-`/agents/ws*`.
+the gateway host — the gateway has no WS bridge; `/ws` (and the historical
+`/agents/ws*`) refuse the upgrade there.
 
 ### 7. Agent-scoped hosts (`*.hypercli.app`) are in CSP — keep them there.
 
@@ -295,11 +297,15 @@ deciding whether a feature exists.
 
 ### 12. Origin-derived values get baked into agents — be aware of the blast radius.
 
-`src/api.ts:227` sends `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: window.location.origin`
-into an agent's launch config on start. An agent started from `tauri dev` is
-pinned to `http://localhost:1420` and will reject the packaged app until it is
-restarted. If you touch this, make the allowed-origin set explicit rather than
-whatever window happened to press Start.
+An OpenClaw agent records the browser origins allowed to drive its control UI
+in `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN`. A previous single-origin write
+(`window.location.origin` at start) pinned agents to whichever window pressed
+Start: `tauri dev` locked out the packaged app until restart. Now
+`startOpenClaw()` passes every origin this app can legitimately run at
+(`tauri://localhost`, `http://tauri.localhost`, `http://localhost:1420`), and
+the SDK **merges** them into the recorded set instead of replacing it — one
+start no longer evicts the other mode. If you touch this, keep the merge
+policy: add to the explicit set, never write the ambient origin alone.
 
 ---
 
