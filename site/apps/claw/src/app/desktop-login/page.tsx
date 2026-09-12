@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   Copy,
@@ -67,8 +67,6 @@ export default function DesktopLoginPage() {
   const [tokenRevealed, setTokenRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const autoLoginTriggered = useRef(false);
-  const autoRedirectTriggered = useRef(false);
   const appName = APP_NAMES[redirectUri] ?? "your desktop app";
 
   // Validate ?redirect_uri= from the query string. Absent defaults to the
@@ -85,14 +83,6 @@ export default function DesktopLoginPage() {
     }
   }, []);
 
-  // Open the normal Privy login modal once for logged-out visitors.
-  useEffect(() => {
-    if (paramStatus !== "valid" || isLoading || isAuthenticated) return;
-    if (flowState !== "idle" || autoLoginTriggered.current) return;
-    autoLoginTriggered.current = true;
-    login();
-  }, [paramStatus, isLoading, isAuthenticated, flowState, login]);
-
   const openApp = useCallback(
     (jwt: string) => {
       window.location.replace(buildCallbackUrl(redirectUri, jwt));
@@ -105,19 +95,15 @@ export default function DesktopLoginPage() {
       setTokenError(null);
       const jwt = await getToken();
       setToken(jwt);
-      if (!autoRedirectTriggered.current) {
-        autoRedirectTriggered.current = true;
-        openApp(jwt);
-      }
     } catch {
       setTokenError({
         title: "Retry to reopen the desktop session",
         description: "The secure handoff did not finish. Retry to open a new session for the desktop app.",
       });
     }
-  }, [getToken, openApp]);
+  }, [getToken]);
 
-  // Once authenticated, exchange for the app JWT and hand off to the app.
+  // Once authenticated, exchange for the app JWT so the user can hand off intentionally.
   useEffect(() => {
     if (paramStatus !== "valid" || !isAuthenticated || token) return;
     void fetchTokenAndRedirect();
@@ -224,11 +210,10 @@ export default function DesktopLoginPage() {
   return (
     <CardShell>
       <h1 className="text-base font-semibold text-foreground">
-        Opening {appName}&hellip;
+        Continue to {appName}
       </h1>
       <p className="mt-2 text-sm text-text-muted">
-        You are signed in. If the app did not open automatically, use the
-        button below.
+        You are signed in. Open the desktop app when you are ready.
       </p>
       <button
         type="button"

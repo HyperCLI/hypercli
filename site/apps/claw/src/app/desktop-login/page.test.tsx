@@ -46,4 +46,33 @@ describe("DesktopLoginPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(mocks.auth.getToken).toHaveBeenCalledTimes(2));
   });
+
+  it("waits for an explicit click before starting sign-in", async () => {
+    mocks.auth.isAuthenticated = false;
+
+    render(<DesktopLoginPage />);
+
+    expect(await screen.findByRole("heading", { name: "Sign in to Backseat Driver" })).toBeVisible();
+    expect(mocks.auth.login).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(mocks.auth.login).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the desktop callback before an explicit click", async () => {
+    mocks.auth.getToken.mockResolvedValue("desktop.jwt");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      render(<DesktopLoginPage />);
+
+      expect(await screen.findByRole("heading", { name: "Continue to Backseat Driver" })).toBeVisible();
+      expect(mocks.auth.getToken).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Open Backseat Driver" })).toBeVisible();
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
 });
