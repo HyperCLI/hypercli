@@ -153,6 +153,22 @@ struct Pending {
     tx: oneshot::Sender<Result<Value, AcpError>>,
 }
 
+/// Scope guard that pops the pending-table entry if the awaiting request
+/// future is dropped (caller-side cancellation). Without it, a caller-dropped
+/// in-flight request would leave its entry in the table until the connection
+/// dies or a response happens to arrive. On the resolve path the dispatcher
+/// has already removed the entry, so the drop is a no-op.
+struct PendingGuard {
+    state: Arc<ConnState>,
+    id: u64,
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        self.state.pending.lock().unwrap().remove(&self.id);
+    }
+}
+
 struct ConnState {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Set once the connection can no longer deliver frames. Taking a new
@@ -482,8 +498,15 @@ impl AcpClient {
             // The entry was already drained and failed by the connection
             // failure path; fall through and await its classified error.
         }
-        rx.await
-            .map_err(|_| AcpError::Retryable("ACP request was dropped".to_owned()))?
+        let guard = PendingGuard {
+            state: Arc::clone(&self.state),
+            id,
+        };
+        let outcome = rx
+            .await
+            .map_err(|_| AcpError::Retryable("ACP request was dropped".to_owned()));
+        drop(guard);
+        outcome?
     }
 }
 
@@ -947,6 +970,37 @@ mod tests {
         let redial = tokio::time::timeout(Duration::from_millis(100), listener.accept()).await;
         assert!(redial.is_err(), "client must never re-dial");
         assert_eq!(prompt_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropped_in_flight_request_future_pops_the_pending_entry() {
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(false)),
+            )
+            .await;
+            let new = read_frame(&mut socket).await;
+            assert_eq!(new["method"], "session/new");
+            // Never answer: the caller is expected to drop the request future.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        })
+        .await;
+
+        let client = AcpClient::connect(&url, "token").await.unwrap();
+        client.initialize().await.unwrap();
+        // Timeout drops the in-flight request future mid-await.
+        let timed_out =
+            tokio::time::timeout(Duration::from_millis(50), client.new_session("/workspace"))
+                .await;
+        assert!(timed_out.is_err());
+        // The cancelled request must not linger in the pending table: the
+        // awaiting future's drop pops its entry immediately.
+        assert!(client.state.pending.lock().unwrap().is_empty());
+        // And the connection is still usable afterwards.
+        client.close();
+        server.await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
