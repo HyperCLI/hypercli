@@ -497,7 +497,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       env: expect.objectContaining({
-        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'tauri://localhost https://old.hypercli.com https://console.hypercli.com',
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'tauri://localhost,https://old.hypercli.com,https://console.hypercli.com',
       }),
     }), { retries: 1 });
   });

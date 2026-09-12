@@ -1235,7 +1235,7 @@ describe('Agents SDK', () => {
 
     const sent = patch.mock.calls[0][1].launch_config;
     expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
-      .toBe('tauri://localhost https://last-writer.example https://console.hypercli.com');
+      .toBe('tauri://localhost,https://last-writer.example,https://console.hypercli.com');
   });
 
   it('startOpenClaw from a browser with no caller origins refreshes the stored env', async () => {
@@ -1253,7 +1253,7 @@ describe('Agents SDK', () => {
 
     const sent = patch.mock.calls[0][1].launch_config;
     expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
-      .toBe('https://last-writer.example https://new-writer.example');
+      .toBe('https://last-writer.example,https://new-writer.example');
   });
 
   it('startOpenClaw with the origin lock disabled does not patch the launch env', async () => {
@@ -1302,7 +1302,7 @@ describe('Agents SDK', () => {
 
     const sent = patch.mock.calls[0][1].launch_config;
     expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
-      .toBe('http://tauri.localhost http://localhost:1420 https://stored.example https://console.hypercli.com');
+      .toBe('http://tauri.localhost,http://localhost:1420,https://stored.example,https://console.hypercli.com');
   });
 
   it('reports the agent a runtime key speaks for through accessIdentity', async () => {

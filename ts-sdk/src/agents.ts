@@ -2541,7 +2541,11 @@ function prepareOpenClawLaunch(
       [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
     );
     if (controlUiOrigins.length > 0) {
-      env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(' ');
+      // Comma-joined is the canonical written form: the image entrypoint
+      // unrolls the list, and a space-joined value is ambiguous to split.
+      // Parsing (parseControlUiAllowedOrigins) still accepts every stored
+      // shape, so older space-joined values keep merging.
+      env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(',');
     }
   }
 
@@ -5892,7 +5896,9 @@ export class Deployments {
           [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
         );
         if (controlUiOrigins.length > 0) {
-          launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(' ');
+          // Canonical written form is comma-joined (see the start path above);
+          // parsing still accepts older space-joined stored values.
+          launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(',');
         }
       }
       delete (launchConfig as { config?: unknown }).config;
