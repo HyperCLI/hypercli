@@ -323,8 +323,9 @@ case "${GROUP}/${SUB}" in
     [ -n "${ID}" ] || { echo "create returned no id after 6 attempts"; cat /tmp/create.err >&2; exit 1; }
     echo "created ${NAME} id=${ID}"
 
-    # create leaves agents STOPPED; wait's STOPPED-when-expecting-RUNNING is
-    # terminal, so start first (mirrors the lifecycle case above).
+    # create leaves agents provisioning; wait for STOPPED then start (the raw
+    # start immediately after create 409s on storage provisioning).
+    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5 --dev
     "${CLI[@]}" agents start "${ID}" --dev
     "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
 
