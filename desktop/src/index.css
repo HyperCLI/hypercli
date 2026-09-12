@@ -5,6 +5,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  color-scheme: light;
   --background: #fbfaf7;
   --surface: #f7f6f3;
   --card: #ffffff;
@@ -24,6 +25,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0f0f11;
   --surface: #16171a;
   --card: #1c1d20;
@@ -96,6 +98,9 @@ textarea:focus-visible {
 * {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  /* WKWebView/macOS: opt into overlay scrollbars so tracks never reserve
+     layout space; Chrome/Safari already do this via color-scheme. */
+  -webkit-overflow-scrolling: touch;
 }
 
 *:hover {
@@ -106,6 +111,8 @@ textarea:focus-visible {
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
+  /* No visible track — the thumb floats over content like an overlay bar. */
+  background: transparent;
 }
 
 ::-webkit-scrollbar-track {
@@ -115,10 +122,14 @@ textarea:focus-visible {
 ::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 8px;
+  /* Thumb floats over content; transparent border widens the hit area. */
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 *:hover::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  background-clip: content-box;
 }
 
 @layer components {
