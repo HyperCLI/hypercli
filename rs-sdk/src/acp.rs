@@ -992,8 +992,7 @@ mod tests {
         client.initialize().await.unwrap();
         // Timeout drops the in-flight request future mid-await.
         let timed_out =
-            tokio::time::timeout(Duration::from_millis(50), client.new_session("/workspace"))
-                .await;
+            tokio::time::timeout(Duration::from_millis(50), client.new_session("/workspace")).await;
         assert!(timed_out.is_err());
         // The cancelled request must not linger in the pending table: the
         // awaiting future's drop pops its entry immediately.
