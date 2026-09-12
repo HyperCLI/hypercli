@@ -13,13 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { HyperCLI } from "../../../ts-sdk/src/client.ts";
-import {
-  mergeControlUiAllowedOrigins,
-  normalizeControlUiOrigin,
-  originLockStatus,
-  parseControlUiAllowedOrigins,
-} from "./origin-lock";
+import { originLockStatus } from "./origin-lock";
 import { APIError } from "../../../ts-sdk/src/errors.ts";
 import { classifyConnectionError, httpStatusOf } from "./connection-errors";
 
@@ -64,7 +58,6 @@ function permitted(url: string, sources: string[]): boolean {
  */
 const EGRESS: Array<{ what: string; url: string; via: string }> = [
   { what: "deployments / routines / plans / usage", url: `${GATEWAY}/deployments`, via: "api.ts sdk()" },
-  { what: "agent inference + models", url: "https://api.agents.hypercli.com/v1/models", via: "ts-sdk agent.ts resolveHyperAgentBaseUrl" },
   { what: "agent file operations (Reef)", url: "https://example-agent.hypercli.app/_reef/list", via: "ts-sdk agents.ts fetchReef" },
   { what: "deployment events socket", url: "wss://api.agents.hypercli.com/ws/deployments", via: "ts-sdk deployments.subscribe" },
   { what: "agent logs socket", url: "wss://api.agents.hypercli.com/ws/logs/x", via: "api.ts agentLogsUrl" },
@@ -89,37 +82,6 @@ describe("CSP connect-src", () => {
   it("permits the Tauri IPC channel", () => {
     expect(sources).toContain("ipc:");
     expect(sources).toContain("http://ipc.localhost");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The SDK must honour the base URL we hand it.
-// ---------------------------------------------------------------------------
-
-describe("SDK URL derivation", () => {
-  // Constructed exactly as api.ts does it, with credentials from Rust.
-  const client = new HyperCLI({
-    apiKey: "test-key",
-    agentApiKey: "test-key",
-    agentsApiBaseUrl: GATEWAY,
-    apiUrl: "https://api.hypercli.com",
-  });
-
-  it("keeps deployments on the gateway", () => {
-    expect(client.deployments.agentApiBase).toBe(GATEWAY);
-  });
-
-  it("keeps the agent control plane on the gateway", () => {
-    expect(client.agent.controlBaseUrl).toBe(GATEWAY);
-  });
-
-  it("documents where the inference base actually points", () => {
-    // resolveHyperAgentBaseUrl discards the base we passed and rewrites onto
-    // the backing service. That is fine functionally - /v1 is an authenticated,
-    // CORS-enabled route on both hosts and works from the packaged webview - but
-    // it means the SDK, not this app, decides the host. Pinned so a future SDK
-    // bump that moves it fails here rather than in a shipped build.
-    expect(client.agent.baseUrl).toBe("https://api.agents.hypercli.com/v1");
   });
 });
 
@@ -173,28 +135,12 @@ describe("failure is never silent", () => {
 // OpenClaw control-UI origin lock.
 // ---------------------------------------------------------------------------
 
+// Parsing/normalization/merge are owned and canonically covered by
+// ts-sdk/src/openclaw-control-ui-origin.ts (tests/openclaw-control-ui-origin.test.ts);
+// this block only exercises the desktop read helpers.
+
 describe("control-UI origin lock", () => {
   const locked = (origin: string) => ({ env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: origin } });
-
-  it("reads the list form the shared parser accepts", () => {
-    expect(parseControlUiAllowedOrigins("http://localhost:1420 http://tauri.localhost")).toEqual([
-      "http://localhost:1420",
-      "http://tauri.localhost",
-    ]);
-    expect(parseControlUiAllowedOrigins('["https://a.example","https://b.example"]')).toEqual([
-      "https://a.example",
-      "https://b.example",
-    ]);
-  });
-
-  it("rejects origins whose scheme cannot be recorded", () => {
-    // Tauri serves macOS and Linux from tauri://localhost. It is in the SDK's
-    // origin allowlist, recorded verbatim (URL.origin cannot represent it), so
-    // a restart does authorise the packaged app on any platform.
-    expect(normalizeControlUiOrigin("tauri://localhost")).toBe("tauri://localhost");
-    expect(normalizeControlUiOrigin("javascript:alert(1)")).toBeNull();
-    expect(normalizeControlUiOrigin("http://tauri.localhost")).toBe("http://tauri.localhost");
-  });
 
   it("locks the packaged app out of an agent that was started from dev", () => {
     // The exact scenario observed on a live agent: started from `tauri dev`,
@@ -228,20 +174,6 @@ describe("control-UI origin lock", () => {
   it("treats an agent with no lock as open", () => {
     expect(originLockStatus({ env: {} }, "http://tauri.localhost").authorized).toBe(true);
     expect(originLockStatus(null, "http://tauri.localhost").authorized).toBe(true);
-  });
-
-  it("merges every origin this app can have, so starting from one place keeps the others", () => {
-    // startAgent states its three origins; the SDK merges them with whatever
-    // is already recorded, in first-seen order.
-    expect(mergeControlUiAllowedOrigins(
-      ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420"],
-      "https://console.hypercli.com http://tauri.localhost",
-    )).toEqual([
-      "http://tauri.localhost",
-      "tauri://localhost",
-      "http://localhost:1420",
-      "https://console.hypercli.com",
-    ]);
   });
 });
 

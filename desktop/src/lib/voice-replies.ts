@@ -12,7 +12,7 @@
 
 export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export function voiceRepliesStorageKey(agentId: string): string {
+function voiceRepliesStorageKey(agentId: string): string {
   return `desktop-ng-voice-replies:${agentId}`;
 }
 

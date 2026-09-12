@@ -13,18 +13,13 @@
  * later as an unexplained refused connection.
  */
 
-export {
-  mergeControlUiAllowedOrigins,
-  normalizeControlUiOrigin,
-  parseControlUiAllowedOrigins,
-} from "../../../ts-sdk/src/openclaw-control-ui-origin.ts";
 import {
   normalizeControlUiOrigin,
   OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
   parseControlUiAllowedOrigins,
 } from "../../../ts-sdk/src/openclaw-control-ui-origin.ts";
 
-export const CONTROL_UI_ALLOWED_ORIGIN_ENV = OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV;
+const CONTROL_UI_ALLOWED_ORIGIN_ENV = OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV;
 
 function launchEnv(launchConfig: unknown): Record<string, unknown> | null {
   if (!launchConfig || typeof launchConfig !== "object" || Array.isArray(launchConfig)) return null;
@@ -38,7 +33,7 @@ export function controlUiAllowedOrigins(launchConfig: unknown): string[] {
   return parseControlUiAllowedOrigins(env?.[CONTROL_UI_ALLOWED_ORIGIN_ENV]);
 }
 
-export function currentOrigin(): string {
+function currentOrigin(): string {
   return typeof window === "undefined" ? "" : window.location.origin;
 }
 

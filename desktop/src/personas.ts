@@ -19,7 +19,7 @@ function loadAll(): Record<string, Persona> {
   }
 }
 
-export function getPersona(agentId: string): Persona {
+function getPersona(agentId: string): Persona {
   return loadAll()[agentId] ?? {};
 }
 

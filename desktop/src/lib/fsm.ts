@@ -218,7 +218,7 @@ export type SessionfulState = Extract<
   { name: "authenticated" | "roster-loaded" | "degraded" }
 >;
 
-export function hasSession(state: SessionState): state is SessionfulState {
+function hasSession(state: SessionState): state is SessionfulState {
   return state.name === "authenticated" || state.name === "roster-loaded" || state.name === "degraded";
 }
 

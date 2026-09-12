@@ -102,7 +102,7 @@ const SETTLING_OPS: ReadonlySet<AgentOp> = new Set<AgentOp>([
 ]);
 
 /** Ops with no transition to settle: `Applying → Stable | Failed`. */
-export function isOneShot(op: AgentOp): boolean {
+function isOneShot(op: AgentOp): boolean {
   return !SETTLING_OPS.has(op);
 }
 
@@ -962,7 +962,7 @@ function messageOf(error: unknown): string {
  * by `slot.owns()` on the continuation instead, which is what keeps a late
  * resolution from mutating a torn-down machine.
  */
-export const apiAgentLifecyclePort: AgentLifecyclePort = {
+const apiAgentLifecyclePort: AgentLifecyclePort = {
   async start(id) {
     return { agent: await (await import("../api")).startAgent(id) };
   },
@@ -1084,8 +1084,3 @@ export function createAgentMachinePool(options: AgentMachinePoolOptions): AgentM
 export const agentMachines: AgentMachinePool = createAgentMachinePool({
   port: apiAgentLifecyclePort,
 });
-
-/** Readiness for one agent without taking a reference. */
-export function agentReadiness(agentId: string): AgentReadiness | null {
-  return agentMachines.peek(agentId)?.readiness ?? null;
-}

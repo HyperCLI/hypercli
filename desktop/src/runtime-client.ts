@@ -54,11 +54,6 @@ export function canRuntimeChat(agent: AgentSummary): boolean {
   return runtimeChatCapability(agent).unavailable === null;
 }
 
-/** Why chat is unavailable for this agent, or null when it is available. */
-export function runtimeChatUnavailableReason(agent: AgentSummary | null): string | null {
-  return runtimeChatCapability(agent).unavailable;
-}
-
 export function runtimeChatHistory(
   agent: AgentSummary,
   sessionKey?: string | null,

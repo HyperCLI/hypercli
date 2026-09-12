@@ -112,15 +112,8 @@ export interface AgentSummary {
   routes?: unknown;
 }
 
-/**
- * The backend's `avatar_audio_url` lands on the agent DTO before the SDK's
- * `Agent` class picks it up (the class constructor keeps known fields only),
- * so read it tolerantly from whichever shape the value arrives in. Anything
- * that is not a non-empty string is "no voice".
- */
 function avatarAudioUrlOf(agent: Agent): string | null {
-  const raw = agent as unknown as { avatarAudioUrl?: unknown; avatar_audio_url?: unknown };
-  const value = raw.avatarAudioUrl ?? raw.avatar_audio_url;
+  const value = agent.avatarAudioUrl;
   return typeof value === "string" && value.trim() ? value : null;
 }
 
@@ -224,7 +217,7 @@ export const logout = async () => {
   await invoke<void>("logout");
   resetSdkClient();
 };
-export const acpCredentials = resolveCredentials;
+const acpCredentials = resolveCredentials;
 
 /**
  * Browser sign-in round trip. `startLogin` opens the system browser on the
@@ -530,7 +523,7 @@ export async function deleteAgentAvatar(id: string): Promise<AgentAvatarUploadRe
 // ---------------------------------------------------------------------------
 
 /** Client-side cap. The backend's own is 10 MB; 15 MB keeps the message honest. */
-export const AGENT_VOICE_MAX_BYTES = 15 * 1024 * 1024;
+const AGENT_VOICE_MAX_BYTES = 15 * 1024 * 1024;
 
 /** Content types the avatar-audio routes accept (backend profile_audio.py). */
 const PROFILE_AUDIO_CONTENT_TYPES = new Set([
@@ -813,7 +806,7 @@ export const routinesDelete = async (id: string) => {
 
 const agentWsBase = agentsBridgeWsBase;
 
-export const agentLogsToken = async (id: string): Promise<AgentLogsToken> => {
+const agentLogsToken = async (id: string): Promise<AgentLogsToken> => {
   const client = await sdk();
   const ends = await endpoints();
   const token = await client.deployments.logsToken(id);
@@ -822,7 +815,7 @@ export const agentLogsToken = async (id: string): Promise<AgentLogsToken> => {
 
 export type AgentShellToken = AgentShellTokenResponse;
 
-export const agentShellToken = async (id: string, shell?: string): Promise<AgentShellToken> => {
+const agentShellToken = async (id: string, shell?: string): Promise<AgentShellToken> => {
   const client = await sdk();
   return client.deployments.shellToken(id, shell);
 };
@@ -979,7 +972,7 @@ export async function acquireAcpClient(id: string): Promise<AcpLease> {
 }
 
 /** Forget the pooled connection (agent left the roster / terminal state). */
-export function dropAcpClient(id: string): void {
+function dropAcpClient(id: string): void {
   acpPool.drop(id);
 }
 

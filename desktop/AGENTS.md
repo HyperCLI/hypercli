@@ -196,8 +196,9 @@ other.
 
 **Why:** CSP failures and CORS failures look identical from JS (`TypeError:
 Failed to fetch`) and both are absent in dev. Adding only the CSP entry produces
-a config that *claims* the host is supported when it is not — which is exactly
-the state `https://api.agents.hypercli.com` is in today.
+a config that *claims* the host is supported when it is not — the state
+`https://api.agents.hypercli.com` was in until it was dropped from
+`connect-src`.
 
 How to check CORS at the real origin (do not test from `localhost:1420` — it is
 a different origin with a different answer):

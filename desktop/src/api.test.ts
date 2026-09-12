@@ -335,19 +335,11 @@ describe("createVoiceTranscriptionSession", () => {
 });
 
 describe("agentSummary avatar_audio_url", () => {
-  // Plain-object agents, as the SDK class surfaces them (it keeps known
-  // fields only, so the raw snake_case value reaches us only in tests and
-  // during the backend rollout).
+  // The SDK Agent class carries `avatarAudioUrl` (agents.ts maps the DTO's
+  // `avatar_audio_url` at construction); these are plain-object stand-ins.
   const asAgent = (fields: Record<string, unknown>) => fields as never;
 
   it("passes the field through when the agent carries it", () => {
-    const summary = agentSummary(
-      asAgent({ ...openClawAgent, avatar_audio_url: "https://example.com/voice.mp3" }),
-    );
-    expect(summary.avatar_audio_url).toBe("https://example.com/voice.mp3");
-  });
-
-  it("accepts a camelCase field, as a future SDK Agent class would expose", () => {
     const summary = agentSummary(
       asAgent({ ...openClawAgent, avatarAudioUrl: "https://example.com/voice.mp3" }),
     );
@@ -356,8 +348,8 @@ describe("agentSummary avatar_audio_url", () => {
 
   it("maps absent, null, and blank to no voice", () => {
     expect(agentSummary(asAgent(openClawAgent)).avatar_audio_url).toBeNull();
-    expect(agentSummary(asAgent({ ...openClawAgent, avatar_audio_url: null })).avatar_audio_url).toBeNull();
-    expect(agentSummary(asAgent({ ...openClawAgent, avatar_audio_url: "  " })).avatar_audio_url).toBeNull();
+    expect(agentSummary(asAgent({ ...openClawAgent, avatarAudioUrl: null })).avatar_audio_url).toBeNull();
+    expect(agentSummary(asAgent({ ...openClawAgent, avatarAudioUrl: "  " })).avatar_audio_url).toBeNull();
   });
 
   it("hasAgentVoice is true only for a non-empty url", () => {

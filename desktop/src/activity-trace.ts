@@ -15,11 +15,11 @@ const ACTIVITY_ENTRY_LIMIT = 400;
 const OPEN_STATUSES = new Set(["pending", "in_progress"]);
 const DONE_STATUSES = new Set(["completed", "failed"]);
 
-export function isOpenActivityStatus(status: string | undefined): boolean {
+function isOpenActivityStatus(status: string | undefined): boolean {
   return status != null && OPEN_STATUSES.has(status);
 }
 
-export function isDoneActivityStatus(status: string | undefined): boolean {
+function isDoneActivityStatus(status: string | undefined): boolean {
   return status != null && DONE_STATUSES.has(status);
 }
 

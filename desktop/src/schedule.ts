@@ -150,7 +150,7 @@ const STATIC_TIMEZONE_OFFSETS: Record<string, number> = {
   "Pacific/Kiritimati": 840,
 };
 
-export function gmtOffsetForTimeZone(timeZone: string, now: Date = new Date()): number | null {
+function gmtOffsetForTimeZone(timeZone: string, now: Date = new Date()): number | null {
   try {
     const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" }).formatToParts(now);
     const name = parts.find((part) => part.type === "timeZoneName")?.value ?? "";

@@ -294,7 +294,6 @@ parameters (`acpConnectTarget` in `src/api.ts`).
 default-src 'self';
 connect-src ipc: http://ipc.localhost
   https://api.hypercli.com  https://api.dev.hypercli.com
-  https://api.agents.hypercli.com  https://api.agents.dev.hypercli.com
   wss://api.hypercli.com    wss://api.dev.hypercli.com
   wss://api.agents.hypercli.com    wss://api.agents.dev.hypercli.com
   https://*.hypercli.app  wss://*.hypercli.app;
@@ -329,9 +328,6 @@ the `blob:` file previews.
 
 #### Entries that no longer earn their place
 
-- `https://api.agents.hypercli.com` and `https://api.agents.dev.hypercli.com` in
-  `connect-src` grant permission for HTTP calls that can never succeed (no CORS).
-  Leaving them in implies those hosts are a supported HTTP target. They are not.
 - `wss://api.hypercli.com` / `wss://api.dev.hypercli.com` only backstop
   `agentsBridgeWsBase()` (used by `agentLogsUrl` in `src/api.ts`), which
   produces `wss://api.hypercli.com/ws`. That path is **404 on the gateway** —
