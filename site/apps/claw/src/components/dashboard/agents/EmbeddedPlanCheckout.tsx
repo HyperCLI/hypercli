@@ -27,10 +27,10 @@ import {
   writePendingPlanCheckout,
   type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
-
-interface EthereumProvider {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-}
+import {
+  ensureBaseChain,
+  getInjectedWalletProvider,
+} from "@/lib/wallet-base-chain";
 
 interface WalletState {
   client: WalletClient;
@@ -98,39 +98,13 @@ function uniqueRows(rows: Array<string | null | undefined>): string[] {
   });
 }
 
-function getProvider(): EthereumProvider {
-  const win = window as Window & { ethereum?: EthereumProvider };
-  if (!win.ethereum) throw new Error("Please install MetaMask or another Ethereum wallet");
-  return win.ethereum;
-}
-
 async function connectWallet(): Promise<WalletState> {
   if (embeddedWalletState) return embeddedWalletState;
-  const provider = getProvider();
+  const provider = getInjectedWalletProvider();
   const accounts = await provider.request({ method: "eth_requestAccounts" }) as string[];
   if (!accounts?.length) throw new Error("No accounts found");
 
-  const chainId = await provider.request({ method: "eth_chainId" }) as string;
-  if (chainId !== "0x2105") {
-    try {
-      await provider.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x2105" }],
-      });
-    } catch (error: any) {
-      if (error?.code !== 4902) throw error;
-      await provider.request({
-        method: "wallet_addEthereumChain",
-        params: [{
-          chainId: "0x2105",
-          chainName: "Base",
-          nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://mainnet.base.org"],
-          blockExplorerUrls: ["https://basescan.org"],
-        }],
-      });
-    }
-  }
+  await ensureBaseChain(provider);
 
   const client = createWalletClient({
     account: accounts[0] as `0x${string}`,

@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  controlUiAllowedOriginsFromLaunchConfig,
-  normalizeControlUiOrigin,
-  parseControlUiAllowedOrigins,
-} from "./control-ui-origin";
+import { controlUiAllowedOriginsFromLaunchConfig } from "./control-ui-origin";
 
-describe("control UI origin normalization", () => {
-  it("normalizes safe HTTP origins and strips non-origin URL fields", () => {
-    expect(normalizeControlUiOrigin(" https://agents.hypercli.com/path?token=secret#fragment "))
-      .toBe("https://agents.hypercli.com");
-    expect(parseControlUiAllowedOrigins("https://one.example, https://two.example/path"))
-      .toEqual(["https://one.example", "https://two.example"]);
-  });
+// Origin parsing/normalization itself is canonically covered by
+// ts-sdk/tests/openclaw-control-ui-origin.test.ts; this suite only exercises
+// the launch-config read this app adds on top.
 
+describe("controlUiAllowedOriginsFromLaunchConfig", () => {
   it("reads and deduplicates env origins from launch config", () => {
     expect(controlUiAllowedOriginsFromLaunchConfig({
       env: {

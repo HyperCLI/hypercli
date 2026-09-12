@@ -2182,9 +2182,8 @@ export default function DevAgentSetupAgentsPage() {
           avatarUrl: agentProfileImageUrl(a),
         }))}
         availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
-        onCreate={async (channel) => {
-          // TODO: raise an SDK/API requirement for channel creation. For now, log and close.
-          console.log("Create channel:", channel);
+        onCreate={async () => {
+          // TODO: raise an SDK/API requirement for channel creation.
         }}
       />
       <ConfirmDialog
