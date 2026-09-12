@@ -359,6 +359,33 @@ agent.delete_secret("SERVICE_TOKEN")
 These methods return `AgentLaunchValueMutation` metadata. Secret writes never
 echo the secret value in their response.
 
+## ACP Client (coding agent bridge)
+
+`hypercli.acp.ACPClient` is a minimal async client for the ACP bridge hosted in
+each coding-agent pod: connect, `initialize`, `new_session` / `load_session`
+(gated on the advertised `loadSession` capability), and one-shot `prompt`
+turns with `session/update` notification sinks.
+
+```python
+from hypercli.acp import ACPClient, AmbiguousDeliveryError, RetryableACPError
+
+async with await ACPClient.connect(bridge_url, token=api_key) as acp:
+    session_id = await acp.new_session(cwd="/home/node")
+    turn = await acp.prompt(session_id, "Summarize overnight mail")
+    print(turn.stop_reason)
+```
+
+Retry classification is first-class: `RetryableACPError` covers pre-prompt
+failures (connect/handshake/initialize/session setup) that are safe to redo,
+while `AmbiguousDeliveryError` marks a transport failure after a prompt frame
+was sent — the turn is never resent, and callers should inspect the agent's
+session state (`session/load`) before re-issuing. There is no auto-reconnect;
+callers own retry semantics.
+
+SDK parity: the TypeScript SDK ships a full `CodingAgentAcpClient` (reconnect
+backoff, session replay, pooled listeners); this Python module is the one-shot
+counterpart with the same policy; the Rust SDK has no ACP client.
+
 ## OpenClaw Node Egress
 
 The Python SDK includes an experimental reference implementation for user-owned

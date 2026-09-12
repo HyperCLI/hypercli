@@ -163,6 +163,15 @@ from .agent import (
     HyperAgentX402CheckoutResponse,
     parse_hyper_agent_plan_id,
 )
+from .acp import (
+    ACPClient,
+    ACPError,
+    ACPPromptResult,
+    ACPRequestError,
+    ACPUnavailableError,
+    AmbiguousDeliveryError,
+    RetryableACPError,
+)
 from .gateway import (
     GatewayClient,
     GatewayError,
@@ -371,6 +380,14 @@ __all__ = [
     "HyperAgentStripeCheckoutResponse",
     "HyperAgentX402CheckoutResponse",
     "parse_hyper_agent_plan_id",
+    # ACP (coding agent bridge)
+    "ACPClient",
+    "ACPError",
+    "ACPPromptResult",
+    "ACPRequestError",
+    "ACPUnavailableError",
+    "AmbiguousDeliveryError",
+    "RetryableACPError",
     # OpenClaw Gateway
     "GatewayClient",
     "GatewayError",
