@@ -21,6 +21,7 @@ import { useAppUpdate } from "../useAppUpdate";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { RUNNING, TRANSITIONAL, agentStateLabel, runtimeFamily, runtimeLabel } from "../agent-utils";
+import { canPickChatSession } from "../runtime-client";
 
 export function Sidebar({
   agents,
@@ -78,11 +79,7 @@ export function Sidebar({
   // session client), then close all. ~10 agents max per user, so a full
   // sweep is cheap.
   const sessionAgentKey = live
-    .filter((a) => {
-      if (a.state !== RUNNING) return false;
-      const family = runtimeFamily(a.runtime);
-      return family === "acp" || family === "openclaw" || family === "hermes";
-    })
+    .filter((a) => a.state === RUNNING && canPickChatSession(a))
     .map((a) => a.id)
     .sort()
     .join(",");
@@ -244,7 +241,7 @@ export function Sidebar({
               />
             ))}
           </div>
-          <div className="px-2 pb-1.5">
+          <div className="px-2.5 pb-2">
             <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1">
               <Search size={11} className="shrink-0 text-text-secondary" />
               <input
@@ -260,15 +257,15 @@ export function Sidebar({
       )}
       {sessionAgentKey === "" && <div className="flex-1" />}
 
-      <div className="border-t border-border px-2 py-2 flex items-center justify-between">
+      <div className="sidebar-footer">
         <button
           onClick={onNewAgent}
-          className="ui-icon-button flex items-center gap-1.5 px-2 py-1.5 text-[12px]"
+          className="ui-icon-button sidebar-new-agent-button"
         >
           <Plus size={14} />
           New agent
         </button>
-        <div className="flex items-center">
+        <div className="sidebar-footer-actions">
           <button
             onClick={onOpenTutorial}
             className="ui-icon-button-sm"
@@ -487,7 +484,11 @@ function AgentRow({
   const pending = TRANSITIONAL.has(agent.state) || busy === true;
   const transitional = TRANSITIONAL.has(agent.state);
   const archived = agent.state === "ARCHIVED";
-  const pickSession = running && runtimeFamily(agent.runtime) === "acp";
+  // Every running family with addressable chat sessions — ACP over the
+  // bridge, OpenClaw/Hermes over their canonical session client — gets the
+  // session picker on click, never a bare select (that was the ACP-only gap
+  // that left runtime agents with no new-session modal).
+  const pickSession = running && canPickChatSession(agent);
   const selectAgent = () => {
     if (pickSession) onOpenSessionPicker(agent.id);
     else onSelect(agent.id);

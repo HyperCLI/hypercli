@@ -7,10 +7,10 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { subscribeAgentUpdates, type AgentSummary } from "./api";
+import { createRuntimeSession, subscribeAgentUpdates, type AgentSummary } from "./api";
 import { TRANSITIONAL, runtimeFamily } from "./agent-utils";
 import type { ManagedAgentRuntime } from "../../ts-sdk/src/agents.ts";
-import type { ConnectionIssue } from "./lib/connection-errors";
+import { reportConnectionError, type ConnectionIssue } from "./lib/connection-errors";
 import { assertNever } from "./lib/machine";
 import { useMachine, usePooledMachine, usePooledMachines } from "./lib/use-machine";
 import {
@@ -49,6 +49,22 @@ const PANE_SNAP_DISTANCE = 14;
 /** Backstop only. The deployment-events socket is the primary refresh. */
 const POLL_IDLE_MS = 30_000;
 const POLL_TRANSITIONAL_MS = 4_000;
+
+/** Below this width the layout is portrait/mobile: chat primary, panes as drawers. */
+const PORTRAIT_MEDIA = "(max-width: 767px)";
+
+/** Purely presentational viewport query (rule 11 allows shell cosmetics). */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    mql.addEventListener("change", onChange);
+    onChange();
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}
 
 const NO_AGENTS: AgentSummary[] = [];
 
@@ -115,7 +131,7 @@ function UnreachableSplash({
   return (
     <div className="h-full flex flex-col items-center justify-center bg-background">
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-[52px]" />
-      <div className="w-[380px]">
+      <div className="w-[380px] max-w-[calc(100vw-32px)]">
         <div className="text-[16px] font-semibold mb-1.5">{issue.title}</div>
         <p className="text-[12px] text-text-secondary leading-relaxed">{issue.detail}</p>
         {issue.hint && (
@@ -155,6 +171,10 @@ export default function App() {
   const [contextTab, setContextTab] = useState<ContextTab>("agent");
   const [leftWidth, setLeftWidth] = useState(() => storedPaneWidth("desktop-ng-left-width", LEFT_DEFAULT_WIDTH));
   const [rightWidth, setRightWidth] = useState(() => storedPaneWidth("desktop-ng-right-width", RIGHT_DEFAULT_WIDTH));
+  const isPortrait = useMediaQuery(PORTRAIT_MEDIA);
+  // Desktop pane-open states to restore when leaving portrait mode. Portrait
+  // collapse is in-memory only: localStorage prefs stay the desktop's.
+  const savedPaneOpenRef = useRef<{ left: boolean; right: boolean } | null>(null);
 
   // Two purely local overlays on the machine-owned roster, both of which used
   // to be `setAgents` calls: an agent created a moment ago that the next
@@ -168,16 +188,42 @@ export default function App() {
 
   const toggleLeft = useCallback(() => {
     setLeftOpen((v) => {
-      localStorage.setItem("desktop-ng-left-open", v ? "0" : "1");
-      return !v;
+      const next = !v;
+      localStorage.setItem("desktop-ng-left-open", next ? "1" : "0");
+      // Portrait drawers overlay the chat: only one can be open at a time.
+      if (next && isPortrait) setRightOpen(false);
+      return next;
     });
-  }, []);
+  }, [isPortrait]);
   const toggleRight = useCallback(() => {
     setRightOpen((v) => {
-      localStorage.setItem("desktop-ng-right-open", v ? "0" : "1");
-      return !v;
+      const next = !v;
+      localStorage.setItem("desktop-ng-right-open", next ? "1" : "0");
+      if (next && isPortrait) setLeftOpen(false);
+      return next;
     });
+  }, [isPortrait]);
+  const closePanes = useCallback(() => {
+    setLeftOpen(false);
+    setRightOpen(false);
   }, []);
+
+  // Entering portrait folds both panes into drawers (chat is primary);
+  // leaving it restores whatever was open before. Neither touches the
+  // persisted desktop prefs.
+  useEffect(() => {
+    if (isPortrait && savedPaneOpenRef.current === null) {
+      savedPaneOpenRef.current = { left: leftOpen, right: rightOpen };
+      setLeftOpen(false);
+      setRightOpen(false);
+    } else if (!isPortrait && savedPaneOpenRef.current !== null) {
+      const saved = savedPaneOpenRef.current;
+      savedPaneOpenRef.current = null;
+      setLeftOpen(saved.left);
+      setRightOpen(saved.right);
+    }
+    // Only the portrait crossing matters; pane states are read, not reacted to.
+  }, [isPortrait]);
 
   const startLeftResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -394,16 +440,37 @@ export default function App() {
     localStorage.setItem(storageKey, sessionId);
     setActiveId(agentId);
     setSessionNonce((n) => n + 1);
-  }, [agents]);
+    if (isPortrait) setLeftOpen(false);
+  }, [agents, isPortrait]);
 
   const handleNewSession = useCallback((agentId: string) => {
     const agent = agents.find((a) => a.id === agentId);
-    localStorage.removeItem(
-      agent && runtimeFamily(agent.runtime) !== "acp" ? `runtime-session:${agentId}` : `acp-session:${agentId}`,
-    );
-    setActiveId(agentId);
-    setSessionNonce((n) => n + 1);
-  }, [agents]);
+    if (agent && runtimeFamily(agent.runtime) !== "acp") {
+      // Runtime-family: mint the session through the runtime's own session
+      // client and select the returned key. Removing the stored key alone was
+      // hollow — the mount fell straight back to "main".
+      createRuntimeSession(agentId)
+        .then((sessionKey) => {
+          localStorage.setItem(`runtime-session:${agentId}`, sessionKey);
+          setActiveId(agentId);
+          setSessionNonce((n) => n + 1);
+        })
+        .catch((error) => {
+          reportConnectionError(error, { operation: "New session", agentId });
+        });
+    } else {
+      localStorage.removeItem(`acp-session:${agentId}`);
+      setActiveId(agentId);
+      setSessionNonce((n) => n + 1);
+    }
+    if (isPortrait) setLeftOpen(false);
+  }, [agents, isPortrait]);
+
+  /** Sidebar row tap. In portrait the drawer hands over to the chat. */
+  const handleSelectAgent = useCallback((id: string) => {
+    setActiveId(id);
+    if (isPortrait) setLeftOpen(false);
+  }, [isPortrait]);
 
   /**
    * Every mutation goes through the agent's machine, which owns the guard, the
@@ -569,13 +636,13 @@ export default function App() {
       )}
       <div className="flex min-h-0 flex-1">
         <div
-          className={leftOpen ? "relative flex shrink-0" : "hidden"}
+          className={leftOpen ? "pane-drawer pane-drawer-left" : "hidden"}
           style={{ "--pane-left-width": `${leftWidth}px` } as CSSProperties}
         >
           <Sidebar
             agents={agents}
             activeId={activeId}
-            onSelect={setActiveId}
+            onSelect={handleSelectAgent}
             onNewAgent={() => setNewAgentOpen(true)}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenTutorial={() => setTutorialOpen(true)}
@@ -631,7 +698,7 @@ export default function App() {
         </div>
         {active && (
           <div
-            className={rightOpen ? "relative flex shrink-0" : "hidden"}
+            className={rightOpen ? "pane-drawer pane-drawer-right" : "hidden"}
             style={{ "--pane-right-width": `${rightWidth}px` } as CSSProperties}
           >
             <div
@@ -660,6 +727,9 @@ export default function App() {
               voiceApiUnavailable={voiceApiUnavailable}
             />
           </div>
+        )}
+        {isPortrait && (leftOpen || rightOpen) && (
+          <div className="pane-scrim" onClick={closePanes} />
         )}
       </div>
       {settingsOpen && (

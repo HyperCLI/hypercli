@@ -159,7 +159,7 @@ textarea:focus-visible {
   }
 
   .modal-card {
-    @apply w-[480px] rounded-xl bg-card border border-border shadow-2xl;
+    @apply w-[480px] max-w-[calc(100vw-32px)] rounded-xl bg-card border border-border shadow-2xl;
   }
 
   .modal-card-wide {
@@ -241,12 +241,49 @@ textarea:focus-visible {
 
   .app-pane-left {
     width: var(--pane-left-width, 176px);
+    container-type: inline-size;
     @apply shrink-0 bg-surface border-r border-border flex flex-col;
+  }
+
+  .sidebar-footer {
+    @apply border-t border-border px-2.5 py-2.5 flex items-center justify-between gap-2;
+  }
+
+  .sidebar-new-agent-button {
+    @apply flex items-center gap-1.5 px-2 py-1.5 text-[12px];
+  }
+
+  .sidebar-footer-actions {
+    @apply flex items-center;
+  }
+
+  @container (max-width: 190px) {
+    .sidebar-footer {
+      @apply flex-col items-stretch;
+    }
+
+    .sidebar-new-agent-button {
+      @apply justify-center border border-border bg-transparent text-foreground;
+    }
+
+    .sidebar-footer-actions {
+      @apply justify-center;
+    }
   }
 
   .app-pane-right {
     width: var(--pane-right-width, 272px);
     @apply h-full min-h-0 shrink-0 overflow-hidden bg-surface border-l border-border flex flex-col;
+  }
+
+  /* Pane shells: static flex children on desktop; fixed overlay drawers in
+     the portrait block at the bottom of this file. */
+  .pane-drawer {
+    @apply relative flex shrink-0;
+  }
+
+  .pane-scrim {
+    @apply fixed inset-0 z-30 bg-black/30;
   }
 
   .pane-resize-handle {
@@ -424,4 +461,44 @@ textarea:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .error-bar { animation: none; }
+}
+
+/* Portrait / mobile: chat is primary; the agent/sessions sidebar and the
+   context panel fold into edge drawers behind the header reopen buttons,
+   dismissed by the scrim. The desktop layout above is untouched — this block
+   only re-skins the same components at narrow widths. */
+@media (max-width: 767px) {
+  @layer components {
+    .pane-drawer-left {
+      @apply fixed inset-y-0 left-0 z-40;
+    }
+
+    .pane-drawer-right {
+      @apply fixed inset-y-0 right-0 z-40;
+    }
+
+    .app-pane-left {
+      width: min(300px, 84vw);
+    }
+
+    .app-pane-right {
+      width: min(320px, 88vw);
+    }
+
+    .pane-resize-handle {
+      @apply hidden;
+    }
+
+    .app-header-content {
+      padding-inline: 12px;
+    }
+
+    .chat-column {
+      padding-inline: 14px;
+    }
+
+    .chat-composer-wrap {
+      padding-inline: 12px;
+    }
+  }
 }

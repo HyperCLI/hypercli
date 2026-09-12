@@ -54,6 +54,17 @@ export function canRuntimeChat(agent: AgentSummary): boolean {
   return runtimeChatCapability(agent).unavailable === null;
 }
 
+/**
+ * True when the family's chat is backed by addressable, listable sessions —
+ * ACP over the bridge (`listSessions`) or a canonical SDK session client
+ * (`sessionsList` / `sessionsCreate`). The sidebar's session picker and its
+ * session sweep both gate on this, so a new session-capable family joins the
+ * picker UX from the capability table above and nowhere else.
+ */
+export function canPickChatSession(agent: AgentSummary): boolean {
+  return runtimeChatCapability(agent).transport !== "none";
+}
+
 export function runtimeChatHistory(
   agent: AgentSummary,
   sessionKey?: string | null,

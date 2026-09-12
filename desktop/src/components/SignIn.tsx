@@ -88,7 +88,7 @@ export function SignIn({
   return (
     <div className="h-full flex items-center justify-center bg-background">
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-[52px]" />
-      <div className="w-[360px]">
+      <div className="w-[360px] max-w-[calc(100vw-32px)]">
         <div className="text-[20px] font-semibold mb-1.5">Welcome to HyperCLI</div>
         <p className="text-[13px] text-text-secondary mb-6 leading-relaxed">
           {message ?? "Sign in with your HyperCLI account to see your agents."}

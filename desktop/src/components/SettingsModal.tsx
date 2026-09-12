@@ -36,12 +36,12 @@ export function SettingsModal({
         className={`modal-card ${tab === "usage" ? "modal-card-wide" : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-4 px-5 border-b border-border">
+        <div className="flex items-center gap-3 px-4 min-[768px]:gap-4 min-[768px]:px-5 border-b border-border">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`relative py-2.5 text-[12px] transition-colors ${
+              className={`relative py-2.5 text-[12px] whitespace-nowrap transition-colors ${
                 tab === t.id
                   ? "font-semibold text-foreground"
                   : "text-text-secondary hover:text-foreground"

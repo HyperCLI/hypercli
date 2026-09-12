@@ -52,6 +52,12 @@ CSS vars on `:root` / `.dark`, bridged to Tailwind v4 via `@theme inline`.
   sidebar, ⌘⇧B folds the context panel. Folded = fully hidden; small ghost
   reopen buttons (`PanelLeftOpen` / `PanelRightOpen`, lucide) appear at the
   respective edges of the chat header.
+- **Portrait/mobile (viewport < 768px):** chat is the single primary surface.
+  Both panels fold automatically into fixed overlay drawers behind those same
+  reopen buttons, are dismissed by a scrim or by any agent/session selection,
+  and never open simultaneously. Resize handles hide; header/message/composer
+  padding tightens. Entering portrait does not touch the persisted desktop
+  pane prefs; leaving it restores the pre-portrait pane states.
 
 ## 3. Sidebar
 
@@ -174,8 +180,8 @@ agent copy (no "shared computer" claims); start/stop in sidebar rows.
 
 ## 10. Non-goals (explicitly deferred)
 
-Onboarding 3-step flow; screen-takeover view; GROUPS + group chats; mobile
-layouts; in-chat connector/skill/quick-reply cards; delegation lines
+Onboarding 3-step flow; screen-takeover view; GROUPS + group chats;
+in-chat connector/skill/quick-reply cards; delegation lines
 ("↩ Messaged X"); attachments/voice; noVNC embedding; updater;
 window-state plugin.
 
