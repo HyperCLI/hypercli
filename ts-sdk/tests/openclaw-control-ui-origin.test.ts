@@ -3,8 +3,33 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTROL_UI_ALLOWED_ORIGIN_WILDCARD,
   mergeControlUiAllowedOrigins,
+  normalizeControlUiOrigin,
   parseControlUiAllowedOrigins,
 } from '../src/openclaw-control-ui-origin.js';
+
+describe('normalizeControlUiOrigin (display only, not the env contract)', () => {
+  it('canonicalizes http(s) URLs to their origin', () => {
+    expect(normalizeControlUiOrigin(' https://agents.hypercli.com/path?token=secret#frag '))
+      .toBe('https://agents.hypercli.com');
+    expect(normalizeControlUiOrigin('http://localhost:1420/')).toBe('http://localhost:1420');
+  });
+
+  it('keeps tauri origins verbatim and lowercases the host', () => {
+    expect(normalizeControlUiOrigin('tauri://localhost/')).toBe('tauri://localhost');
+    expect(normalizeControlUiOrigin('tauri://LOCALHOST')).toBe('tauri://localhost');
+  });
+
+  it('passes the wildcard through', () => {
+    expect(normalizeControlUiOrigin('*')).toBe(CONTROL_UI_ALLOWED_ORIGIN_WILDCARD);
+  });
+
+  it('rejects non-display and credentialed URLs', () => {
+    expect(normalizeControlUiOrigin('javascript:alert(1)')).toBeNull();
+    expect(normalizeControlUiOrigin('https://user:pw@example.com')).toBeNull();
+    expect(normalizeControlUiOrigin('not a url')).toBeNull();
+    expect(normalizeControlUiOrigin(42)).toBeNull();
+  });
+});
 
 describe('parseControlUiAllowedOrigins', () => {
   it('accepts space- and comma-separated env strings', () => {

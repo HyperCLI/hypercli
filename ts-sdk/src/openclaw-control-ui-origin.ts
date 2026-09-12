@@ -19,6 +19,40 @@ export const OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV = 'OPENCLAW_CONTROL_UI_ALLOW
 export const CONTROL_UI_ALLOWED_ORIGIN_WILDCARD = '*';
 
 /**
+ * Schemes a control UI can legitimately be served from. Used only by the
+ * display helper below — never by the env contract, which is user-controlled.
+ */
+const CONTROL_UI_ORIGIN_DISPLAY_SCHEMES = new Set(['http:', 'https:', 'tauri:']);
+
+/**
+ * Normalize one origin for *display*, or `null` when it cannot be shown
+ * safely. This is NOT the launch-env contract: the env is a user-controlled
+ * replace and is never validated. This helper exists for UIs that render an
+ * agent's allow-list in an error message and must not reflect `javascript:`
+ * URLs or leak credentialed/unparseable entries into copy.
+ *
+ * http(s) origins canonicalize through `URL.origin` (strips paths, queries,
+ * fragments, default ports). `tauri:` renders as `scheme://host` lowercased.
+ * Userinfo and non-display schemes are rejected. `'*'` passes through.
+ */
+export function normalizeControlUiOrigin(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim();
+  if (!candidate) return null;
+  if (candidate === CONTROL_UI_ALLOWED_ORIGIN_WILDCARD) return CONTROL_UI_ALLOWED_ORIGIN_WILDCARD;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (!CONTROL_UI_ORIGIN_DISPLAY_SCHEMES.has(url.protocol) || !url.hostname) return null;
+  if (url.username || url.password) return null;
+  if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin;
+  return `${url.protocol}//${url.host.toLowerCase()}`;
+}
+
+/**
  * Parse every stored shape of the allow-list into a trimmed, deduplicated
  * list. Accepts space- or comma-separated strings, JSON arrays, and raw
  * string arrays. Entries are passed through as-is; only empties drop. A
