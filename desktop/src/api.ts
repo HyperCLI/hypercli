@@ -167,6 +167,9 @@ export type AgentLogsToken = AgentLogsTokenResponse & { api_base?: string };
 export interface AgentDesktopUrl {
   url: string;
   expires_at?: string | null;
+  /** Remote framebuffer size, from the backend (launch env or image default). */
+  width?: number;
+  height?: number;
 }
 
 export interface RuntimeChatMessage {
@@ -888,11 +891,16 @@ export async function agentDesktopUrl(id: string): Promise<AgentDesktopUrl> {
   const client = await sdk();
   const files = await agentDesktopFileToken(id);
   const viewer = `${DESKTOP_VIEWER_PAGE}?scale=true&rh=${encodeURIComponent(files.url)}&ft=${encodeURIComponent(files.token)}&fte=${files.expires_at}`;
-  const { url, expiresAt } = await client.deployments.desktopUrl(id, {
+  const { url, expiresAt, viewport } = await client.deployments.desktopUrl(id, {
     redirect: viewer,
     resize: null,
   });
-  return { url, expires_at: expiresAt ? expiresAt.toISOString() : null };
+  return {
+    url,
+    expires_at: expiresAt ? expiresAt.toISOString() : null,
+    width: viewport?.width,
+    height: viewport?.height,
+  };
 }
 
 // ---------------------------------------------------------------------------

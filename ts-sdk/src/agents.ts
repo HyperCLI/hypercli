@@ -375,6 +375,7 @@ export interface AgentTokenResponse {
   agent_id?: string;
   token: string;
   expires_at?: string | null;
+  desktop_viewport?: { width: number; height: number } | null;
 }
 
 export interface BrowserDesktopUrlOptions {
@@ -6176,7 +6177,7 @@ export class Deployments {
   async desktopUrl(
     agentIdOrName: string,
     options: BrowserDesktopUrlOptions = {},
-  ): Promise<{ url: string; expiresAt: Date | null }> {
+  ): Promise<{ url: string; expiresAt: Date | null; viewport: { width: number; height: number } | null }> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const [token, agent] = await Promise.all([
       this.refreshToken(agentId),
@@ -6192,7 +6193,7 @@ export class Deployments {
       resize: 'scale',
       ...options,
     });
-    return { url, expiresAt: parseDate(token.expires_at) };
+    return { url, expiresAt: parseDate(token.expires_at), viewport: token.desktop_viewport ?? null };
   }
 
   async createScopedKey(agentIdOrName: string, name?: string): Promise<Record<string, any>> {

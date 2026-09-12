@@ -222,12 +222,14 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [viewport, setViewport] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
     setUrl(null);
     setError(null);
     setLoading(false);
     setExpiresAt(null);
+    setViewport(null);
   }, [agent.id, agent.state, hasRoute]);
 
   useEffect(() => {
@@ -237,6 +239,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
       .then((result) => {
         setUrl(result.url);
         setExpiresAt(result.expires_at ?? null);
+        if (result.width && result.height) setViewport({ w: result.width, h: result.height });
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -257,6 +260,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
         .then((result) => {
           setUrl((current) => (current === result.url ? current : result.url));
           setExpiresAt(result.expires_at ?? null);
+          if (result.width && result.height) setViewport({ w: result.width, h: result.height });
         })
         .catch(() => {});
     }, delay);
@@ -293,7 +297,8 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
       {available ? (
         <>
           <div
-            className="relative aspect-[8/5] cursor-pointer overflow-hidden rounded-lg border border-border bg-[#05070a] group"
+            className="relative cursor-pointer overflow-hidden rounded-lg border border-border bg-[#05070a] group"
+            style={{ aspectRatio: `${viewport?.w ?? 1280} / ${viewport?.h ?? 800}` }}
             onClick={() => url && setExpanded(true)}
             title="Click to interact"
           >
@@ -303,18 +308,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
                   title={`${agent.name} desktop`}
                   src={url}
                   allow="clipboard-write"
-                  className="pointer-events-none absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
-                  style={{ transform: "scale(var(--desktop-scale, 0.25))" }}
-                  ref={(el) => {
-                    if (!el?.parentElement) return;
-                    const parent = el.parentElement;
-                    const update = () => {
-                      el.style.setProperty("--desktop-scale", String(parent.clientWidth / 1280));
-                    };
-                    update();
-                    const observer = new ResizeObserver(update);
-                    observer.observe(parent);
-                  }}
+                  className="pointer-events-none absolute left-0 top-0 h-full w-full border-0"
                 />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100">
                   <Maximize2 size={20} className="text-white drop-shadow" />
@@ -328,7 +322,14 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
           </div>
           {expanded && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setExpanded(false)}>
-              <div className="relative h-[85vh] w-[90vw] max-w-[1280px]" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="relative"
+                style={{
+                  aspectRatio: `${viewport?.w ?? 1280} / ${viewport?.h ?? 800}`,
+                  width: `min(90vw, calc(85vh * ${(viewport?.w ?? 1280) / (viewport?.h ?? 800)}), ${viewport?.w ?? 1280}px)`,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
                   onClick={() => setExpanded(false)}
                   className="absolute -top-9 right-0 rounded-md bg-card px-2.5 py-1 text-[11px] text-text-secondary hover:text-foreground"
@@ -340,21 +341,7 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
                     title={`${agent.name} desktop (interactive)`}
                     src={url ?? undefined}
                     allow="clipboard-write"
-                    className="absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
-                    style={{ transform: "scale(var(--desktop-modal-scale, 1))" }}
-                    ref={(el) => {
-                      if (!el?.parentElement) return;
-                      const parent = el.parentElement;
-                      const update = () => {
-                        const scale = Math.min(parent.clientWidth / 1280, parent.clientHeight / 800);
-                        el.style.setProperty("--desktop-modal-scale", String(scale));
-                        el.style.left = `${(parent.clientWidth - 1280 * scale) / 2}px`;
-                        el.style.top = `${(parent.clientHeight - 800 * scale) / 2}px`;
-                      };
-                      update();
-                      const observer = new ResizeObserver(update);
-                      observer.observe(parent);
-                    }}
+                    className="absolute left-0 top-0 h-full w-full border-0"
                   />
                 </div>
               </div>
