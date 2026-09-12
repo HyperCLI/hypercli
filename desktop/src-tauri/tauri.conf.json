@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https://api.hypercli.com https://api.dev.hypercli.com wss://api.hypercli.com wss://api.dev.hypercli.com wss://api.agents.hypercli.com wss://api.agents.dev.hypercli.com https://*.hypercli.app wss://*.hypercli.app; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://*.hypercli.app blob:"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost https://api.hypercli.com https://api.dev.hypercli.com wss://api.hypercli.com wss://api.dev.hypercli.com wss://api.agents.hypercli.com wss://api.agents.dev.hypercli.com https://*.hypercli.app wss://*.hypercli.app https://storage.streamformation.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://*.hypercli.app blob:"
     },
     "macOSPrivateApi": true
   },

@@ -27,6 +27,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  audioStatus?: "generating" | "playing" | "replayable";
   attachments?: MessageAttachment[];
   error?: boolean;
   thoughts: string[];

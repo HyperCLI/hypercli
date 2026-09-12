@@ -17,14 +17,17 @@
  * - No ghost text: the protocol buffers audio until commit, so only
  *   `transcript.final` is ever delivered to the draft.
  */
-import { createVoiceTranscriptionSession } from "../api";
-import { MicCapture } from "./mic-capture";
 import { Machine } from "./machine";
 import {
   clearConnectionIssue,
   reportConnectionError,
   reportConnectionIssue,
 } from "./connection-errors";
+import {
+  createDesktopDictationService,
+  isDictationServiceError,
+  wrapDictationFailure,
+} from "./dictation-service";
 
 // ---------------------------------------------------------------------------
 // Shapes (structural, so tests never touch the SDK or a real mic)
@@ -74,14 +77,24 @@ export type DictationEvent =
 // ---------------------------------------------------------------------------
 
 export const MIC_PERMISSION_ISSUE_ID = "dictation:mic-permission";
+export const DICTATION_WS_OPEN_ISSUE_ID = "dictation:ws-open";
+export const DICTATION_SESSION_ISSUE_ID = "dictation:session-failed";
+export const DICTATION_MIC_ISSUE_ID = "dictation:mic";
+export const DICTATION_RECORDER_ISSUE_ID = "dictation:recorder";
 
 /** macOS TCC denial surfaces as a DOMException from getUserMedia. */
 function isMicPermissionError(error: unknown): boolean {
+  const candidate = isDictationServiceError(error) ? error.cause : error;
   return (
     typeof DOMException !== "undefined" &&
-    error instanceof DOMException &&
-    (error.name === "NotAllowedError" || error.name === "SecurityError")
+    candidate instanceof DOMException &&
+    (candidate.name === "NotAllowedError" || candidate.name === "SecurityError")
   );
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error ?? "No further detail was reported.");
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +214,8 @@ export class DictationMachine extends Machine<DictationState, DictationEvent> {
       }
       capture = await this.deps.startCapture({
         onChunk: (bytes) => this.handleChunk(attempt.id, bytes),
-        onError: (error) => this.send({ type: "failed", attempt: attempt.id, error }),
+        onError: (error) =>
+          this.send({ type: "failed", attempt: attempt.id, error: wrapDictationFailure("recorder", error) }),
       });
       if (!attempt.active) {
         await capture.stop();
@@ -227,7 +241,7 @@ export class DictationMachine extends Machine<DictationState, DictationEvent> {
       this.send({
         type: "failed",
         attempt: attempt?.id ?? 0,
-        error: new Error("Dictation lost its session before it could transcribe."),
+        error: wrapDictationFailure("session-failed", new Error("Dictation lost its session before it could transcribe.")),
       });
       return;
     }
@@ -239,10 +253,18 @@ export class DictationMachine extends Machine<DictationState, DictationEvent> {
         run.session.close();
         return;
       }
-      run.session.commit();
+      try {
+        run.session.commit();
+      } catch (error) {
+        throw wrapDictationFailure("session-failed", error);
+      }
       let text = "";
-      for await (const event of run.session.events()) {
-        if (event.type === "transcript.final") text = typeof event.text === "string" ? event.text : "";
+      try {
+        for await (const event of run.session.events()) {
+          if (event.type === "transcript.final") text = typeof event.text === "string" ? event.text : "";
+        }
+      } catch (error) {
+        throw wrapDictationFailure("session-failed", error);
       }
       if (!attempt.active) return;
       this.send({ type: "final", attempt: attempt.id, text });
@@ -272,6 +294,57 @@ export class DictationMachine extends Machine<DictationState, DictationEvent> {
       });
       return;
     }
+    if (isDictationServiceError(error)) {
+      const message = errorMessage(error.cause);
+      if (error.phase === "ws-open") {
+        reportConnectionIssue({
+          id: DICTATION_WS_OPEN_ISSUE_ID,
+          kind: "socket",
+          title: "Voice dictation couldn't connect",
+          detail: `HyperCLI couldn't open the voice transcription socket. ${message}`,
+          hint: "This points to the WebSocket handshake or allowed-connections policy, not microphone access.",
+          action: { label: "Retry", kind: "retry" },
+          at: Date.now(),
+        });
+        return;
+      }
+      if (error.phase === "session-failed") {
+        reportConnectionIssue({
+          id: DICTATION_SESSION_ISSUE_ID,
+          kind: "socket",
+          title: "Voice dictation failed",
+          detail: `The transcription session failed after it opened. ${message}`,
+          hint: "Audio capture started, so this is on the transcription session path rather than the browser microphone prompt.",
+          action: { label: "Retry", kind: "retry" },
+          at: Date.now(),
+        });
+        return;
+      }
+      if (error.phase === "mic") {
+        reportConnectionIssue({
+          id: DICTATION_MIC_ISSUE_ID,
+          kind: "permission",
+          title: "Microphone couldn't start",
+          detail: `HyperCLI couldn't start microphone capture for dictation. ${message}`,
+          hint: "Check microphone permission and whether another app is holding the input device.",
+          action: { label: "Open settings", kind: "open-settings" },
+          at: Date.now(),
+        });
+        return;
+      }
+      if (error.phase === "recorder") {
+        reportConnectionIssue({
+          id: DICTATION_RECORDER_ISSUE_ID,
+          kind: "unknown",
+          title: "Microphone recording failed",
+          detail: `The microphone recorder stopped unexpectedly. ${message}`,
+          hint: "The voice connection may be healthy; this points to MediaRecorder or the input device.",
+          action: { label: "Retry", kind: "retry" },
+          at: Date.now(),
+        });
+        return;
+      }
+    }
     reportConnectionError(error, { operation: "Voice dictation" });
   }
 
@@ -292,7 +365,4 @@ export class DictationMachine extends Machine<DictationState, DictationEvent> {
 }
 
 /** The app's single dictation authority: one composer, one mic, one socket. */
-export const dictation = new DictationMachine({
-  openSession: () => createVoiceTranscriptionSession(),
-  startCapture: (handlers) => MicCapture.start(handlers),
-});
+export const dictation = new DictationMachine(createDesktopDictationService());

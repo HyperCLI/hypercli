@@ -9,9 +9,9 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Capabilities held by a desktop-minted machine key: agent management, scoped
-/// file-token minting, the model grant for prompt drafting, and `user:self` for
-/// account/plan reads. Never an unrestricted key.
-const DESKTOP_KEY_SCOPES: [&str; 4] = ["agents:*", "files:*", "models:*", "user:self"];
+/// file-token minting, the model and voice grants for prompt drafting/read-aloud,
+/// and `user:self` for account/plan reads. Never an unrestricted key.
+const DESKTOP_KEY_SCOPES: [&str; 5] = ["agents:*", "files:*", "models:*", "voice:*", "user:self"];
 
 /// Web login page. Its allowlist accepts the `hypercli://auth` scheme
 /// callback (site/apps/claw/src/app/desktop-login/page.tsx): the session token
@@ -226,6 +226,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init());
 
     // Register the updater (and the process plugin its relaunch flow needs)

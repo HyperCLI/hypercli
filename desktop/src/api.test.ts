@@ -9,13 +9,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError } from "../../ts-sdk/src/errors.ts";
+import { OpenClawAgent } from "../../ts-sdk/src/agents.ts";
 import {
   agentAvatarContentType,
   agentSummary,
   agentFiles,
-  agentTtsVoice,
+  agentTtsOptions,
   agentVoiceApiUnavailable,
   agentVoiceContentType,
+  createRuntimeSession,
   createVoiceTranscriptionSession,
   deleteAgentVoice,
   hasAgentVoice,
@@ -42,6 +44,7 @@ const deployments = vi.hoisted(() => ({
 
 const voiceSessionMock = vi.hoisted(() => ({
   speak: vi.fn(),
+  speakClone: vi.fn(),
   close: vi.fn(),
   constructed: [] as Array<{ wsUrl: string; credential: string }>,
 }));
@@ -66,6 +69,10 @@ vi.mock("../../ts-sdk/src/voice-session.ts", () => ({
 
     speak(options: Record<string, unknown>) {
       return voiceSessionMock.speak(options);
+    }
+
+    speakClone(options: Record<string, unknown>) {
+      return voiceSessionMock.speakClone(options);
     }
 
     close() {
@@ -234,6 +241,33 @@ describe("startAgent (Hermes)", () => {  beforeEach(() => {
   });
 });
 
+describe("createRuntimeSession (OpenClaw)", () => {
+  beforeEach(() => {
+    resetSdkClient();
+    vi.clearAllMocks();
+  });
+
+  it("mints through the pooled gateway lease and returns the created key", async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: "agent-1",
+      user_id: "user-1",
+      runtime: "openclaw",
+      state: "RUNNING",
+    });
+    const sessionsCreate = vi.fn(async () => ({ key: "session-new" }));
+    const release = vi.fn();
+    agent.acquireConnectedGateway = vi.fn(async () => ({
+      client: { sessionsCreate },
+      release,
+    })) as unknown as typeof agent.acquireConnectedGateway;
+    deployments.get.mockResolvedValue(agent);
+
+    await expect(createRuntimeSession("agent-1")).resolves.toBe("session-new");
+    expect(sessionsCreate).toHaveBeenCalledWith({});
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("agent files", () => {
   beforeEach(() => {
     resetSdkClient();
@@ -261,6 +295,17 @@ describe("speechStream", () => {
         audio: new Uint8Array([0, 0]),
         final: true,
         metadata: { format: "pcm", sampleRate: 24000, channels: 1, sampleFormat: "s16le", bytesPerSample: 2 },
+        options,
+      };
+    });
+    voiceSessionMock.speakClone.mockImplementation(async function* (options: Record<string, unknown>) {
+      yield {
+        requestId: "rclone",
+        index: 0,
+        total: 1,
+        audio: new Uint8Array([0, 0]),
+        final: true,
+        metadata: { format: "pcm" },
         options,
       };
     });
@@ -309,6 +354,98 @@ describe("speechStream", () => {
       bytesPerSample: 2,
     });
   });
+
+  it("clones from the agent's reference audio when referenceAudioUrl is set", async () => {
+    const referenceUrl = "https://cdn.example/voice-clone-a.wav";
+    vi.stubGlobal("fetch", fetchCalls.fn);
+    try {
+      fetchCalls.fn.mockResolvedValue(new Response(new Uint8Array([9, 8, 7]).buffer, { status: 200 }));
+
+      const stream = await speechStream("Hello", { referenceAudioUrl: referenceUrl });
+      for await (const _ of stream.chunks) void _;
+
+      expect(fetchCalls.fn).toHaveBeenCalledTimes(1);
+      expect(fetchCalls.fn.mock.calls[0][0]).toBe(referenceUrl);
+      expect(voiceSessionMock.speak).not.toHaveBeenCalled();
+      expect(voiceSessionMock.speakClone).toHaveBeenCalledWith({
+        text: "Hello",
+        refAudio: new Uint8Array([9, 8, 7]),
+        format: "pcm",
+        chunks: true,
+      });
+      expect(voiceSessionMock.close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("caches reference bytes per URL across requests", async () => {
+    const referenceUrl = "https://cdn.example/voice-clone-cache.wav";
+    vi.stubGlobal("fetch", fetchCalls.fn);
+    try {
+      fetchCalls.fn.mockResolvedValue(new Response(new Uint8Array([5]).buffer, { status: 200 }));
+
+      for (let i = 0; i < 2; i += 1) {
+        const stream = await speechStream(`Sentence ${i}.`, { referenceAudioUrl: referenceUrl });
+        for await (const _ of stream.chunks) void _;
+      }
+
+      expect(fetchCalls.fn).toHaveBeenCalledTimes(1);
+      expect(voiceSessionMock.speakClone).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("evicts a failed reference fetch so the next request retries", async () => {
+    const referenceUrl = "https://cdn.example/voice-clone-retry.wav";
+    vi.stubGlobal("fetch", fetchCalls.fn);
+    try {
+      fetchCalls.fn.mockRejectedValueOnce(new Error("network down"));
+      // The reference fetch fails before any socket is dialled.
+      await expect(speechStream("Hi", { referenceAudioUrl: referenceUrl })).rejects.toThrow(/network down/);
+      expect(voiceSessionMock.constructed).toHaveLength(0);
+
+      fetchCalls.fn.mockResolvedValue(new Response(new Uint8Array([1]).buffer, { status: 200 }));
+      const stream = await speechStream("Hi", { referenceAudioUrl: referenceUrl });
+      for await (const _ of stream.chunks) void _;
+
+      expect(fetchCalls.fn).toHaveBeenCalledTimes(2);
+      expect(voiceSessionMock.speakClone).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a voice upload clears cached reference bytes", async () => {
+    const referenceUrl = "https://cdn.example/voice-clone-stale.wav";
+    vi.stubGlobal("fetch", fetchCalls.fn);
+    try {
+      fetchCalls.fn.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === referenceUrl) {
+          return new Response(new Uint8Array([3]).buffer, { status: 200 });
+        }
+        return new Response(JSON.stringify({ id: "agent-1", avatar_audio_url: referenceUrl, s3_key: "k" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+
+      const first = await speechStream("Before.", { referenceAudioUrl: referenceUrl });
+      for await (const _ of first.chunks) void _;
+      expect(fetchCalls.fn).toHaveBeenCalledTimes(1);
+
+      await uploadAgentVoice("agent-1", new File([new Uint8Array([1])], "clip.mp3", { type: "audio/mpeg" }));
+
+      const second = await speechStream("After.", { referenceAudioUrl: referenceUrl });
+      for await (const _ of second.chunks) void _;
+      expect(fetchCalls.fn).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
 });
 
 describe("createVoiceTranscriptionSession", () => {
@@ -360,13 +497,16 @@ describe("agentSummary avatar_audio_url", () => {
   });
 });
 
-describe("agentTtsVoice", () => {
-  it("returns nothing until the voice socket takes a voice reference", () => {
-    // The one-line seam: when speak() (or speakClone) accepts the agent's
-    // reference url, this becomes `agent.avatar_audio_url` and every
-    // read-aloud call site picks it up unchanged.
-    expect(agentTtsVoice(null)).toBeUndefined();
-    expect(agentTtsVoice({ avatar_audio_url: "https://example.com/voice.mp3" })).toBeUndefined();
+describe("agentTtsOptions", () => {
+  it("gives unvoiced agents no read-aloud mode", () => {
+    expect(agentTtsOptions(null)).toEqual({});
+    expect(agentTtsOptions({ avatar_audio_url: null })).toEqual({});
+  });
+
+  it("threads avatar_audio_url as the clone reference for voiced agents", () => {
+    expect(agentTtsOptions({ avatar_audio_url: "https://example.com/voice.mp3" })).toEqual({
+      referenceAudioUrl: "https://example.com/voice.mp3",
+    });
   });
 });
 

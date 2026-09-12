@@ -5,10 +5,11 @@
  * convention (same shape as voice-read.ts and update-banner.ts). Per agent,
  * not global: voice is an agent attribute, so the switch is too.
  *
- * The thin accessors below are the seam for gating read-aloud behaviour on
- * this switch — call {@link voiceRepliesEnabled} from wherever replies are
- * spoken. That wiring is deliberately not in place yet.
+ * The active-agent controls mirror this into the global read-aloud pref
+ * consumed by the playback path, while preserving per-agent switch state.
  */
+
+import { setReadAloudEnabled } from "./voice-read";
 
 export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -46,4 +47,13 @@ export function setVoiceRepliesEnabled(
   } catch {
     // Unwritable storage degrades to session-only switch state.
   }
+}
+
+export function setVoiceRepliesReadAloudEnabled(
+  agentId: string,
+  enabled: boolean,
+  storage?: StorageLike | null,
+): void {
+  setVoiceRepliesEnabled(agentId, enabled, storage);
+  setReadAloudEnabled(enabled, storage);
 }

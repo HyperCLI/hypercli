@@ -32,6 +32,7 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # build time. Dev builds carry no updater surface.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 # Required by `tauri::generate_context!()` expansion (tauri 2.11).
 serde_json = "1"

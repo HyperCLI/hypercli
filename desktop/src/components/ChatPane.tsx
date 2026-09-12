@@ -6,6 +6,7 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Paperclip,
+  Play,
   Plus,
   Share2,
   Square,
@@ -16,7 +17,8 @@ import type { AgentChat, ChatMessage, MessageAttachment } from "../useAgentChat"
 import { readAttachment } from "../attachments";
 import { insertTranscript } from "../lib/dictation";
 import { readAloud } from "../lib/read-aloud";
-import { readAloudEnabled, setReadAloudEnabled } from "../lib/voice-read";
+import { setReadAloudEnabled } from "../lib/voice-read";
+import { setVoiceRepliesReadAloudEnabled, voiceRepliesEnabled } from "../lib/voice-replies";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { DictationButton } from "./DictationButton";
@@ -46,6 +48,44 @@ function AttachmentGlyph({ attachment }: { attachment: MessageAttachment }) {
     );
   }
   return <Paperclip size={11} />;
+}
+
+function TurnAudioStatus({
+  message,
+  onStop,
+  onReplay,
+}: {
+  message: ChatMessage;
+  onStop: (messageId: string) => void;
+  onReplay: (messageId: string) => void;
+}) {
+  if (message.role !== "assistant" || !message.audioStatus) return null;
+  if (message.audioStatus === "generating") {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[11px] text-text-secondary">
+        <Loader2 size={12} className="animate-spin" />
+        Generating audio…
+      </div>
+    );
+  }
+  if (message.audioStatus === "playing") {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[11px] text-text-secondary">
+        <Loader2 size={12} className="animate-spin" />
+        <span>Audio playing</span>
+        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-text hover:bg-surface-2" onClick={() => onStop(message.id)}>
+          <Square size={10} />
+          Stop
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button type="button" className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-text" onClick={() => onReplay(message.id)}>
+      <Play size={12} />
+      Replay Audio
+    </button>
+  );
 }
 
 function formatTime(ts: number) {
@@ -137,7 +177,9 @@ export function ChatPane({
 }) {
   const persona = usePersona(agent?.id ?? null);
   const [draft, setDraft] = useState("");
-  const [speakReplies, setSpeakReplies] = useState(() => readAloudEnabled());
+  const [speakReplies, setSpeakReplies] = useState(() =>
+    agent && hasAgentVoice(agent) ? voiceRepliesEnabled(agent.id) : false,
+  );
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -186,6 +228,13 @@ export function ChatPane({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [chat.busy]);
+
+  useEffect(() => {
+    if (!agent) return;
+    const enabled = hasAgentVoice(agent) && voiceRepliesEnabled(agent.id);
+    setReadAloudEnabled(enabled);
+    setSpeakReplies(enabled);
+  }, [agent?.id, agent?.avatar_audio_url]);
 
   useEffect(() => {
     if (!plusMenuOpen) return;
@@ -327,9 +376,13 @@ export function ChatPane({
               hasVoice
               enabled={speakReplies}
               onToggle={(next) => {
-                setReadAloudEnabled(next);
+                setVoiceRepliesReadAloudEnabled(agent.id, next);
                 setSpeakReplies(next);
-                if (!next) readAloud.stop();
+                // The speaker button is the authoritative audio-enable
+                // gesture: unlock the WebAudio context inside this click,
+                // before a streamed reply needs it.
+                if (next) void readAloud.preparePlayback();
+                else readAloud.stop();
               }}
             />
           )}
@@ -343,7 +396,7 @@ export function ChatPane({
           <div className="flex items-baseline gap-2 min-w-0">
             <span className="font-semibold text-[13px] truncate">{agent.name}</span>
             {persona.title && (
-              <span className="text-[11px] text-text-secondary truncate">
+              <span className="hidden text-[11px] text-text-secondary truncate min-[768px]:block">
                 {persona.title}
               </span>
             )}
@@ -409,7 +462,7 @@ export function ChatPane({
         }}
         className="flex-1 overflow-y-auto"
       >
-        <div className="mx-auto max-w-[640px] px-5 py-6 space-y-6">
+        <div className="chat-column mx-auto max-w-[640px] px-5 py-6 space-y-6">
           {chat.phase === "connecting" && (
             <div className="flex items-center justify-center gap-2 pt-16 text-text-secondary text-[12px]">
               <Loader2 size={14} className="animate-spin" />
@@ -543,6 +596,7 @@ export function ChatPane({
                     ? <div className="text-[12px] leading-relaxed">{message.text}</div>
                     : <Markdown text={message.text} />)}
                 </div>
+                <TurnAudioStatus message={message} onStop={chat.stopAudio} onReplay={chat.replayAudio} />
               </div>
             </div>
             );
@@ -568,7 +622,7 @@ export function ChatPane({
         </div>
       </div>
 
-      <div className="shrink-0 px-5 pb-4">
+      <div className="chat-composer-wrap shrink-0 px-5 pb-4">
         {activeTrace && (
           <div className="mx-auto mb-2 max-w-[520px] text-[11px] text-text-secondary">
             {activeTrace}

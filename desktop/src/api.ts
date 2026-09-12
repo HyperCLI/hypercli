@@ -13,6 +13,7 @@ import {
 import {
   OpenClawSessionClient,
   type AgentSessionClient,
+  type AgentSessionCreateParams,
   type AgentSessionMessage,
 } from "../../ts-sdk/src/session.ts";
 import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
@@ -29,6 +30,11 @@ import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
 import { classifyConnectionError, clearConnectionIssue, httpStatusOf, reportConnectionError, type ConnectionIssue } from "./lib/connection-errors";
 import { resolveCredentials, usingDevCredentials } from "./lib/credentials";
 import { resolveEndpoints, type Endpoints } from "./lib/endpoints";
+import {
+  agentTtsOptions as selectAgentTtsOptions,
+  hasAgentVoice as selectHasAgentVoice,
+  type ReadAloudOptions,
+} from "./lib/voice-feature-service";
 
 // ---------------------------------------------------------------------------
 // SDK client. All backend HTTP+WS goes through ts-sdk; Rust keeps only
@@ -413,6 +419,10 @@ export function subscribeAgentUpdates(
 export async function setAgentDesktopEnabled(id: string, enabled: boolean): Promise<AgentSummary> {
   const client = await sdk();
   await client.deployments.setEnv(id, "HYPER_DESKTOP_ENABLED", enabled ? "1" : "0");
+  // Chrome's proxy policy is owned by the image, not by this toggle: the
+  // desktop bring-up defaults HYPER_PROXY_HOST to the in-cluster hyper-proxy
+  // (hypercli-agent-images base/desktop.sh), and HYPER_PROXY_HOST stays a
+  // Chrome-side override the app never writes.
   if (enabled) {
     await client.deployments.setRoute(id, "desktop", { port: 3000, auth: true, prefix: "desktop" });
   } else {
@@ -613,6 +623,7 @@ export async function uploadAgentVoice(id: string, file: File): Promise<AgentVoi
       bytes,
       contentType,
     );
+    voiceReferenceCache.clear();
     return { id: result.id ?? id, avatar_audio_url: result.avatar_audio_url ?? null };
   } catch (error) {
     const status = httpStatusOf(error);
@@ -630,6 +641,7 @@ export async function deleteAgentVoice(id: string): Promise<AgentVoiceUploadResu
     const result = await http.delete<{ id: string; avatar_audio_url: string | null }>(
       `/deployments/${id}/avatar-audio`,
     );
+    voiceReferenceCache.clear();
     return { id: result.id ?? id, avatar_audio_url: result.avatar_audio_url ?? null };
   } catch (error) {
     const status = httpStatusOf(error);
@@ -995,6 +1007,17 @@ export async function listRuntimeSessions(id: string): Promise<AcpSessionList> {
   };
 }
 
+/**
+ * Mint a fresh chat session for a runtime-family agent and return its
+ * canonical key. The key is created by the runtime's own session client
+ * (OpenClaw `sessions.create`, Hermes session create) — callers store only
+ * the returned key, never a locally-derived one.
+ */
+export async function createRuntimeSession(id: string, params: AgentSessionCreateParams = {}): Promise<string> {
+  const created = await withRuntimeSession(id, (session) => session.sessionsCreate(params));
+  return created.key;
+}
+
 export async function listAcpSessions(id: string): Promise<AcpSessionList> {
   const lease = await acquireAcpClient(id);
   try {
@@ -1169,25 +1192,60 @@ export async function runtimeChatAbort(id: string, sessionKey?: string, runId?: 
  * disabled speaker button.
  */
 export function hasAgentVoice(agent: Pick<AgentSummary, "avatar_audio_url"> | null | undefined): boolean {
-  return Boolean(agent?.avatar_audio_url?.trim());
+  return selectHasAgentVoice(agent);
 }
 
+export type AgentTtsOptions = ReadAloudOptions;
+
 /**
- * The TTS voice a read-aloud plays in for this agent.
- *
- * Seam, intentionally a no-op today: `VoiceSession.speak()` (ts-sdk
- * voice-session.ts) only accepts a preset voice *name* (`voice?: string`),
- * and the reference-audio path (`speakClone`) wants the audio bytes, not a
- * URL — so `avatar_audio_url` cannot be threaded as a voice reference yet.
- * TODO: return `agent.avatar_audio_url` once the voice API takes a voice
- * reference (or fetch the reference bytes here for speakClone). Every
- * read-aloud call site already passes this through `speechStream`, so wiring
- * the agent's voice becomes a one-line change in this function.
+ * The TTS options read-aloud uses for this agent. The only voice mode is
+ * cloning: a voiced agent reads replies in its own voice (`speakClone` with
+ * the reference bytes behind `avatar_audio_url`); an unvoiced agent gets no
+ * options and the UI renders read-aloud disabled off the same decision. There
+ * is deliberately no preset-voice fallback.
  */
-export function agentTtsVoice(
-  _agent: Pick<AgentSummary, "avatar_audio_url"> | null | undefined,
-): string | undefined {
-  return undefined;
+export function agentTtsOptions(
+  agent: Pick<AgentSummary, "avatar_audio_url"> | null | undefined,
+): AgentTtsOptions {
+  return selectAgentTtsOptions(agent);
+}
+
+const VOICE_REFERENCE_CACHE_MAX = 8;
+
+/**
+ * Reference-audio bytes for clone synthesis, cached by URL.
+ *
+ * Seam decision: the gateway's `GET /agents/deployments/{id}/avatar-audio`
+ * answers a metadata projection (`{id, avatar_audio_url, s3_key}`), not
+ * bytes — there is no gateway byte route to prefer. The `avatar_audio_url`
+ * itself is the sanctioned byte source: a public storage object whose GET is
+ * credential-free and CORS-open at both packaged origins (`tauri://localhost`
+ * and `http://tauri.localhost`, measured). The host is in CSP `connect-src`.
+ * Each upload stores a fresh object under a new URL, so the URL-keyed cache
+ * never serves a superseded voice; upload/delete clear it regardless. A
+ * failed fetch is evicted so the next sentence retries instead of reusing a
+ * rejected promise for the rest of the turn.
+ */
+const voiceReferenceCache = new Map<string, Promise<Uint8Array>>();
+
+export function fetchAgentVoiceReference(url: string): Promise<Uint8Array> {
+  let cached = voiceReferenceCache.get(url);
+  if (!cached) {
+    cached = (async () => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`voice reference fetch failed (${response.status})`);
+      return new Uint8Array(await response.arrayBuffer());
+    })();
+    voiceReferenceCache.set(url, cached);
+    cached.catch(() => {
+      if (voiceReferenceCache.get(url) === cached) voiceReferenceCache.delete(url);
+    });
+    if (voiceReferenceCache.size > VOICE_REFERENCE_CACHE_MAX) {
+      const oldest = voiceReferenceCache.keys().next().value;
+      if (oldest !== undefined && oldest !== url) voiceReferenceCache.delete(oldest);
+    }
+  }
+  return cached;
 }
 
 
@@ -1216,8 +1274,13 @@ const REQUESTED_PCM_METADATA: VoiceAudioMetadata = {
  * (AGENTS.md rule 4) and already present in CSP connect-src — so no HTTP to
  * the backing service and no tauri.conf.json change.
  */
-export async function speechStream(text: string, options: { voice?: string } = {}): Promise<SpeechStream> {
+export async function speechStream(text: string, options: AgentTtsOptions = {}): Promise<SpeechStream> {
   const [creds, ends] = await Promise.all([acpCredentials(), endpoints()]);
+  // Cloning needs the reference bytes up front; fetch (URL-cached) before
+  // dialling so a reference failure never leaves a socket half-open.
+  const refAudio = options.referenceAudioUrl
+    ? await fetchAgentVoiceReference(options.referenceAudioUrl)
+    : undefined;
   const session = new VoiceSession({
     wsUrl: getAgentsWsUrlFromProductBase(ends.apiBase),
     credential: creds.token,
@@ -1225,7 +1288,10 @@ export async function speechStream(text: string, options: { voice?: string } = {
   await session.open();
   const chunks = (async function* () {
     try {
-      for await (const chunk of session.speak({ text, voice: options.voice, format: "pcm", chunks: true })) {
+      const source = refAudio
+        ? session.speakClone({ text, refAudio, format: "pcm", chunks: true })
+        : session.speak({ text, voice: options.voice, format: "pcm", chunks: true });
+      for await (const chunk of source) {
         yield { ...chunk, metadata: { ...REQUESTED_PCM_METADATA, ...chunk.metadata } };
       }
     } finally {

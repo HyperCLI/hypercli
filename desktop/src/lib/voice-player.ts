@@ -3,7 +3,7 @@
  *
  * The desktop CSP has no media-src, so `<audio>`/blob URLs are out
  * (AGENTS.md rules 5-8); chunks are decoded with `decodeAudioData` and
- * scheduled back-to-back on a shared AudioContext instead.
+ * fed into a small playback queue instead.
  *
  * Cancellation: {@link VoicePlayer.speak} supersedes any in-flight playback,
  * and {@link VoicePlayer.stop} silences it. This is the "trail off, then the
@@ -13,42 +13,30 @@
  */
 
 import type { VoiceChunkEvent } from "../../../ts-sdk/src/voice-session.ts";
+import { WebAudioPlaybackQueue, unlockWebAudio, type AudioContextLike, type AudioBufferLike, type WebAudioPlaybackState, type WebAudioUnlockDiagnostic } from "./web-audio-playback";
+
+export type { AudioBufferLike, AudioContextLike, BufferSourceLike, WebAudioUnlockDiagnostic } from "./web-audio-playback";
 
 export type VoicePlayerChunk = Uint8Array | VoiceChunkEvent;
 
-export interface AudioBufferLike {
-  readonly duration: number;
-  getChannelData(channel: number): Float32Array;
-}
-
-/** Structural subset of AudioContext so tests can drive a fake clock. */
-export interface AudioContextLike {
-  readonly currentTime: number;
-  readonly destination: unknown;
-  readonly state?: string;
-  resume?(): Promise<void>;
-  decodeAudioData(data: ArrayBuffer): Promise<{ duration: number }>;
-  createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBufferLike;
-  createBufferSource(): BufferSourceLike;
-}
-
-export interface BufferSourceLike {
-  buffer: { duration: number } | null;
-  connect(destination: unknown): void;
-  start(when?: number): void;
-  stop(): void;
-  onended: ((...args: never[]) => void) | null;
-}
-
 export type AudioContextFactory = () => AudioContextLike;
 
-/** How far ahead of now the next chunk is scheduled, in seconds. */
-const SCHEDULE_LEAD_S = 0.05;
+export interface VoicePlayerDiagnostics {
+  generation: number;
+  playing: boolean;
+  audioContextState?: string;
+  playback: WebAudioPlaybackState;
+  lastUnlock?: WebAudioUnlockDiagnostic;
+  lastError?: unknown;
+}
 
 export class VoicePlayer {
   private ctx: AudioContextLike | null = null;
+  private playback: WebAudioPlaybackQueue | null = null;
   private generation = 0;
-  private readonly sources = new Set<BufferSourceLike>();
+  private queueTail: Promise<void> = Promise.resolve();
+  private lastUnlock: WebAudioUnlockDiagnostic | undefined;
+  private lastError: unknown;
 
   constructor(private readonly createContext: AudioContextFactory = () => new AudioContext()) {}
 
@@ -58,20 +46,50 @@ export class VoicePlayer {
   }
 
   get playing(): boolean {
-    return this.sources.size > 0;
+    return this.playback?.playing ?? false;
+  }
+
+  /** Whether the context exists and was verified `running` (not just resumed). */
+  get unlocked(): boolean {
+    return this.ctx?.state === "running";
+  }
+
+  diagnostics(): VoicePlayerDiagnostics {
+    return {
+      generation: this.generation,
+      playing: this.playing,
+      audioContextState: this.ctx?.state,
+      playback: this.playback?.snapshot() ?? { name: "idle", queued: 0 },
+      lastUnlock: this.lastUnlock,
+      lastError: this.lastError,
+    };
+  }
+
+  /**
+   * Warm/unlock Web Audio while still inside a user gesture. WKWebView in the
+   * packaged app may refuse to start an AudioContext created later, when the
+   * agent reply finally streams back.
+   */
+  async prepare(): Promise<WebAudioUnlockDiagnostic> {
+    let diagnostic: WebAudioUnlockDiagnostic;
+    try {
+      diagnostic = await unlockWebAudio(this.audioContext());
+    } catch (error) {
+      diagnostic = { ok: false, error };
+    }
+    this.lastUnlock = diagnostic;
+    if (!diagnostic.ok) {
+      this.lastError = diagnostic.error;
+      console.error("[hypercli] read-aloud audio unlock failed:", diagnostic.error);
+    }
+    return diagnostic;
   }
 
   /** Silence whatever is playing (or being decoded) right now. */
   stop(): void {
     this.generation += 1;
-    for (const source of this.sources) {
-      try {
-        source.stop();
-      } catch {
-        // Already finished.
-      }
-    }
-    this.sources.clear();
+    this.playback?.stop();
+    this.queueTail = Promise.resolve();
   }
 
   /**
@@ -81,15 +99,17 @@ export class VoicePlayer {
    */
   speak(chunks: AsyncIterable<VoicePlayerChunk>): void {
     const generation = ++this.generation;
-    for (const source of this.sources) {
-      try {
-        source.stop();
-      } catch {
-        // Already finished.
-      }
-    }
-    this.sources.clear();
-    void this.run(generation, chunks);
+    this.playback?.stop();
+    this.queueTail = this.run(generation, chunks);
+  }
+
+  /** Queue chunks after already scheduled playback without cancelling it. */
+  enqueue(chunks: AsyncIterable<VoicePlayerChunk>): void {
+    const generation = this.generation;
+    this.queueTail = this.queueTail.then(
+      () => this.run(generation, chunks),
+      () => this.run(generation, chunks),
+    );
   }
 
   private isCurrent(generation: number): boolean {
@@ -98,6 +118,7 @@ export class VoicePlayer {
 
   private audioContext(): AudioContextLike {
     if (!this.ctx) this.ctx = this.createContext();
+    if (!this.playback) this.playback = new WebAudioPlaybackQueue(this.ctx);
     return this.ctx;
   }
 
@@ -106,39 +127,39 @@ export class VoicePlayer {
       const ctx = this.audioContext();
       if (ctx.state === "suspended" && ctx.resume) {
         // Autoplay policies leave a context suspended until a gesture; the
-        // decode/schedule path is unaffected, so resume is best-effort.
-        ctx.resume().catch(() => {});
+        // decode/schedule path is unaffected, so wait before scheduling.
+        await ctx.resume();
       }
-      let nextStart = 0;
+      if (ctx.state && ctx.state !== "running") {
+        // A suspended context accepts scheduled sources silently and never
+        // ends them — the UI would claim "playing" forever. Refuse instead;
+        // the caller surfaces the Replay state.
+        throw new Error(`Audio context is ${ctx.state}, refusing to schedule playback`);
+      }
       for await (const chunk of chunks) {
         if (!this.isCurrent(generation)) return;
         let buffer: { duration: number };
         try {
-          buffer = isPcmChunk(chunk)
-            ? pcmChunkToBuffer(ctx, chunk)
-            : await decodeEncodedChunk(ctx, chunkAudio(chunk));
+          buffer = isPcmChunk(chunk) ? pcmBytesToBuffer(ctx, chunk.audio, chunk.metadata) : await decodeEncodedChunk(ctx, chunkAudio(chunk));
         } catch (error) {
           // One undecodable chunk must not kill the rest of the reply.
+          this.lastError = error;
           console.error("[hypercli] read-aloud chunk decode failed:", error);
           continue;
         }
         if (!this.isCurrent(generation)) return;
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        const startAt = Math.max(nextStart, ctx.currentTime + SCHEDULE_LEAD_S);
-        source.start(startAt);
-        nextStart = startAt + buffer.duration;
-        this.sources.add(source);
-        source.onended = () => this.sources.delete(source);
+        this.playback?.enqueue(buffer as AudioBufferLike);
       }
     } catch (error) {
       if (this.isCurrent(generation)) {
+        this.lastError = error;
         console.error("[hypercli] read-aloud playback failed:", error);
       }
     }
   }
 }
+
+type VoiceAudioMetadata = NonNullable<VoiceChunkEvent["metadata"]>;
 
 function chunkAudio(chunk: VoicePlayerChunk): Uint8Array {
   return chunk instanceof Uint8Array ? chunk : chunk.audio;
@@ -157,20 +178,19 @@ async function decodeEncodedChunk(ctx: AudioContextLike, audio: Uint8Array): Pro
   return ctx.decodeAudioData(audio.slice().buffer as ArrayBuffer);
 }
 
-function pcmChunkToBuffer(ctx: AudioContextLike, chunk: VoiceChunkEvent): AudioBufferLike {
-  const sampleRate = chunk.metadata?.sampleRate ?? 24_000;
-  const channels = chunk.metadata?.channels ?? 1;
-  const sampleFormat = chunk.metadata?.sampleFormat ?? "s16le";
+function pcmBytesToBuffer(ctx: AudioContextLike, audio: Uint8Array, metadata?: VoiceAudioMetadata): AudioBufferLike {
+  const sampleRate = metadata?.sampleRate ?? 24_000;
+  const channels = metadata?.channels ?? 1;
+  const sampleFormat = metadata?.sampleFormat ?? "s16le";
   if (sampleFormat.toLowerCase() !== "s16le") {
     throw new Error(`Unsupported PCM sample format: ${sampleFormat}`);
   }
-  if ((chunk.metadata?.bytesPerSample ?? 2) !== 2) {
-    throw new Error(`Unsupported PCM bytes per sample: ${chunk.metadata?.bytesPerSample}`);
+  if ((metadata?.bytesPerSample ?? 2) !== 2) {
+    throw new Error(`Unsupported PCM bytes per sample: ${metadata?.bytesPerSample}`);
   }
   if (!Number.isInteger(channels) || channels < 1) {
     throw new Error(`Unsupported PCM channel count: ${channels}`);
   }
-  const audio = chunk.audio;
   const sampleBytes = 2;
   const frameBytes = channels * sampleBytes;
   if (audio.byteLength % frameBytes !== 0) {
@@ -190,3 +210,33 @@ function pcmChunkToBuffer(ctx: AudioContextLike, chunk: VoiceChunkEvent): AudioB
 
 /** Exactly one chat is on screen, so one player is the cancellation authority. */
 export const readAloudPlayer = new VoicePlayer();
+
+/** Minimal event-target surface so tests can drive a fake. */
+export interface WarmupTarget {
+  addEventListener(type: string, listener: () => void, options?: { capture?: boolean }): void;
+  removeEventListener(type: string, listener: () => void, options?: { capture?: boolean }): void;
+}
+
+/**
+ * Belt-and-suspenders Web Audio unlock. The header speaker button is the
+ * authoritative enable gesture, but any capture-phase pointerdown/click may
+ * also be the gesture the webview accepts — so every one of them re-attempts
+ * the resume until the context is verified running (no-op after). Returns an
+ * uninstaller.
+ */
+export function installVoicePlaybackWarmup(
+  player: VoicePlayer = readAloudPlayer,
+  target: WarmupTarget | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!target) return () => {};
+  const warm = () => {
+    if (player.unlocked) return;
+    void player.prepare();
+  };
+  target.addEventListener("pointerdown", warm, { capture: true });
+  target.addEventListener("click", warm, { capture: true });
+  return () => {
+    target.removeEventListener("pointerdown", warm, { capture: true });
+    target.removeEventListener("click", warm, { capture: true });
+  };
+}

@@ -154,9 +154,14 @@ ts-sdk in Node is gone ([AGENTS.md](AGENTS.md) rule 10 is the standing rule).
   on one `AudioContext` (CSP has no `media-src`, so `<audio>`/blob playback is
   out). A new read supersedes the old one. The voice chain is: upload reference
   audio in the agent identity modals → the backend stores `avatar_audio_url` →
-  `hasAgentVoice(agent)` renders the header speaker button. Note the seam in
-  `src/api.ts:agentTtsVoice()`: the reference URL is not yet threaded as the TTS
-  voice, so read-aloud still plays the voice socket's default preset.
+  `hasAgentVoice(agent)` renders the header speaker button, and read-aloud
+  speaks in that voice: `agentTtsOptions()` threads the URL through and
+  `speechStream()` fetches the reference bytes (URL-cached) and clones with
+  `speakClone`. Cloning is the only read-aloud voice mode — no preset fallback;
+  an agent without reference audio has no read-aloud mode at all. Reference
+  bytes come from the storage URL itself (public, CORS-open at both packaged
+  origins, host in CSP `connect-src`): the gateway's
+  `GET /agents/deployments/{id}/avatar-audio` serves only metadata, not bytes.
 - **Update banner** (`src/components/UpdateBanner.tsx`, `src/lib/update-banner.ts`,
   `src/useAppUpdate.ts`): the updater check runs once at startup (plus an
   explicit "Check now" in Settings → Updates); a newer release shows an

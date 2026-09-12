@@ -6,7 +6,7 @@ import {
   type SessionNotification,
 } from "../../ts-sdk/src/acp.ts";
 import type { AcpLease } from "../../ts-sdk/src/acp-pool.ts";
-import { acquireAcpClient, agentTtsVoice, type AgentSummary, type RuntimeChatEvent } from "./api";
+import { acquireAcpClient, agentTtsOptions, type AgentSummary, type RuntimeChatEvent } from "./api";
 import { RUNNING, runtimeFamily } from "./agent-utils";
 import { ActivityTrace, type ActivityEntry } from "./activity-trace";
 import { usageUpdateText } from "./usage";
@@ -27,6 +27,8 @@ import {
 import { abortRuntimeChat, runtimeChatCapability, runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
 import { runtimeStreamSink, type RuntimeStreamSink } from "./runtime-stream";
 import { readAloud } from "./lib/read-aloud";
+import { readAloudEnabled } from "./lib/voice-read";
+import { notifyTurnComplete } from "./lib/turn-notifications";
 
 export type { ChatMessage, MessageAttachment, PlanEntry, ToolCallEntry } from "./chat-trace";
 export type { ActivityEntry } from "./activity-trace";
@@ -99,6 +101,14 @@ function runtimeToolActivityTitle(event: RuntimeChatEvent) {
   return typeof title === "string" && title ? title : "Tool call";
 }
 
+export function runtimeReadAloudDelta(previous: string, text: string, replace?: boolean): { next: string; speak: string; replacePending: boolean } {
+  if (!replace) return { next: previous + text, speak: text, replacePending: false };
+  if (text.startsWith(previous)) return { next: text, speak: text.slice(previous.length), replacePending: false };
+  // A non-prefix replacement is a visual correction/snapshot, not an audio cue.
+  // Restarting here replays already-spoken text and sounds like stutter.
+  return { next: text, speak: "", replacePending: true };
+}
+
 export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const agentId = agent?.id ?? null;
   const runtime = agent?.runtime ?? null;
@@ -134,14 +144,63 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const pendingUserEchoRef = useRef<string | null>(null);
   /** The in-flight runtime send, so Stop can abort the run it is streaming. */
   const runtimeSendRef = useRef<{ agentId: string; sink: RuntimeStreamSink } | null>(null);
-  /**
-   * Accumulated agent reply text for the in-flight turn (read-aloud source).
-   * Reset on each send; ACP chunks append in `fold`, runtime content events in
-   * `foldRuntimeEvent`.
-   */
-  const turnReplyRef = useRef("");
   /** A cancelled turn is never read aloud, even if its stream ends cleanly. */
   const suppressReadRef = useRef(false);
+  /** Synchronous guard; `busy` updates after render and can miss double-submit. */
+  const sendInFlightRef = useRef(false);
+  /** Runtime replace=true events are usually cumulative; speak only new suffixes. */
+  const runtimeReadTextRef = useRef("");
+  const turnNotificationTextRef = useRef("");
+  const activeAudioMessageIdRef = useRef<string | null>(null);
+  const audioPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const setMessageAudioStatus = useCallback((messageId: string | null, audioStatus: ChatMessage["audioStatus"] | undefined) => {
+    if (!messageId) return;
+    setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, audioStatus } : message)));
+  }, []);
+
+  const stopAudioPoll = useCallback(() => {
+    if (audioPollRef.current === null) return;
+    clearInterval(audioPollRef.current);
+    audioPollRef.current = null;
+  }, []);
+
+  const pollAudioReplayable = useCallback((messageId: string) => {
+    stopAudioPoll();
+    audioPollRef.current = setInterval(() => {
+      const diagnostics = readAloud.diagnostics();
+      // A suspended context never ends its sources: settle on Replay rather
+      // than spin on "playing" while nothing can sound.
+      const stuckSuspended = diagnostics.audioContextState === "suspended";
+      if (!stuckSuspended && (diagnostics.state !== "idle" || diagnostics.playerPlaying)) return;
+      stopAudioPoll();
+      setMessageAudioStatus(messageId, "replayable");
+      if (activeAudioMessageIdRef.current === messageId) activeAudioMessageIdRef.current = null;
+    }, 250);
+  }, [setMessageAudioStatus, stopAudioPoll]);
+
+  const finishAudioTurn = useCallback(() => {
+    readAloud.finishTurn();
+    const messageId = activeAudioMessageIdRef.current;
+    if (!messageId) return;
+    if (readAloud.diagnostics().audioContextState === "suspended") {
+      // The unlock gesture never got the context running — fail visibly to
+      // Replay instead of claiming playback while audio cannot start.
+      setMessageAudioStatus(messageId, "replayable");
+      activeAudioMessageIdRef.current = null;
+      return;
+    }
+    setMessageAudioStatus(messageId, "playing");
+    pollAudioReplayable(messageId);
+  }, [pollAudioReplayable, setMessageAudioStatus]);
+
+  const interruptAudioTurn = useCallback(() => {
+    const messageId = activeAudioMessageIdRef.current;
+    stopAudioPoll();
+    readAloud.stop();
+    setMessageAudioStatus(messageId, messageId ? "replayable" : undefined);
+    activeAudioMessageIdRef.current = null;
+  }, [setMessageAudioStatus, stopAudioPoll]);
 
   useEffect(() => {
     latestAgentRef.current = agent;
@@ -150,8 +209,11 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   // Switching agents or unmounting the pane silences any in-flight read; the
   // next chat reads for itself.
   useEffect(() => {
-    return () => readAloud.stop();
-  }, [agentId]);
+    return () => {
+      stopAudioPoll();
+      readAloud.stop();
+    };
+  }, [agentId, stopAudioPoll]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -198,6 +260,14 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       return;
     }
 
+    if (kind === "agent_message_chunk") {
+      const text = textOf(update.content);
+      if (text) {
+        turnNotificationTextRef.current += text;
+        readAloud.pushText(text);
+      }
+    }
+
     setMessages((prev) => {
       const next = [...prev];
       const openAssistant = (forceNew = false): ChatMessage => {
@@ -217,6 +287,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       };
       const replaceLast = (message: ChatMessage) => {
         next[next.length - 1] = message;
+      };
+
+      const withAudioGenerating = (message: ChatMessage): ChatMessage => {
+        if (message.role !== "assistant" || message.audioStatus || readAloud.diagnostics().state !== "streaming") return message;
+        activeAudioMessageIdRef.current = message.id;
+        return { ...message, audioStatus: "generating" };
       };
 
       if (kind === "user_message_chunk") {
@@ -269,13 +345,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       }
       if (kind === "agent_message_chunk") {
         const text = textOf(update.content);
-        if (text) turnReplyRef.current += text;
         const image = imageMarkdownOf(update.content);
         const appended = text || (image ? `\n\n${image}\n\n` : "");
         const last = next[next.length - 1];
         const newSegment = last?.role === "assistant" && last.text.trim().length > 0 && last.toolCalls.length > 0;
         const current = openAssistant(newSegment);
-        replaceLast({ ...current, text: current.text + appended });
+        replaceLast(withAudioGenerating({ ...current, text: current.text + appended }));
         if (text) setActivity(activityTraceRef.current.appendReplyText(text));
         return next;
       }
@@ -389,8 +464,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     if ((event.type === "content" || event.type === "commentary") && event.text) {
       setActivity(activityTraceRef.current.appendReplyText(event.text ?? ""));
     }
-    if ((event.type === "content" || event.type === "commentary") && event.text) {
-      turnReplyRef.current = event.replace === true ? event.text : turnReplyRef.current + event.text;
+    if (event.type === "content" && event.text) {
+      const delta = runtimeReadAloudDelta(runtimeReadTextRef.current, event.text, event.replace === true);
+      runtimeReadTextRef.current = delta.next;
+      turnNotificationTextRef.current = delta.next;
+      if (delta.replacePending) readAloud.replacePending(event.text);
+      if (delta.speak) readAloud.pushText(delta.speak);
     }
     if (event.type === "thinking" || event.type === "reasoning") {
       const text = event.text ?? "";
@@ -420,7 +499,16 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     setMessages((prev) => {
       const result = traceFolderRef.current.foldRuntimeEvent(prev, event);
       if (result.lastAction) setLastAction(result.lastAction);
-      return result.messages;
+      if (event.type !== "content" || !event.text || readAloud.diagnostics().state !== "streaming") return result.messages;
+      const next = [...result.messages];
+      for (let i = next.length - 1; i >= 0; i -= 1) {
+        const message = next[i];
+        if (message.role !== "assistant" || message.audioStatus) continue;
+        activeAudioMessageIdRef.current = message.id;
+        next[i] = { ...message, audioStatus: "generating" };
+        break;
+      }
+      return next;
     });
   }, []);
 
@@ -467,7 +555,11 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       setConnected(true);
       setLastAction(null);
       setMountState("READY");
-      setActiveSessionId(selectedRuntimeSessionKey ?? null);
+      // The *effective* session: an explicit selection when one is stored,
+      // else the runtime's default — exactly what history/send below use.
+      // ACP always reports its concrete session id; report here too so the
+      // sidebar and the picker highlight what is actually mounted.
+      setActiveSessionId(selectedRuntimeSessionKey ?? "main");
       runtimeChatHistory(currentAgent, selectedRuntimeSessionKey)
         .then((history) => {
           if (generationRef.current !== generation) return;
@@ -625,6 +717,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     async (text: string, attachments: MessageAttachment[] = []) => {
       const prompt = text.trim();
       if ((!prompt && attachments.length === 0) || !agentId) return;
+      if (sendInFlightRef.current) return;
+      sendInFlightRef.current = true;
       // The mount generation at send time. While the stream is in flight the
       // agent can change underneath us; events and post-stream writes from a
       // superseded mount must not land in its successor's transcript (the ACP
@@ -645,14 +739,19 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         },
       ]);
       pendingUserEchoRef.current = prompt;
-      // A new turn supersedes any in-flight read: the old reply trails off and
-      // the next one reads fresh.
-      turnReplyRef.current = "";
+      const currentAgent = latestAgentRef.current;
+      // A new turn supersedes any in-flight read. Text is spoken as complete
+      // sentences stream in, with ordered playback owned by read-aloud.ts.
       suppressReadRef.current = false;
-      readAloud.stop();
+      runtimeReadTextRef.current = "";
+      turnNotificationTextRef.current = "";
+      // Launch-muted: a plain send with voice off must not touch the audio
+      // context at all. The speaker button (or Voice replies switch) is the
+      // authoritative enable gesture that unlocks it.
+      if (readAloudEnabled()) await readAloud.preparePlayback();
+      readAloud.startTurn(agentTtsOptions(currentAgent));
       setBusy(true);
       try {
-        const currentAgent = latestAgentRef.current;
         if (supportsRuntimeSession && currentAgent) {
           if (attachments.length) throw new Error("File attachments need an ACP-capable agent; this runtime only accepts text.");
           if (mountState !== "MOUNTED") throw new Error("Chat is still mounting. Try again in a moment.");
@@ -668,10 +767,15 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           setActivity(activityTraceRef.current.settleTurn("completed"));
           setMessages((prev) => settleOpenToolCalls(prev, "completed"));
           if (!suppressReadRef.current) {
-            void readAloud.readIfEnabled(turnReplyRef.current, {
-              voice: agentTtsVoice(latestAgentRef.current),
-            });
-          }
+            finishAudioTurn();
+            if (currentAgent) {
+              void notifyTurnComplete({
+                agentId: currentAgent.id,
+                agentName: currentAgent.name,
+                message: turnNotificationTextRef.current,
+              });
+            }
+          } else interruptAudioTurn();
           return;
         }
         const client = clientRef.current;
@@ -706,12 +810,20 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         // Only a clean end_turn is read aloud — cancelled / refused / truncated
         // turns stay silent.
         if (response.stopReason === "end_turn" && !suppressReadRef.current) {
-          void readAloud.readIfEnabled(turnReplyRef.current, {
-            voice: agentTtsVoice(latestAgentRef.current),
-          });
-        }
+          finishAudioTurn();
+          const agentForNotification = latestAgentRef.current;
+          if (agentForNotification) {
+            void notifyTurnComplete({
+              agentId: agentForNotification.id,
+              agentName: agentForNotification.name,
+              message: turnNotificationTextRef.current,
+            });
+          }
+        } else interruptAudioTurn();
       } catch (e) {
         pendingUserEchoRef.current = null;
+        turnNotificationTextRef.current = "";
+        interruptAudioTurn();
         if (!isCurrent()) return;
         const message = e instanceof Error ? e.message : String(e);
         setMessages((prev) => [
@@ -730,16 +842,20 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         activityTraceRef.current.settleTurn("interrupted");
         setActivity(activityTraceRef.current.addNote({ kind: "note", title: message }));
       } finally {
+        sendInFlightRef.current = false;
         setBusy(false);
       }
     },
-    [agentId, foldRuntimeEvent, mountState, supportsRuntimeSession],
+    [agentId, finishAudioTurn, foldRuntimeEvent, interruptAudioTurn, mountState, supportsRuntimeSession],
   );
 
   const cancel = useCallback(async () => {
     // A cancelled turn is never read aloud, and any read already speaking stops.
     suppressReadRef.current = true;
-    readAloud.stop();
+    sendInFlightRef.current = false;
+    runtimeReadTextRef.current = "";
+    turnNotificationTextRef.current = "";
+    interruptAudioTurn();
     // A runtime send has no clientRef session to cancel; abort the run the
     // stream was tracking (run id included when it reported one) and clear
     // busy now rather than waiting for the stream to notice.
@@ -754,9 +870,36 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       await clientRef.current.cancel(sessionId).catch(() => {});
     }
     setActivity(activityTraceRef.current.settleTurn("interrupted"));
-  }, []);
+  }, [interruptAudioTurn]);
 
   const retry = useCallback(() => setRetryNonce((n) => n + 1), []);
+
+  const stopAudio = useCallback((messageId: string) => {
+    stopAudioPoll();
+    readAloud.stop();
+    setMessageAudioStatus(messageId, "replayable");
+    if (activeAudioMessageIdRef.current === messageId) activeAudioMessageIdRef.current = null;
+  }, [setMessageAudioStatus, stopAudioPoll]);
+
+  const replayAudio = useCallback((messageId: string) => {
+    const message = messagesRef.current.find((entry) => entry.id === messageId);
+    if (!message || message.role !== "assistant" || !message.text.trim()) return;
+    void (async () => {
+      stopAudioPoll();
+      readAloud.stop();
+      const prepared = await readAloud.preparePlayback();
+      if (!prepared.ok) {
+        // No verified running context: stay in Replay state — never claim
+        // playback while suspended.
+        setMessageAudioStatus(messageId, "replayable");
+        return;
+      }
+      activeAudioMessageIdRef.current = messageId;
+      setMessageAudioStatus(messageId, "playing");
+      await readAloud.replay(message.text, agentTtsOptions(latestAgentRef.current));
+      pollAudioReplayable(messageId);
+    })();
+  }, [pollAudioReplayable, setMessageAudioStatus, stopAudioPoll]);
 
   return {
     phase,
@@ -773,6 +916,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     send,
     cancel,
     retry,
+    stopAudio,
+    replayAudio,
   };
 }
 

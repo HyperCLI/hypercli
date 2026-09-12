@@ -19,7 +19,8 @@ import {
 import { agentDesktopFileToken, agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, claimAgentShellSocket, hasAgentVoice, releaseAgentShellSocket, routinesDelete, routinesList, routinesUpdate, setAgentLaunchOverrides, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
 import { watchDesktopFileTokenRefresh } from "./desktop-file-token-refresh";
 import { AvatarPickerModal, IdentityModalShell, VoicePickerModal } from "./IdentityPickerModals";
-import { setVoiceRepliesEnabled, voiceRepliesEnabled } from "../lib/voice-replies";
+import { readAloud } from "../lib/read-aloud";
+import { setVoiceRepliesReadAloudEnabled, voiceRepliesEnabled } from "../lib/voice-replies";
 import { describeRoutine } from "../schedule";
 import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
@@ -1356,8 +1357,12 @@ function SettingsTab({
           disabled={!voiceSet}
           title={voiceSet ? undefined : "Upload audio to have your agent speak"}
           onClick={() => {
-            setVoiceRepliesEnabled(agent.id, !voiceReplies);
-            setVoiceReplies(!voiceReplies);
+            const next = !voiceReplies;
+            setVoiceRepliesReadAloudEnabled(agent.id, next);
+            setVoiceReplies(next);
+            // An explicit enable is a user gesture: unlock Web Audio now.
+            if (next) void readAloud.preparePlayback();
+            else readAloud.stop();
           }}
           className={`shrink-0 w-8 h-[18px] rounded-full relative transition-colors disabled:opacity-40 ${
             voiceReplies ? "bg-accent" : "bg-border-strong"

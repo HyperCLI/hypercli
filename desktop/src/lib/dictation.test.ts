@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DICTATION_MIC_ISSUE_ID,
+  DICTATION_RECORDER_ISSUE_ID,
+  DICTATION_SESSION_ISSUE_ID,
+  DICTATION_WS_OPEN_ISSUE_ID,
   DictationMachine,
   MIC_PERMISSION_ISSUE_ID,
   insertTranscript,
@@ -11,6 +15,7 @@ import {
   subscribeConnectionIssues,
   type ConnectionIssue,
 } from "./connection-errors";
+import { wrapDictationFailure } from "./dictation-service";
 
 // dictation.ts constructs its singleton from ../api; the machine under test
 // takes deps explicitly, so the factory is never called — but the import must
@@ -249,13 +254,25 @@ describe("DictationMachine", () => {
   });
 
   it("session open failure reports a named error and returns to idle", async () => {
-    const { machine } = makeMachine({ sessionError: new Error("socket refused") });
+    const { machine } = makeMachine({ sessionError: wrapDictationFailure("ws-open", new Error("socket refused")) });
     machine.toggle();
     await waitFor(() => expect(machine.state.name).toBe("idle"));
     const latest = issues.at(-1) ?? [];
-    const issue = latest.find((candidate) => candidate.title === "Voice dictation failed");
+    const issue = latest.find((candidate) => candidate.id === DICTATION_WS_OPEN_ISSUE_ID);
     expect(issue).toBeTruthy();
     expect(issue?.detail).toContain("socket refused");
+    expect(issue?.hint).toContain("WebSocket handshake");
+    machine.dispose();
+  });
+
+  it("non-permission mic startup failure reports a mic diagnostic", async () => {
+    const { machine } = makeMachine({ captureError: wrapDictationFailure("mic", new Error("no input device")) });
+    machine.toggle();
+    await waitFor(() => expect(machine.state.name).toBe("idle"));
+    const latest = issues.at(-1) ?? [];
+    const issue = latest.find((candidate) => candidate.id === DICTATION_MIC_ISSUE_ID);
+    expect(issue?.title).toBe("Microphone couldn't start");
+    expect(issue?.detail).toContain("no input device");
     machine.dispose();
   });
 
@@ -274,7 +291,9 @@ describe("DictationMachine", () => {
     machine.toggle();
     await waitFor(() => expect(machine.state.name).toBe("idle"));
     const latest = issues.at(-1) ?? [];
-    expect(latest.some((candidate) => candidate.title === "Voice dictation failed")).toBe(true);
+    const issue = latest.find((candidate) => candidate.id === DICTATION_SESSION_ISSUE_ID);
+    expect(issue?.title).toBe("Voice dictation failed");
+    expect(issue?.detail).toContain("whisper exploded");
     expect(transcripts).toEqual([]);
     expect(session.calls).toContain("close");
     machine.dispose();
@@ -314,7 +333,9 @@ describe("DictationMachine", () => {
     capture!.fail(new Error("mic unplugged"));
     await waitFor(() => expect(machine.state.name).toBe("idle"));
     const latest = issues.at(-1) ?? [];
-    expect(latest.some((candidate) => candidate.title === "Voice dictation failed")).toBe(true);
+    const issue = latest.find((candidate) => candidate.id === DICTATION_RECORDER_ISSUE_ID);
+    expect(issue?.title).toBe("Microphone recording failed");
+    expect(issue?.detail).toContain("mic unplugged");
     expect(session.calls).toContain("close");
     machine.dispose();
   });

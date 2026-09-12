@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { agentDesktopFileToken, agentDesktopUrl, resetSdkClient } from "./api";
+import { agentDesktopFileToken, agentDesktopUrl, resetSdkClient, setAgentDesktopEnabled } from "./api";
 
 const fetchCalls = vi.hoisted(() => ({ fn: vi.fn() }));
 
 const deployments = vi.hoisted(() => ({
   desktopUrl: vi.fn(),
+  setEnv: vi.fn(),
+  setRoute: vi.fn(),
+  removeRoute: vi.fn(),
+  get: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -50,6 +54,18 @@ beforeEach(() => {
   deployments.desktopUrl.mockResolvedValue({
     url: "https://desktop-agent-1.hypercli.app/_jwt_auth?jwt=jwt-xyz&redirect=vnc_lite.html",
     expiresAt: new Date("2026-09-12T11:00:00Z"),
+  });
+  deployments.setEnv.mockReset();
+  deployments.setRoute.mockReset();
+  deployments.removeRoute.mockReset();
+  deployments.get.mockReset();
+  deployments.get.mockResolvedValue({
+    id: "agent-1",
+    name: "claw",
+    runtime: "openclaw",
+    state: "STOPPED",
+    launchEpoch: 1,
+    launchConfig: { env: { FOO: "1" } },
   });
 });
 
@@ -110,5 +126,24 @@ describe("agentDesktopUrl", () => {
 
     await expect(agentDesktopUrl("agent-1")).rejects.toThrow();
     expect(deployments.desktopUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("setAgentDesktopEnabled", () => {
+  it("enabling writes HYPER_DESKTOP_ENABLED and the desktop route, never the Chrome-owned HYPER_PROXY_HOST", async () => {
+    const agent = await setAgentDesktopEnabled("agent-1", true);
+
+    expect(deployments.setEnv.mock.calls).toEqual([["agent-1", "HYPER_DESKTOP_ENABLED", "1"]]);
+    expect(deployments.setRoute).toHaveBeenCalledWith("agent-1", "desktop", { port: 3000, auth: true, prefix: "desktop" });
+    expect(deployments.removeRoute).not.toHaveBeenCalled();
+    expect(agent.id).toBe("agent-1");
+  });
+
+  it("disabling writes HYPER_DESKTOP_ENABLED=0 and removes the desktop route", async () => {
+    await setAgentDesktopEnabled("agent-1", false);
+
+    expect(deployments.setEnv.mock.calls).toEqual([["agent-1", "HYPER_DESKTOP_ENABLED", "0"]]);
+    expect(deployments.removeRoute).toHaveBeenCalledWith("agent-1", "desktop");
+    expect(deployments.setRoute).not.toHaveBeenCalled();
   });
 });
