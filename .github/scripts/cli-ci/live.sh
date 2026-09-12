@@ -323,6 +323,9 @@ case "${GROUP}/${SUB}" in
     [ -n "${ID}" ] || { echo "create returned no id after 6 attempts"; cat /tmp/create.err >&2; exit 1; }
     echo "created ${NAME} id=${ID}"
 
+    # create leaves agents STOPPED; wait's STOPPED-when-expecting-RUNNING is
+    # terminal, so start first (mirrors the lifecycle case above).
+    "${CLI[@]}" agents start "${ID}" --dev
     "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
 
     step "chat 1/2 (fresh session)"
