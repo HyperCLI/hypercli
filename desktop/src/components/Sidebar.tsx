@@ -241,31 +241,32 @@ export function Sidebar({
               />
             ))}
           </div>
-          <div className="px-2.5 pb-2">
-            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1">
-              <Search size={11} className="shrink-0 text-text-secondary" />
-              <input
-                value={sessionQuery}
-                onChange={(event) => setSessionQuery(event.target.value)}
-                placeholder="Search sessions"
-                spellCheck={false}
-                className="w-full bg-transparent text-[11px] outline-none placeholder:text-text-secondary"
-              />
-            </div>
-          </div>
         </>
       )}
       {sessionAgentKey === "" && <div className="flex-1" />}
 
       <div className="sidebar-footer">
-        <button
-          onClick={onNewAgent}
-          className="ui-icon-button sidebar-new-agent-button"
-        >
-          <Plus size={14} />
-          New agent
-        </button>
-        <div className="sidebar-footer-actions">
+        {sessionAgentKey !== "" && (
+          <div className="sidebar-footer-search flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1">
+            <Search size={11} className="shrink-0 text-text-secondary" />
+            <input
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="Search sessions"
+              spellCheck={false}
+              className="w-full bg-transparent text-[11px] outline-none placeholder:text-text-secondary"
+            />
+          </div>
+        )}
+        <div className="sidebar-footer-main">
+          <button
+            onClick={onNewAgent}
+            className="ui-icon-button sidebar-new-agent-button"
+          >
+            <Plus size={14} />
+            New agent
+          </button>
+          <div className="sidebar-footer-actions">
           <button
             onClick={onOpenTutorial}
             className="ui-icon-button-sm"
@@ -297,6 +298,7 @@ export function Sidebar({
               <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
             )}
           </button>
+          </div>
         </div>
       </div>
 
@@ -485,13 +487,14 @@ function AgentRow({
   const transitional = TRANSITIONAL.has(agent.state);
   const archived = agent.state === "ARCHIVED";
   // Every running family with addressable chat sessions — ACP over the
-  // bridge, OpenClaw/Hermes over their canonical session client — gets the
-  // session picker on click, never a bare select (that was the ACP-only gap
-  // that left runtime agents with no new-session modal).
+  // bridge, OpenClaw/Hermes over their canonical session client — also opens
+  // the session picker on click, but the agent is still selected either way:
+  // dismissing the picker without a session must never leave the agent
+  // unselected (the user needs the agent active to reach its settings).
   const pickSession = running && canPickChatSession(agent);
   const selectAgent = () => {
+    onSelect(agent.id);
     if (pickSession) onOpenSessionPicker(agent.id);
-    else onSelect(agent.id);
   };
   const subtitle =
     transitional || agent.state === "FAILED"

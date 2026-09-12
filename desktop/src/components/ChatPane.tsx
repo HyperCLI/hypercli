@@ -4,10 +4,10 @@ import {
   Image,
   Loader2,
   PanelLeftOpen,
-  PanelRightOpen,
   Paperclip,
   Play,
   Plus,
+  Settings,
   Share2,
   Square,
   X,
@@ -260,7 +260,7 @@ export function ChatPane({
       title="Show context panel (⌘⇧B)"
       className="ui-icon-button-sm"
     >
-      <PanelRightOpen size={15} />
+      <Settings size={15} />
     </button>
   );
 

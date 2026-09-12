@@ -10,7 +10,7 @@ import {
 import { createRuntimeSession, subscribeAgentUpdates, type AgentSummary } from "./api";
 import { TRANSITIONAL, runtimeFamily } from "./agent-utils";
 import type { ManagedAgentRuntime } from "../../ts-sdk/src/agents.ts";
-import { reportConnectionError, type ConnectionIssue } from "./lib/connection-errors";
+import { reportConnectionError, reportConnectionIssue, classifyOriginLockFailure, isOriginLockError, type ConnectionIssue } from "./lib/connection-errors";
 import { assertNever } from "./lib/machine";
 import { useMachine, usePooledMachine, usePooledMachines } from "./lib/use-machine";
 import {
@@ -456,7 +456,11 @@ export default function App() {
           setSessionNonce((n) => n + 1);
         })
         .catch((error) => {
-          reportConnectionError(error, { operation: "New session", agentId });
+          if (isOriginLockError(error)) {
+            reportConnectionIssue(classifyOriginLockFailure({ operation: "New session", agentId }));
+          } else {
+            reportConnectionError(error, { operation: "New session", agentId });
+          }
         });
     } else {
       localStorage.removeItem(`acp-session:${agentId}`);

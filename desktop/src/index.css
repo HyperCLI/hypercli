@@ -246,7 +246,11 @@ textarea:focus-visible {
   }
 
   .sidebar-footer {
-    @apply border-t border-border px-2.5 py-2.5 flex items-center justify-between gap-2;
+    @apply border-t border-border px-2.5 py-2.5 flex flex-col gap-2;
+  }
+
+  .sidebar-footer-main {
+    @apply flex items-center justify-between gap-2;
   }
 
   .sidebar-new-agent-button {
@@ -259,6 +263,10 @@ textarea:focus-visible {
 
   @container (max-width: 190px) {
     .sidebar-footer {
+      @apply items-stretch;
+    }
+
+    .sidebar-footer-main {
       @apply flex-col items-stretch;
     }
 
@@ -500,5 +508,49 @@ textarea:focus-visible {
     .chat-composer-wrap {
       padding-inline: 12px;
     }
+
+    /* Touch targets: every icon button gets a comfortably tappable box. */
+    .ui-icon-button-sm {
+      @apply p-2.5;
+    }
+
+    .ui-icon-button {
+      @apply p-2.5;
+    }
+
+    /* Sidebar: larger rows, uniform text. The footer is a fixed two-row
+       stack — search on top, New agent + actions below. */
+    .sidebar-footer {
+      @apply gap-2.5;
+    }
+
+    .sidebar-footer-main {
+      @apply flex flex-row items-center justify-between;
+    }
+
+    .sidebar-new-agent-button {
+      @apply px-3 py-2.5 text-[13px];
+    }
+
+    .sidebar-footer-search {
+      @apply px-2.5 py-2;
+    }
+
+    .sidebar-footer-search input {
+      @apply text-[13px];
+    }
+
+    .agent-row {
+      @apply px-2.5 py-2.5;
+    }
+
+    .side-caption {
+      font-size: 10px;
+    }
+
+    /* Text parity across panels: 10px footnotes -> 12px minimum. */
+    .text-\[9px\] { font-size: 12px; }
+    .text-\[10px\] { font-size: 12px; }
+    .text-\[11px\] { font-size: 12px; }
   }
 }

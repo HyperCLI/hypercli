@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { originLockStatus } from "./origin-lock";
 import { APIError } from "../../../ts-sdk/src/errors.ts";
-import { classifyConnectionError, httpStatusOf } from "./connection-errors";
+import { classifyConnectionError, classifyOriginLockFailure, httpStatusOf, isOriginLockError } from "./connection-errors";
 
 const GATEWAY = "https://api.hypercli.com/agents";
 
@@ -174,6 +174,39 @@ describe("control-UI origin lock", () => {
   it("treats an agent with no lock as open", () => {
     expect(originLockStatus({ env: {} }, "http://tauri.localhost").authorized).toBe(true);
     expect(originLockStatus(null, "http://tauri.localhost").authorized).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A live gateway 1008 origin refusal must classify as an origin lock.
+// ---------------------------------------------------------------------------
+
+describe("origin-lock failure classification", () => {
+  const gatewayClose = (reason: string) =>
+    new Error(`gateway closed (1008): ${reason}`);
+
+  it("recognises the wire close reason", () => {
+    expect(
+      isOriginLockError(
+        gatewayClose("origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)"),
+      ),
+    ).toBe(true);
+    expect(isOriginLockError(gatewayClose("origin missing or invalid"))).toBe(false);
+    expect(isOriginLockError(gatewayClose("pairing required"))).toBe(false);
+    expect(isOriginLockError(new Error("something else entirely"))).toBe(false);
+  });
+
+  it("offers a restart against the named agent", () => {
+    const issue = classifyOriginLockFailure({ operation: "New session", agentId: "agent-1" });
+    expect(issue.kind).toBe("origin-lock");
+    expect(issue.action).toEqual({ label: "Restart agent", kind: "restart-agent", agentId: "agent-1" });
+    expect(issue.agentId).toBe("agent-1");
+  });
+
+  it("stays actionable without an agent id", () => {
+    const issue = classifyOriginLockFailure({ operation: "New session" });
+    expect(issue.kind).toBe("origin-lock");
+    expect(issue.action).toBeUndefined();
   });
 });
 

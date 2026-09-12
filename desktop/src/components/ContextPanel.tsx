@@ -221,21 +221,47 @@ function DesktopSection({ agent }: { agent: AgentSummary }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
 
   useEffect(() => {
     setUrl(null);
     setError(null);
     setLoading(false);
+    setExpiresAt(null);
   }, [agent.id, agent.state, hasRoute]);
 
   useEffect(() => {
     if (!available || url || loading || error) return;
     setLoading(true);
     agentDesktopUrl(agent.id)
-      .then((result) => setUrl(result.url))
+      .then((result) => {
+        setUrl(result.url);
+        setExpiresAt(result.expires_at ?? null);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [available, url, loading, error, agent.id]);
+
+  // The viewer JWT lasts one hour (backend purpose=agent_access). Refresh it
+  // silently before lapse so an open desktop never degrades into a "Token
+  // expired" page. A failed refresh keeps the current frame; the iframe's own
+  // error surface reports if the old token actually lapses.
+  useEffect(() => {
+    if (!url || !expiresAt) return;
+    const expiry = Date.parse(expiresAt);
+    if (Number.isNaN(expiry)) return;
+    const delay = expiry - Date.now() - 60_000;
+    if (delay <= 0) return;
+    const timer = setTimeout(() => {
+      agentDesktopUrl(agent.id)
+        .then((result) => {
+          setUrl((current) => (current === result.url ? current : result.url));
+          setExpiresAt(result.expires_at ?? null);
+        })
+        .catch(() => {});
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [url, expiresAt, agent.id]);
 
   useEffect(() => {
     if (!url) return;

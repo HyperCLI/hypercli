@@ -154,6 +154,37 @@ export function classifyConnectionError(error: unknown, context: ClassifyContext
 }
 
 /**
+ * A gateway close 1008 with an origin reason. The agent's allow-list was
+ * written at (a previous) start, so this app can only be authorised by
+ * restarting the agent onto the current launch env. Same family as the
+ * proactive origin-lock check in ErrorBar, but surfaced from a live failure.
+ */
+export function isOriginLockError(error: unknown): boolean {
+  const message = messageOf(error);
+  return (
+    message.includes("1008") &&
+    (/origin not allowed/i.test(message) || /CONTROL_UI_ORIGIN_NOT_ALLOWED/i.test(message))
+  );
+}
+
+export function classifyOriginLockFailure(context: ClassifyContext): ConnectionIssue {
+  return {
+    id: `origin-lock-failure:${context.agentId ?? "unknown"}`,
+    kind: "origin-lock",
+    title: "This app isn't authorised to control this agent",
+    detail:
+      `${context.operation} was refused by the agent's gateway: its allow-list of control origins ` +
+      "was written when the agent last started and does not include this app.",
+    hint: "Restarting the agent re-authorises it for this app. Anything running inside the agent keeps going.",
+    agentId: context.agentId ?? null,
+    at: Date.now(),
+    action: context.agentId
+      ? { label: "Restart agent", kind: "restart-agent", agentId: context.agentId }
+      : undefined,
+  };
+}
+
+/**
  * A WebSocket that never opened. Browsers give no reason here either — the
  * `error` event carries nothing — so the cause is inferred from the target.
  */
