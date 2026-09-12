@@ -26,8 +26,8 @@ The v1 command tree is deliberately small:
 - `hyper configure`: write the local product API key to
   `~/.hypercli/config`.
 - `hyper skills`: inventory and print the skills bundled with this CLI.
-- Groups: `hyper agents`, `hyper jobs`, `hyper flow`, `hyper files`,
-  `hyper voice`.
+- Groups: `hyper agents`, `hyper routines`, `hyper jobs`, `hyper flow`,
+  `hyper files`, `hyper voice`, `hyper websearch`.
 
 Every command accepts `--json`; `--dev` selects the dev environment, and
 mutations accept `--dry-run` for preflight validation. Do not select

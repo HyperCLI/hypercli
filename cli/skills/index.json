@@ -11,10 +11,12 @@
         "hyper configure",
         "hyper skills",
         "hyper agents",
+        "hyper routines",
         "hyper jobs",
         "hyper flow",
         "hyper files",
         "hyper voice",
+        "hyper websearch",
         "hyper agents wait <agent> --state <state>"
       ]
     },

@@ -31,29 +31,23 @@ API, and Workspace `enrich` only builds a payload.
 
 ## Platform files
 
-Complete commands: `upload`, `upload-url`, `get`, and `delete`.
+Complete commands: `upload`, `get`, and `delete`.
 
 ```bash
 hyper files upload ./reference.png
-hyper files upload ./reference.png --no-wait
-hyper files upload-url https://example.com/reference.png
 hyper files get <file-id>
-hyper files delete <file-id>
+hyper files delete <file-id> --yes
 ```
 
-`upload` requires a readable local file. `upload-url` asks the platform to
-fetch the URL; do not submit private-network targets, expiring secret-bearing
-URLs, or a third party's content without permission. Both wait for processing
-by default and print the ID, filename/state, and selected metadata. With
-`--no-wait`, "Queued" or `processing` is not ready for downstream consumption.
+`upload` requires a readable local file and returns only once processing makes
+the upload usable in renders. All three accept the CLI-wide `--json` machine
+output flag; under `--json`, `delete` skips the confirmation prompt like
+`--yes`. Capture the returned ID carefully. `get` shows state/error/URL. A
+returned URL may be scoped or time-limited; do not publish it.
 
-The current file commands have no JSON output flag. Capture the returned ID
-carefully rather than scraping an unrelated URL or status line. `get` shows
-state/error/URL. A returned URL may be scoped or time-limited; do not publish
-it.
-
-`delete` asks for confirmation unless `--yes`; deletion can break pending or
-reproducible renders. Resolve the exact ID and check its use before approval.
+`delete` asks for confirmation unless `--yes` (or `--json`); deletion can break
+pending or reproducible renders. Resolve the exact ID and check its use before
+approval.
 
 ## Workspace command map
 

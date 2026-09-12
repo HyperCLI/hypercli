@@ -2,6 +2,10 @@
 
 Command-line interface for HyperCLI jobs, flows, x402 pay-per-use launches, and HyperCLI checkout tooling.
 
+> The Python CLI is end-of-life — see [EOL.md](./EOL.md). The replacement is the
+> TypeScript CLI in [`../cli`](../cli) (`@hypercli.com/cli`, bin `hyper`). Do not
+> add features here.
+
 ## Install
 
 ```bash

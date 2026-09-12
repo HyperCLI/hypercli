@@ -131,6 +131,10 @@ await client.user.deleteProfileImage();
 const dailyByAgent = await client.agent.agentUsage(1);
 ```
 
+Agent payloads also carry per-agent identity media: `Agent.avatarUrl` and, when
+a voice reference has been uploaded, `Agent.avatarAudioUrl` (hydrated from the
+backend's `avatar_audio_url`, mirroring `avatarUrl`; `null` when unset).
+
 Plan IDs remain open strings so future and historical IDs keep parsing.
 `plan.canonicalId` recognizes the current `solo`, `team`, and `pro` IDs.
 Use the HyperClaw entitlement summary—not Orchestra `auth_me`—for plan access:
@@ -257,6 +261,39 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 coalesced; refresh REST for authority.
 
 Use `createOpenClawPro(...)` or `startOpenClawPro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
+
+For a running desktop-enabled agent, `client.deployments.desktopUrl(id)` returns
+a JWT-signed URL that logs straight into the noVNC page: it builds
+`<base>/_jwt_auth?jwt=…&redirect=vnc_lite.html`. `vnc_lite.html` is the default
+redirect target (immediate RFB handoff, no connect screen); the builder accepts
+any relative page via `BrowserDesktopUrlOptions.redirect`, and
+`BrowserDesktopUrlOptions.resize` (default `'scale'`) renders as `scale=true`
+for the lite pages (`vnc_lite.html`, `vnc_auto.html`) and as `resize=…` for
+full-UI pages such as `vnc.html`. An already-minted token can be applied with
+`agent.browserDesktopUrl(token, options)`; both resolve to `null`/`throw` when
+the agent has no desktop route or is not running.
+
+```typescript
+const { url, expiresAt } = await client.deployments.desktopUrl(agent.id);
+// e.g. https://desktop-<agent>.hypercli.app/_jwt_auth?jwt=…&redirect=vnc_lite.html%3Fscale%3Dtrue
+```
+
+### OpenClaw control-UI allowed origins
+
+An OpenClaw agent records the browser origins allowed to drive its control UI
+in the `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN` launch env. Stored values predate a
+single canonical writer, so the value exists in three shapes (space-separated,
+comma-separated, JSON array). The helpers in
+`@hypercli.com/sdk/openclaw/control-ui-origin` are pure parsing/normalization:
+`normalizeControlUiOrigin()`, `parseControlUiAllowedOrigins()`, and
+`mergeControlUiAllowedOrigins()`. Allowed schemes are `http:`, `https:`, and
+`tauri:` (the packaged desktop shell); anything else, or a URL carrying
+credentials, is dropped rather than reflected into the allow-list. The policy
+is **union, never clobber**: `createOpenClawPro` and `startOpenClaw` merge the
+stored value, caller-supplied origins, and the browser's own
+`location.origin` (when present) so that starting an agent from one app never
+evicts the others. A Node caller passing no origins has nothing to add, so a
+plain CLI `start` stays patch-free.
 
 Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 

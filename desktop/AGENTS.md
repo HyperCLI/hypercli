@@ -17,9 +17,10 @@ guardrails for features live in [`FEATURES.md`](./FEATURES.md); visual rules in
 All backend HTTP and WebSocket traffic runs **in the webview**, through `ts-sdk`,
 from an origin that is `http://localhost:1420` in dev and `tauri://localhost` /
 `http://tauri.localhost` when packaged. Rust is credentials plus OS integration
-and nothing else. `npm run dev`'s Vite server contains a Node-side bridge that
-the shipped app does not have, so anything that works only because it ran in Node
-will fail in the packaged app, silently, with `TypeError: Failed to fetch`.
+and nothing else. The `npm run dev` Vite server proxies REST same-origin, which
+the shipped app does not have, so anything that only works through that origin
+difference will fail in the packaged app, silently, with
+`TypeError: Failed to fetch`.
 
 ---
 
@@ -147,7 +148,7 @@ webview fails:
 | `curl https://api.agents.hypercli.com/...` | works | no |
 | a Node script / `.mjs` probe | works | no |
 | the `hypercli` CLI | works | no |
-| the Vite dev bridge (`npm run dev`) | works | no |
+| the Vite dev proxy (`npm run dev`) | same-origin, works | no |
 | **the packaged webview** | **fails** | **yes** |
 
 CORS is a *browser* rule. Nothing in that list except the packaged webview is a
@@ -175,8 +176,9 @@ it is CSP-gated — see rule 6.
 | `/agents/ws*` | served | the WS bridge |
 | `/ws` | **404** | the bridge is *not* at the gateway root |
 
-**Why it looks fine in dev:** the Vite dev bridge (and, historically, the Rust
-proxy) ran those calls in Node, where CORS does not exist.
+**Why it looks fine in dev:** dev REST rides the same-origin Vite proxy (and,
+historically, the Node dev bridge and the Rust proxy), where CORS does not
+exist.
 
 Watch for: `ts-sdk`'s `resolveHyperAgentBaseUrl()` maps `api.hypercli.com` →
 `https://api.agents.hypercli.com/v1`, discarding the base URL the caller passed.
@@ -243,8 +245,10 @@ Node probe is already handled — it throws, is caught, and returns `null`.
 
 Neither does `npm run typecheck`, `npm run build`, or `npm test`. None of them
 exercise the packaged origin, CORS, CSP, Tauri IPC, or the browser bundle at
-runtime. `vite build` *succeeds* today while externalizing five Node builtins
-into modules that throw on access.
+runtime. `vite build` *succeeds* today while externalizing the not-aliased
+Node builtins (`dns`, `node:fs/promises`) into modules that throw on access —
+the aliased ones (`fs`, `path`, `node:crypto`) resolve to real shims under
+`src/shims/`.
 
 **How to actually verify a network-touching change:**
 
@@ -258,9 +262,10 @@ into modules that throw on access.
 4. If you cannot run a packaged build, say so in the PR rather than claiming the
    change is verified.
 
-Note: `npm run tauri dev` against the **production** API does not work at all —
-`api.hypercli.com` does not allow `http://localhost:1420`. Point
-`~/.hypercli/config` at `https://api.dev.hypercli.com/agents` for a dev loop.
+Note: dev works against the **production** API because REST rides the same-origin
+Vite proxy (`/api` prefix), so the `http://localhost:1420` origin never reaches
+the gateway. Point `~/.hypercli/config` at
+`https://api.dev.hypercli.com/agents` to exercise the dev backend instead.
 
 ### 10. Do not rebuild the dev bridge.
 
@@ -281,10 +286,10 @@ that answers an API call differently in dev is the bug, not the fix.
 ### 11. Do not add new `hasTauriInvoke()` / `__TAURI_INTERNALS__` capability gates.
 
 **Why:** every such gate is a feature that exists in exactly one of the two modes,
-and the shipped mode is the one that loses. `runtime-client.ts:44` and `:63`
-currently return `!hasTauriInvoke()` for `canChat`, which disables OpenClaw and
-Hermes chat in **every packaged build** — a leftover from when streaming only
-existed in the Node bridge. Detecting the shell is fine for cosmetics
+and the shipped mode is the one that loses. For a while `runtime-client.ts`
+returned `!hasTauriInvoke()` for `canChat`, which disabled OpenClaw and Hermes
+chat in **every packaged build** — a leftover from when streaming only existed in
+the Node bridge. Detecting the shell is fine for cosmetics
 (`main.tsx` adds a `tauri-shell` / `browser-shell` class); it is not fine for
 deciding whether a feature exists.
 
@@ -302,10 +307,13 @@ whatever window happened to press Start.
 
 ### 13. Assume `ts-sdk` is Node-first. Check every new call for Node builtins.
 
-`vite build` externalizes `fs`, `path`, `dns`, `node:crypto`, and
-`node:fs/promises` from SDK sources into `__vite-browser-external`, which throws
-on any property access. The build only **warns**. If a new SDK call reaches one of
-those paths, the packaged app throws at runtime and dev does not.
+`vite.config.ts` aliases the bare `fs`, `path`, and `node:crypto` specifiers to
+real shims under `src/shims/`. It deliberately does **not** alias the
+`node:`-prefixed or remaining bare imports — `node:fs/promises`
+(`ts-sdk/src/agents.ts`) and `dns` (`ts-sdk/src/jobs.ts`) still externalize into
+`__vite-browser-external`, which throws on any property access. The build only
+**warns**. If a new SDK call reaches one of those paths, the packaged app throws
+at runtime and dev does not.
 
 Before adding an SDK call, grep the implementation for those imports and confirm
 the path you hit is guarded (e.g. `randomHexToken` prefers

@@ -2,8 +2,9 @@
 
 A Tauri 2 desktop client for the HyperCLI agent platform. It lists your agents,
 starts/stops them, chats with them (ACP, OpenClaw, Hermes), and gives you a
-shell, live logs, a file browser, a remote desktop view, scheduled jobs
-(routines), plan and usage panels.
+shell, live logs, a file browser, a remote desktop view, voice dictation and
+read-aloud replies, scheduled jobs (routines), plan and usage panels, and an
+in-app update banner backed by the Tauri auto-updater.
 
 - Design spec: [`SPEC.md`](./SPEC.md)
 - Feature guardrails: [`FEATURES.md`](./FEATURES.md)
@@ -32,10 +33,10 @@ Three pieces, with a deliberately thin native layer:
 │      │                                                          │
 │      └── Tauri IPC (invoke) ─────────────────┐                  │
 │                                              ▼                  │
-│  Rust (src-tauri/src/lib.rs, ~140 lines)                        │
+│  Rust (src-tauri/src/lib.rs, ~300 lines)                        │
 │    auth_status · save_api_key · logout · acp_credentials        │
-│    is_auto_update_supported                                     │
-│    + single-instance, opener, updater plugins                   │
+│    start_login · mint_api_key · is_auto_update_supported        │
+│    + single-instance, deep-link, opener, updater plugins        │
 │                                                                 │
 │  Rust does NOT proxy the API. It reads/writes ~/.hypercli/config│
 │  and hands the credential to the webview.                       │
@@ -64,7 +65,7 @@ source, base-URL policy, transport choice, snake_case wire shapes the desktop
 components expect — is built here, in the app's own sources, wrapping the SDK.
 Do not push desktop policy back into `ts-sdk/`.
 
-> **Planned.** `src/api.ts` is currently one 666-line file that mixes client
+> **Planned.** `src/api.ts` is one ~1200-line file that mixes client
 > construction, URL derivation, transport selection, and DTO mapping. The
 > intended shape is a small `src/lib/` layer (client factory + URL policy +
 > transport policy) with thin per-domain modules on top. Until that lands,
@@ -81,15 +82,19 @@ dependencies.
 Consequences you must know about:
 
 - Editing `ts-sdk/src/**` changes this app immediately, with no rebuild.
-- `tsconfig.json` sets `"exclude": ["../ts-sdk"]`, so `npm run typecheck` does
-  **not** type-check SDK sources — only the parts your imports touch.
-- The SDK is a Node-first library. Vite externalizes its Node builtins for the
-  browser bundle. `npm run build` prints these today and still succeeds:
-  `fs` and `path` (`ts-sdk/src/files.ts`), `dns` (`ts-sdk/src/jobs.ts`),
-  `node:crypto` and `node:fs/promises` (`ts-sdk/src/agents.ts`). They resolve to
-  `__vite-browser-external`, which throws on **any** property access. Every one
-  of those code paths is currently guarded or unused by this app, but a new SDK
-  call that reaches one is a packaged-only crash that the build only warns about.
+- `tsconfig.json` sets `"exclude": ["../ts-sdk"]`, which only filters the
+  `include` glob: SDK files reached through an import are still pulled into
+  the program and type-checked by `npm run typecheck` (see
+  [AGENTS.md](AGENTS.md) rule 14). What typecheck does **not** catch is an SDK
+  function being Node-only at runtime.
+- The SDK is a Node-first library. `vite.config.ts` aliases the bare `fs`,
+  `path`, and `node:crypto` specifiers to real browser shims under
+  `src/shims/`, so those imports behave the same in dev and packaged. The
+  remaining Node-only paths are dynamic imports the aliases deliberately do
+  not touch: `dns` (`ts-sdk/src/jobs.ts`) and `node:fs/promises`
+  (`ts-sdk/src/agents.ts`), which Vite externalizes for the browser bundle.
+  Those code paths are currently guarded or unused by this app, but a new SDK
+  call that reaches one is a packaged-only crash.
 - `vite.config.ts` aliases the `ws` package to `src/ws-browser-shim.ts` so the
   SDK's `NodeWebSocket ?? globalThis.WebSocket` selection falls through to the
   browser's native `WebSocket`.
@@ -112,35 +117,81 @@ npm run build          # tsc && vite build  -> dist/, consumed by Tauri
 npm test               # vitest (pure logic: schedule, usage, traces)
 ```
 
-### Why `npm run dev` alone is not enough
+### Plain browser dev vs the Tauri window
 
-`npm run dev` starts Vite on `http://localhost:1420` in your browser. The app
-gets its credential from the Tauri command `acp_credentials`, and `src/api.ts`
-calls `invoke()` unconditionally (`src/api.ts:1`, `src/api.ts:172`). Outside a
-Tauri window there is no `__TAURI_INTERNALS__`, so that throws and the app never
-signs in. Use `npm run tauri dev`.
+`npm run dev` starts Vite on `http://localhost:1420` in your browser. Outside a
+Tauri window there is no `__TAURI_INTERNALS__`, so credential resolution falls
+back to the env vars `vite.config.ts` injects at serve time
+(`__HYPER_DEV_API_KEY__` / `__HYPER_DEV_API_BASE__`, built from
+`HYPER_API_KEY`/`HYPERCLI_API_KEY` and `HYPER_API_BASE`; see
+`src/lib/credentials.ts`). With no injected key the app reports a missing
+credential and signs out. Authoritative verification still means a packaged
+build — see [AGENTS.md](AGENTS.md) rule 9.
 
-`vite.config.ts` still contains a ~700-line dev-server bridge (`devBridge()`,
-serving `/__desktop_ng/invoke`, `/__desktop_ng/stream`, `/__desktop_ng/shell`,
-`/__desktop_ng/logs`) that runs ts-sdk **in Node**, server-side. It exists for
-the pre-migration frontend, which POSTed every call to `/__desktop_ng/invoke`.
+`vite.config.ts` is a ~100-line plain pass-through proxy: the browser calls its
+own origin under `/api/*` and Vite forwards upstream with the upstream's own
+`Origin` header, which removes the dev-origin CORS gap instead of re-implementing
+anything. The old ~700-line `devBridge()` that answered API calls by running
+ts-sdk in Node is gone ([AGENTS.md](AGENTS.md) rule 10 is the standing rule).
 
-> **Planned (removal).** The current `src/api.ts` no longer calls the bridge at
-> all. The bridge is dead code that still boots on every `vite` run and still
-> imports ts-sdk. It should be deleted. Until it is, do not "fix" a bug by
-> editing the bridge — the packaged app does not run it.
+### Shipped feature notes
+
+- **Push-to-talk mic dictation** (`src/lib/dictation.ts`, `src/lib/mic-capture.ts`,
+  `src/components/DictationButton.tsx`): a composer mic button streams
+  MediaRecorder-encoded audio (opus-in-webm on Chromium, `audio/mp4` on
+  WKWebView) as base64 frames over the agents `/ws/voice/transcribe` socket and
+  splices only `transcript.final` into the draft at the caret; Esc discards. The
+  socket protocol carries no container indicator — the worker identifies the
+  container from the buffered bytes. Packaged macOS builds declare
+  `NSMicrophoneUsageDescription` in `src-tauri/Info.plist` so the mic prompt can
+  appear, and WKWebView needs macOS 13.3+ for `getUserMedia`; the machine
+  (`idle/starting/recording/transcribing`) owns mic + socket lifecycle, denial
+  surfaces on the error bar as a `permission` issue, and the button hides itself
+  on webviews without `getUserMedia`/`MediaRecorder` support.
+- **Read-aloud replies** (`src/lib/read-aloud.ts`, `src/lib/voice-player.ts`):
+  `speechStream()` opens a request-scoped voice socket (`/ws/voice`) asking for
+  PCM (24 kHz mono s16le), and the player schedules Web Audio chunks back-to-back
+  on one `AudioContext` (CSP has no `media-src`, so `<audio>`/blob playback is
+  out). A new read supersedes the old one. The voice chain is: upload reference
+  audio in the agent identity modals → the backend stores `avatar_audio_url` →
+  `hasAgentVoice(agent)` renders the header speaker button. Note the seam in
+  `src/api.ts:agentTtsVoice()`: the reference URL is not yet threaded as the TTS
+  voice, so read-aloud still plays the voice socket's default preset.
+- **Update banner** (`src/components/UpdateBanner.tsx`, `src/lib/update-banner.ts`,
+  `src/useAppUpdate.ts`): the updater check runs once at startup (plus an
+  explicit "Check now" in Settings → Updates); a newer release shows an
+  accent-toned info card on the shared error-bar surface. Dismissal is persisted
+  per version under the `desktop-ng-*` localStorage convention — a later, newer
+  release re-shows the banner. "Update and restart" downloads, installs, and
+  relaunches via the Tauri updater plugin.
+- **Agent desktop view**: the iframe loads the SDK-derived signed URL
+  (`client.deployments.desktopUrl()`), which defaults the noVNC target to the
+  immediate-connect `vnc_lite.html` page with `scale=true` (see
+  `ts-sdk/src/agents.ts`; `vnc.html` and other redirects stay selectable via the
+  builder's `redirect` option).
+- **Desktop minted keys and agent files**: the Rust shell mints machine keys with
+  `agents:*`, `files:*`, `models:*`, and `user:self` scopes
+  (`src-tauri/src/lib.rs`). Sign-ins from before the `files:*` grant get a
+  hidden 404 from the files API; `src/api.ts` translates that into an explicit
+  "sign in again to mint a file-enabled desktop key" message — signing out and
+  back in is the migration.
+- **Avatar/voice identity modals** (`src/components/IdentityPickerModals.tsx`)
+  accept drag-and-drop files in addition to the file picker; the composer also
+  accepts dropped files as attachments.
 
 ### Dev, packaged, and the API base
 
 Which API host you talk to comes from `~/.hypercli/config` (`discover_agents_api_base()`
 in the Rust SDK), surfaced to the webview as `AcpCredentials.api_base` and passed
-to the SDK as `agentsApiBaseUrl` (`src/api.ts:35-39`).
+to the SDK as `agentsApiBaseUrl` (`src/api.ts`).
 
-**`npm run tauri dev` against the production API does not work.** The dev origin
-is `http://localhost:1420`, and `https://api.hypercli.com` does not include that
-origin in its CORS allowlist. For a working dev loop, point your config at the
-dev API base (`https://api.dev.hypercli.com/agents`), which does allow
-`http://localhost:1420`.
+The dev origin `http://localhost:1420` is not on the gateway's CORS allowlist, so
+in dev the REST base is **same-origin** and Vite proxies it upstream under the
+`/api` prefix (`src/lib/endpoints.ts`, `vite.config.ts`) — CORS drops out of the
+picture entirely and the production API works from a dev window. WebSockets are
+never proxied: they dial the real host directly in both modes. To exercise a dev
+backend instead of prod, point your config at
+`https://api.dev.hypercli.com/agents`.
 
 ---
 
@@ -199,7 +250,7 @@ path you mean to call.
 This is the most-repeated mistake in this codebase, and it is repeated in good
 faith: `api.agents.hypercli.com` is a real, healthy, reachable host, and some of
 its routes are browser-reachable. `curl` against it works. A Node probe works.
-The CLI works. The Vite dev bridge works. None of those are browsers, and CORS is
+The CLI works. The Vite dev proxy works. None of those are browsers, and CORS is
 a browser rule — so for a route that lacks it, every check a developer
 instinctively runs passes, and the single context that fails is the packaged
 webview, which is the last thing anyone tests. "I verified the host responds" is
@@ -235,7 +286,7 @@ backend hands you; do not rewrite it.
 
 The ACP chat socket is dialed at `defaultHyperAcpWsUrl(api_base)` =
 `wss://api.agents.hypercli.com/ws`, with `agent_id` and `token` as query
-parameters (`src/api.ts:531-537`).
+parameters (`acpConnectTarget` in `src/api.ts`).
 
 ### CSP (`src-tauri/tauri.conf.json`)
 
@@ -245,7 +296,8 @@ connect-src ipc: http://ipc.localhost
   https://api.hypercli.com  https://api.dev.hypercli.com
   https://api.agents.hypercli.com  https://api.agents.dev.hypercli.com
   wss://api.hypercli.com    wss://api.dev.hypercli.com
-  wss://api.agents.hypercli.com    wss://api.agents.dev.hypercli.com;
+  wss://api.agents.hypercli.com    wss://api.agents.dev.hypercli.com
+  https://*.hypercli.app  wss://*.hypercli.app;
 img-src 'self' data: blob: https:;
 style-src 'self' 'unsafe-inline';
 font-src 'self' data:;
@@ -259,17 +311,18 @@ There is no `script-src`, so scripts fall back to `default-src 'self'` and
 `(0, eval)('require')` inside a `try`/`catch`; it fails safely, but it does emit
 a CSP violation in the packaged console. That is expected noise, not a bug.
 
-#### Known CSP gaps
+#### Agent-scoped hosts
 
 Agent-scoped traffic goes to the agent's own Cloudflare-proxied hostname,
-`<agent>.hypercli.app`, which is **not** in `connect-src`:
+`<agent>.hypercli.app`:
 
 - **Agent files** (`filesList`, `fileRead`, `fileWriteBytes`) fetch
-  `https://<agent>.hypercli.app/_reef/...` (`ts-sdk/src/agents.ts:4644-4670`).
-  Blocked in the packaged build. CORS at that edge for the packaged origin is
-  also unverified — adding the CSP entry is necessary but may not be sufficient.
-- **OpenClaw / Hermes gateway chat** dials `wss://<agent>.hypercli.app`
-  (`ts-sdk/src/agents.ts:3518-3520`). Blocked in the packaged build.
+  `https://<agent>.hypercli.app/_reef/...`. Covered by
+  `https://*.hypercli.app` in `connect-src` (added when the files panel
+  shipped). CORS at that edge for the packaged origin is still unverified —
+  CSP alone never implies the host answers our origin.
+- **OpenClaw / Hermes gateway chat** dials `wss://<agent>.hypercli.app`,
+  covered by `wss://*.hypercli.app` in `connect-src`.
 
 `frame-src https://*.hypercli.app` already covers the remote-desktop iframe and
 the `blob:` file previews.
@@ -280,7 +333,7 @@ the `blob:` file previews.
   `connect-src` grant permission for HTTP calls that can never succeed (no CORS).
   Leaving them in implies those hosts are a supported HTTP target. They are not.
 - `wss://api.hypercli.com` / `wss://api.dev.hypercli.com` only backstop
-  `agentsBridgeWsBase()` (`src/api.ts:498`, used at `src/api.ts:539-548`), which
+  `agentsBridgeWsBase()` (used by `agentLogsUrl` in `src/api.ts`), which
   produces `wss://api.hypercli.com/ws`. That path is **404 on the gateway** — the
   real bridge is `/agents/ws*`. The fallback is only reached when a logs token
   omits `ws_url`, and when it is reached it fails.
@@ -291,13 +344,12 @@ the `blob:` file previews.
 
 | Thing | Dev | Packaged |
 | --- | --- | --- |
-| Credential source | Tauri IPC (`tauri dev`) / broken (plain `vite`) | Tauri IPC |
-| API host reachable | `api.dev.hypercli.com` only (CORS) | `api.hypercli.com` |
-| `vite.config.ts` dev bridge | boots, unused | absent |
+| Credential source | Tauri IPC, or the injected `__HYPER_DEV_API_KEY__`/`__HYPER_DEV_API_BASE__` fallback in a plain browser tab (`src/lib/credentials.ts`) | Tauri IPC |
+| REST path | same-origin under `/api`, proxied upstream by Vite | direct to the gateway |
 | OpenClaw / Hermes chat | enabled | enabled — both use the SDK's canonical session clients (`runtime-client.ts`) |
-| Agent files panel | works | blocked by CSP (`*.hypercli.app` missing) |
+| Agent files panel | works | CSP-covered (`*.hypercli.app` in `connect-src`); CORS at that edge for packaged origins still unverified |
 | Auto-updater | plugin compiled out | active in release builds |
-| `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN` baked into a started agent | `http://localhost:1420` | `http://tauri.localhost` / `tauri://localhost` (`src/api.ts:227`) |
+| `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN` on a started agent | union-merged with the stored set, never replaces it | same — the app passes every legit origin (`http://tauri.localhost`, `tauri://localhost`, `http://localhost:1420`) and the SDK merges them into the agent's stored list |
 
 OpenClaw chat runs over the SDK's pooled gateway connections; Hermes chat over
 its HTTP/SSE session client. Both are transport-identical in dev and packaged —
@@ -323,6 +375,16 @@ packaged build before calling either done.
   AppImage; `is_auto_update_supported` detects that via `$APPIMAGE`.
 - The updater's own network traffic runs in Rust (`reqwest`), so it is **not**
   governed by the webview CSP.
+- `.github/workflows/release-desktop.yml` builds macOS as a **single universal
+  leg**: one `darwin-universal` matrix entry on `macos-15` builds with
+  `--target universal-apple-darwin` (both Rust targets installed; the tauri CLI
+  lipos the arches into one fat `.app`), which is then codesigned, notarized,
+  and stapled once and rebuilt into a single updater archive
+  `HyperCLI_<version>_universal.app.tar.gz`. The rolling `latest.json` keeps
+  `darwin-aarch64`, `darwin-x86_64`, and `darwin-universal` keys — installed
+  clients request their own arch key — but all three resolve to that same
+  universal archive + signature, which the updater extracts wholesale
+  regardless of client arch.
 - CI (`.github/workflows/desktop-ci.yml`) runs `cargo fmt/clippy/test` and, for
   the frontend, `npm run typecheck && npm run build`. It does **not** run
   `npm test` and does **not** exercise a packaged binary.
