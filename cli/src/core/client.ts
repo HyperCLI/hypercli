@@ -19,21 +19,19 @@ import {
   getApiUrl,
 } from '@hypercli.com/sdk';
 
-export function createClient(dev: boolean): HyperCLI {
-  return new HyperCLI({
-    apiKey: getApiKey(),
-    agentApiKey: getAgentApiKey(),
-    apiUrl: getApiUrl(),
-    agentsApiBaseUrl: getAgentsApiBaseUrl(dev),
-    agentDev: dev,
-  });
-}
-
 /** Lazily-built singleton for CommandContext.client(). */
 export function lazyClient(dev: boolean): () => Promise<HyperCLI> {
   let cached: HyperCLI | undefined;
   return async () => {
-    if (!cached) cached = createClient(dev);
+    if (!cached) {
+      cached = new HyperCLI({
+        apiKey: getApiKey(),
+        agentApiKey: getAgentApiKey(),
+        apiUrl: getApiUrl(),
+        agentsApiBaseUrl: getAgentsApiBaseUrl(dev),
+        agentDev: dev,
+      });
+    }
     return cached;
   };
 }

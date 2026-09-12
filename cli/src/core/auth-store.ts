@@ -129,20 +129,6 @@ export function writeAuthStore(store: AuthStoreFile, path = authStorePath()): vo
   }
 }
 
-/** Merge one agent's entry read-modify-write style. */
-export function updateAuthStoreAgent(
-  agentId: string,
-  patch: AuthStoreAgentEntry,
-  path = authStorePath(),
-): AuthStoreFile {
-  const store = readAuthStore(path);
-  const agents = { ...(store.agents ?? {}) };
-  agents[agentId] = { ...(agents[agentId] ?? {}), ...patch };
-  const next: AuthStoreFile = { ...store, agents };
-  writeAuthStore(next, path);
-  return next;
-}
-
 // ---------------------------------------------------------------------------
 // auth.json <-> SDK DeviceAuthStore translation
 // ---------------------------------------------------------------------------

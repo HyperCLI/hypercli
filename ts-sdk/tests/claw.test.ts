@@ -114,6 +114,9 @@ describe('HyperAgent API', () => {
     }
   });
 
+  // TODO(live-test): requires a real HyperAgent API key; with the suite's
+  // synthetic key this fails 401 against the live API. Keep skipped unless a
+  // credentials fixture lands (see the sdk-integration-tests workflow).
   it.skip('should list models (requires HyperAgent API key)', async () => {
     const models = await client.agent.models();
     
@@ -127,7 +130,9 @@ describe('HyperAgent API', () => {
     }
   });
 
-  it.skip('should list plans (requires HyperAgent API key)', async () => {
+  // The plans catalog is public, so this runs unauthenticated against the
+  // live API. If CI ever goes offline, re-skip this alongside 'models' above.
+  it('should list plans on the live API', async () => {
     const plans = await client.agent.plans();
     
     expect(Array.isArray(plans)).toBe(true);

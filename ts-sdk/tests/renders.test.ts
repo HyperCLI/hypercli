@@ -16,6 +16,10 @@ function getClient(): HyperCLI {
     expect(Array.isArray(renders)).toBe(true);
   });
 
+  // TODO(live-test): skipped on a known template issue (txt2img-sd15 may no
+  // longer exist server-side) and, unlike liveIt above, must also start a
+  // real paid render. Re-enable only after confirming the template exists
+  // and gate on credentials the way liveIt does.
   it.skip('should create a text-to-image render and wait for completion (template issue)', async () => {
     const render = await getClient().renders.create({
       template: 'txt2img-sd15',
