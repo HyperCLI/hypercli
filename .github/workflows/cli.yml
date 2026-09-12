@@ -125,6 +125,7 @@ jobs:
           - group: configure
           - group: skills
           - group: agents
+          - group: routines
           - group: jobs
           - group: flow
           - group: files
@@ -324,3 +325,46 @@ jobs:
             -e LIFECYCLE_SUFFIX="$(echo "${{ github.sha }}" | cut -c1-7)-${{ github.run_attempt }}" \
             "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" \
             /tests/live.sh "${{ matrix.group }}" "${{ matrix.sub }}"
+
+  # Live end-to-end: real agent + chat session json + one-shot routine that
+  # lands a flag file on the agent. Serialized (no cancel-in-progress) since
+  # it mutates real state; 8-minute in-run poll + create/wait dominate the
+  # 30-minute budget.
+  e2e-routines:
+    name: cli / e2e-routines
+    needs: [image, expand]
+    runs-on: self-hosted
+    timeout-minutes: 30
+    concurrency:
+      group: cli-e2e-routines
+      cancel-in-progress: false
+    env:
+      HYPER_API_KEY: ${{ secrets.HYPERCLI_DEV_API_KEY }}
+      HYPER_API_BASE: https://api.dev.hypercli.com
+      AGENTS_WS_URL: wss://api.agents.dev.hypercli.com/ws
+      # The dev gateway 404s /routines (scheduler fronted separately), so the
+      # SDK needs the explicit routines base (ts-sdk routines.ts reads this).
+      HYPER_ROUTINES_API_BASE: https://api.agents.dev.hypercli.com/routines
+      # Debug knob: set the repo var to 1 to keep the container alive on
+      # failure (live.sh tails forever; cancel the job to reap it).
+      E2E_KEEP_ALIVE_ON_FAILURE: ${{ vars.CLI_E2E_KEEP_ALIVE_ON_FAILURE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
+      - name: Live agents e2e-routines
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e HYPER_API_KEY -e HYPER_API_BASE -e AGENTS_WS_URL \
+            -e HYPER_ROUTINES_API_BASE \
+            -e E2E_KEEP_ALIVE_ON_FAILURE \
+            -e LIFECYCLE_SUFFIX="$(echo "${{ github.sha }}" | cut -c1-7)-${{ github.run_attempt }}" \
+            "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" \
+            /tests/live.sh agents e2e-routines

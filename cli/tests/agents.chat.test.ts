@@ -393,6 +393,62 @@ describe('hyper agents chat — sessions', () => {
     expect(stdout()).toBe('resumed\n');
   });
 
+  it('--json ACP: fresh session reports session {id, resumed:false}', async () => {
+    const { acpConnect } = fakeAcpClient(['hi']);
+    const agent = chatAgentFixture({ runtime: 'opencode', acpConnect });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+
+    await agents.run(ctx, ['chat', ID_A, 'hi', '--json']);
+
+    const payload = JSON.parse(stdout());
+    expect(payload.session).toEqual({ id: 'sess-acp-1', resumed: false });
+    expect(payload.session.id).toBe(payload.session_id);
+  });
+
+  it('--json ACP: --session (loadSession path) reports resumed:true', async () => {
+    const { acpConnect } = fakeAcpClient(['hi']);
+    const agent = chatAgentFixture({ runtime: 'opencode', acpConnect });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+
+    await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'sess-old-9', '--json']);
+
+    const payload = JSON.parse(stdout());
+    expect(payload.session).toEqual({ id: 'sess-old-9', resumed: true });
+    expect(payload.session.id).toBe(payload.session_id);
+  });
+
+  it('--json openclaw: a found named session reports resumed:true', async () => {
+    const session = fakeSessionClient(REPLY_EVENTS, {
+      existing: [{ key: 'k-existing', label: 'standup' }],
+    });
+    const agent = chatAgentFixture({
+      runtime: 'openclaw',
+      connectSession: vi.fn(async () => session),
+    });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+
+    await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'standup', '--json']);
+
+    const payload = JSON.parse(stdout());
+    expect(payload.session).toEqual({ id: 'k-existing', resumed: true });
+    expect(payload.session.id).toBe(payload.session_id);
+  });
+
+  it('--json hermes: a created named session reports resumed:false', async () => {
+    const session = fakeSessionClient(REPLY_EVENTS);
+    const agent = chatAgentFixture({
+      runtime: 'hermes-agent',
+      connect: vi.fn(async () => session),
+    });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+
+    await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'demo', '--json']);
+
+    const payload = JSON.parse(stdout());
+    expect(payload.session).toEqual({ id: 'demo', resumed: false });
+    expect(payload.session.id).toBe(payload.session_id);
+  });
+
   it('missing prompt is a usage error (exit 2)', async () => {
     const agent = chatAgentFixture({ runtime: 'opencode' });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');
@@ -407,7 +463,7 @@ describe('hyper agents chat — sessions', () => {
 // ---------- reply extraction + output ----------
 
 describe('hyper agents chat — reply extraction', () => {
-  it('--json emits exactly {reply, session_id, runtime, agent_id}', async () => {
+  it('--json emits exactly {reply, session_id, session, runtime, agent_id}', async () => {
     const { acpConnect } = fakeAcpClient(['Hello', ' world']);
     const agent = chatAgentFixture({ runtime: 'opencode', acpConnect });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
@@ -415,10 +471,11 @@ describe('hyper agents chat — reply extraction', () => {
     await agents.run(ctx, ['chat', ID_A, 'hi', '--json']);
 
     const payload = JSON.parse(stdout());
-    expect(Object.keys(payload).sort()).toEqual(['agent_id', 'reply', 'runtime', 'session_id']);
+    expect(Object.keys(payload).sort()).toEqual(['agent_id', 'reply', 'runtime', 'session', 'session_id']);
     expect(payload).toEqual({
       reply: 'Hello world',
       session_id: 'sess-acp-1',
+      session: { id: 'sess-acp-1', resumed: false },
       runtime: 'opencode',
       agent_id: ID_A,
     });

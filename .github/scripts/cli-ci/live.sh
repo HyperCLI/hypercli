@@ -262,6 +262,131 @@ case "${GROUP}/${SUB}" in
     echo "lifecycle ok: ${NAME} (${ID}) create → start → chat → stop → archive → restore → start → chat → stop → delete"
     ;;
 
+  agents/e2e-routines)
+    step "agents e2e-routines (real agent + chat session json + one-shot routine on dev)"
+    # Semi-real e2e (mirrors agents/lifecycle conventions): unique-per-run
+    # name, presweep of crashed-run orphans, best-effort cleanup trap.
+    : "${LIFECYCLE_SUFFIX:?LIFECYCLE_SUFFIX is required}"
+    PREFIX="hypercli-ci-routines"
+    NAME="${PREFIX}-${LIFECYCLE_SUFFIX}"
+    ID=""
+    RID=""
+
+    cleanup() {
+      step "cleanup (best-effort)"
+      [ -z "${RID}" ] || "${CLI[@]}" routines delete "${RID}" --yes --dev || true
+      if [ -n "${ID}" ]; then
+        "${CLI[@]}" agents stop "${ID}" --yes --dev || true
+        "${CLI[@]}" agents delete "${ID}" --yes --dev || true
+      fi
+    }
+    on_exit() {
+      local rc=$?
+      cleanup
+      if [ "${rc}" -ne 0 ] \
+        && { [ "${E2E_KEEP_ALIVE_ON_FAILURE:-}" = "1" ] || [ "${E2E_KEEP_ALIVE_ON_FAILURE:-}" = "true" ]; }; then
+        trap - EXIT
+        echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
+        echo "Rerun inside the container: cd /opt/cli && /tests/live.sh agents e2e-routines" >&2
+        tail -f /dev/null
+      fi
+      exit "${rc}"
+    }
+    trap on_exit EXIT
+
+    # Presweep orphans from crashed runs.
+    "${CLI[@]}" agents ls --json --dev 2>/dev/null | node -e '
+      const a = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      for (const x of a) {
+        const n = x.name || x.display_name || "";
+        if (n.startsWith(process.argv[1])) console.log(x.id, n);
+      }
+    ' "${PREFIX}" | while read -r OLD_ID OLD_NAME; do
+      step "sweep leftover ${OLD_NAME} (${OLD_ID})"
+      "${CLI[@]}" agents stop "${OLD_ID}" --yes --dev || true
+      "${CLI[@]}" agents delete "${OLD_ID}" --yes --dev || true
+    done
+
+    # Create (real). Same 6x/15s retry as agents/lifecycle: slot release after
+    # a delete lags, and hostname release is async.
+    CREATE_JSON=""
+    for attempt in 1 2 3 4 5 6; do
+      if CREATE_JSON="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>>/tmp/create.err)"; then
+        ID="$(printf '%s' "${CREATE_JSON}" | node -e \
+          'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
+      fi
+      [ -n "${ID}" ] && break
+      echo "create attempt ${attempt} failed; stderr so far:" >&2
+      cat /tmp/create.err >&2 || true
+      sleep 15
+    done
+    [ -n "${ID}" ] || { echo "create returned no id after 6 attempts"; cat /tmp/create.err >&2; exit 1; }
+    echo "created ${NAME} id=${ID}"
+
+    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
+
+    step "chat 1/2 (fresh session)"
+    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --json --dev > /tmp/chat1.json
+    SESSION_ID="$(node -e '
+      const j = JSON.parse(require("fs").readFileSync("/tmp/chat1.json", "utf8"));
+      if (typeof j.session_id !== "string" || j.session_id.length === 0) throw new Error("session_id missing");
+      if (!j.session || j.session.id !== j.session_id) throw new Error("session.id !== session_id");
+      if (j.session.resumed !== false) throw new Error("fresh chat must report session.resumed === false");
+      process.stdout.write(j.session_id);
+    ')"
+    echo "session ${SESSION_ID} (resumed=false)"
+
+    step "chat 2/2 (resume with -s)"
+    "${CLI[@]}" agents chat "${ID}" "ping" -s "${SESSION_ID}" --timeout 120 --json --dev > /tmp/chat2.json
+    node -e '
+      const j = JSON.parse(require("fs").readFileSync("/tmp/chat2.json", "utf8"));
+      if (!j.session || j.session.id !== process.argv[1]) throw new Error("session.id mismatch on resume");
+      if (j.session.resumed !== true) throw new Error("resumed chat must report session.resumed === true");
+      console.log("resume ok:", j.session.id);
+    ' "${SESSION_ID}"
+
+    step "one-shot routine (run at now+90s)"
+    TOKEN="$(printf '%s' "${LIFECYCLE_SUFFIX}" | cut -c1-7)"
+    FLAG="/home/node/hyperci-flag-${TOKEN}.txt"
+    RUN_AT="$(date -u -d "+90 seconds" +%Y-%m-%dT%H:%M:%SZ)"
+    "${CLI[@]}" routines create --run-at "${RUN_AT}" --agent "${ID}" --session "${SESSION_ID}" \
+      --prompt "Create the file ${FLAG} containing exactly ${TOKEN}" --name "${NAME}" --json --dev > /tmp/routine.json
+    RID="$(node -e '
+      const j = JSON.parse(require("fs").readFileSync("/tmp/routine.json", "utf8"));
+      if (typeof j.id !== "string" || j.id.length === 0) throw new Error("routine id missing");
+      if (j.next_run_at === null || j.next_run_at === undefined) throw new Error("next_run_at missing on a fresh one-shot routine");
+      process.stdout.write(j.id);
+    ')"
+    echo "routine ${RID} scheduled for ${RUN_AT}"
+
+    step "poll routine run (deadline 8 min)"
+    deadline=$(( $(date +%s) + 480 ))
+    fired=0
+    while [ "$(date +%s)" -lt "${deadline}" ]; do
+      if got="$("${CLI[@]}" routines get "${RID}" --json --dev 2>/dev/null | node -e '
+        const j = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        process.stdout.write(j.enabled === false && j.next_run_at === null ? "1" : "0");
+      ')" && [ "${got}" = "1" ]; then
+        fired=1
+        break
+      fi
+      sleep 15
+    done
+    [ "${fired}" = "1" ] || { echo "routine ${RID} did not run within 8 minutes"; exit 1; }
+    echo "routine ${RID} fired"
+
+    step "verify flag file (up to 3 min after fire)"
+    deadline=$(( $(date +%s) + 180 ))
+    while true; do
+      if "${CLI[@]}" agents exec "${ID}" --dev -- cat "${FLAG}" 2>/dev/null | grep -qF "${TOKEN}"; then
+        echo "flag ok: ${FLAG} contains ${TOKEN}"
+        break
+      fi
+      [ "$(date +%s)" -lt "${deadline}" ] || { echo "flag file ${FLAG} never contained ${TOKEN}"; exit 1; }
+      sleep 15
+    done
+    ;;
+
   jobs/gpus)
     step "jobs gpus (catalog; count varies on dev)"
     "${CLI[@]}" jobs gpus --dev | grep -q 'GPU_TYPE'

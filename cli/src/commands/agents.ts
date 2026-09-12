@@ -1296,14 +1296,14 @@ async function acpOpenSession(client: CodingAgentAcpClient, name: string | undef
 async function canonicalSessionKey(
   session: AgentSessionClient,
   name: string | undefined,
-): Promise<string> {
+): Promise<{ key: string; resumed: boolean }> {
   if (name !== undefined) {
     const existing = await session.sessionsList();
     const found = existing.find((s) => s.key === name || s.label === name);
-    if (found) return found.key;
-    return (await session.sessionsCreate({ key: name })).key;
+    if (found) return { key: found.key, resumed: true };
+    return { key: (await session.sessionsCreate({ key: name })).key, resumed: false };
   }
-  return (await session.sessionsCreate({})).key;
+  return { key: (await session.sessionsCreate({})).key, resumed: false };
 }
 
 async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
@@ -1368,6 +1368,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     let reply = '';
     let streamedText = '';
     let sessionId = '';
+    // ACP resumes iff acpOpenSession went loadSession; hermes/openclaw iff the
+    // canonical surface found (vs created) the session.
+    let sessionResumed = false;
     // --stream deltas go to stdout in table mode; under --json stdout belongs
     // to the result bag, so deltas ride stderr there instead.
     const emitDelta = (text: string) => {
@@ -1397,6 +1400,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       try {
         closeActive = () => acp.close();
         sessionId = await atStage('connect', () => acpOpenSession(acp, sessionName));
+        sessionResumed = sessionName !== undefined;
         ctx.output.info(`session opened ${sessionId}`);
         await atStage('prompt', () => acp.prompt(sessionId, promptText));
         if (!reply) throw new Error('the turn ended without an assistant reply');
@@ -1443,7 +1447,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
             }));
       try {
         closeActive = () => session.close();
-        sessionId = await atStage('connect', () => canonicalSessionKey(session, sessionName));
+        const resolvedSession = await atStage('connect', () => canonicalSessionKey(session, sessionName));
+        sessionId = resolvedSession.key;
+        sessionResumed = resolvedSession.resumed;
         ctx.output.info(`session opened ${sessionId}`);
         let sawDone = false;
         await atStage('prompt', async () => {
@@ -1469,7 +1475,13 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       }
     }
 
-    const payload = { reply, session_id: sessionId, runtime, agent_id: agent.id };
+    const payload = {
+      reply,
+      session_id: sessionId,
+      session: { id: sessionId, resumed: sessionResumed },
+      runtime,
+      agent_id: agent.id,
+    };
     if (ctx.format === 'json') {
       ctx.output.result(payload);
       return;
