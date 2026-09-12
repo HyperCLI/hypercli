@@ -1,8 +1,9 @@
 //! Typed Rust client for the HyperCLI managed-agent API.
 //!
 //! This crate intentionally covers the deployment surface needed by backend
-//! providers. It does not implement ACP or a Buzz relay client.
+//! providers. It does not implement a Buzz relay client.
 
+mod acp;
 mod billing;
 mod client;
 mod config;
@@ -20,6 +21,10 @@ mod types;
 mod user;
 mod workspaces;
 
+pub use acp::{
+    AcpClient, AcpError, AcpPromptResult, AcpUpdateReceiver, ACP_PROTOCOL_VERSION,
+    DEFAULT_OPEN_TIMEOUT,
+};
 pub use billing::{Balance, BillingClient, Transaction};
 pub use client::{
     DeploymentLogsSubscribeOptions, FileApiReadyOptions, HyperCliClient, HyperCliError,
