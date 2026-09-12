@@ -1,50 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTROL_UI_ALLOWED_ORIGIN_WILDCARD,
   mergeControlUiAllowedOrigins,
-  normalizeControlUiOrigin,
   parseControlUiAllowedOrigins,
 } from '../src/openclaw-control-ui-origin.js';
-
-describe('normalizeControlUiOrigin', () => {
-  it('canonicalizes http(s) URLs to their origin', () => {
-    expect(normalizeControlUiOrigin(' https://agents.hypercli.com/path?token=secret#frag '))
-      .toBe('https://agents.hypercli.com');
-    expect(normalizeControlUiOrigin('http://localhost:1420/')).toBe('http://localhost:1420');
-    expect(normalizeControlUiOrigin('https://example.com:443/x')).toBe('https://example.com');
-  });
-
-  it('keeps tauri origins verbatim (URL.origin cannot represent them)', () => {
-    expect(normalizeControlUiOrigin('tauri://localhost')).toBe('tauri://localhost');
-    expect(normalizeControlUiOrigin('tauri://localhost/')).toBe('tauri://localhost');
-  });
-
-  it('lowercases the tauri host (the gateway lowercases before exact-matching)', () => {
-    expect(normalizeControlUiOrigin('tauri://LOCALHOST')).toBe('tauri://localhost');
-  });
-
-  it('rejects schemes outside the allowlist instead of reflecting them', () => {
-    expect(normalizeControlUiOrigin('ftp://example.com')).toBeNull();
-    expect(normalizeControlUiOrigin('javascript:alert(1)')).toBeNull();
-    expect(normalizeControlUiOrigin('data:text/plain,secret')).toBeNull();
-  });
-
-  it('rejects credentialed and unparseable URLs', () => {
-    expect(normalizeControlUiOrigin('https://user:token-secret@example.com')).toBeNull();
-    expect(normalizeControlUiOrigin('https://user@example.com')).toBeNull();
-    expect(normalizeControlUiOrigin('not a url')).toBeNull();
-    expect(normalizeControlUiOrigin('')).toBeNull();
-    expect(normalizeControlUiOrigin(undefined)).toBeNull();
-    expect(normalizeControlUiOrigin(42)).toBeNull();
-  });
-});
 
 describe('parseControlUiAllowedOrigins', () => {
   it('accepts space- and comma-separated env strings', () => {
     expect(parseControlUiAllowedOrigins('https://one.example  https://two.example'))
       .toEqual(['https://one.example', 'https://two.example']);
     expect(parseControlUiAllowedOrigins('https://one.example,https://two.example/path'))
-      .toEqual(['https://one.example', 'https://two.example']);
+      .toEqual(['https://one.example', 'https://two.example/path']);
     expect(parseControlUiAllowedOrigins('https://one.example, https://two.example https://one.example'))
       .toEqual(['https://one.example', 'https://two.example']);
   });
@@ -52,16 +19,33 @@ describe('parseControlUiAllowedOrigins', () => {
   it('accepts JSON arrays and raw string arrays', () => {
     expect(parseControlUiAllowedOrigins('["https://a.example","tauri://localhost"]'))
       .toEqual(['https://a.example', 'tauri://localhost']);
-    expect(parseControlUiAllowedOrigins(['https://a.example/file', 'ftp://nope.example']))
-      .toEqual(['https://a.example']);
+    expect(parseControlUiAllowedOrigins([' https://a.example ', 'tauri://localhost']))
+      .toEqual(['https://a.example', 'tauri://localhost']);
   });
 
-  it('drops garbage rather than throwing', () => {
+  it('passes entries through verbatim (no scheme validation)', () => {
+    // The env is a user-controlled full replace: the SDK splits and trims,
+    // it does not police what counts as an origin.
+    expect(parseControlUiAllowedOrigins('javascript:alert(1), ftp://x.example'))
+      .toEqual(['javascript:alert(1)', 'ftp://x.example']);
+    expect(parseControlUiAllowedOrigins('https://user:pw@example.com'))
+      .toEqual(['https://user:pw@example.com']);
+  });
+
+  it('collapses to the wildcard when any entry is *', () => {
+    expect(parseControlUiAllowedOrigins('*')).toEqual([CONTROL_UI_ALLOWED_ORIGIN_WILDCARD]);
+    expect(parseControlUiAllowedOrigins('https://a.example, *'))
+      .toEqual([CONTROL_UI_ALLOWED_ORIGIN_WILDCARD]);
+    expect(parseControlUiAllowedOrigins('["*","https://a.example"]'))
+      .toEqual([CONTROL_UI_ALLOWED_ORIGIN_WILDCARD]);
+  });
+
+  it('drops empties rather than throwing', () => {
     expect(parseControlUiAllowedOrigins('["unterminated')).toEqual([]);
-    expect(parseControlUiAllowedOrigins('javascript:alert(1), https://ok.example'))
-      .toEqual(['https://ok.example']);
+    expect(parseControlUiAllowedOrigins(' , , ')).toEqual([]);
     expect(parseControlUiAllowedOrigins(null)).toEqual([]);
     expect(parseControlUiAllowedOrigins(42)).toEqual([]);
+    expect(parseControlUiAllowedOrigins(['', '  ', 'https://a.example'])).toEqual(['https://a.example']);
   });
 });
 
@@ -80,7 +64,12 @@ describe('mergeControlUiAllowedOrigins', () => {
     ]);
   });
 
-  it('produces an empty list when nothing is expressible', () => {
-    expect(mergeControlUiAllowedOrigins([], 'ftp://nope.example', undefined)).toEqual([]);
+  it('collapses to the wildcard when any source carries it', () => {
+    expect(mergeControlUiAllowedOrigins('https://a.example', '*')).toEqual(['*']);
+    expect(mergeControlUiAllowedOrigins('*', 'https://a.example')).toEqual(['*']);
+  });
+
+  it('produces an empty list for no sources', () => {
+    expect(mergeControlUiAllowedOrigins([], undefined, null)).toEqual([]);
   });
 });

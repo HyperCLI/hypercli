@@ -1238,7 +1238,9 @@ describe('Agents SDK', () => {
       .toBe('tauri://localhost,https://last-writer.example,https://console.hypercli.com');
   });
 
-  it('startOpenClaw from a browser with no caller origins refreshes the stored env', async () => {
+  it('startOpenClaw with no caller origins leaves the stored env untouched', async () => {
+    // The stored env is authoritative: a plain start must not patch the
+    // launch config just because a browser origin exists ambiently.
     const stored: Record<string, any> = buildAgentConfig({}, {
       env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://last-writer.example' },
     }).config;
@@ -1251,9 +1253,17 @@ describe('Agents SDK', () => {
       vi.unstubAllGlobals();
     }
 
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('startOpenClaw defaults a missing stored env to the wildcard', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, { env: {} }).config;
+    const { patch, deployments } = installStoredProjection(stored);
+
+    await deployments.startOpenClaw(STORED_AGENT_ID, { launchConfig: buildAgentConfig().config });
+
     const sent = patch.mock.calls[0][1].launch_config;
-    expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN)
-      .toBe('https://last-writer.example,https://new-writer.example');
+    expect(sent.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN).toBe('*');
   });
 
   it('startOpenClaw with the origin lock disabled does not patch the launch env', async () => {

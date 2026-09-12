@@ -2,11 +2,11 @@
  * OpenClaw control-UI origin lock — read side.
  *
  * An OpenClaw agent records the origins allowed to control it in the
- * `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN` launch env. Parsing and normalization
- * are owned by ts-sdk (openclaw-control-ui-origin.ts, with the tauri: scheme
- * in the allowlist); this module keeps only the desktop-specific read
- * helpers: what the current origin is, and whether the agent's stored lock
- * authorizes it.
+ * `OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN` launch env: a full replace for the
+ * gateway's allow-list, comma-separated, with `'*'` covering every origin.
+ * Parsing is owned by ts-sdk (openclaw-control-ui-origin.ts); this module
+ * keeps only the desktop-specific read helpers: what the current origin is,
+ * and whether the agent's stored lock authorizes it.
  *
  * Because we can read the launch config from the deployment payload we already
  * fetch, a mismatch is detected *before* anything fails, rather than surfacing
@@ -14,7 +14,7 @@
  */
 
 import {
-  normalizeControlUiOrigin,
+  CONTROL_UI_ALLOWED_ORIGIN_WILDCARD,
   OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
   parseControlUiAllowedOrigins,
 } from "../../../ts-sdk/src/openclaw-control-ui-origin.ts";
@@ -45,22 +45,24 @@ export interface OriginLockStatus {
   /** This app's origin is accepted. */
   authorized: boolean;
   /**
-   * Whether this app's origin can be expressed at all. All three origins this
-   * app can run at are allowed-scheme origins, so a restart genuinely fixes
-   * it; this stays false only for origins outside the recorded allowlist.
+   * Whether a restart can record this app's origin at all. The env is a
+   * free-form replace, so any origin is expressible; this stays true unless
+   * there is no current origin to write.
    */
   expressible: boolean;
 }
 
 export function originLockStatus(launchConfig: unknown, origin?: string): OriginLockStatus {
   const allowed = controlUiAllowedOrigins(launchConfig);
-  const current = origin ?? currentOrigin();
-  const normalized = normalizeControlUiOrigin(current);
+  const current = (origin ?? currentOrigin()).trim();
   return {
-    locked: allowed.length > 0,
+    locked: allowed.length > 0 && !allowed.includes(CONTROL_UI_ALLOWED_ORIGIN_WILDCARD),
     allowed,
     current,
-    expressible: normalized !== null,
-    authorized: allowed.length === 0 || (normalized !== null && allowed.includes(normalized)),
+    expressible: current !== "",
+    authorized:
+      allowed.length === 0 ||
+      allowed.includes(CONTROL_UI_ALLOWED_ORIGIN_WILDCARD) ||
+      (current !== "" && allowed.includes(current)),
   };
 }

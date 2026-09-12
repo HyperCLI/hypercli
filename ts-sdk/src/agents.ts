@@ -45,12 +45,13 @@ import {
 } from './agent-urls.js';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import {
+  CONTROL_UI_ALLOWED_ORIGIN_WILDCARD,
   mergeControlUiAllowedOrigins,
   OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
 } from './openclaw-control-ui-origin.js';
 export {
+  CONTROL_UI_ALLOWED_ORIGIN_WILDCARD,
   mergeControlUiAllowedOrigins,
-  normalizeControlUiOrigin,
   OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
   parseControlUiAllowedOrigins,
 } from './openclaw-control-ui-origin.js';
@@ -2531,20 +2532,19 @@ function prepareOpenClawLaunch(
     ?? (generateGatewayToken ? randomHexToken(32) : null);
   if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
   if (options.controlUiOriginLock !== false) {
-    // Union, not a single-origin fill: an explicit env value, caller-supplied
-    // origins, and this browser's location.origin all belong in the list.
-    // (Previously an explicit env suppressed the location origin, which is
-    // exactly what locked out whoever did not write the env.)
+    // Default is wide open: '*' lets any shell drive the control UI, which
+    // kills the whole class of origin lockouts. An explicit env value is a
+    // verbatim comma-separated replace; caller-supplied origins and the
+    // browser's location are still merged into whatever base exists.
+    const explicitEnv = typeof env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] === 'string'
+      && env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV].trim() !== '';
     const controlUiOrigins = mergeControlUiAllowedOrigins(
       options.controlUiAllowedOrigins ?? [],
       env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV],
-      [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
+      explicitEnv ? [] : [CONTROL_UI_ALLOWED_ORIGIN_WILDCARD],
+      explicitEnv ? [] : [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
     );
     if (controlUiOrigins.length > 0) {
-      // Comma-joined is the canonical written form: the image entrypoint
-      // unrolls the list, and a space-joined value is ambiguous to split.
-      // Parsing (parseControlUiAllowedOrigins) still accepts every stored
-      // shape, so older space-joined values keep merging.
       env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(',');
     }
   }
@@ -5853,17 +5853,16 @@ export class Deployments {
     if (options.gatewayToken !== undefined && options.gatewayToken !== null && !gatewayToken) {
       throw new Error('gatewayToken must not be blank');
     }
-    // Refresh the stored control-UI origin lock on start whenever some source
-    // (caller origins or this browser's location) yields one. A Node caller
-    // passing no origins has nothing to add and produces no patch, so a plain
-    // CLI start stays patch-free.
+    // The stored env is authoritative: refresh it only when it is missing
+    // (default '*') or when the caller explicitly passed origins to merge
+    // in. A Node caller passing nothing stays patch-free, and a start never
+    // narrows or replaces an allow-list the agent already carries.
     const controlUiOriginLock = options.controlUiOriginLock !== false;
-    const hasControlUiOrigins = Boolean(options.controlUiAllowedOrigins?.length)
-      || defaultControlUiAllowedOrigin() !== null;
+    const callerOrigins = mergeControlUiAllowedOrigins(options.controlUiAllowedOrigins ?? []);
     const needsLaunchPatch = options.launchConfig !== undefined
       || gatewayToken !== null
       || desktop !== null
-      || (controlUiOriginLock && hasControlUiOrigins);
+      || (controlUiOriginLock && callerOrigins.length > 0);
     if (needsLaunchPatch) {
       if (options.dryRun) {
         throw new Error('dry-run start cannot carry launchConfig changes; update launchConfig first');
@@ -5889,15 +5888,15 @@ export class Deployments {
       // the Backend's own derivation from the Agent id, known here.
       HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
       HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
-      if (controlUiOriginLock && hasControlUiOrigins) {
-        const controlUiOrigins = mergeControlUiAllowedOrigins(
-          options.controlUiAllowedOrigins ?? [],
-          launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV],
-          [defaultControlUiAllowedOrigin() ?? ''].filter(Boolean),
-        );
-        if (controlUiOrigins.length > 0) {
-          // Canonical written form is comma-joined (see the start path above);
-          // parsing still accepts older space-joined stored values.
+      if (controlUiOriginLock) {
+        const storedEnv = launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV];
+        const hasStored = typeof storedEnv === 'string' && storedEnv.trim() !== '';
+        if (!hasStored || callerOrigins.length > 0) {
+          const controlUiOrigins = mergeControlUiAllowedOrigins(
+            callerOrigins,
+            storedEnv,
+            hasStored ? [] : [CONTROL_UI_ALLOWED_ORIGIN_WILDCARD],
+          );
           launchConfig.env[OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV] = controlUiOrigins.join(',');
         }
       }

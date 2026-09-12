@@ -497,7 +497,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       env: expect.objectContaining({
-        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'tauri://localhost,https://old.hypercli.com,https://console.hypercli.com',
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'tauri://localhost,https://old.hypercli.com',
       }),
     }), { retries: 1 });
   });
@@ -524,7 +524,7 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN');
   });
 
-  it('createOpenClaw without a browser origin omits the control-UI origin key', async () => {
+  it('createOpenClaw defaults the control-UI origin env to the wildcard', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -538,7 +538,7 @@ describe('HyperClaw agents SDK', () => {
 
     await deployments.createOpenClaw({ name: 'test-agent', dryRun: true });
 
-    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN');
+    expect(post.mock.calls[0]?.[1].env).toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
   });
 
   it('startOpenClaw repairs the canonical gateway route before sending', async () => {
@@ -565,6 +565,11 @@ describe('HyperClaw agents SDK', () => {
       {
         launch_config: {
           ...expectedLaunchConfig,
+          env: {
+            ...expectedLaunchConfig.env,
+            // A start defaults a missing stored origin env to the wildcard.
+            OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: '*',
+          },
           routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
         },
       },
