@@ -1,0 +1,48 @@
+---
+title: Desktop App
+description: The HyperCLI desktop companion for chatting with and operating your agents.
+---
+
+The desktop app is the local companion for your HyperCLI agents. It gives each
+agent a chat composer, a files browser, shell and logs, routines, and settings
+in one window, on macOS, Windows, and Linux.
+
+## Install
+
+Installers are published on
+[GitHub Releases](https://github.com/HyperCLI/hypercli/releases) under the
+`desktop-v*` tags:
+
+- **macOS** — one universal build that runs on Apple silicon and Intel Macs.
+  Download the signed, notarized `.app.tar.gz`, unpack it, and move the app to
+  Applications.
+- **Windows** — x86_64 installer.
+- **Linux** — x86_64 installer.
+
+## Sign In
+
+Click **Sign in** and the app opens your browser: sign in to the console, and
+the browser hands back to the app automatically. If the hand-back does not
+fire, paste an agent API key into the field on the sign-in screen instead.
+
+## Get Around
+
+Select an agent in the sidebar. The center pane is the chat composer; the
+right pane has three tabs:
+
+- **Agent** — remote desktop preview, routines, and files.
+- **Status** — logs and shell.
+- **Settings** — desktop access, voice replies, notifications, and the
+  archive/restore/delete controls.
+
+## Updates
+
+The app checks for updates itself. When a newer release is available, an
+update banner appears; choose **Update and restart** to install and relaunch.
+Dismissing the banner hides it for that version only.
+
+## Troubleshooting
+
+If the Files tab reports "This desktop sign-in cannot open agent files", the
+key the app minted predates file access. Sign out and sign back in once — the
+new key covers files.

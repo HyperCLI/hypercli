@@ -55,7 +55,7 @@ Each agent gets a root gateway host plus optional prefixed routes:
 | Service  | URL Pattern                              | Protocol   |
 |----------|------------------------------------------|------------|
 | Gateway  | `wss://{name}.hypercli.app`             | WebSocket  |
-| Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC |
+| Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC ([remote desktop](/agents/remote-desktop)) |
 | Custom   | `https://{prefix}-{name}.hypercli.app`  | HTTPS/WSS  |
 
 Desktop is available on the OpenClaw pro image. The base OpenClaw image keeps the root gateway route only unless callers explicitly add more routes.
@@ -147,6 +147,8 @@ Use `hyper agents budget` to see granted, used, and available slots by tier befo
 ## Next Steps
 
 - [Quickstart](/agents/quickstart) — Create your first agent in 2 minutes
+- [Desktop App](/agents/desktop-app) — Local companion: chat, voice, routines
+- [Routines](/agents/routines) — Scheduled prompts, one-shot or recurring
 - [Supported runtime images](/agents/images) — Public image families and tag policy
 - [CLI Reference](/cli/commands/agents) — Full `hyper agents` command reference
 - [SDK Reference](/sdk/agents) — Python SDK for programmatic control

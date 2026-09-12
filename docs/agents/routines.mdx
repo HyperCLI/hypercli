@@ -1,0 +1,51 @@
+---
+title: Routines
+description: Scheduled prompts that run on an agent — one-shot or recurring.
+---
+
+A routine is a prompt the platform runs on an agent on a schedule. Routines
+execute server-side, so they fire without your desktop app being open. A run
+replays the prompt over the agent's chat bridge: the agent must be running and
+on an ACP-capable runtime (Buzz Agent, OpenCode, Codex, Claude Code, Goose, or
+Kimi Code).
+
+## Manage Routines
+
+In the desktop app, open the agent's **Agent** tab; the Routines section lists
+every routine with its next run time. From there you can:
+
+- **New routine** — create one.
+- Toggle a routine on or off without deleting it.
+- Click a routine to edit it, or delete it.
+
+## Schedules
+
+Pick a frequency — Daily, Weekdays, Weekly, Monthly, Annually, or Doesn't
+repeat —
+plus a time of day and timezone. Schedules have minute-level granularity, and
+the picker accepts typed times like `9:30 AM`.
+
+For anything the pickers don't express, open the advanced section and supply a
+standard five-field cron expression; it overrides the pickers.
+
+**Doesn't repeat** creates a one-shot routine that fires once at the chosen
+date and time. Anything else recurs.
+
+By default each run starts a fresh chat session. Bind the routine to an
+existing session and it resumes that session's conversation instead.
+
+## From The CLI
+
+```bash
+# recurring, weekdays at 9:00 AM
+hyper routines create --cron "0 9 * * 1-5" --prompt "Summarize overnight mail" --agent my-agent
+
+# one-shot
+hyper routines create --run-at 2026-09-20T14:00:00Z --prompt "Prep the board deck" --agent my-agent
+
+hyper routines list --agent my-agent
+hyper routines run <routine-id> --wait
+hyper routines delete <routine-id> --yes
+```
+
+See [`hyper routines`](/cli/commands/routines) for the full command surface.
