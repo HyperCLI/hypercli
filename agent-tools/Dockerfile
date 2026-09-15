@@ -37,4 +37,6 @@ RUN --mount=type=cache,target=/root/.npm \
 
 FROM scratch
 COPY --from=builder /bundle-hyper /opt/hypercli/bin/hyper
+# cliVersion() reads ../package.json next to the bundled entrypoint.
+COPY --from=builder /opt/hypercli/ts-cli/package.json /opt/hypercli/package.json
 COPY --from=builder /bundle-skills /opt/hypercli/skills
