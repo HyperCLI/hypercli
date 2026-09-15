@@ -1,0 +1,28 @@
+# Workspace root exists so rs-sdk can inherit shared metadata/dependency pins
+# (rs-sdk/Cargo.toml uses `*.workspace = true`). Extracted from the old
+# hypercli-old-v2 root workspace, narrowed to what rs-sdk actually needs.
+[workspace]
+members = ["rs-sdk"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/HyperCLI/hypercli"
+
+[workspace.dependencies]
+dirs = "6"
+futures-util = "0.3"
+nostr = "0.44"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+thiserror = "2"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
