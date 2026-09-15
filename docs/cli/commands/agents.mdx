@@ -1,0 +1,419 @@
+---
+title: hyper agents
+description: Detailed reference for agent lifecycle, routes, files, exec, backend shells/logs, and OpenClaw gateway commands.
+---
+
+## Overview
+
+`hyper agents` manages live HyperCLI deployments.
+
+It covers:
+
+- create / start / stop / delete
+- wait and status
+- file copy
+- one-shot exec
+- backend WebSocket shell
+- backend log streaming
+- gateway config, files, sessions, cron
+- direct gateway chat
+
+## Command Inventory
+
+| Area | Commands |
+| --- | --- |
+| Read-only discovery | `budget`, `list`/`ls`, `status`, `metrics`, `web-search` |
+| Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
+| Routes | `routes list`, `routes add`, `routes remove` |
+| Container access | `exec`, `cp`, `shell`, `logs`, `token` |
+| Compatibility chat | `chat` |
+| Gateway | `config`, `config-patch`, `models`, `files`, `sessions`, `cron`, `cron-add`, `cron-remove`, `cron-run`, `gateway-chat` |
+
+Run `hyper agents <command> --help` for the current flags. Lifecycle, file
+writes, exec/shell, config patches, cron mutations, token refreshes, and relay
+key operations change remote state or expose sensitive output.
+
+## Global Options
+
+```bash
+hyper agents --dev
+hyper agents --agents-ws-url wss://api.agents.dev.hypercli.com/ws
+```
+
+## Current Route Defaults
+
+OpenClaw-backed agents use:
+
+- root host = gateway / agent
+- `desktop-<host>` = desktop when launched with the desktop/browser flavor
+- no default `shell-<host>` route
+
+Extra routes can be supplied at create/start time or reconciled dynamically on
+a running deployment. A deployment can have at most ten routes.
+
+## Dynamic Routes
+
+```bash
+hyper agents routes list <agent> --output table
+hyper agents routes add <agent> web --port 3000
+hyper agents routes add <agent> public --port 8080 --no-auth --prefix app
+hyper agents routes add <agent> root --port 3000 --root
+hyper agents routes remove <agent> web
+```
+
+`routes add` creates or replaces only the named route; it does not rewrite the
+other routes. Authentication is on by default. `--prefix NAME` publishes at a
+prefixed hostname, while `--root` selects the agent's root hostname. Those two
+flags are mutually exclusive. Use `--output table|json` for either human or
+machine output.
+
+Responses keep the reusable desired `routes` map separate from
+`route_statuses`, which contains resolved URLs and live infrastructure status.
+Route-limit and infrastructure errors come from the backend and are shown
+without replacing the rest of the route dictionary.
+
+Inside a managed runtime, the reserved target `self` selects the agent bound to
+the authenticated runtime key:
+
+```bash
+hyper agents status self
+hyper agents routes add self web -p 3000
+hyper agents stop self --force
+```
+
+`self` is accepted only for status, start, stop, and route operations. An
+in-runtime process cannot call `start self` after its own runtime has stopped; that form
+is intended for an out-of-band holder of a stable exact-agent key. `start self`
+uses the complete flat `launch_config` in the caller's protected local state,
+resolves the bound UUID through `GET /deployments/self`, and then uses ordinary
+UUID START. It fails when that complete local input is unavailable and rejects
+partial launch overrides.
+
+## Lifecycle
+
+### `create`
+
+```bash
+hyper agents create --name docs-demo --size medium
+# after status reports STOPPED:
+hyper agents start docs-demo
+hyper agents create --name desktop-demo --desktop
+# after status reports STOPPED:
+hyper agents start desktop-demo
+```
+
+Important options:
+
+- `--name`
+- `--size`
+- `--desktop / --no-desktop`
+- `--env`
+- `--command`
+- `--entrypoint`
+- `--image`
+- `--registry-url`
+- `--registry-username`
+- `--registry-password`
+- `--gateway-token`
+- `--dry-run`
+
+`create` admits provisioning and normally returns `CREATING`. It never launches
+the runtime. Wait until `status` reports `STOPPED`, then use the separate
+`hyper agents start <id-or-name>` command when the workspace is ready.
+
+Desktop/browser agents use the OpenClaw pro image, set `OPENCLAW_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `OPENCLAW_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env OPENCLAW_DESKTOP_ENABLED=True`.
+
+Managed runtimes receive the agent-scoped inference credential as
+`HYPER_AGENTS_API_KEY`; do not rely on `HYPER_API_KEY` inside the runtime.
+Workspaces boot sync is configured by CLI/SDK helper options that render
+`HYPER_WORKSPACES_*` environment variables. There is no public
+`launch_config.workspacesSync` field.
+
+Memory search is configured by default, but automatic indexing is off unless you opt in:
+
+```bash
+hyper agents create \
+  --index-on-session-start \
+  --index-on-search \
+  --index-watch \
+  --index-watch-debounce-ms 30000 \
+  --index-interval-minutes 0
+```
+
+Use `--memory-search/--no-memory-search`, `--index-on-session-start/--no-index-on-session-start`, `--index-on-search/--no-index-on-search`, `--index-watch/--no-index-watch`, `--index-watch-debounce-ms`, and `--index-interval-minutes`. `0` interval minutes disables periodic sync.
+
+### `wait`
+
+```bash
+hyper agents wait <agent_id> --timeout 300
+```
+
+`wait` uses deployment events to wake authoritative REST state checks. The
+legacy `--poll-interval` option is deprecated and ignored.
+
+### `list`
+
+```bash
+hyper agents list
+hyper agents list --json
+```
+
+The table is the safe default for resolving IDs, names, and states. JSON output
+includes the Backend-redacted `launch_config`; secret values and registry
+credentials are absent. It is not a restartable complete launch input.
+Private-registry `registry_auth` is caller-held and must come from the
+protected local launch state or be supplied again through registry flags before
+START.
+
+### `status`
+
+```bash
+hyper agents status <agent_id>
+hyper agents status self
+```
+
+### `metrics`
+
+Show the live CPU and memory usage reported for each process container in a
+running agent. Values use standard resource quantity units such as `m`, `n`,
+`Ki`, and `Mi`.
+
+```bash
+hyper agents metrics <agent_id>
+hyper agents metrics <agent_id> --json
+```
+
+### `start`
+
+```bash
+hyper agents start <agent_id>
+hyper agents start self
+hyper agents start <agent_id> --desktop
+hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
+```
+
+A zero-option START loads the complete launch configuration from protected
+local Agent state and fails clearly when it is unavailable. `start self` first
+resolves the bound UUID and uses that same local input. It rejects partial image,
+environment, route, registry, sync, and desktop overrides; `--dry-run` validates
+the same complete local configuration. START requires the complete flat
+`launch_config`; backend list/status projections are redacted and are not
+restart payloads.
+
+### `stop`
+
+```bash
+hyper agents stop <agent_id>
+hyper agents stop self --force
+hyper agents stop <agent_id> --wait --timeout 900
+```
+
+Without `--wait`, a successful request normally reports **Agent stopping**:
+the managed control plane has accepted cleanup, but the runtime and deployment
+slot may still be active. `--wait` uses deployment events to wake REST checks
+until the backend reports `STOPPED`.
+
+`wait` and `stop --wait` are event-assisted. `create` returns the admission
+snapshot immediately. `list` and
+`status` are one-shot REST snapshots; there is no general-purpose
+`hyper agents watch` command.
+
+### `archive`
+
+```bash
+hyper agents archive <agent_id>
+```
+
+Archive sends a bodyless request for a stopped agent and does not launch it.
+The accepted state is `ARCHIVING`.
+
+### `restore`
+
+```bash
+hyper agents restore <agent_id>
+```
+
+Restore sends a bodyless request for a stopped agent. The backend reports
+`RESTORING` while it restores the archived state and returns the agent to
+`STOPPED`; use `start` after the restore completes.
+
+### `delete`
+
+```bash
+hyper agents delete <agent_id> --force
+```
+
+Delete removes the runtime and its record. Use `stop` when the intent is to
+preserve the record and synced state.
+
+## Safe Remote Inspection
+
+Start with bounded, read-only commands:
+
+```bash
+hyper agents list
+hyper agents status <agent_id>
+hyper agents metrics <agent_id>
+hyper agents logs <agent_id> --no-follow -n 100
+```
+
+Do not begin with a shell or broad environment dump. Logs and gateway config can
+still contain credentials or user content; summarize relevant fields and redact
+values before sharing. Avoid commands such as `env`, `printenv`, recursive home
+directory reads, or full config dumps unless the specific investigation
+requires them and the output remains private.
+
+For backend control-plane inspection, use read-only commands first and scope
+them to the relevant deployment and time window. Do not print workload specs,
+secrets, configuration objects, or complete environment variables. Runtime
+logs can also contain credentials, so search for a narrow request ID, render
+ID, status code, or timestamp and redact before sharing. Never mutate or
+restart a workload as part of diagnosis without approval.
+
+Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
+`cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, or `delete`.
+
+## Search
+
+Search through the HyperCLI Brave proxy:
+
+```bash
+hyper agents web-search "release notes" --count 5
+hyper agents web-search "release notes" --json
+```
+
+## Exec, Copy, Shell, Logs
+
+### `exec`
+
+One-shot command through Backend's token-authenticated `/ws/exec/{agent_id}`
+WebSocket. The CLI waits for one result and a normal server close:
+
+```bash
+hyper agents exec <agent_id> uname -- -a
+```
+
+### `cp`
+
+```bash
+hyper agents cp ./local.txt <agent_id>:/workspace/local.txt
+hyper agents cp <agent_id>:/workspace/output.log ./output.log
+```
+
+Each copy mints a fresh files-scoped credential from Backend and transfers the
+file directly to or from the Agent's retained Reef server. The CLI does not
+send file bytes through Backend, follow redirects, or fall back to S3.
+
+### `shell`
+
+Interactive PTY through backend `/ws/shell/{agent_id}`:
+
+```bash
+hyper agents shell <agent_id>
+```
+
+This is the current shell path. It does not rely on a `shell-<host>` route.
+
+### `logs`
+
+```bash
+hyper agents logs <agent_id> -n 200 -f
+hyper agents logs <agent_id> --ws
+```
+
+Use `--ws` when you want the backend WebSocket path explicitly.
+
+## Tokens And Env
+
+### `token`
+
+Refresh the current backend agent access token:
+
+```bash
+hyper agents token <agent_id>
+```
+
+The token value is stored in `~/.hypercli/agents.json`; the command prints only
+its expiry. Treat the state file as sensitive.
+
+### `budget`
+
+Show current resource budget and usage:
+
+```bash
+hyper agents budget
+```
+
+## Gateway Commands
+
+These commands target the OpenClaw gateway on the root agent host.
+
+### `config`
+
+```bash
+hyper agents config <agent_id>
+hyper agents config <agent_id> --schema
+```
+
+### `config-patch`
+
+```bash
+hyper agents config-patch <agent_id> '<json-merge-patch>'
+```
+
+`config-patch` merges the JSON patch and restarts the gateway. Do not place a
+literal API key in the shell command; use an existing runtime secret reference
+or another approved secret-delivery path.
+
+### `models`
+
+```bash
+hyper agents models <agent_id>
+```
+
+### `files`
+
+```bash
+hyper agents files <agent_id>
+hyper agents files <agent_id> --get SOUL.md
+hyper agents files <agent_id> --set 'SOUL.md=# My Agent'
+```
+
+### `sessions`
+
+```bash
+hyper agents sessions <agent_id>
+```
+
+### `cron`
+
+```bash
+hyper agents cron <agent_id>
+```
+
+Mutating cron commands accept a job definition or ID:
+
+```bash
+hyper agents cron-add <agent_id> '{"name":"hourly-task","schedule":"0 * * * *","command":"run-task"}'
+hyper agents cron-run <agent_id> <job_id>
+hyper agents cron-remove <agent_id> <job_id>
+```
+
+### `gateway-chat`
+
+Current preferred chat path against the OpenClaw gateway:
+
+```bash
+hyper agents gateway-chat <agent_id> "Reply with exactly: hello"
+hyper agents gateway-chat <agent_id> "Inspect the workspace" --session-key docs
+```
+
+This uses the root host gateway plus pairing-aware SDK logic.
+The command treats deployment `RUNNING`, public route readiness, pairing, and
+the authenticated gateway connection as separate phases. On a cold not-paired
+connection the SDK can approve the device through trusted Agent exec and
+reconnect; a warm connection reuses the scoped device credential.
+
+### `chat`
+
+This is older compatibility chat behavior and is not the preferred current OpenClaw path.

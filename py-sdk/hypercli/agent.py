@@ -1,0 +1,1401 @@
+"""
+HyperAgent API client
+
+Provides access to the HyperClaw inference API for AI agents.
+Uses the official OpenAI Python client for chat completions.
+"""
+import warnings
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from math import isfinite
+from typing import Any, Dict, List, Optional, Union
+from urllib.parse import quote, urlsplit
+
+from .config import get_agents_api_base_url
+from .agents import AgentSlot
+from .http import HTTPClient
+
+try:
+    from openai import OpenAI
+
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_AVAILABLE = False
+
+
+class HyperAgentCanonicalPlanId(str, Enum):
+    """Current public plan IDs; wire plan IDs remain open strings."""
+
+    SOLO = "solo"
+    TEAM = "team"
+    PRO = "pro"
+
+
+def parse_hyper_agent_plan_id(value: object) -> HyperAgentCanonicalPlanId | None:
+    """Return a canonical plan ID without rejecting free, future, or historical IDs."""
+    try:
+        return HyperAgentCanonicalPlanId(str(value).strip().lower())
+    except ValueError:
+        return None
+
+
+@dataclass
+class HyperAgentPlan:
+    """HyperAgent subscription plan."""
+
+    id: str
+    name: str
+    price_usd: float
+    tpm_limit: int
+    rpm_limit: int
+    amount_cents: int = 0
+    contract_version: str | None = None
+    agents: int = 0
+    max_agent_size: str | None = None
+    slot_grants: dict[str, int] = field(default_factory=dict)
+    agent_resources: dict[str, Any] | None = None
+    aiu: int | None = None
+
+    @property
+    def canonical_id(self) -> HyperAgentCanonicalPlanId | None:
+        return parse_hyper_agent_plan_id(self.id)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentPlan":
+        price = data.get("price_usd", data.get("price", 0))
+        agents = int(data.get("agents", 0) or 0)
+        max_agent_size = data.get("max_agent_size")
+        if max_agent_size not in {"small", "medium", "large"}:
+            max_agent_size = None
+        return cls(
+            id=data["id"],
+            name=data.get("name", data["id"]),
+            price_usd=float(price or 0),
+            tpm_limit=int(data.get("tpm_limit", 0)),
+            rpm_limit=int(data.get("rpm_limit", 0)),
+            amount_cents=int(data.get("amount_cents", 0) or 0),
+            contract_version=data.get("contract_version"),
+            agents=agents,
+            max_agent_size=max_agent_size,
+            slot_grants={max_agent_size: agents} if max_agent_size and agents > 0 else {},
+            agent_resources=data.get("agent_resources") or None,
+            aiu=data.get("aiu"),
+        )
+
+
+@dataclass
+class HyperAgentCurrentPlan:
+    """Effective current plan snapshot for an authenticated HyperClaw user."""
+
+    id: str
+    name: str
+    price: float | str
+    aiu: int | None = None
+    agents: int | None = None
+    tpm_limit: int = 0
+    rpm_limit: int = 0
+    expires_at: datetime | None = None
+    cancel_at_period_end: bool = False
+    provider: str | None = None
+    seconds_remaining: int | None = None
+    pooled_tpd: int = 0
+    slot_inventory: dict[str, Any] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentCurrentPlan":
+        expires_at = data.get("expires_at")
+        if expires_at:
+            expires_at = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        return cls(
+            id=data["id"],
+            name=data.get("name", data["id"]),
+            price=data.get("price", 0),
+            aiu=data.get("aiu"),
+            agents=data.get("agents"),
+            tpm_limit=int(data.get("tpm_limit", 0) or 0),
+            rpm_limit=int(data.get("rpm_limit", 0) or 0),
+            expires_at=expires_at,
+            cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
+            provider=data.get("provider"),
+            seconds_remaining=data.get("seconds_remaining"),
+            pooled_tpd=int(data.get("pooled_tpd", 0) or 0),
+            slot_inventory=data.get("slot_inventory") or None,
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
+        )
+
+
+@dataclass
+class HyperAgentSubscriptionTrial:
+    """Authoritative trial timing for a recurring HyperClaw subscription."""
+
+    active: bool
+    days: int | None
+    starts_at: datetime | None
+    ends_at: datetime | None
+    seconds_remaining: int | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionTrial":
+        return cls(
+            active=data.get("active") is True,
+            days=_nullable_trial_int(data.get("days")),
+            starts_at=_valid_trial_datetime(data.get("starts_at")),
+            ends_at=_valid_trial_datetime(data.get("ends_at")),
+            seconds_remaining=_nullable_trial_int(data.get("seconds_remaining")),
+        )
+
+
+_ACTIVE_LIKE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+
+
+def _nullable_trial_int(value: object) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(parsed) if isfinite(parsed) else None
+
+
+def _valid_trial_datetime(value: object) -> datetime | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            numeric_value = float(text)
+        except ValueError:
+            numeric_value = None
+        if numeric_value is not None and isfinite(numeric_value):
+            timestamp = (
+                numeric_value / 1000 if abs(numeric_value) >= 1_000_000_000_000 else numeric_value
+            )
+            try:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _first_valid_trial_datetime(*values: object) -> datetime | None:
+    for value in values:
+        parsed = _valid_trial_datetime(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _hyper_agent_subscription_trial_from_dict(
+    data: dict[str, Any],
+    entitlements: list["HyperAgentEntitlement"],
+) -> HyperAgentSubscriptionTrial | None:
+    if "trial" in data:
+        trial = data.get("trial")
+        return HyperAgentSubscriptionTrial.from_dict(trial) if isinstance(trial, dict) else None
+
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else None
+    if meta is None:
+        return None
+
+    trial_marker = meta.get("trial")
+    has_trial_marker = trial_marker is True or (
+        isinstance(trial_marker, str) and trial_marker.strip().lower() == "true"
+    )
+    trial_active_marker = meta.get("trial_active")
+    explicitly_inactive = (
+        trial_active_marker is False
+        or (isinstance(trial_active_marker, str) and trial_active_marker.strip().lower() == "false")
+        or bool(meta.get("trial_ended_at"))
+        or bool(data.get("cancel_at_period_end"))
+    )
+    status = str(data.get("status") or "").strip().lower()
+    trial_days = _nullable_trial_int(meta.get("trial_days"))
+    metadata_starts_at = _first_valid_trial_datetime(
+        meta.get("trial_starts_at"),
+        meta.get("trial_started_at"),
+        meta.get("trial_start_at"),
+        meta.get("trial_start"),
+    )
+    metadata_ends_at = _first_valid_trial_datetime(
+        meta.get("trial_ends_at"),
+        meta.get("trial_ended_at"),
+        meta.get("trial_end_at"),
+        meta.get("trial_end"),
+    )
+    entitlement_starts = [
+        parsed
+        for entitlement in entitlements
+        if (parsed := _valid_trial_datetime(getattr(entitlement, "starts_at", None))) is not None
+    ]
+    entitlement_starts_at = min(entitlement_starts, default=None)
+    trial_duration = None
+    if trial_days is not None and trial_days > 0:
+        try:
+            trial_duration = timedelta(days=trial_days)
+        except OverflowError:
+            pass
+
+    fallback_starts_at = metadata_starts_at or entitlement_starts_at
+    derived_ends_at = None
+    if fallback_starts_at is not None and trial_duration is not None:
+        try:
+            derived_ends_at = fallback_starts_at + trial_duration
+        except OverflowError:
+            pass
+    period_end_value = (
+        data.get("current_period_end")
+        if data.get("current_period_end") is not None
+        else data.get("expires_at")
+    )
+    period_ends_at = _valid_trial_datetime(period_end_value)
+    authoritative_ends_at = metadata_ends_at or period_ends_at
+    starts_at = metadata_starts_at
+    if starts_at is None and authoritative_ends_at is not None and trial_duration is not None:
+        try:
+            starts_at = authoritative_ends_at - trial_duration
+        except OverflowError:
+            pass
+    starts_at = starts_at or entitlement_starts_at
+    has_persisted_trial_timing = bool(
+        metadata_starts_at
+        or metadata_ends_at
+        or (entitlement_starts_at is not None and trial_duration is not None)
+    )
+    now = datetime.now(timezone.utc)
+    period_would_revive_expired_trial = bool(
+        metadata_ends_at is None
+        and period_ends_at is not None
+        and period_ends_at > now
+        and derived_ends_at is not None
+        and derived_ends_at <= now
+    )
+    ends_at = authoritative_ends_at or derived_ends_at
+    if (
+        not has_trial_marker
+        or explicitly_inactive
+        or status not in _ACTIVE_LIKE_SUBSCRIPTION_STATUSES
+        or not has_persisted_trial_timing
+        or period_would_revive_expired_trial
+        or ends_at is None
+        or ends_at <= now
+    ):
+        return None
+
+    return HyperAgentSubscriptionTrial(
+        active=True,
+        days=trial_days,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        seconds_remaining=max(0, int((ends_at - now).total_seconds())),
+    )
+
+
+@dataclass
+class HyperAgentSubscription:
+    """A recurring HyperClaw billing subscription."""
+
+    id: str
+    user_id: str
+    plan_id: str
+    plan_name: str
+    provider: str
+    status: str
+    quantity: int = 1
+    expires_at: datetime | None = None
+    updated_at: datetime | None = None
+    stripe_subscription_id: str | None = None
+    cancel_at_period_end: bool = False
+    can_cancel: bool = False
+    is_current: bool = False
+    meta: dict[str, Any] | None = None
+    plan_tpm_limit: int = 0
+    plan_rpm_limit: int = 0
+    plan_tpd: int = 0
+    plan_agent_tier: str | None = None
+    slot_grants: dict[str, int] | None = None
+    entitlements: list["HyperAgentEntitlement"] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+    trial: HyperAgentSubscriptionTrial | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscription":
+        expires_at = data.get("current_period_end", data.get("expires_at"))
+        updated_at = data.get("updated_at")
+        entitlements = [
+            HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])
+        ]
+        direct_slots = [AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])]
+        return cls(
+            id=data["id"],
+            user_id=data.get("user_id", ""),
+            plan_id=data.get("plan_id", ""),
+            plan_name=data.get("plan_name", data.get("plan_id", "")),
+            provider=data.get("provider", ""),
+            status=data.get("status", ""),
+            quantity=int(data.get("quantity", 1) or 1),
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if expires_at
+            else None,
+            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            if updated_at
+            else None,
+            stripe_subscription_id=data.get("stripe_subscription_id"),
+            cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
+            can_cancel=bool(data.get("can_cancel", False)),
+            is_current=bool(data.get("is_current", False)),
+            meta=data.get("meta") or None,
+            plan_tpm_limit=int(data.get("plan_tpm_limit", 0) or 0),
+            plan_rpm_limit=int(data.get("plan_rpm_limit", 0) or 0),
+            plan_tpd=int(data.get("plan_tpd", 0) or 0),
+            plan_agent_tier=data.get("plan_agent_tier"),
+            slot_grants=data.get("slot_grants") or None,
+            entitlements=entitlements or None,
+            agent_slots=direct_slots
+            or [slot for entitlement in entitlements for slot in entitlement.agent_slots],
+            trial=_hyper_agent_subscription_trial_from_dict(data, entitlements),
+        )
+
+
+@dataclass
+class HyperAgentSubscriptionMutationResult:
+    """Result of changing a recurring HyperClaw subscription."""
+
+    ok: bool
+    message: str
+    subscription: HyperAgentSubscription | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionMutationResult":
+        subscription = data.get("subscription")
+        return cls(
+            ok=bool(data.get("ok", False)),
+            message=str(data.get("message", "")),
+            subscription=HyperAgentSubscription.from_dict(subscription) if subscription else None,
+        )
+
+
+@dataclass
+class HyperAgentEntitlement:
+    """A concrete 1:1 entitlement grant."""
+
+    id: str
+    user_id: str
+    subscription_id: str | None
+    plan_id: str
+    plan_name: str
+    provider: str
+    status: str
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+    updated_at: datetime | None = None
+    tpm_limit: int = 0
+    rpm_limit: int = 0
+    tpd_limit: int = 0
+    agent_tier: str | None = None
+    features: dict[str, bool] | None = None
+    tags: list[str] | None = None
+    meta: dict[str, Any] | None = None
+    slot_grants: dict[str, int] | None = None
+    active_agent_count: int = 0
+    active_agent_ids: list[str] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentEntitlement":
+        starts_at = data.get("starts_at")
+        expires_at = data.get("expires_at")
+        updated_at = data.get("updated_at")
+        return cls(
+            id=data["id"],
+            user_id=data.get("user_id", ""),
+            subscription_id=data.get("subscription_id"),
+            plan_id=data.get("plan_id", ""),
+            plan_name=data.get("plan_name", data.get("plan_id", "")),
+            provider=data.get("provider", ""),
+            status=data.get("status", ""),
+            starts_at=datetime.fromisoformat(str(starts_at).replace("Z", "+00:00")) if starts_at else None,
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
+            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")) if updated_at else None,
+            tpm_limit=int(data.get("tpm_limit", 0) or 0),
+            rpm_limit=int(data.get("rpm_limit", 0) or 0),
+            tpd_limit=int(data.get("tpd_limit", 0) or 0),
+            agent_tier=data.get("agent_tier"),
+            features=data.get("features") or {},
+            tags=data.get("tags") or [],
+            meta=data.get("meta") or None,
+            slot_grants=data.get("slot_grants") or None,
+            active_agent_count=int(data.get("active_agent_count", 0) or 0),
+            active_agent_ids=data.get("active_agent_ids") or [],
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
+        )
+
+
+@dataclass
+class HyperAgentEntitlements:
+    """Effective account entitlements computed by the backend."""
+
+    effective_plan_id: str
+    pooled_tpm_limit: int
+    pooled_rpm_limit: int
+    pooled_tpd: int
+    slot_inventory: dict[str, Any]
+    active_entitlement_count: int
+    billing_reset_at: datetime | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
+        payload = data.get("entitlements") if isinstance(data.get("entitlements"), dict) else data
+        billing_reset_at = payload.get("billing_reset_at", data.get("billing_reset_at"))
+        return cls(
+            effective_plan_id=payload.get("effective_plan_id", data.get("effective_plan_id", "")),
+            pooled_tpm_limit=int(payload.get("pooled_tpm_limit", data.get("pooled_tpm_limit", 0)) or 0),
+            pooled_rpm_limit=int(payload.get("pooled_rpm_limit", data.get("pooled_rpm_limit", 0)) or 0),
+            pooled_tpd=int(payload.get("pooled_tpd", data.get("pooled_tpd", 0)) or 0),
+            slot_inventory=payload.get("slot_inventory") or data.get("slot_inventory") or {},
+            active_entitlement_count=int(
+                payload.get(
+                    "active_entitlement_count",
+                    data.get("active_entitlement_count", data.get("active_subscription_count", 0)),
+                )
+                or 0
+            ),
+            billing_reset_at=datetime.fromisoformat(str(billing_reset_at).replace("Z", "+00:00"))
+            if billing_reset_at
+            else None,
+            agent_slots=[AgentSlot.from_dict(slot) for slot in (payload.get("agent_slots") or data.get("agent_slots") or [])],
+        )
+
+@dataclass
+class HyperAgentSubscriptionSummary:
+    """Effective entitlement summary for an authenticated HyperClaw user."""
+
+    effective_plan_id: str
+    current_subscription_id: str | None
+    current_entitlement_id: str | None
+    pooled_tpm_limit: int
+    pooled_rpm_limit: int
+    pooled_tpd: int
+    slot_inventory: dict[str, Any]
+    billing_reset_at: datetime | None
+    active_subscription_count: int
+    active_entitlement_count: int
+    entitlements: HyperAgentEntitlements
+    entitlement_items: list[HyperAgentEntitlement]
+    active_subscriptions: list[HyperAgentSubscription]
+    subscriptions: list[HyperAgentSubscription]
+    user: dict[str, Any]
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+
+    @property
+    def has_active_plan(self) -> bool:
+        """Whether any subscription or direct entitlement is currently active."""
+        return self.active_subscription_count > 0 or self.active_entitlement_count > 0
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionSummary":
+        return cls(
+            effective_plan_id=data.get("effective_plan_id", ""),
+            current_subscription_id=data.get("current_subscription_id"),
+            current_entitlement_id=data.get("current_entitlement_id", data.get("current_subscription_id")),
+            pooled_tpm_limit=int(data.get("pooled_tpm_limit", 0) or 0),
+            pooled_rpm_limit=int(data.get("pooled_rpm_limit", 0) or 0),
+            pooled_tpd=int(data.get("pooled_tpd", 0) or 0),
+            slot_inventory=data.get("slot_inventory") or {},
+            billing_reset_at=datetime.fromisoformat(str(data.get("billing_reset_at")).replace("Z", "+00:00"))
+            if data.get("billing_reset_at")
+            else None,
+            active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
+            active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
+            entitlements=HyperAgentEntitlements.from_dict(data),
+            entitlement_items=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlement_items", [])],
+            active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
+            subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
+            user=data.get("user") or {},
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
+        )
+
+
+HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary
+
+
+@dataclass
+class HyperAgentModel:
+    """Available model on HyperAgent."""
+
+    id: str
+    name: str
+    context_length: int
+    supports_vision: bool = False
+    supports_function_calling: bool = False
+    supports_tool_choice: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentModel":
+        caps = data.get("capabilities", {})
+        return cls(
+            id=data["id"],
+            name=data.get("name", data["id"]),
+            context_length=data.get("context_length", 0),
+            supports_vision=caps.get("supports_vision", False),
+            supports_function_calling=caps.get("supports_function_calling", False),
+            supports_tool_choice=caps.get("supports_tool_choice", False),
+        )
+
+
+@dataclass
+class HyperAgentUsageSummary:
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    request_count: int
+    active_keys: int
+    current_tpm: int
+    current_rpm: int
+    period: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentUsageSummary":
+        return cls(
+            total_tokens=int(data.get("total_tokens", 0) or 0),
+            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(data.get("completion_tokens", 0) or 0),
+            request_count=int(data.get("request_count", 0) or 0),
+            active_keys=int(data.get("active_keys", 0) or 0),
+            current_tpm=int(data.get("current_tpm", 0) or 0),
+            current_rpm=int(data.get("current_rpm", 0) or 0),
+            period=str(data.get("period", "")),
+        )
+
+
+@dataclass
+class HyperAgentUsageHistoryEntry:
+    date: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    requests: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentUsageHistoryEntry":
+        return cls(
+            date=str(data.get("date", "")),
+            total_tokens=int(data.get("total_tokens", 0) or 0),
+            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(data.get("completion_tokens", 0) or 0),
+            requests=int(data.get("requests", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentUsageHistory:
+    history: list[HyperAgentUsageHistoryEntry]
+    days: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentUsageHistory":
+        return cls(
+            history=[HyperAgentUsageHistoryEntry.from_dict(item) for item in data.get("history", [])],
+            days=int(data.get("days", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentKeyUsageEntry:
+    key_hash: str
+    name: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    requests: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentKeyUsageEntry":
+        return cls(
+            key_hash=str(data.get("key_hash", "")),
+            name=str(data.get("name", "")),
+            total_tokens=int(data.get("total_tokens", 0) or 0),
+            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(data.get("completion_tokens", 0) or 0),
+            requests=int(data.get("requests", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentKeyUsage:
+    keys: list[HyperAgentKeyUsageEntry]
+    days: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentKeyUsage":
+        return cls(
+            keys=[HyperAgentKeyUsageEntry.from_dict(item) for item in data.get("keys", [])],
+            days=int(data.get("days", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentTypePreset:
+    id: str
+    name: str
+    cpu: float
+    memory: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentTypePreset":
+        return cls(
+            id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            cpu=float(data.get("cpu", 0) or 0),
+            memory=int(data.get("memory", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentTypePlan:
+    id: str
+    name: str
+    price: int
+    agents: int
+    agent_type: str
+    highlighted: bool
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentTypePlan":
+        return cls(
+            id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            price=int(data.get("price", 0) or 0),
+            agents=int(data.get("agents", 0) or 0),
+            agent_type=str(data.get("agent_type", "")),
+            highlighted=bool(data.get("highlighted", False)),
+        )
+
+
+@dataclass
+class HyperAgentTypeCatalog:
+    types: list[HyperAgentTypePreset]
+    plans: list[HyperAgentTypePlan]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentTypeCatalog":
+        return cls(
+            types=[HyperAgentTypePreset.from_dict(item) for item in data.get("types", [])],
+            plans=[HyperAgentTypePlan.from_dict(item) for item in data.get("plans", [])],
+        )
+
+
+@dataclass
+class HyperAgentBillingProfileFields:
+    billing_name: str | None = None
+    billing_company: str | None = None
+    billing_tax_id: str | None = None
+    billing_line1: str | None = None
+    billing_line2: str | None = None
+    billing_city: str | None = None
+    billing_state: str | None = None
+    billing_postal_code: str | None = None
+    billing_country: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentBillingProfileFields":
+        return cls(
+            billing_name=data.get("billing_name"),
+            billing_company=data.get("billing_company"),
+            billing_tax_id=data.get("billing_tax_id"),
+            billing_line1=data.get("billing_line1"),
+            billing_line2=data.get("billing_line2"),
+            billing_city=data.get("billing_city"),
+            billing_state=data.get("billing_state"),
+            billing_postal_code=data.get("billing_postal_code"),
+            billing_country=data.get("billing_country"),
+        )
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "billing_name": self.billing_name,
+            "billing_company": self.billing_company,
+            "billing_tax_id": self.billing_tax_id,
+            "billing_line1": self.billing_line1,
+            "billing_line2": self.billing_line2,
+            "billing_city": self.billing_city,
+            "billing_state": self.billing_state,
+            "billing_postal_code": self.billing_postal_code,
+            "billing_country": self.billing_country,
+        }
+
+
+@dataclass
+class HyperAgentBillingInfo:
+    address: list[str]
+    email: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentBillingInfo":
+        return cls(
+            address=[str(item) for item in data.get("address", [])],
+            email=str(data.get("email", "")),
+        )
+
+
+@dataclass
+class HyperAgentBillingProfileResponse:
+    company_billing: HyperAgentBillingInfo
+    profile: HyperAgentBillingProfileFields | None
+    synced_stripe_customer_ids: list[str] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentBillingProfileResponse":
+        return cls(
+            company_billing=HyperAgentBillingInfo.from_dict(data.get("company_billing", {})),
+            profile=HyperAgentBillingProfileFields.from_dict(data["profile"]) if data.get("profile") else None,
+            synced_stripe_customer_ids=[str(item) for item in data.get("synced_stripe_customer_ids", [])] or None,
+        )
+
+
+@dataclass
+class HyperAgentBillingUser:
+    id: str
+    email: str | None
+    wallet_address: str | None
+    team_id: str | None
+    plan_id: str | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentBillingUser":
+        return cls(
+            id=str(data.get("id", "")),
+            email=data.get("email"),
+            wallet_address=data.get("wallet_address"),
+            team_id=data.get("team_id"),
+            plan_id=data.get("plan_id"),
+        )
+
+
+@dataclass
+class HyperAgentPaymentSubscription:
+    id: str
+    plan_id: str
+    provider: str
+    status: str
+    current_period_end: datetime | None
+    stripe_subscription_id: str | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentPaymentSubscription":
+        current_period_end = data.get("current_period_end")
+        return cls(
+            id=str(data.get("id", "")),
+            plan_id=str(data.get("plan_id", "")),
+            provider=str(data.get("provider", "")),
+            status=str(data.get("status", "")),
+            current_period_end=datetime.fromisoformat(str(current_period_end).replace("Z", "+00:00")) if current_period_end else None,
+            stripe_subscription_id=data.get("stripe_subscription_id"),
+        )
+
+
+@dataclass
+class HyperAgentPaymentEntitlement:
+    id: str
+    plan_id: str
+    provider: str
+    status: str
+    expires_at: datetime | None
+    agent_tier: str | None
+    features: dict[str, bool]
+    tags: list[str]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentPaymentEntitlement":
+        expires_at = data.get("expires_at")
+        return cls(
+            id=str(data.get("id", "")),
+            plan_id=str(data.get("plan_id", "")),
+            provider=str(data.get("provider", "")),
+            status=str(data.get("status", "")),
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
+            agent_tier=data.get("agent_tier"),
+            features=data.get("features") or {},
+            tags=[str(item) for item in data.get("tags", [])],
+        )
+
+
+@dataclass
+class HyperAgentPayment:
+    id: str
+    user_id: str
+    subscription_id: str | None
+    entitlement_id: str | None
+    provider: str
+    status: str
+    amount: str
+    currency: str
+    external_payment_id: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    user: HyperAgentBillingUser | None
+    subscription: HyperAgentPaymentSubscription | None
+    entitlement: HyperAgentPaymentEntitlement | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentPayment":
+        created_at = data.get("created_at")
+        updated_at = data.get("updated_at")
+        return cls(
+            id=str(data.get("id", "")),
+            user_id=str(data.get("user_id", "")),
+            subscription_id=data.get("subscription_id"),
+            entitlement_id=data.get("entitlement_id"),
+            provider=str(data.get("provider", "")),
+            status=str(data.get("status", "")),
+            amount=str(data.get("amount", "")),
+            currency=str(data.get("currency", "")),
+            external_payment_id=data.get("external_payment_id"),
+            created_at=datetime.fromisoformat(str(created_at).replace("Z", "+00:00")) if created_at else None,
+            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")) if updated_at else None,
+            user=HyperAgentBillingUser.from_dict(data["user"]) if data.get("user") else None,
+            subscription=HyperAgentPaymentSubscription.from_dict(data["subscription"]) if data.get("subscription") else None,
+            entitlement=HyperAgentPaymentEntitlement.from_dict(data["entitlement"]) if data.get("entitlement") else None,
+        )
+
+
+@dataclass
+class HyperAgentPaymentsResponse:
+    items: list[HyperAgentPayment]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentPaymentsResponse":
+        return cls(items=[HyperAgentPayment.from_dict(item) for item in data.get("items", [])])
+
+
+@dataclass
+class HyperAgentStripeCheckoutResponse:
+    checkout_url: str
+    checkout_session_id: str | None = None
+    checkout_attempt_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentStripeCheckoutResponse":
+        session_id = data.get("session_id")
+        attempt_id = data.get("checkout_attempt_id")
+        return cls(
+            checkout_url=str(data.get("checkout_url", "")),
+            checkout_session_id=str(session_id) if session_id else None,
+            checkout_attempt_id=str(attempt_id) if attempt_id else None,
+        )
+
+
+@dataclass
+class HyperAgentX402CheckoutResponse:
+    ok: bool
+    key: str
+    plan_id: str
+    quantity: int
+    bundle: dict[str, int]
+    amount_paid: str
+    duration_days: float
+    expires_at: datetime | None
+    tpm_limit: int
+    rpm_limit: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentX402CheckoutResponse":
+        expires_at = data.get("expires_at")
+        return cls(
+            ok=bool(data.get("ok", False)),
+            key=str(data.get("key", "")),
+            plan_id=str(data.get("plan_id", "")),
+            quantity=int(data.get("quantity", 0) or 0),
+            bundle={str(k): int(v) for k, v in (data.get("bundle") or {}).items()},
+            amount_paid=str(data.get("amount_paid", "")),
+            duration_days=float(data.get("duration_days", 0) or 0),
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
+            tpm_limit=int(data.get("tpm_limit", 0) or 0),
+            rpm_limit=int(data.get("rpm_limit", 0) or 0),
+        )
+
+
+class HyperAgent:
+    """
+    HyperAgent API client.
+
+    Provides access to HyperClaw inference endpoints using the OpenAI Python
+    client.
+
+    Usage:
+        from hypercli import HyperCLI
+
+        client = HyperCLI(agent_api_key="sk-...")
+
+        openai = client.agent.openai
+        response = openai.chat.completions.create(
+            model="kimi-k2.5",
+            messages=[{"role": "user", "content": "Hello!"}],
+        )
+
+        response = client.agent.chat(
+            model="kimi-k2.5",
+            messages=[{"role": "user", "content": "Hello!"}],
+        )
+    """
+
+    AGENT_API_BASE = "https://api.hypercli.com/v1"
+    DEV_API_BASE = "https://api.dev.hypercli.com/v1"
+
+    def __init__(
+        self,
+        http: HTTPClient,
+        agent_api_key: str = None,
+        dev: bool = False,
+        agents_api_base_url: str | None = None,
+    ):
+        self._http = http
+        self._api_key = agent_api_key or http.api_key
+        self._dev = dev
+        self._base_url = self._resolve_base_url(agents_api_base_url, dev)
+        self._control_base_url = self._resolve_control_base_url(getattr(http, "base_url", None), agents_api_base_url, dev)
+        self._openai = None
+
+    @classmethod
+    def _resolve_base_url(cls, agents_api_base_url: str | None, dev: bool) -> str:
+        raw = (agents_api_base_url or "").rstrip("/")
+        if not raw:
+            fallback = get_agents_api_base_url(dev).rstrip("/")
+            return cls._resolve_base_url(fallback, dev)
+        parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+        host = parsed.netloc.lower()
+        if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
+            return "https://api.agents.hypercli.com/v1"
+        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
+            return "https://api.agents.dev.hypercli.com/v1"
+        if raw.endswith("/api"):
+            return f"{raw[:-4]}/v1"
+        if raw.endswith("/agents"):
+            return f"{raw[:-7]}/v1"
+        if raw:
+            return f"{raw}/v1"
+        return cls.DEV_API_BASE if dev else cls.AGENT_API_BASE
+
+    @classmethod
+    def _resolve_control_base_url(
+        cls,
+        product_api_base_url: str | None,
+        agents_api_base_url: str | None,
+        dev: bool,
+    ) -> str:
+        raw_agents = (agents_api_base_url or "").rstrip("/")
+        if not raw_agents:
+            fallback = get_agents_api_base_url(dev).rstrip("/")
+            return cls._resolve_control_base_url(None, fallback, dev)
+        parsed = urlsplit(raw_agents if "://" in raw_agents else f"https://{raw_agents}")
+        scheme = parsed.scheme or "https"
+        normalized_path = parsed.path.rstrip("/")
+        host = parsed.netloc.lower()
+        if normalized_path.endswith("/agents"):
+            return f"{scheme}://{parsed.netloc}{normalized_path}"
+        if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
+            return "https://api.hypercli.com/agents"
+        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
+            return "https://api.dev.hypercli.com/agents"
+        return f"{scheme}://{parsed.netloc}/agents"
+
+    @property
+    def openai(self) -> "OpenAI":
+        if not OPENAI_AVAILABLE:
+            raise ImportError(
+                "OpenAI package required for chat. Install with: pip install openai"
+            )
+
+        if self._openai is None:
+            self._openai = OpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+            )
+        return self._openai
+
+    def chat(
+        self,
+        model: str,
+        messages: List[Dict],
+        temperature: float = None,
+        max_tokens: int = None,
+        tools: List[Dict] = None,
+        tool_choice: Union[str, Dict] = None,
+        stream: bool = False,
+        **kwargs,
+    ):
+        params = {
+            "model": model,
+            "messages": messages,
+            **kwargs,
+        }
+
+        if temperature is not None:
+            params["temperature"] = temperature
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        if tools:
+            params["tools"] = tools
+        if tool_choice:
+            params["tool_choice"] = tool_choice
+        if stream:
+            params["stream"] = stream
+
+        return self.openai.chat.completions.create(**params)
+
+    def models(self) -> List[HyperAgentModel]:
+        response = self.openai.models.list()
+        return [
+            HyperAgentModel.from_dict(
+                {
+                    "id": model.id,
+                    "name": getattr(model, "name", model.id),
+                    "context_length": getattr(model, "context_length", 0),
+                    "capabilities": getattr(model, "capabilities", {}),
+                }
+            )
+            for model in response.data
+        ]
+
+    def _api_base_without_v1(self) -> str:
+        return self._base_url.replace("/v1", "")
+
+    def _control_get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = self._http._session.get(
+            f"{self._control_base_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _control_post(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = self._http._session.post(
+            f"{self._control_base_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=payload or {},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _control_post_bodyless(self, path: str) -> dict[str, Any]:
+        response = self._http._session.post(
+            f"{self._control_base_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _control_put(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = self._http._session.put(
+            f"{self._control_base_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=payload or {},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def plans(self) -> List[HyperAgentPlan]:
+        response = self._http._session.get(
+            f"{self._control_base_url}/plans",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return [HyperAgentPlan.from_dict(plan) for plan in data.get("plans", [])]
+
+    def agent_types(self) -> HyperAgentTypeCatalog:
+        """Fetch the public agent type catalog: size presets and plan mapping."""
+        return HyperAgentTypeCatalog.from_dict(self._control_get("/types"))
+
+    def current_plan(self) -> HyperAgentCurrentPlan:
+        response = self._http._session.get(
+            f"{self._control_base_url}/plans/current",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return HyperAgentCurrentPlan.from_dict(response.json())
+
+    def subscriptions(self) -> list[HyperAgentSubscription]:
+        response = self._http._session.get(
+            f"{self._control_base_url}/subscriptions",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return [HyperAgentSubscription.from_dict(item) for item in data.get("items", [])]
+
+    def subscription_summary(self) -> HyperAgentSubscriptionSummary:
+        response = self._http._session.get(
+            f"{self._control_base_url}/subscriptions/summary",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return HyperAgentSubscriptionSummary.from_dict(response.json())
+
+    def entitlements(self) -> HyperAgentEntitlementsSummary:
+        response = self._http._session.get(
+            f"{self._control_base_url}/entitlements",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return HyperAgentEntitlementsSummary.from_dict(response.json())
+
+    def usage(self) -> HyperAgentUsageSummary:
+        """Return the high-level 30-day usage summary for dashboard cards."""
+        return HyperAgentUsageSummary.from_dict(self._control_get("/usage"))
+
+    def usage_history(self, *, days: int = 7) -> HyperAgentUsageHistory:
+        """Return the daily token usage breakdown for the last ``days`` days (1-30)."""
+        data = self._control_get("/usage/history", params={"days": int(days)})
+        return HyperAgentUsageHistory.from_dict(data)
+
+    def key_usage(self, *, days: int = 7) -> HyperAgentKeyUsage:
+        """Return per-key token usage for the last ``days`` days (1-30)."""
+        data = self._control_get("/usage/keys", params={"days": int(days)})
+        return HyperAgentKeyUsage.from_dict(data)
+
+    def agent_usage(self, *, days: int = 1) -> Dict[str, Any]:
+        """Return token usage attributed to each Agent runtime key (1-30 days)."""
+        return self._control_get("/usage/agents", params={"days": int(days)})
+
+    def me(self) -> Dict[str, Any]:
+        """Return the agents-side auth context for the current credential."""
+        return self._control_get("/me")
+
+    def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        response = self._http._session.post(
+            f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        plan_id: str | HyperAgentCanonicalPlanId,
+        quantity: int = 1,
+    ) -> HyperAgentSubscriptionMutationResult:
+        """Change a recurring subscription to a named plan and quantity."""
+        normalized_subscription_id = str(subscription_id or "").strip()
+        normalized_plan_id = (
+            plan_id.value
+            if isinstance(plan_id, HyperAgentCanonicalPlanId)
+            else str(plan_id or "").strip()
+        )
+        if not normalized_subscription_id:
+            raise ValueError("subscription_id is required")
+        if not normalized_plan_id:
+            raise ValueError("plan_id is required")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+            raise ValueError("quantity must be a positive integer")
+        data = self._control_post(
+            f"/subscriptions/{quote(normalized_subscription_id, safe='')}/update",
+            {"plan_id": normalized_plan_id, "quantity": quantity},
+        )
+        return HyperAgentSubscriptionMutationResult.from_dict(data)
+
+    def create_stripe_trial_checkout(
+        self,
+        *,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+    ) -> HyperAgentStripeCheckoutResponse:
+        """Create the account's one-time Team trial checkout."""
+        payload: dict[str, str] = {}
+        if success_url is not None:
+            payload["success_url"] = success_url
+        if cancel_url is not None:
+            payload["cancel_url"] = cancel_url
+        return HyperAgentStripeCheckoutResponse.from_dict(
+            self._control_post("/stripe/trial", payload)
+        )
+
+    def claim_trial_entitlement(self) -> HyperAgentEntitlement:
+        """Claim the authenticated fresh user's introductory trial entitlement.
+
+        .. deprecated::
+            ``POST /agents/plans/trial`` is not served by the current backends.
+            Use :meth:`create_stripe_trial_checkout` instead, which creates the
+            account's one-time Team trial checkout session. This method is kept
+            callable for backward compatibility.
+        """
+        warnings.warn(
+            "claim_trial_entitlement() is deprecated: POST /agents/plans/trial no "
+            "longer exists in the backends. Use create_stripe_trial_checkout() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return HyperAgentEntitlement.from_dict(
+            self._control_post_bodyless("/plans/trial")
+        )
+
+    def create_stripe_checkout(
+        self,
+        plan_id: str,
+        *,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+        quantity: int | None = None,
+    ) -> HyperAgentStripeCheckoutResponse:
+        """Create a Stripe Checkout session for a plan subscription."""
+        normalized_plan_id = str(plan_id or "").strip()
+        if not normalized_plan_id:
+            raise ValueError("plan_id is required")
+        payload: dict[str, Any] = {}
+        if success_url is not None:
+            payload["success_url"] = success_url
+        if cancel_url is not None:
+            payload["cancel_url"] = cancel_url
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        return HyperAgentStripeCheckoutResponse.from_dict(
+            self._control_post(f"/stripe/{quote(normalized_plan_id, safe='')}", payload)
+        )
+
+    def create_stripe_billing_portal_session(
+        self,
+        *,
+        return_url: str,
+        flow_data: dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Create a Stripe Billing Portal session for the authenticated user."""
+        normalized_return_url = str(return_url or "").strip()
+        if not normalized_return_url:
+            raise ValueError("return_url is required")
+        payload: dict[str, Any] = {"return_url": normalized_return_url}
+        if flow_data is not None:
+            payload["flow_data"] = flow_data
+        return self._control_post("/stripe/billing-portal", payload)
+
+    def billing_info(self) -> HyperAgentBillingInfo:
+        """Return company billing info shown on invoices."""
+        return HyperAgentBillingInfo.from_dict(self._control_get("/billing/info"))
+
+    def billing_profile(self) -> HyperAgentBillingProfileResponse:
+        """Return the account's billing profile plus company billing info."""
+        return HyperAgentBillingProfileResponse.from_dict(self._control_get("/billing/profile"))
+
+    def update_billing_profile(
+        self,
+        profile: HyperAgentBillingProfileFields | dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> HyperAgentBillingProfileResponse:
+        """Upsert the account's billing profile fields."""
+        payload: dict[str, Any] = {}
+        if profile is not None:
+            if isinstance(profile, HyperAgentBillingProfileFields):
+                payload.update(profile.to_dict())
+            else:
+                payload.update(dict(profile))
+        payload.update(fields)
+        data = self._control_put("/billing/profile", payload)
+        return HyperAgentBillingProfileResponse.from_dict(data)
+
+    def billing_payments(
+        self,
+        *,
+        limit: int = 50,
+        provider: str | None = None,
+        status: str | None = None,
+    ) -> HyperAgentPaymentsResponse:
+        """List the account's payment records."""
+        params: dict[str, Any] = {"limit": int(limit)}
+        if provider is not None:
+            params["provider"] = provider
+        if status is not None:
+            params["status"] = status
+        data = self._control_get("/billing/payments", params=params)
+        return HyperAgentPaymentsResponse.from_dict(data)
+
+    def billing_payment(self, payment_id: str) -> HyperAgentPayment:
+        """Return one of the account's payment records by id."""
+        normalized_payment_id = str(payment_id or "").strip()
+        if not normalized_payment_id:
+            raise ValueError("payment_id is required")
+        data = self._control_get(f"/billing/payments/{quote(normalized_payment_id, safe='')}")
+        return HyperAgentPayment.from_dict(data)
+
+    def entitlement_instances(self) -> list[HyperAgentEntitlement]:
+        """List the account's concrete entitlement instances."""
+        data = self._control_get("/entitlements/instances")
+        return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
+
+    def purchase_via_x402(
+        self,
+        plan_id: str,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        if bundle is not None:
+            raise ValueError("Arbitrary slot bundles are no longer supported; purchase a canonical plan")
+        payload: dict[str, Any] = {}
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        response = self._http._session.post(
+            f"{self._control_base_url}/x402/{quote(str(plan_id), safe='')}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return HyperAgentX402CheckoutResponse.from_dict(response.json())
+
+    def purchase_bundle_via_x402(
+        self,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        raise ValueError("Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan")
+
+    def create_x402_checkout(
+        self,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        raise ValueError("A canonical plan ID is required; use purchase_via_x402(plan_id, ...) instead")
+
+    def discovery_health(self) -> Dict[str, Any]:
+        """Return gateway discovery health.
+
+        This targets an external gateway discovery surface that is not served
+        by the mainline orchestra or hyperclaw backends; availability depends
+        on the deployment's gateway configuration.
+        """
+        response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")
+        response.raise_for_status()
+        return response.json()
+
+    def discovery_config(self, api_key: str = None) -> Dict[str, Any]:
+        """Return gateway discovery configuration.
+
+        This targets an external gateway discovery surface that is not served
+        by the mainline orchestra or hyperclaw backends; availability depends
+        on the deployment's gateway configuration.
+        """
+        headers = {}
+        if api_key:
+            headers["X-API-KEY"] = api_key
+
+        response = self._http._session.get(
+            f"{self._api_base_without_v1()}/discovery/config",
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()

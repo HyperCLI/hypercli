@@ -1,0 +1,729 @@
+---
+title: Agents And Deployments
+description: Detailed TypeScript SDK guide for HyperCLI deployments, routes, exec, file copy, backend WebSocket shells/logs, and OpenClaw gateway helpers.
+---
+
+## Overview
+
+There are two HyperCLI-related namespaces in the TS SDK:
+
+- `client.agent`
+- `client.deployments`
+
+`client.agent` covers account metadata.
+`client.deployments` covers live runtime containers.
+
+## URL Model
+
+The TS SDK splits the product API and agents API cleanly:
+
+- `apiUrl`
+  - main HyperCLI REST API
+- `agentsApiBaseUrl`
+  - HyperCLI deployments REST API
+- `agentsWsUrl`
+  - HyperCLI backend WS base for shell/logs
+- `client.agent.baseUrl`
+  - inference base derived from `agentsApiBaseUrl` by replacing `/api` with `/v1`
+
+Recommended defaults:
+
+```bash
+HYPER_API_BASE=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+## `client.agent`
+
+Use this namespace for:
+
+- `plans()`
+- `subscriptions()`
+- `subscriptionSummary()`
+- `entitlements()`
+- `purchaseEntitlementFromBalance(planId, { duration, tags? })`
+- `redeemGrantCode(code)`
+- `updateSubscription(subscriptionId, { planId, quantity })`
+- `cancelSubscription(subscriptionId)`
+- `createStripeTrialCheckout({ successUrl?, cancelUrl? })`
+- `models()`
+- `discoveryHealth()`
+- `discoveryConfig()`
+
+The key split is:
+
+- `entitlements()`
+  effective current account state, including pooled inference, slot inventory, active entitlement count, and `billingResetAt`
+- `subscriptions()`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancelAtPeriodEnd`
+- `subscriptionSummary()`
+  combined account view that includes the effective `entitlements` object,
+  concrete grants in `entitlementItems`, and the active subscription list
+- `updateSubscription()`
+  unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
+
+Example:
+
+```ts
+const summary = await client.agent.subscriptionSummary();
+const entitlements = await client.agent.entitlements();
+const entitlementItems = summary.entitlementItems;
+const subscriptions = await client.agent.subscriptions();
+
+const trialCheckout = await client.agent.createStripeTrialCheckout({
+  successUrl: "https://agents.hypercli.com/dashboard/agents?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+  cancelUrl: "https://agents.hypercli.com/dashboard/agents?checkout=cancelled",
+});
+window.location.assign(trialCheckout.checkoutUrl);
+
+await client.agent.purchaseEntitlementFromBalance("solo", {
+  duration: 30 * 24 * 60 * 60,
+  tags: ["customer=acme"],
+});
+
+await client.agent.redeemGrantCode("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59");
+
+await client.agent.updateSubscription("sub_123", { planId: "team", quantity: 1 });
+```
+
+Subscription updates select one canonical plan and a positive quantity. Use
+the dedicated method to cancel at period end:
+
+```ts
+await client.agent.cancelSubscription("sub_123");
+```
+
+## Grants And Balance Purchases
+
+Two account-level helpers now mint entitlements without going through Stripe:
+
+- `purchaseEntitlementFromBalance(planId, { duration, tags?, extendExisting? })`
+  - charges Orchestra balance
+  - creates a `grant`
+  - creates a new entitlement unless `extendExisting: true` is explicit
+- `redeemGrantCode(code, { extendExisting? })`
+  - applies an existing unapplied grant by code, creating a new entitlement unless the code or request explicitly extends
+
+`duration` is always in seconds.
+
+Grant redemption stacks by default: repeated codes can create parallel active entitlement windows and add slots. Use `extendExisting: true` only when the intent is to renew the latest matching `planId + tags` entitlement.
+
+## `client.deployments`
+
+Use this namespace for:
+
+- create / start / stop / delete
+- slot inventory / metrics
+- files
+- exec
+- backend WS logs and shells
+- OpenClaw gateway access
+
+`budget()` now returns:
+
+- `slots`
+  exact-tier granted / used / available counts
+- `pooled_tpd`
+  additive inference across active entitlements
+- `size_presets`
+  runtime CPU / memory shapes for each tier
+
+For account-facing billing and capacity screens, prefer `client.agent.entitlements()` or `client.agent.subscriptionSummary()` over `budget()`. `budget()` is runtime deployment capacity data, not recurring billing state.
+
+## Create
+
+```ts
+const agent = await client.deployments.create({
+  name: "docs-demo",
+  size: "medium",
+  env: { APP_ENV: "prod" },
+});
+```
+
+Omitting `size` selects `small`. Choose `medium` or `large` explicitly only
+when the account has a compatible free slot.
+
+Routes can also be reconciled without restarting the deployment. `setRoutes`
+replaces the complete declarative map; `setRoute` and `removeRoute` mutate one
+name atomically:
+
+```ts
+let state = await client.deployments.getRoutes(agent.id);
+
+state = await client.deployments.setRoute(
+  agent.id,
+  "app",
+  { prefix: "app", port: 8080, auth: true },
+);
+
+state = await client.deployments.setRoutes(
+  agent.id,
+  {
+    app: { prefix: "app", port: 8080, auth: true },
+    public: { prefix: "", port: 3000, auth: false },
+  },
+);
+
+await client.deployments.removeRoute(agent.id, "app");
+```
+
+Desired `routes` remain separate from `routeStatuses`, which holds resolved
+URLs and live infrastructure status. Therefore a
+`getRoutes()`/`setRoutes(state.routes)` round trip is lossless. At most ten
+routes are allowed.
+
+Managed runtimes can pass the reserved target `self` to `get` and route
+methods. The backend authorizes that narrow whitelist from the active runtime-key
+binding while the generic runtime scope remains `agents:none`. Lifecycle actions
+such as START use the Backend-stored launch configuration and accept only
+`dryRun`; they do not accept or repair `launchConfig`. Delete and key rotation
+reject `self`.
+
+This generic path does not inject any routes. Use `createOpenClaw(...)` when you want the standard root gateway and `desktop` routes.
+
+Create/update launch options:
+
+- `name`
+- `size`
+- `config`
+- `tags`
+- `env`
+- `secrets`
+- `routes`
+- `command`
+- `entrypoint`
+- `restart`
+- `image`
+- `syncRoot`
+- `syncInclude`
+- `syncExclude`
+- `syncUid`
+- `syncGid`
+- `registryUrl`
+- `registryAuth`
+- `gatewayToken`
+
+`registryUrl`, `registryAuth`, `syncRoot`, and `restart` are generic launch
+options. They belong to the base deployment contract, not to OpenClaw
+specifically. `registryAuth` is caller-held for private registries: the
+owner-facing Agent projection redacts it. Supply it when explicitly updating a
+private-registry launch config. Synchronization is enabled when
+`syncRoot` is present and disabled when it is absent; the SDK derives the
+compatibility wire boolean. Omit `restart` to preserve the platform default,
+or set `restart: false` for a one-shot process that should leave the
+deployment stopped after its main container exits.
+
+On generic create, omitting both policy fields (or passing an explicit nullable
+policy) selects the whole sync root; `syncExclude: []` also excludes nothing.
+`syncInclude: []` and root-wide excludes such as `syncExclude: ["*"]` are
+invalid. A nonempty include list wins over an exclude list. Every path is relative to
+`syncRoot`, and Reef always excludes its internal `.reef-sync/**` and
+`.reef-sync-upload/**` paths.
+
+This is not a continuous two-way mirror. Steady synchronization uploads new
+and changed allowed files from the PVC to object storage without propagating
+ordinary filesystem deletions. SDK file writes and deletes are direct local
+Reef operations: every call obtains a fresh files-scoped credential from
+Backend and transfers bytes directly with the retained Reef server. Backend
+does not proxy, redirect, or archive file traffic. Data is copied from object
+storage to the PVC only during
+an explicit cold restore; ordinary start reuses the retained PVC. See
+[Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
+and the complete lifecycle and full-PVC archive semantics.
+
+`env` and `secrets` are separate string records. A key cannot appear in both.
+The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gatewayToken` (or the
+same key in `secrets`) only when intentionally replacing it. Otherwise the
+Backend preserves the existing Secret.
+
+Public launch-config PATCH calls can preserve stored backend-redacted `secrets`
+when they are omitted. START does not accept launch config; call
+`update(..., { launchConfig })` explicitly before starting when configuration
+must change. Provisioned storage settings are retained after create; treat them
+as immutable for public launch-config patches.
+
+## OpenClaw Presets
+
+Use the OpenClaw-specific helpers when you want the SDK to provide the standard gateway and desktop routes:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "docs-demo",
+  tags: ["team=dev"],
+});
+await client.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
+await client.deployments.startOpenClaw(agent.id);
+```
+
+`startOpenClaw(...)` starts the Backend-stored launch config. To change launch
+settings, update them explicitly before START:
+
+```ts
+const launchConfig = await client.deployments.storedLaunchConfig(agent.id);
+launchConfig.env.MY_FLAG = "1";
+await client.deployments.update(agent.id, { launchConfig });
+await client.deployments.startOpenClaw(agent.id);
+```
+
+Hosted Slack gateway ids are finalized during create/update, not START.
+
+Hosted Slack is expressed as intent on `createOpenClaw(...)`:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "slack-demo",
+  slack: true,
+});
+```
+
+The SDK owns the `HYPER_SLACK_APP_ENABLED`, `HYPER_SLACK_RELAY_URL`,
+`HYPER_SLACK_API_URL`, and `HYPER_SLACK_GATEWAY_ID` launch env. Because the
+gateway id depends on the assigned agent id, `createOpenClaw(...)` creates the
+agent first, waits until launch updates are accepted, then patches the complete
+env and OpenClaw Slack relay config. Nothing starts with a partial Slack env.
+For dry-run previews, pass `slack: { gatewayId: "agent:<id>" }` explicitly.
+
+Default OpenClaw routes are:
+
+- `openclaw`
+  - `prefix: ""`
+  - `port: 18789`
+  - `auth: false`
+  - `remove_headers: ["X-Forwarded-For"]`
+- `desktop`
+  - `prefix: "desktop"`
+  - `port: 3000`
+  - `auth: true`
+
+OpenClaw create and update helpers always ensure the canonical `openclaw`
+gateway route. If `routes: {}` or a non-empty route map is supplied, custom
+routes are preserved but the `openclaw` entry is replaced with
+`{ port: 18789, auth: false, prefix: "", remove_headers: ["X-Forwarded-For"] }`.
+Remove or replace app routes after launch with the route replacement API; do
+not use OpenClaw create/update helpers to remove the gateway route. START uses
+the Backend-stored launch config and does not rewrite routes.
+
+Generic routes omit `remove_headers` when it is absent or an empty array. The
+canonical OpenClaw gateway is the only SDK default that strips a proxy header.
+
+`OPENCLAW_TRUSTED_PROXIES` is a comma-separated full replacement for OpenClaw
+`gateway.trustedProxies`; `buildOpenClawTrustedProxiesEnv([...])` builds that
+launch env.
+
+Use `createOpenClawPro(...)` for the desktop/browser flavor, or persist the same
+launch config through `update(...)` before a later start. The pro helpers inherit
+the same OpenClaw defaults, select the `hypercli-openclaw:pro-prod` image when no
+image is provided, set `OPENCLAW_DESKTOP_ENABLED=1`, and include the protected
+noVNC route at `desktop-<agent>.hypercli.app`.
+
+OpenClaw helpers only add defaults on top of that generic launch surface:
+
+- `image`
+  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro helpers
+- `routes`
+  always includes the canonical `openclaw` gateway route; desktop/pro helpers
+  also include the protected `desktop` route
+- `syncRoot`
+  defaults to `/home/node`
+- `syncExclude`
+  defaults to the OpenClaw cache policy: Workspace projections under
+  `shared/**`, nested package caches, memory-reindex scratch files, and browser
+  caches are excluded
+- `HYPER_WORKSPACES_DIR`
+  defaults to `/home/node/shared`; an explicit launch `env` value is preserved
+- Workspaces boot sync
+  is rendered through `workspacesSync` typed helper options and
+  `HYPER_WORKSPACES_*` environment variables; there is no public
+  `launch_config.workspacesSync` field
+
+Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)`, `createOpenClawPro(...)`, or an explicit `update(...)` before start:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "indexed-agent",
+  memoryIndex: {
+    onSessionStart: true,
+    onSearch: true,
+    watch: true,
+    watchDebounceMs: 30000,
+    intervalMinutes: 0,
+  },
+});
+```
+
+Supported fields are `enabled`, `onSessionStart`, `onSearch`, `watch`, `watchDebounceMs`, and `intervalMinutes`. The defaults keep search enabled and set all automatic sync triggers off, with `watchDebounceMs=30000` and `intervalMinutes=0`.
+
+Registry settings are still inherited from the generic deployment API:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "private-image-demo",
+  registryUrl: "git.nedos.co",
+  registryAuth: { username: "ci", password: "token" },
+});
+```
+
+## Hosted Coding Agents
+
+The SDK has typed launch helpers for six non-OpenClaw runtimes:
+
+| Runtime value | TypeScript helper | Generic default image |
+| --- | --- | --- |
+| `buzz-agent` | `createBuzzAgent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
+| `opencode` | `createOpenCode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| `codex` | `createCodex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| `claude-code` | `createClaudeCode()` | `ghcr.io/hypercli/hypercli-claude:latest` |
+| `goose` | `createGoose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| `kimi-code` | `createKimiCode()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+
+These runtimes have no OpenClaw gateway and no public route by default.
+Lifecycle, files, exec, shell, workspace sync, and interactive authentication
+use the authenticated deployment API:
+
+```ts
+const codex = await client.deployments.createCodex({ name: "codex" });
+const methods = await codex.auth.methods();
+const status = await codex.auth.status();
+const login = await codex.auth.login({ method: "device" });
+
+console.log(login.verificationUrl, login.userCode);
+await login.wait();
+```
+
+Authentication remains runtime-specific:
+
+| Runtime | Current SDK behavior |
+| --- | --- |
+| OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
+| Codex | Discovers adapter methods and adds native device login, status, and logout |
+| Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
+| Goose | Uses adapter discovery/status with the injected deployment credential; no noninteractive logout |
+| Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
+
+OpenCode and Goose images default to HyperCLI's Anthropic-native
+`kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
+login flow. Login sessions use an agent-bound shell WebSocket and never put an
+API key on the command line; runtime credentials persist under `/home/node`.
+See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
+inference, authentication, and selective-sync matrix.
+
+### Typed Buzz launches
+
+Pass the typed `buzz` object to render the identity and canonical ACP launch:
+
+```ts
+const agent = await client.deployments.createOpenCode({
+  name: "buzz-opencode",
+  buzz: {
+    privateKeyNsec: agentNsec,
+    relayUrl,
+    authTag: ownerSignedAuthTag,
+    model: "hypercli/kimi-k2.6-anthropic",
+  },
+});
+```
+
+A managed launch receives its agent-scoped inference credential from the
+platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
+into the runtime environment.
+
+Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
+inference path.
+
+A typed Buzz launch:
+
+- leaves size unset for live backend/provider slot selection and sets
+  `restart: false`;
+- clears public routes and selects `/usr/local/bin/acp`;
+- derives the selected runtime's ACP child command and Buzz MCP command;
+- selects the normal coding runtime image; only native Buzz Agent uses
+  `hypercli-buzz-agent`;
+- keeps `syncRoot: "/home/node"` and reserves `/home/node/shared` for
+  Workspace projections;
+- runs from the image-managed `/home/node/.buzz` nest.
+
+The nest is reconciled after the persistent home mount, but prompt delivery
+stays in the ACP session path. `base_prompt.md` remains compiled into the Buzz
+ACP plugin.
+An explicit `image` overrides the default. `buzzEnabled` is the deprecated
+raw-environment compatibility path and cannot be combined with a typed `buzz`
+value or explicit `command`.
+
+The typed SDK renderer checks required identity fields and parallelism but does
+not duplicate every stock Desktop cross-field validation. The Desktop provider
+also maps structured Goose model/provider fields to
+`GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
+environment when needed.
+
+Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
+stop callback. A successfully delivered and accepted `!shutdown` can exit a
+new one-shot launch; hosted cleanup reports `stopping`, then `stopped`, and
+releases the slot. Desktop receives no acknowledgement and retains its local
+deployed record. See [Buzz Desktop](/agents/buzz) for the full protocol,
+message-publishing, ownership, and security boundaries.
+
+## Routes
+
+Routes are a generic dict keyed by route name. Outside the OpenClaw helper methods, the SDK does not inject route defaults.
+
+```ts
+const agent = await client.deployments.create({
+  name: "docs-demo",
+  routes: {
+    app: { prefix: "app", port: 8080, auth: false },
+    admin: { prefix: "admin", port: 8081, auth: true },
+  },
+});
+```
+
+## Lifecycle
+
+```ts
+await client.deployments.list();
+await client.deployments.get(agent.id);
+await client.deployments.startOpenClaw(agent.id);
+await client.deployments.stop(agent.id);
+await client.deployments.archive(agent.id);
+await client.deployments.restore(agent.id);
+await client.deployments.delete(agent.id);
+const running = await client.deployments.waitForState(
+  agent.id,
+  ["RUNNING"],
+  300_000,
+  ["FAILED"],
+);
+```
+
+Canonical lifecycle snapshots use `CREATING`, `STARTING`, `RESTORING`,
+`RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`, `ARCHIVED`, `FAILED`, and
+`DELETED`. `CREATING` is fresh admission, `STARTING` resumes a warm retained
+agent, and `RESTORING` hydrates a cold agent from its exact archive checkpoint.
+`AgentState` remains forward-compatible so clients can display future server
+states without implementing their own lifecycle machine.
+
+`STOPPED` is warm and retains local storage. `ARCHIVING` is transitional while
+an exact cold archive is verified. `ARCHIVED` is the Backend-persisted
+cold-restorable terminal projection after Lagoon drops its agent task,
+namespace, PVC, and local S3 copy. `DELETED` is Backend-only, terminal, and
+normally hidden from user reads.
+
+`stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
+asynchronous; use `waitForState()` before restarting it or treating its slot as
+available. The older polling-interval argument to `waitRunning()` is deprecated
+and ignored.
+
+### Subscribe to lifecycle invalidations
+
+```ts
+const controller = new AbortController();
+
+const subscription = client.deployments.subscribe(async () => {
+  const agents = await client.deployments.list();
+  render(agents);
+}, {
+  signal: controller.signal,
+  onReady: async () => render(await client.deployments.list()),
+});
+
+// During application teardown:
+controller.abort();
+await subscription;
+```
+
+The subscription runs until aborted or a permanent authentication error
+occurs. Events are thin, best-effort hints with `agent_id` for local filtering,
+not snapshots. The SDK reconnects with backoff; `onReady` runs after
+authentication and before transition frames are read. `AgentState` is intentionally
+open to future server states.
+
+## `Agent`
+
+Important fields:
+
+- `id`
+- `userId`
+- `state`
+- `launchEpoch`
+- `name`
+- `hostname`
+- `tags`
+- `jwtToken`
+- `routes`
+- `command`
+- `entrypoint`
+
+`launchEpoch` is the opaque monotonic identifier for one admitted launch. It
+can fence asynchronous reads and waits, but REST remains authoritative and
+clients should not reproduce the server state machine.
+
+Important properties:
+
+- `publicUrl`
+- `desktopUrl`
+- `vncUrl`
+- `shellUrl`
+- `isRunning`
+
+Important methods:
+
+- `routeUrl()`
+- `routeRequiresAuth()`
+- `refreshToken()`
+- `waitRunning()`
+- `env()`
+- `secretNames()`
+- `secret(key)`
+- `exec()`
+- `filesList()`
+- `fileRead()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `shellConnect()`
+
+## Metrics, Exec, And Files
+
+```ts
+const result = await agent.exec("uname -a", { timeout: 30 });
+console.log(result.stdout, result.exitCode);
+
+const metrics = await client.deployments.metrics(agent.id);
+console.log(metrics.cpu, metrics.memory, metrics.timestamp);
+
+const rootEntries = await agent.filesList("");
+console.log(rootEntries.map((entry) => entry.path));
+
+await agent.fileWrite(".openclaw/workspace/notes.txt", "hello");
+const text = await agent.fileRead(".openclaw/workspace/notes.txt");
+
+await agent.cpTo("./local.txt", ".openclaw/workspace/local.txt");
+await agent.cpFrom(".openclaw/workspace/output.log", "./output.log");
+```
+
+File paths are relative to the Agent's configured `syncRoot`.
+`filesList("")` lists that root, including dot-directories such as
+`.openclaw`; absolute paths and `..` traversal are rejected. Every operation
+mints a fresh short-lived token and calls the Agent's HTTPS Reef endpoint
+directly; tokens are not cached and redirects are rejected. Per-file writes
+are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the Cloudflare edge
+request-body cap on the agent hostname); split larger data across files or
+sync it via the agent's own tooling.
+
+Metrics and exec each mint a fresh short-lived credential, connect to the
+Backend `/ws/metrics/{agent_id}` or `/ws/exec/{agent_id}` surface, receive one
+strict result frame, and require the server's normal `1000` close. Metrics sends
+no client frame. Exec sends exactly `command`, `timeout`, and `dry_run`; a dry
+run is handled by the Backend facade without sending an Agent turn.
+
+## Logs And Shell
+
+Recommended helpers:
+
+```ts
+const logs = await client.deployments.logsConnect(agent.id, { tailLines: 200 });
+const shell = await client.deployments.shellConnect(agent.id, "/bin/bash");
+```
+
+These use:
+
+- `/deployments/{id}/metrics/token`
+- `/deployments/{id}/exec/token`
+- `/deployments/{id}/logs/token`
+- `/deployments/{id}/shell/token`
+- backend `/ws/metrics/{agent_id}`
+- backend `/ws/exec/{agent_id}`
+- backend `/ws/logs/{agent_id}`
+- backend `/ws/shell/{agent_id}`
+
+Shell token requests contain only the selected absolute `shell` path. The JWT
+is carried only in the WebSocket query string; there is no auth frame, header,
+cookie, or subprotocol.
+
+## `OpenClawAgent`
+
+When gateway metadata exists, the SDK hydrates `OpenClawAgent`.
+
+Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAgent`, which inherits the OpenClaw gateway helpers.
+
+Important additions:
+
+- `gatewayUrl`
+- `gatewayToken`
+- `resolveGatewayToken()`
+- `gateway()`
+- `connect()`
+- `gatewayStatus()`
+- `waitReady()`
+- `configGet()`
+- `configSchema()`
+- `configPatch()`
+- `configApply()`
+- `modelsList()`
+- `sessionsList()`
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
+- `workspaceFiles()`
+- `fileGet()`
+- `fileSet()`
+- `chatHistory()`
+- `chatSendMessage()`
+- `providerUpsert()`
+- `providerRemove()`
+- `modelUpsert()`
+- `modelRemove()`
+- `setDefaultModel()`
+- `setMemorySearch()`
+- `channelUpsert()`
+- `channelPatch()`
+- `telegramUpsert()`
+- `slackUpsert()`
+- `discordUpsert()`
+- `cronList()`
+
+`providerUpsert()` intentionally tracks the upstream OpenClaw provider shape instead of inventing HyperCLI-specific wrappers. Use the same provider fields you would use in `models.providers.<id>` inside OpenClaw, including:
+
+- `baseUrl`
+- `apiKey`
+- `auth`
+- `api`
+- `headers`
+- `authHeader`
+- `injectNumCtxForOpenAICompat`
+- `models`
+
+`waitForGatewayContext()` waits for an exact Agent projection to become
+`RUNNING`, waits for the `openclaw` route status to report active DNS, reads
+`OPENCLAW_GATEWAY_TOKEN` once through `secret()`, and confirms the same Agent
+`launchEpoch` and route before returning. The Secret is canonical shared
+bootstrap configuration replayed across launches, so its response envelope
+does not need to match the current Agent epoch. Secret read and validation
+failures surface immediately rather than polling the sensitive endpoint. The
+resolved token is held on the live Agent instance only; it is not persisted to
+browser storage by this helper. There is no OpenClaw-specific REST
+gateway-context endpoint.
+
+Browser device auth is independent of that Secret. `GatewayClient` persists a
+single browser-origin device keypair plus deployment-and-role-scoped device
+tokens and pending pairing records under `openclaw.device.auth.v1`. Cold
+`PAIRING_REQUIRED` connections can be approved through trusted Agent exec and
+then reconnect; warm connections to the same deployment and role reuse device
+auth. Invalid-token repair removes only the affected scoped entry and preserves
+other Agents and the global device identity.
+
+To mint a child key for one exact agent:
+
+```ts
+const scoped = await client.deployments.createScopedKey(agent.id, "agent-client");
+console.log(scoped.api_key);
+```
+
+### Gateway URL Semantics
+
+The gateway still uses the root-host route, but the SDK takes its canonical URL
+from the active `openclaw` route status rather than guessing readiness from an
+Agent hostname. `RUNNING` and route readiness are separate; connection and
+pairing readiness come later.

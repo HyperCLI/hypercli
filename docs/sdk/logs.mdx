@@ -1,0 +1,59 @@
+---
+title: Log Streaming
+description: Fetch logs once or stream them over WebSocket with the Python SDK.
+---
+
+## One-Time Fetch
+
+```python
+from hypercli import HyperCLI, fetch_logs
+
+client = HyperCLI()
+
+logs = client.jobs.logs("job_id")
+lines = fetch_logs(client, "job_id", tail=100)
+```
+
+## Async Log Streaming
+
+```python
+import asyncio
+from hypercli import HyperCLI, LogStream
+
+async def stream_job_logs(job_id: str):
+    client = HyperCLI()
+
+    async with LogStream(client, job_id) as stream:
+        initial = await stream.connect()
+        for line in initial:
+            print(line)
+
+        async for line in stream:
+            print(line)
+
+asyncio.run(stream_job_logs("your-job-id"))
+```
+
+### LogStream Options
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `client` | `HyperCLI` | required | HyperCLI client instance |
+| `job_id` | `str` | required | Job ID |
+| `job_key` | `str` | `None` | Job key, auto-fetched if omitted |
+| `fetch_initial` | `bool` | `True` | Fetch existing logs on connect |
+| `max_initial_lines` | `int` | `1000` | Limit initial fetch |
+| `max_buffer` | `int` | `5000` | Buffer size in memory |
+
+## Stream Until A Job Finishes
+
+```python
+import asyncio
+from hypercli import HyperCLI, stream_logs
+
+async def follow_job(job_id: str):
+    client = HyperCLI()
+    await stream_logs(client, job_id, on_line=print)
+
+asyncio.run(follow_job("your-job-id"))
+```

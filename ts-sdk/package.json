@@ -1,0 +1,162 @@
+{
+  "name": "@hypercli.com/sdk",
+  "version": "2026.9.12",
+  "description": "TypeScript SDK for HyperCLI API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./browser": {
+      "import": "./dist/browser.js",
+      "types": "./dist/browser.d.ts"
+    },
+    "./browser-jobs": {
+      "import": "./dist/browser-jobs.js",
+      "types": "./dist/browser-jobs.d.ts"
+    },
+    "./agent": {
+      "import": "./dist/agent.js",
+      "types": "./dist/agent.d.ts"
+    },
+    "./agents": {
+      "import": "./dist/agents.js",
+      "types": "./dist/agents.d.ts"
+    },
+    "./gateway": {
+      "import": "./dist/gateway.js",
+      "types": "./dist/gateway.d.ts"
+    },
+    "./skills": {
+      "import": "./dist/skills.js",
+      "types": "./dist/skills.d.ts"
+    },
+    "./channels": {
+      "import": "./dist/channels.js",
+      "types": "./dist/channels.d.ts"
+    },
+    "./connectors": {
+      "import": "./dist/connectors.js",
+      "types": "./dist/connectors.d.ts"
+    },
+    "./openclaw/control-ui-origin": {
+      "import": "./dist/openclaw-control-ui-origin.js",
+      "types": "./dist/openclaw-control-ui-origin.d.ts"
+    },
+    "./openclaw/gateway": {
+      "import": "./dist/openclaw/gateway.js",
+      "types": "./dist/openclaw/gateway.d.ts"
+    },
+    "./openclaw/skills": {
+      "import": "./dist/openclaw/skills.js",
+      "types": "./dist/openclaw/skills.d.ts"
+    },
+    "./openclaw/node-proxy": {
+      "import": "./dist/openclaw/node-proxy.js",
+      "types": "./dist/openclaw/node-proxy.d.ts"
+    },
+    "./openclaw/channels": {
+      "import": "./dist/openclaw/channels.js",
+      "types": "./dist/openclaw/channels.d.ts"
+    },
+    "./openclaw/connectors": {
+      "import": "./dist/openclaw/connectors.js",
+      "types": "./dist/openclaw/connectors.d.ts"
+    },
+    "./openclaw/slack": {
+      "import": "./dist/openclaw/slack.js",
+      "types": "./dist/openclaw/slack.d.ts"
+    },
+    "./openclaw/whatsapp": {
+      "import": "./dist/openclaw/whatsapp.js",
+      "types": "./dist/openclaw/whatsapp.d.ts"
+    },
+    "./hermes/gateway": {
+      "import": "./dist/hermes/gateway.js",
+      "types": "./dist/hermes/gateway.d.ts"
+    },
+    "./session": {
+      "import": "./dist/session.js",
+      "types": "./dist/session.d.ts"
+    },
+    "./keys": {
+      "import": "./dist/keys.js",
+      "types": "./dist/keys.d.ts"
+    },
+    "./workspaces": {
+      "import": "./dist/workspaces.js",
+      "types": "./dist/workspaces.d.ts"
+    },
+    "./http": {
+      "import": "./dist/http.js",
+      "types": "./dist/http.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepack": "npm run clean && npm run build",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/acp-client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/openclaw-control-ui-origin.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts tests/routines.test.ts tests/agent-trial.test.ts tests/agents-update.test.ts tests/agents-lifecycle.test.ts tests/billing.test.ts tests/comfyui.test.ts tests/files.test.ts tests/instances.test.ts tests/openclaw-node-proxy.test.ts tests/renders.test.ts tests/renders-subscription.test.ts tests/shell-session.test.ts tests/user-auth-me.test.ts tests/user.test.ts tests/voice-session.test.ts tests/voice-transcription-session.test.ts tests/voice.test.ts tests/workspaces-sync.test.ts tests/x402.test.ts",
+    "test:integration": "vitest run tests/integration",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "hypercli",
+    "gpu",
+    "cloud",
+    "compute",
+    "inference"
+  ],
+  "author": "Compute3 AI",
+  "license": "MIT",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/ed25519": "^3.0.0",
+    "@noble/hashes": "^1.8.0",
+    "@scure/base": "^1.2.6",
+    "ws": "^8.16.0"
+  },
+  "peerDependencies": {
+    "@x402/axios": "2.24.0",
+    "@x402/evm": "2.24.0",
+    "axios": "^1.7.0"
+  },
+  "peerDependenciesMeta": {
+    "@x402/axios": {
+      "optional": true
+    },
+    "@x402/evm": {
+      "optional": true
+    },
+    "axios": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.55.0",
+    "@typescript-eslint/parser": "^8.55.0",
+    "@vitest/ui": "^4.0.18",
+    "@x402/axios": "2.24.0",
+    "@x402/evm": "2.24.0",
+    "axios": "^1.7.0",
+    "eslint": "^9.39.2",
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

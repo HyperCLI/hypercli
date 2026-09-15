@@ -1,0 +1,772 @@
+---
+title: Agents SDK
+description: Detailed Python SDK guide for HyperCLI deployments, route configuration, files, exec, WebSocket shells, and OpenClaw gateway access.
+---
+
+## Overview
+
+The Python SDK exposes two HyperCLI-related namespaces:
+
+- `client.agent`
+  - plans
+  - model metadata
+- `client.deployments`
+  - agent lifecycle
+  - files
+  - exec
+  - shell and logs WebSockets
+  - OpenClaw gateway access
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(
+    api_key="hyper_...",
+    agent_api_key="hyper_api_...",
+)
+```
+
+## `client.agent`
+
+Use `client.agent` for account-level metadata, billing-backed subscriptions, effective entitlements, and configuration snippets:
+
+```python
+plans = client.agent.plans()
+current = client.agent.current_plan()
+summary = client.agent.subscription_summary()
+entitlements = client.agent.entitlements()
+entitlement_items = summary.entitlement_items
+subscriptions = client.agent.subscriptions()
+purchase = client.deployments.purchase_entitlement_from_balance(
+    "solo",
+    duration=30 * 24 * 60 * 60,
+    tags=["customer=acme"],
+)
+redemption = client.deployments.redeem_grant_code("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59")
+models = client.agent.models()
+health = client.agent.discovery_health()
+config = client.agent.discovery_config()
+```
+
+The key split is:
+
+- `entitlements()`
+  effective current account state, including pooled inference, slot inventory, active entitlement count, and `billing_reset_at`
+- `subscriptions()`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancel_at_period_end`
+- `subscription_summary()`
+  combined account view that includes effective entitlements, concrete items in
+  `entitlement_items`, and the active subscription list
+- `cancel_subscription()`
+  schedule a recurring Stripe subscription for cancellation at period end
+- `update_subscription()`
+  change a recurring subscription to one canonical `plan_id` and `quantity`
+- `create_stripe_trial_checkout()`
+  create the account's one-time Team trial checkout
+- `client.deployments.purchase_entitlement_from_balance()`
+  charges Orchestra balance, creates a grant, then creates a new entitlement unless `extend_existing=True` is explicit
+- `client.deployments.redeem_grant_code()`
+  applies an existing unapplied grant code to create a new entitlement unless the code or request explicitly extends
+
+Change a recurring billing subscription, or cancel it at period end:
+
+```python
+client.agent.update_subscription("sub_123", plan_id="team", quantity=1)
+client.agent.cancel_subscription("sub_123")
+```
+
+Recurring mutations accept one canonical plan ID and a positive quantity.
+They do not accept arbitrary per-tier slot maps; cancellation uses the dedicated
+`cancel_subscription()` method. Use
+`subscription_summary().entitlement_items` for the concrete grants.
+
+### Team Trial Checkout
+
+Start the account's one-time Team trial with a Stripe-hosted checkout:
+
+```python
+checkout = client.agent.create_stripe_trial_checkout(
+    success_url="https://app.example.com/agents?trial=success",
+    cancel_url="https://app.example.com/plans?trial=cancelled",
+)
+
+print(checkout.checkout_url)
+```
+
+Both return URLs are optional. The result is a
+`HyperAgentStripeCheckoutResponse`; direct the customer to its `checkout_url`
+to complete checkout.
+
+Subscriptions expose current trial timing as
+`HyperAgentSubscriptionTrial | None`. The trial object contains `active`,
+`days`, `starts_at`, `ends_at`, and `seconds_remaining`. Timing fields remain
+`None` when the account has no value for them, and a subscription with no
+current trial has `trial=None`.
+
+This namespace also exposes convenience helpers such as:
+
+- `chat()`
+- `openai()`
+
+Those are account/inference helpers, not agent runtime helpers.
+
+## Grants And Balance Purchases
+
+The Python SDK exposes the prepaid entitlement surface through two existing
+namespaces:
+
+- `client.deployments.purchase_entitlement_from_balance(plan_id, duration=..., tags=..., extend_existing=False)`
+- `client.deployments.redeem_grant_code(code, extend_existing=False)`
+
+Notes:
+
+- `duration` is always seconds
+- an unactivated code is a `grant`, not an `entitlement`
+- grants create new entitlement windows by default, so repeated redemptions can add parallel slots
+- pass `extend_existing=True` only when the intent is to renew the latest matching `plan_id + tags` entitlement
+
+## URL Model
+
+The Python SDK uses separate URLs for the primary product API and the agents API:
+
+- `client.api_url`
+  - main HyperCLI API
+- `client.deployments`
+  - uses `AGENTS_API_BASE_URL`
+- deployment shell/log streams
+  - use `AGENTS_WS_URL`
+- `client.agent`
+  - uses the agents host for inference, deriving `/v1` from `AGENTS_API_BASE_URL`
+
+Recommended defaults:
+
+```bash
+HYPER_API_BASE=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+## `client.deployments`
+
+This namespace manages agent runtimes.
+
+### Create
+
+```python
+agent = client.deployments.create(
+    name="docs-demo",
+    size="medium",
+    env={"APP_ENV": "prod"},
+)
+```
+
+Omitting `size` selects `small`. Choose `medium` or `large` explicitly only
+when the account has a compatible free slot.
+
+Routes can also be reconciled without restarting the deployment. `set_routes`
+is the declarative full-map operation; `set_route` and `remove_route` mutate
+one name atomically:
+
+```python
+state = client.deployments.get_routes(agent.id)
+
+state = client.deployments.set_route(
+    agent.id,
+    "app",
+    {"prefix": "app", "port": 8080, "auth": True},
+)
+
+state = client.deployments.set_routes(
+    agent.id,
+    {
+        "app": {"prefix": "app", "port": 8080, "auth": True},
+        "public": {"prefix": "", "port": 3000, "auth": False},
+    },
+)
+
+client.deployments.remove_route(agent.id, "app")
+```
+
+The desired `routes` dictionary stays separate from `route_statuses`, which
+contains resolved URLs and live infrastructure status. This makes
+`get_routes()` followed by `set_routes(state.routes)` lossless. At most ten
+routes are allowed.
+
+Managed runtimes may use the reserved `self` selector for status and route
+operations. The backend authorizes that narrow whitelist from the
+active runtime-key binding; the generic runtime scope remains `agents:none`:
+
+```python
+client.deployments.get("self")
+client.deployments.set_route("self", "web", {"port": 3000, "auth": True})
+client.deployments.stop("self")
+```
+
+START uses the Backend-stored launch configuration and accepts only `dry_run`.
+It does not accept or repair `launch_config`; use `update(...,
+launch_config=...)` explicitly before starting when configuration must change.
+`self` is not accepted for lifecycle actions, delete, or key rotation.
+
+This generic path does not inject any routes. Use `create_openclaw(...)` when you want the standard root gateway and `desktop` routes.
+
+Accepted create/update launch options:
+
+- `name`
+- `size`
+- `config`
+- `tags`
+- `env`
+- `secrets`
+- `routes`
+- `command`
+- `entrypoint`
+- `restart`
+- `image`
+- `sync_root`
+- `sync_include`
+- `sync_exclude`
+- `sync_uid`
+- `sync_gid`
+- `registry_url`
+- `registry_auth`
+- `gateway_token`
+- `start`
+
+`registry_url`, `registry_auth`, `sync_root`, and `restart`
+are generic launch options. They belong to the base deployment contract, not
+to OpenClaw specifically. `registry_auth` is caller-held for private
+registries: the owner-facing Agent projection redacts it. Supply it when
+explicitly updating a private-registry launch config.
+Omit `restart` to preserve the platform default, or set `restart=False` for a
+one-shot process that should leave the deployment stopped after its main
+container exits.
+
+A nonblank `sync_root` enables a retained PVC. On generic create, omitting both
+policy fields (or passing an explicit nullable policy) selects the whole root;
+`sync_exclude=[]` also excludes nothing. `sync_include=[]` and root-wide
+excludes such as `sync_exclude=["*"]` are invalid. A nonempty include list wins
+over an exclude list. Every path is relative to
+`sync_root`, and Reef always excludes
+its internal `.reef-sync/**` and `.reef-sync-upload/**` paths.
+
+This is not a continuous two-way mirror. Steady synchronization uploads new
+and changed allowed files from the PVC to object storage without propagating
+ordinary filesystem deletions. SDK file writes and deletes are direct local
+Reef operations: every call obtains a fresh files-scoped credential from
+Backend and transfers bytes directly with the retained Reef server. Backend
+does not proxy, redirect, or archive file traffic. Data is copied from object
+storage to the PVC only during
+an explicit cold restore; ordinary start reuses the retained PVC. See
+[Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
+and the complete lifecycle and full-PVC archive semantics.
+
+`env` and `secrets` are separate string dictionaries. A key cannot appear in
+both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gateway_token`
+(or the same key in `secrets`) only when intentionally replacing it. Otherwise
+the Backend preserves the existing secret.
+
+Public launch-config PATCH calls can preserve stored backend-redacted `secrets`
+when they are omitted. START does not accept launch config. Provisioned storage
+settings are retained after create; treat them as immutable for public
+launch-config patches.
+
+### OpenClaw Presets
+
+Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw routes:
+
+```python
+agent = client.deployments.create_openclaw(
+    name="docs-demo",
+    tags=["team=dev"],
+)
+agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+agent = client.deployments.start_openclaw(agent.id)
+```
+
+`start_openclaw(...)` and generic `start(...)` start the Backend-stored launch
+config. To change launch settings, call `update(..., launch_config=...)` first.
+
+Default OpenClaw routes are:
+
+- `openclaw`
+  - `prefix=""`
+  - `port=18789`
+  - `auth=False`
+  - `remove_headers=["X-Forwarded-For"]`
+- `desktop`
+  - `prefix="desktop"`
+  - `port=3000`
+  - `auth=True`
+
+OpenClaw create and start helpers always ensure the canonical `openclaw`
+gateway route. If `routes={}` or a non-empty route map is supplied, custom
+routes are preserved but the `openclaw` entry is replaced with
+`{"port": 18789, "auth": False, "prefix": "", "remove_headers": ["X-Forwarded-For"]}`.
+Remove or replace app routes after launch with the route replacement API; do
+not use OpenClaw create/start helpers to remove the gateway route.
+
+The same contract applies to `start_openclaw(...)`.
+
+Generic routes omit `remove_headers` when it is absent or an empty list. The
+canonical OpenClaw gateway is the only SDK default that strips a proxy header.
+
+`OPENCLAW_TRUSTED_PROXIES` is a comma-separated full replacement for OpenClaw
+`gateway.trustedProxies`; `build_openclaw_trusted_proxies_env([...])` builds
+that launch env.
+
+Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser flavor. The pro helpers inherit the same OpenClaw defaults, select the `hypercli-openclaw:pro-prod` image when no image is provided, set `OPENCLAW_DESKTOP_ENABLED=1`, and include the protected noVNC route at `desktop-<agent>.hypercli.app`.
+
+OpenClaw helpers only add defaults on top of that generic launch surface:
+
+- `image`
+  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro helpers
+- `routes`
+  always includes the canonical `openclaw` gateway route; desktop/pro helpers
+  also include the protected `desktop` route
+- `sync_root`
+  defaults to `/home/node`
+- `sync_exclude`
+  defaults to the OpenClaw cache policy: Workspace projections under
+  `shared/**`, nested package caches, memory-reindex scratch files, and browser
+  caches are excluded
+- `HYPER_WORKSPACES_DIR`
+  defaults to `/home/node/shared`; an explicit launch `env` value is preserved
+- Workspaces boot sync
+  is rendered through `workspaces_sync` typed helper options and
+  `HYPER_WORKSPACES_*` environment variables; there is no public
+  `launch_config.workspacesSync` field
+- no separate sync boolean is serialized; normalized `sync_root` is the sole
+  persistence switch
+
+Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memory_index` on `create_openclaw(...)`, `create_openclaw_pro(...)`, `start_openclaw(...)`, or `start_openclaw_pro(...)`:
+
+```python
+agent = client.deployments.create_openclaw(
+    name="indexed-agent",
+    memory_index={
+        "on_session_start": True,
+        "on_search": True,
+        "watch": True,
+        "watch_debounce_ms": 30000,
+        "interval_minutes": 0,
+    },
+)
+```
+
+Supported fields are `enabled`, `on_session_start`, `on_search`, `watch`, `watch_debounce_ms`, and `interval_minutes`. The defaults keep search enabled and set all automatic sync triggers off, with `watch_debounce_ms=30000` and `interval_minutes=0`.
+
+Registry fields are still inherited from the generic deployment API:
+
+```python
+agent = client.deployments.create_openclaw(
+    name="private-image-demo",
+    registry_url="git.nedos.co",
+    registry_auth={"username": "ci", "password": "token"},
+)
+```
+
+### Hosted Coding Agents
+
+The SDK has typed launch helpers for six non-OpenClaw runtimes:
+
+| Runtime value | Python helper | Generic default image |
+| --- | --- | --- |
+| `buzz-agent` | `create_buzz_agent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
+| `opencode` | `create_opencode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| `codex` | `create_codex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude:latest` |
+| `goose` | `create_goose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| `kimi-code` | `create_kimi_code()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+
+These runtimes have no OpenClaw gateway and no public route by default.
+Lifecycle, files, exec, shell, workspace sync, and interactive authentication
+use the authenticated deployment API:
+
+```python
+codex = client.deployments.create_codex(name="codex")
+methods = codex.auth.methods()
+status = codex.auth.status()
+
+async with await codex.auth.login("device") as login:
+    print(login.verification_url, login.user_code)
+    await login.wait()
+```
+
+Authentication remains runtime-specific:
+
+| Runtime | Current SDK behavior |
+| --- | --- |
+| OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
+| Codex | Discovers adapter methods and adds native device login, status, and logout |
+| Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
+| Goose | Uses adapter discovery/status with the injected deployment credential; no noninteractive logout |
+| Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
+
+OpenCode and Goose images default to HyperCLI's Anthropic-native
+`kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
+login flow. Login sessions use an agent-bound shell WebSocket and never put an
+API key on the command line; runtime credentials persist under `/home/node`.
+See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
+inference, authentication, and selective-sync matrix.
+
+#### Typed Buzz launches
+
+Pass `BuzzLaunchConfig` to render the identity and canonical ACP launch:
+
+```python
+from hypercli import BuzzLaunchConfig
+
+agent = client.deployments.create_opencode(
+    name="buzz-opencode",
+    buzz=BuzzLaunchConfig(
+        private_key_nsec=agent_nsec,
+        relay_url=relay_url,
+        auth_tag=owner_signed_auth_tag,
+        model="hypercli/kimi-k2.6-anthropic",
+    ),
+)
+```
+
+A managed launch receives its agent-scoped inference credential from the
+platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
+into the runtime environment.
+
+Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
+inference path.
+
+A typed Buzz launch:
+
+- leaves size unset for live backend/provider slot selection and sets
+  `restart=False`;
+- clears public routes and selects `/usr/local/bin/acp`;
+- derives the selected runtime's ACP child command and Buzz MCP command;
+- selects the normal coding runtime image; only native Buzz Agent uses
+  `hypercli-buzz-agent`;
+- keeps `sync_root=/home/node` and reserves `/home/node/shared` for
+  Workspace projections;
+- runs from the image-managed `/home/node/.buzz` nest.
+
+The nest is reconciled after the persistent home mount, but prompt delivery
+stays in the ACP session path. `base_prompt.md` remains compiled into the Buzz
+ACP plugin.
+An explicit `image=` overrides the default. `buzz_enabled=True` is the
+deprecated raw-environment compatibility path and cannot be combined with a
+typed `buzz` value or explicit `command`.
+
+The typed SDK renderer checks required identity fields and parallelism but does
+not duplicate every stock Desktop cross-field validation. The Desktop provider
+also maps structured Goose model/provider fields to
+`GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
+environment when needed.
+
+Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
+stop callback. A successfully delivered and accepted `!shutdown` can exit a
+new one-shot launch; hosted cleanup reports `stopping`, then `stopped`, and
+releases the slot. Desktop receives no acknowledgement and retains its local
+deployed record. See [Buzz Desktop](/agents/buzz) for the full protocol,
+message-publishing, ownership, and security boundaries.
+
+### Route Configuration
+
+Routes are passed as a plain dict. Outside the OpenClaw helper methods, the SDK does not inject route defaults.
+
+Example:
+
+```python
+agent = client.deployments.create(
+    name="docs-demo",
+    routes={
+        "app": {"prefix": "app", "port": 8080, "auth": False},
+        "admin": {"prefix": "admin", "port": 8081, "auth": True},
+    },
+)
+```
+
+## Lifecycle
+
+Canonical lifecycle snapshots use `CREATING`, `STARTING`, `RESTORING`,
+`RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`, `ARCHIVED`, `FAILED`, and
+`DELETED`. `CREATING` is fresh admission, `STARTING` resumes a warm retained
+agent, and `RESTORING` hydrates a cold agent from its exact archive checkpoint.
+These values remain forward-compatible strings; clients should render them and
+wait for authoritative transitions rather than reproducing the server state
+machine.
+
+`STOPPED` is warm and retains local storage. `ARCHIVING` is transitional while
+the service creates and verifies an exact archive. `ARCHIVED` is the
+Backend-persisted cold-restorable terminal projection after Lagoon drops its
+agent task, namespace, PVC, and local S3 copy. `DELETED` is Backend-only,
+terminal, and normally absent from user reads.
+
+```python
+agents = client.deployments.list()
+current = client.deployments.get(agent.id)
+
+agent = client.deployments.start_openclaw(agent.id)
+agent = client.deployments.stop(agent.id)
+agent = client.deployments.archive(agent.id)
+agent = client.deployments.restore(agent.id)
+client.deployments.delete(agent.id)
+
+budget = client.deployments.budget()
+metrics = client.deployments.metrics(agent.id)
+```
+
+`stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
+asynchronous; use the event-assisted state wait before restarting the agent or
+treating its slot as available:
+
+```python
+agent = client.deployments.wait_for_state(
+    agent.id,
+    {"stopped"},
+    timeout=300,
+    failure_states={"failed", "restore_failed", "sync_failed"},
+)
+```
+
+`budget` now reports slot inventory plus pooled inference, rather than a summed CPU / memory billing pool. Expect:
+
+- `slots`
+  exact-tier granted / used / available counts
+- `pooled_tpd`
+  inference pooled across all active entitlements
+- `size_presets`
+  runtime shapes for `small`, `medium`, and `large`
+
+For account-facing billing and capacity screens, prefer `client.agent.entitlements()` or `client.agent.subscription_summary()` over `budget()`. `budget()` is runtime deployment capacity data, not recurring billing state.
+
+Wait for a running agent:
+
+```python
+agent = client.deployments.wait_running(agent.id, timeout=300)
+```
+
+Or on the hydrated object:
+
+```python
+agent.wait_running(timeout=300)
+```
+
+`poll_interval` is retained only for compatibility and is ignored. Waits use
+WebSocket invalidations to wake a fresh authoritative REST read.
+
+### Subscribe to lifecycle invalidations
+
+```python
+import asyncio
+
+async def refresh(_event):
+    agents = await asyncio.to_thread(client.deployments.list)
+    render(agents)
+
+async def snapshot():
+    agents = await asyncio.to_thread(client.deployments.list)
+    render(agents)
+
+stop = asyncio.Event()
+await client.deployments.subscribe(refresh, stop_event=stop, on_ready=snapshot)
+```
+
+`subscribe()` runs until cancelled or a permanent authentication error occurs.
+Events are thin, best-effort hints and may be duplicated or coalesced; each
+transition carries `agent_id` for local filtering, while REST is the snapshot.
+Use `on_ready` for the REST snapshot that must run after authentication and
+before transition frames are read. It runs again after reconnect.
+
+## `Agent` Object
+
+A hydrated `Agent` contains:
+
+- `id`
+- `user_id`
+- `state`
+- `launch_epoch`
+- `name`
+- `hostname`
+- `tags`
+- `jwt_token`
+- `jwt_expires_at`
+- `routes`
+- `command`
+- `entrypoint`
+
+Lifecycle and restore states are forward-compatible strings. `launch_epoch` is
+an opaque monotonic identifier for fencing observations from older launches;
+clients must not implement the server state machine from it.
+
+Important computed properties:
+
+- `public_url`
+  - root host
+- `desktop_url`
+  - `desktop-<host>`
+- `vnc_url`
+  - alias of `desktop_url`
+- `shell_url`
+  - only if an explicit `shell` route exists
+- `route_url(route_name, default_prefix=None)`
+- `route_requires_auth(route_name)`
+- `is_running`
+- `is_transitioning`
+- `is_archived`
+- `is_deleted`
+
+## Metrics, Exec, Files, Copy
+
+```python
+result = agent.exec("uname -a", timeout=30)
+print(result.stdout, result.stderr, result.exit_code)
+
+metrics = client.deployments.metrics(agent.id)
+print(metrics["cpu"], metrics["memory"], metrics["timestamp"])
+
+for entry in agent.files_list(""):
+    print(entry["path"])
+
+agent.file_write(".openclaw/workspace/notes.txt", "hello")
+print(agent.file_read(".openclaw/workspace/notes.txt"))
+
+agent.cp_to("./local.txt", ".openclaw/workspace/local.txt")
+agent.cp_from(".openclaw/workspace/output.log", "./output.log")
+```
+
+File paths are relative to the Agent's configured `sync_root`.
+`files_list("")` lists that root, including dot-directories such as
+`.openclaw`; absolute paths and `..` traversal are rejected. Every operation
+mints a fresh short-lived token and calls the Agent's HTTPS Reef endpoint
+directly; tokens are not cached and redirects are rejected. Per-file writes
+are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the Cloudflare edge
+request-body cap on the agent hostname); split larger data across files or
+sync it via the agent's own tooling.
+
+Equivalent deployment helpers:
+
+- `client.deployments.exec(...)`
+- `files_list()`
+- `file_read()`
+- `file_write()`
+- `file_delete()`
+- `cp_to()`
+- `cp_from()`
+
+Metrics and exec each mint a fresh short-lived credential, connect to the
+Backend `/ws/metrics/{agent_id}` or `/ws/exec/{agent_id}` surface, receive one
+strict result frame, and require the server's normal `1000` close. Metrics sends
+no client frame. Exec sends exactly `command`, `timeout`, and `dry_run`; a dry
+run is handled by the Backend facade without sending an Agent turn.
+
+## Logs And Shell
+
+Recommended current helpers:
+
+```python
+async for line in agent.logs_stream_ws(tail_lines=200):
+    print(line)
+
+ws = await agent.shell_connect(shell="/bin/bash")
+```
+
+These use:
+
+- `/deployments/{id}/metrics/token`
+- `/deployments/{id}/exec/token`
+- `/deployments/{id}/logs/token`
+- `/deployments/{id}/shell/token`
+- backend `/ws/metrics/{agent_id}`
+- backend `/ws/exec/{agent_id}`
+- backend `/ws/logs/{agent_id}`
+- backend `/ws/shell/{agent_id}`
+
+Shell token requests contain only the selected absolute `shell` path. The JWT
+is carried only in the WebSocket query string; there is no auth frame, header,
+cookie, or subprotocol.
+
+## `OpenClawAgent`
+
+When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
+
+Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAgent`, which inherits the OpenClaw gateway helpers.
+
+`OpenClawAgent` adds:
+
+- `gateway_url`
+- `gateway_token`
+- `resolve_gateway_token()`
+- `gateway()`
+- `connect()`
+- `gateway_status()`
+- `wait_ready()`
+- `config_get()`
+- `config_schema()`
+- `config_patch()`
+- `config_apply()`
+- `models_list()`
+- `sessions_list()`
+- `channels_status()`
+- `channels_logout()`
+- `web_login_start()`
+- `web_login_wait()`
+- `workspace_files()`
+- `file_get()`
+- `file_set()`
+- `chat_history()`
+- `chat_send_message()`
+- `chat_send()`
+- `provider_upsert()`
+- `provider_remove()`
+- `model_upsert()`
+- `model_remove()`
+- `set_default_model()`
+- `set_memory_search()`
+- `channel_upsert()`
+- `channel_patch()`
+- `telegram_upsert()`
+- `slack_upsert()`
+- `discord_upsert()`
+- `cron_list()`
+
+`resolve_gateway_token()` refreshes the Agent, derives `wss://{hostname}`, and
+fetches only `OPENCLAW_GATEWAY_TOKEN` through the exact-key secret endpoint.
+That Secret is canonical shared/bootstrap auth, not a browser device token; the
+SDK holds the resolved value on the live Agent instance. Keep it out of URLs,
+logs, and persistent application storage. Generic deployments also expose
+`env()`, `secret_names()`, and `secret(key)`.
+
+To mint a child key for one exact agent:
+
+```python
+scoped = client.deployments.create_scoped_key(agent.id, name="agent-client")
+print(scoped["api_key"])
+```
+
+### Gateway URL Semantics
+
+The SDK treats the root host as the default gateway host.
+
+`OpenClawAgent` now derives gateway connection context from:
+
+```python
+f"wss://{agent.hostname}"
+```
+
+An Agent reporting `RUNNING` does not prove that public DNS, the route, device
+pairing, or the authenticated gateway hello is ready. Use the gateway readiness
+and connection helpers for those later boundaries.
+
+## Gateway Example
+
+```python
+agent = client.deployments.get("agent-id")
+assert hasattr(agent, "gateway")
+
+gw = agent.gateway()
+
+async def main():
+    async with gw:
+        await gw.wait_ready(timeout=300)
+        cfg = await gw.config_get()
+        print(cfg)
+```
+
+See [Gateway Client SDK](/sdk/gateway) for the low-level RPC surface.

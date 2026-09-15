@@ -1,0 +1,127 @@
+---
+title: hyper wallet
+description: Manage the local Ethereum wallet used for x402 payments.
+---
+
+## Overview
+
+The wallet is used for:
+
+- one-off HyperCLI plan entitlements via `hyper agent subscribe`
+- x402 pay-per-use flows via `hyper flow ... --x402`
+
+Install wallet support with:
+
+```bash
+pip install "hypercli-cli[wallet]"
+```
+
+## create
+
+```bash
+hyper wallet create
+```
+
+Creates an encrypted keystore at `~/.hypercli/wallet.json`.
+
+If you want a migration-friendly plaintext wallet file first:
+
+```bash
+hyper wallet create --no-passphrase
+```
+
+That writes a plaintext private-key wallet file at the same path. You can encrypt it later.
+
+## encrypt
+
+```bash
+hyper wallet encrypt
+```
+
+Encrypts a plaintext wallet file in-place.
+
+Legacy encrypted keystores continue to load unchanged. This command only rewrites the file when you explicitly run it.
+
+## decrypt
+
+```bash
+hyper wallet decrypt
+```
+
+Decrypts an encrypted keystore into a plaintext wallet file in-place.
+
+## address
+
+```bash
+hyper wallet address
+```
+
+Shows the public wallet address without unlocking the keystore.
+
+## qr
+
+Print an ASCII QR code or save a PNG for the public address:
+
+```bash
+hyper wallet qr
+hyper wallet qr --output ./wallet-address.png
+```
+
+The address is public, but publishing it still links activity to that wallet.
+
+## balance
+
+```bash
+hyper wallet balance
+```
+
+Checks the wallet's USDC balance on Base mainnet.
+
+## Environment Variable
+
+To skip repeated passphrase prompts:
+
+```bash
+export HYPERCLI_WALLET_PASSPHRASE="your-secure-passphrase"
+```
+
+This only applies when the wallet file is encrypted.
+
+Avoid the `--passphrase` flag in recorded shells because its value can remain in
+history or process listings.
+
+## topup
+
+Pay USDC from the local wallet through x402 and credit the authenticated product
+account:
+
+```bash
+hyper wallet topup 10
+hyper wallet topup 25.50
+```
+
+The amount must be positive with at most six decimal places. `topup` requires
+both a funded Base USDC wallet and a working product API key: it first resolves
+the product user, then handles the backend `402` challenge and submits signed
+payment headers. Do not retry an ambiguous payment failure until checking the
+account balance and transaction state.
+
+## login
+
+Sign a wallet challenge, create a user-bound API key, and save it to
+`~/.hypercli/config`:
+
+```bash
+hyper wallet login
+hyper wallet login --name workstation
+```
+
+The command prints the newly created API key in full once. Keep its terminal
+output private and verify afterward with `hyper me`.
+
+## Next Steps
+
+Once funded, use your wallet to:
+
+- [Buy a HyperCLI plan entitlement](/cli/commands/agent)
+- Run pay-per-use flows with [hyper flow](/cli/commands/flow)

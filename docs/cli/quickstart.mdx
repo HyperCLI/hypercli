@@ -1,0 +1,100 @@
+---
+title: CLI Quickstart
+description: Install the CLI, configure credentials, launch jobs, subscribe to HyperCLI, create an OpenClaw agent, and connect to it.
+---
+
+## Install
+
+```bash
+pip install hypercli-cli
+```
+
+Extras:
+
+- wallet and x402: `pip install 'hypercli-cli[wallet]'`
+- ComfyUI: `pip install 'hypercli-cli[comfyui]'`
+- local speech-to-text: `pip install 'hypercli-cli[stt]'`
+
+## Configure Platform Access
+
+```bash
+hyper configure
+```
+
+Verify:
+
+```bash
+hyper billing balance
+hyper instances list
+```
+
+## Launch A GPU Job
+
+```bash
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 \
+  -g l40s \
+  -c "nvidia-smi"
+```
+
+Then inspect it:
+
+```bash
+hyper jobs list
+hyper jobs logs <job_id> -f
+hyper jobs shell <job_id>
+```
+
+## Subscribe To HyperCLI
+
+```bash
+hyper agent plans
+hyper agent subscribe solo
+hyper agent status
+```
+
+## Create An Agent
+
+```bash
+hyper agents create --name docs-demo --size small
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo
+```
+
+Current defaults:
+
+- gateway host: `https://docs-demo.hypercli.app`
+- desktop is disabled on the base image
+
+For Chrome/browser automation and a noVNC desktop:
+
+```bash
+hyper agents create --name docs-demo --size small --desktop
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo
+```
+
+That uses the OpenClaw pro image, sets `OPENCLAW_DESKTOP_ENABLED=1`, and exposes `https://desktop-docs-demo.hypercli.app`.
+
+## Connect To The Agent
+
+Shell and logs are backend WebSocket flows:
+
+```bash
+hyper agents shell docs-demo
+hyper agents logs docs-demo --ws
+```
+
+Gateway operations use the root host:
+
+```bash
+hyper agents config docs-demo
+hyper agents gateway-chat docs-demo "Reply with exactly: hello"
+```
+
+If the agent was launched with `--desktop`, desktop opens at the desktop route:
+
+```bash
+hyper agents status docs-demo
+```
+
+Use the printed `Desktop` URL in a browser.

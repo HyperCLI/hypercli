@@ -1,0 +1,131 @@
+---
+title: Keys SDK
+description: Generate API keys from Python apps, including narrowed scoped keys for users, jobs, renders, and exact agents.
+---
+
+## Overview
+
+Use `client.keys` to manage account API keys from Python apps.
+
+The public `/api/keys` surface is Orchestra-authoritative. HyperCLI proxies and caches key state, but the issued keys themselves live in Orchestra.
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(api_key="hyper_...")
+```
+
+The Python SDK exposes:
+
+- `client.keys.create(...)`
+- `client.keys.list()`
+- `client.keys.get(...)`
+- `client.keys.rename(...)`
+- `client.keys.disable(...)`
+
+## Create Scoped Keys
+
+Tags are the entire API-key authorization model.
+
+Common baseline tags:
+
+- `*:*`
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `flows:*`
+- `renders:self`
+- `files:*`
+- `files:self`
+- `agents:*`
+- `agents:self`
+- `models:*`
+- `voice:*`
+- `user:*`
+- `user:self`
+- `api:*`
+- `api:self`
+
+Common selector tags:
+
+- `team=dev`
+- `customer=acme`
+- `project=alpha`
+- `agent:<agent-uuid>`
+- `runtime=agent`
+
+Example:
+
+```python
+scoped = client.keys.create(
+    name="team-dev-app",
+    tags=["jobs:self", "renders:self", "user:self", "team=dev"],
+)
+
+print(scoped.api_key)
+```
+
+That key can be embedded in your own app and used directly against the product API.
+
+New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
+
+For HyperCLI inference and voice:
+
+- `models:*` is enough for `GET /v1/models`
+- `voice:*` is the public voice family contract for `/agents/voice/*`
+- new keys are still deny-by-default overall, so only the tags you attach are allowed
+
+## Child Keys For One Exact Agent
+
+When you want to mint a key that only works for a single agent, use the deployments helper:
+
+```python
+agent = client.deployments.get("agent-id")
+child = client.deployments.create_scoped_key(agent.id, name="agent-client")
+
+print(child["api_key"])
+```
+
+The reserved exact-agent selector is `agent:<agent-uuid>`. `:` stays reserved for built-in scopes; use `=` only for your own metadata tags. Do not use `agents:<uuid>` or `agent=<name>`.
+
+That child key is intended for:
+
+- viewing that agent
+- start/stop
+- matched logs/state
+- inference access via the dedicated inference token flow
+
+## List, Inspect, Rename, Disable
+
+```python
+keys = client.keys.list()
+key = client.keys.get(keys[0].key_id)
+renamed = client.keys.rename(key.key_id, "frontend-prod")
+client.keys.disable(renamed.key_id)
+```
+
+`list()` and `get()` return masked keys. The full `api_key` value is only returned on creation.
+
+## App Pattern
+
+Typical backend app flow:
+
+```python
+root = HyperCLI(api_key=os.environ["HYPER_API_KEY"])
+
+customer_key = root.keys.create(
+    name="customer-app",
+    tags=["jobs:self", "user:self", "team=customer-a"],
+)
+```
+
+Typical agent app flow:
+
+```python
+root = HyperCLI(
+    api_key=os.environ["HYPER_API_KEY"],
+    agent_api_key=os.environ.get("HYPER_AGENTS_API_KEY"),
+)
+
+child = root.deployments.create_scoped_key("agent-id", name="embedded-agent-client")
+```

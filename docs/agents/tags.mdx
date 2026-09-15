@@ -1,0 +1,124 @@
+---
+title: Tags
+description: Use reserved `:` resource scopes and arbitrary `=` metadata tags consistently across HyperCLI and HyperCLI.
+---
+
+## Overview
+
+HyperCLI uses two tag forms on purpose:
+
+- resource metadata tags: `key=value`
+- reserved key scopes: `family:value` or exact resource selectors like `agent:<uuid>`
+
+They are not interchangeable.
+
+Use resource tags for metadata on the things you run and allocate:
+
+- agents
+- entitlements
+- jobs
+- renders
+- files
+
+Use family baseline tags for broad API key authorization:
+
+- `agents:self`
+- `models:*`
+- `voice:*`
+
+## Resource Tags
+
+Resource tags are exact `key=value` strings:
+
+```text
+customer=acme
+project=alpha
+seat=enterprise-42
+env=prod
+```
+
+This is the standard form for:
+
+- agent tags
+- entitlement tags
+- customer or reseller mapping
+- filtering and routing metadata
+
+## API Key Scope Tags
+
+API keys use:
+
+- family baselines such as `jobs:self`, `renders:*`, `voice:*`
+- selector tags such as `customer=acme`, `project=alpha`
+
+Examples:
+
+```text
+*:*
+agents:self
+models:*
+voice:*
+customer=acme
+project=alpha
+```
+
+The allowlist rule is simple:
+
+- no tags means no access
+- a selector tag on the key only grants access when the resource has the same selector tag
+- a family `*` baseline grants broad access for that family
+- `family:none` means no baseline grant; it does not cancel matching selectors
+
+`agents:self` does not authorize the account-scoped deployment event stream.
+Subscriptions require `agents:*`, global `*:*`, or an exact
+`agent:<agent-uuid>` selector; exact keys receive events only for that agent.
+
+These are authorization scopes, not resource metadata.
+
+Do not use `customer:acme` or `project:alpha` for resource labeling. Those should be `customer=acme` and `project=alpha`.
+
+## Entitlements
+
+Entitlements are concrete 1:1 access grants.
+
+Each entitlement has its own:
+
+- plan
+- expiry
+- features
+- limits
+- tags
+
+That makes tags the right place to express platform ownership and routing intent:
+
+- `customer=acme`
+- `seat=enterprise-42`
+- `region=us`
+
+This is especially important for reseller and platform users who need to track which customer a grant is backing.
+
+## Agents
+
+Agents also carry resource tags.
+
+Use the same `key=value` format there so the mapping stays coherent:
+
+```text
+customer=acme
+env=prod
+agent_role=support
+```
+
+The clean model is:
+
+- subscriptions define recurring billing contracts
+- entitlements define concrete grants
+- agents bind to entitlements
+- tags make those grants and agents easy to route and audit
+
+## Rules
+
+- Use `key=value` for arbitrary user-defined metadata.
+- Use `:` only for reserved built-in scopes such as `jobs:*`, `agents:self`, or `agent:<uuid>`.
+- Keep tag values stable and machine-readable.
+- Prefer tags on entitlements for billing-backed allocation metadata.
