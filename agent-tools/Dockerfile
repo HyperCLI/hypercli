@@ -33,5 +33,13 @@ RUN --mount=type=cache,target=/root/.npm \
     rm -rf /opt/hypercli/skills && \
     mv /tmp/hypercli-skills /opt/hypercli/skills
 
+# Ship runtime payload only: dist + production node_modules + package.json.
+RUN mkdir -p /bundle/ts-cli /bundle/ts-sdk && \
+    cp -a /opt/hypercli/ts-cli/package.json /opt/hypercli/ts-cli/dist /opt/hypercli/ts-cli/node_modules /bundle/ts-cli/ && \
+    cp -a /opt/hypercli/ts-sdk/package.json /opt/hypercli/ts-sdk/dist /opt/hypercli/ts-sdk/node_modules /bundle/ts-sdk/ && \
+    mv /opt/hypercli/skills /bundle/skills && \
+    mkdir /bundle/bin && \
+    ln -s ../ts-cli/dist/index.js /bundle/bin/hyper
+
 FROM scratch
-COPY --from=builder /opt/hypercli /opt/hypercli
+COPY --from=builder /bundle /opt/hypercli
