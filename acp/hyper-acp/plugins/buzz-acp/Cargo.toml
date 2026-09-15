@@ -1,0 +1,21 @@
+[package]
+name = "buzz-acp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+license = "Apache-2.0"
+repository = "https://github.com/HyperCLI/hypercli"
+description = "Compatibility binary for the Hyper ACP Buzz plugin"
+keywords = ["acp", "buzz", "agents"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "buzz-acp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+hyper-acp-buzz = { path = "../buzz" }
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["raw_value"] }

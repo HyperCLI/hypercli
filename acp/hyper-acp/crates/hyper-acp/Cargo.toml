@@ -1,0 +1,35 @@
+[package]
+name = "hyper-acp"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Thin ACP host transport built on the canonical Agent Client Protocol schema"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "hyper_acp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hyper-acp"
+path = "src/bin/hyper-acp.rs"
+
+[dependencies]
+agent-client-protocol-schema = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+futures-util = { workspace = true }
+hyper-acp-buzz = { path = "../../plugins/buzz" }
+hyper-acp-slack-relay = { path = "../../plugins/slack-relay" }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true
