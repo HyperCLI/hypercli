@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+    <!--
+    HyperCLI custom noVNC viewer: connects immediately on load, syncs the
+    clipboard both ways, and turns dropped files into Reef uploads on the
+    agent's ~/Desktop. Query string (query or hash, like vnc_lite.html):
+        path=websockify   websockify path (may itself carry ?token=...)
+        scale=false       fit the remote viewport inside the page instead of
+                          the default: fill the page exactly (the vendored
+                          noVNC Display is stretch-patched, so scaling does
+                          not letterbox; see base/stretch-novnc-display.py)
+        ft=<token>        Reef files token
+        fte=<epoch>       files-token expiry, epoch seconds
+        rh=<url>          Reef base URL (default: this host without the
+                          leading "desktop-"). Must pass
+                          isAllowedReefBase(): https on this hostname,
+                          a *.hypercli.app / *.hypercli.com host, or
+                          localhost / 127.0.0.1 (http is loopback-only).
+                          Anything else disables uploads instead of
+                          trusting an attacker-supplied host.
+    -->
+
+    <title>Hyper Desktop</title>
+
+    <meta charset="utf-8">
+
+    <meta name="referrer" content="no-referrer">
+
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https:">
+
+    <style>
+
+        html, body {
+            margin: 0;
+            height: 100%;
+            background-color: #071A2F;
+            color: #d7e3f0;
+            font: 12px Helvetica, Arial, sans-serif;
+        }
+
+        #screen {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+        }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(7, 26, 47, 0.85);
+            z-index: 10;
+        }
+
+        .overlay.visible {
+            display: flex;
+        }
+
+        .overlay-box {
+            text-align: center;
+            padding: 24px 32px;
+            border: 1px solid #1e3a55;
+            border-radius: 8px;
+            background-color: #0b2740;
+        }
+
+        .overlay-box button {
+            margin-top: 12px;
+            padding: 6px 16px;
+            border: 1px solid #3f6b96;
+            border-radius: 4px;
+            background: none;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        #toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%);
+            max-width: 70vw;
+            padding: 6px 12px;
+            border-radius: 4px;
+            background-color: #10334f;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        #toast.visible {
+            opacity: 1;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        #clip-toast {
+            position: fixed;
+            left: 50%;
+            bottom: 48px;
+            transform: translateX(-50%);
+            max-width: 70vw;
+            min-width: 240px;
+            padding: 8px 12px;
+            border: 1px solid #3f6b96;
+            border-radius: 4px;
+            background-color: #10334f;
+            z-index: 30;
+        }
+
+        #clip-text {
+            display: block;
+            max-height: 30vh;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #clip-manual {
+            display: block;
+            width: 100%;
+            height: 16vh;
+            resize: none;
+            background-color: #071a2f;
+            color: inherit;
+            border: 1px solid #1e3a55;
+        }
+
+        #clip-copy {
+            margin-top: 8px;
+            padding: 4px 12px;
+            border: 1px solid #3f6b96;
+            border-radius: 4px;
+            background: none;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        #status {
+            position: fixed;
+            left: 8px;
+            bottom: 6px;
+            color: #7f9ab3;
+            z-index: 5;
+        }
+
+        /* Connection-state dot: muted while connecting/disconnected, green
+           once the RFB 'connect' event adds the .connected state class. */
+        #status::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            margin-right: 6px;
+            border-radius: 50%;
+            background-color: #4a617a;
+        }
+
+        #status.connected::before {
+            background-color: #35c163;
+        }
+
+    </style>
+
+    <script type="module">
+        import RFB from './core/rfb.js';
+
+        let rfb = null;
+
+        // vnc_lite.html's helper: variables are read from the query string and
+        // the hash alike (hash keeps secrets off the web server's access log).
+        function readQueryVariable(name, defaultValue) {
+            const re = new RegExp('.*[?&]' + name + '=([^&#]*)'),
+                  match = ''.concat(document.location.href, window.location.hash).match(re);
+
+            if (match) {
+                return decodeURIComponent(match[1]);
+            }
+
+            return defaultValue;
+        }
+
+        let toastTimer = null;
+        function toast(text) {
+            const el = document.getElementById('toast');
+            el.textContent = text;
+            el.classList.add('visible');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => el.classList.remove('visible'), 4000);
+        }
+
+        function status(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        function showDeadOverlay(message) {
+            document.getElementById('dead-message').textContent = message;
+            document.getElementById('dead-overlay').classList.add('visible');
+        }
+
+        // Upload-destination allowlist. `rh` picks the host that dropped
+        // files (and the bearer token behind them) are PUT to; without this
+        // gate a crafted URL could exfiltrate both to any host. Pure
+        // string-in/bool-out so the rule set can be pinned from
+        // base/test.py without a JS runtime. The suffixes start with a dot
+        // on purpose: `evilhypercli.app` must not match.
+        function isAllowedReefBase(raw, pageHostname) {
+            let url;
+            try {
+                url = new URL(raw);
+            } catch {
+                return false;
+            }
+            if (url.username || url.password) return false;
+            const host = url.hostname.toLowerCase();
+            const loopback = host === 'localhost' || host.endsWith('.localhost')
+                || host === '127.0.0.1' || host === '[::1]';
+            if (loopback) return url.protocol === 'https:' || url.protocol === 'http:';
+            if (url.protocol !== 'https:') return false;
+            return host === String(pageHostname || '').toLowerCase()
+                || host.endsWith('.hypercli.app')
+                || host.endsWith('.hypercli.com');
+        }
+
+        // Read parameters from the URL query string (or hash).
+        const path = readQueryVariable('path', 'websockify');
+        const rhParam = readQueryVariable('rh', '');
+        const defaultReefBase = 'https://' + window.location.hostname.replace(/^desktop-/, '');
+        let reefBase = defaultReefBase;
+        let uploadsBlocked = false;
+        if (rhParam) {
+            if (isAllowedReefBase(rhParam, window.location.hostname)) {
+                reefBase = rhParam.replace(/\/+$/, '');
+            } else {
+                uploadsBlocked = true;
+            }
+        }
+        // A rejected `rh` also rejects `ft`: the token is only ever handed to
+        // an allow-listed host.
+        let fileToken = uploadsBlocked ? '' : readQueryVariable('ft', '');
+        let fileTokenExpiresAt = uploadsBlocked ? 0 : Number(readQueryVariable('fte', '')) || 0;
+        if (uploadsBlocked) {
+            status('File uploads disabled: rh is not an allowed Reef host');
+        }
+        // Fill the page by default in our embed: the image's stretch-patched
+        // noVNC Display scales the fixed-geometry desktop into whatever page
+        // size the embedder gives us without letterboxing. `scale=false`
+        // restores upstream's aspect-preserving fit.
+        const scaleViewport = readQueryVariable('scale', 'true') !== 'false';
+
+        // Every param is captured at this point: drop the ws token and upload
+        // params from the visible URL and history entry right away, not only
+        // once the RFB handshake settles.
+        function scrubSensitiveUrlParams() {
+            history.replaceState(null, '', window.location.pathname);
+        }
+        scrubSensitiveUrlParams();
+
+        // The embedding parent is the only trusted source of fresh files
+        // tokens (uploads go cross-origin to Reef; the viewer page itself is
+        // same-origin only with the desktop route host).
+        // Keep 'tauri://localhost': the packaged Tauri app's top-level
+        // origin is that custom scheme on macOS/Linux (WKWebView/WebKitGTK),
+        // and CSP frame-ancestors cannot express non-http(s) schemes, so
+        // this postMessage origin check is the only Tauri framing guard on
+        // those platforms; Windows WebView2 is 'http://tauri.localhost'.
+        const EMBEDDING_ORIGINS = new Set([
+            'tauri://localhost',
+            'http://tauri.localhost',
+            'http://localhost:1420',
+            'https://agents.hypercli.com',
+            'https://agents.dev.hypercli.com',
+        ]);
+
+        let refreshTimer = null;
+        let refreshWaiter = null;
+
+        function applyFileToken(token, expiresAt) {
+            fileToken = token;
+            fileTokenExpiresAt = typeof expiresAt === 'number' ? expiresAt : 0;
+            scheduleTokenRefresh();
+        }
+
+        function scheduleTokenRefresh() {
+            if (refreshTimer) {
+                clearTimeout(refreshTimer);
+                refreshTimer = null;
+            }
+            if (!fileTokenExpiresAt || window.parent === window) return;
+            const delay = fileTokenExpiresAt * 1000 - Date.now() - 45 * 1000;
+            if (delay <= 0) {
+                void requestFileTokenRefresh();
+                return;
+            }
+            refreshTimer = setTimeout(() => void requestFileTokenRefresh(), delay);
+        }
+
+        function requestFileTokenRefresh() {
+            if (uploadsBlocked) return Promise.resolve(false);
+            if (window.parent === window) return Promise.resolve(false);
+            if (refreshWaiter) return refreshWaiter.promise;
+            let settled = false;
+            const promise = new Promise((resolve) => {
+                const timer = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    refreshWaiter = null;
+                    resolve(false);
+                }, 5000);
+                refreshWaiter = {
+                    promise,
+                    deliver: (token, expiresAt) => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        refreshWaiter = null;
+                        applyFileToken(token, expiresAt);
+                        resolve(true);
+                    },
+                };
+            });
+            window.parent.postMessage({ type: 'hyper-desktop:ft-refresh' }, '*');
+            return promise;
+        }
+
+        window.addEventListener('message', (event) => {
+            if (!EMBEDDING_ORIGINS.has(event.origin)) return;
+            const data = event.data;
+            if (!data || data.type !== 'hyper-desktop:ft') return;
+            if (typeof data.token !== 'string' || !data.token) return;
+            if (refreshWaiter) refreshWaiter.deliver(data.token, data.expiresAt);
+            else applyFileToken(data.token, data.expiresAt);
+        });
+
+        async function uploadFile(file) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                if (!fileToken) {
+                    if (!(await requestFileTokenRefresh())) {
+                        throw new Error('no upload token');
+                    }
+                }
+                const response = await fetch(
+                    `${reefBase}/files/Desktop/${encodeURIComponent(file.name)}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${fileToken}`,
+                            'Content-Type': 'application/octet-stream',
+                        },
+                        body: file,
+                    },
+                );
+                if (response.status === 401 || response.status === 403) {
+                    fileToken = '';
+                    if (attempt === 0 && (await requestFileTokenRefresh())) continue;
+                    throw new Error(`refused (${response.status})`);
+                }
+                if (!response.ok) throw new Error(`failed (${response.status})`);
+                return;
+            }
+        }
+
+        async function handleDroppedFiles(files) {
+            const list = Array.from(files);
+            if (!list.length) return;
+            if (uploadsBlocked) {
+                status('File uploads disabled: rh is not an allowed Reef host');
+                toast('Uploads disabled: untrusted Reef host in URL');
+                return;
+            }
+            let done = 0;
+            for (const file of list) {
+                try {
+                    await uploadFile(file);
+                    done += 1;
+                    toast(`Uploaded ${done}/${list.length}: ${file.name}`);
+                } catch (error) {
+                    toast(`Upload ${file.name} ${error.message || error}`);
+                }
+            }
+        }
+
+        const dropOverlay = document.getElementById('drop-overlay');
+        let dragDepth = 0;
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            dragDepth += 1;
+            dropOverlay.classList.add('visible');
+        });
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) dropOverlay.classList.remove('visible');
+        });
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragDepth = 0;
+            dropOverlay.classList.remove('visible');
+            if (e.dataTransfer?.files?.length) void handleDroppedFiles(e.dataTransfer.files);
+        });
+
+        // Remote -> local clipboard: the Clipboard API only writes from a user
+        // gesture and this runs from an RFB event, so show the received text
+        // in a transient toast with a Copy button instead.
+        let clipHideTimer = null;
+
+        function hideClipboardToast() {
+            document.getElementById('clip-toast').hidden = true;
+            if (clipHideTimer) {
+                clearTimeout(clipHideTimer);
+                clipHideTimer = null;
+            }
+        }
+
+        function remoteClipboardToLocal(text) {
+            const box = document.getElementById('clip-toast');
+            const preview = document.getElementById('clip-text');
+            const manual = document.getElementById('clip-manual');
+            const copyButton = document.getElementById('clip-copy');
+            if (navigator.clipboard && window.isSecureContext) {
+                preview.hidden = false;
+                preview.textContent = text;
+                manual.hidden = true;
+                copyButton.textContent = 'Copy';
+                copyButton.onclick = () => {
+                    navigator.clipboard.writeText(text).then(
+                        () => {
+                            toast('Copied to clipboard');
+                            hideClipboardToast();
+                        },
+                        () => { /* leave the toast open for manual copy */ },
+                    );
+                };
+            } else {
+                // No Clipboard API (insecure context / denied permission):
+                // a select-all textarea for manual copy is the fallback.
+                preview.hidden = true;
+                manual.hidden = false;
+                manual.value = text;
+                copyButton.textContent = 'Done';
+                copyButton.onclick = () => {
+                    manual.focus();
+                    manual.select();
+                    hideClipboardToast();
+                };
+                manual.focus();
+                manual.select();
+            }
+            box.hidden = false;
+            if (clipHideTimer) clearTimeout(clipHideTimer);
+            clipHideTimer = setTimeout(hideClipboardToast, 8000);
+        }
+
+        // Local -> remote. The paste event's own clipboardData is the
+        // primary path. WKWebView (bug 75891) fires no paste event when the
+        // focused element is non-editable (our canvas), so on Cmd/Ctrl+V
+        // keydown we arm a one-tick fallback: if no paste event arrives,
+        // read the clipboard directly (the keydown is the user gesture).
+        let pendingPaste = false;
+        document.addEventListener('keydown', (e) => {
+            if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'v') return;
+            pendingPaste = true;
+            setTimeout(() => {
+                if (!pendingPaste || !rfb) return;
+                pendingPaste = false;
+                navigator.clipboard?.readText().then((text) => {
+                    if (text) rfb.clipboardPasteFrom(text);
+                }).catch(() => {});
+            }, 0);
+        });
+        document.addEventListener('paste', (e) => {
+            pendingPaste = false;
+            const text = e.clipboardData?.getData('text');
+            if (text && rfb) rfb.clipboardPasteFrom(text);
+        });
+        for (const type of ['copy', 'cut']) {
+            document.addEventListener(type, (e) => {
+                const text = e.clipboardData?.getData('text');
+                if (text && rfb) rfb.clipboardPasteFrom(text);
+            });
+        }
+
+        // Build the websocket URL and connect immediately.
+        const url = 'wss://' + window.location.host + '/' + path;
+
+        rfb = new RFB(document.getElementById('screen'), url, { shared: true });
+        rfb.scaleViewport = scaleViewport;
+        rfb.addEventListener('connect', () => {
+            status('Connected');
+            document.getElementById('status').classList.add('connected');
+            scrubSensitiveUrlParams();
+        });
+        rfb.addEventListener('disconnect', (e) => {
+            document.getElementById('status').classList.remove('connected');
+            scrubSensitiveUrlParams();
+            if (e.detail.clean) status('Disconnected');
+            else showDeadOverlay('Desktop connection lost.');
+        });
+        rfb.addEventListener('credentialsrequired', () => {
+            scrubSensitiveUrlParams();
+            showDeadOverlay('Desktop requires credentials.');
+        });
+        rfb.addEventListener('desktopname', (e) => { document.title = e.detail.name; });
+        rfb.addEventListener('clipboard', (e) => remoteClipboardToLocal(e.detail.text));
+    </script>
+</head>
+
+<body>
+    <div id="screen"></div>
+    <div id="drop-overlay" class="overlay">
+        <div class="overlay-box">Drop files to upload to ~/Desktop</div>
+    </div>
+    <div id="dead-overlay" class="overlay">
+        <div class="overlay-box">
+            <div id="dead-message">Desktop disconnected.</div>
+            <button type="button" onclick="window.location.reload()">Reload</button>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <div id="clip-toast" hidden>
+        <span id="clip-text"></span>
+        <textarea id="clip-manual" hidden readonly></textarea>
+        <button type="button" id="clip-copy">Copy</button>
+    </div>
+    <div id="status">Connecting</div>
+    <noscript>
+        <div class="overlay visible">
+            <div class="overlay-box">JavaScript is required to reach this desktop.</div>
+        </div>
+    </noscript>
+</body>
+</html>

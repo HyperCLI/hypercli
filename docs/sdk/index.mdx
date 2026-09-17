@@ -1,0 +1,208 @@
+---
+title: Python SDK
+description: Detailed guide to the Python SDK for jobs, renders, HyperCLI account data, agent lifecycle, shell/log streams, and OpenClaw gateway sessions.
+---
+
+## Install
+
+```bash
+pip install hypercli-sdk
+```
+
+Optional extras:
+
+```bash
+pip install "hypercli-sdk[comfyui]"
+```
+
+## What The Python SDK Covers
+
+The Python SDK has two distinct halves:
+
+- HyperCLI platform APIs
+  - billing
+  - jobs
+  - instances
+  - renders
+  - files
+  - keys
+  - user
+  - voice
+- HyperCLI / agent APIs
+  - `client.agent` for plan and model metadata
+  - `client.deployments` for agent lifecycle and runtime access
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(
+    api_key="hyper_...",      # main HyperCLI API key
+    agent_api_key="hyper_api_...",   # optional agent-scoped key
+)
+```
+
+## Authentication Model
+
+The constructor resolves credentials in this order:
+
+1. explicit constructor args
+2. environment variables
+3. `~/.hypercli/config`
+
+Common environment variables:
+
+- `HYPER_API_KEY`
+- `HYPER_API_BASE`
+- `HYPER_AGENTS_API_KEY`
+- `AGENTS_API_BASE_URL`
+- `AGENTS_WS_URL`
+
+Use `agent_api_key` when your HyperCLI key is different from your main HyperCLI key. Product APIs use `HYPER_API_KEY`; agent lifecycle/inference surfaces prefer `HYPER_AGENTS_API_KEY` and fall back to the product key.
+
+## Main Namespaces
+
+### Platform
+
+- `client.billing`
+- `client.jobs`
+- `client.instances`
+- `client.renders`
+- `client.files`
+- `client.keys`
+- `client.user`
+- `client.voice`
+
+### HyperCLI
+
+- `client.agent`
+  - plans
+  - model catalog
+  - convenience provider config helpers
+- `client.deployments`
+  - create / start / stop / delete
+  - exec
+  - file copy and file APIs
+  - log and shell WebSocket helpers
+  - OpenClaw gateway access
+
+## Quick Start
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(api_key="hyper_...")
+
+agent = client.deployments.create_openclaw(
+    name="docs-demo",
+    env={"APP_ENV": "prod"},
+)
+
+agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+agent = client.deployments.start_openclaw(agent.id)
+agent = agent.wait_running(timeout=300)
+print(agent.public_url)   # https://docs-demo.hypercli.app
+print(agent.desktop_url)  # https://desktop-docs-demo.hypercli.app
+```
+
+## Current Agent Route Model
+
+For OpenClaw-backed agents, the platform defaults are:
+
+- root host = gateway / agent
+- `desktop-<host>` = desktop
+- extra routes come from the `routes` dict you pass at create/start time
+
+That means:
+
+- `Agent.public_url` is the root host
+- `Agent.desktop_url` and `Agent.vnc_url` point to `desktop-<host>`
+- `Agent.shell_url` is only populated if you explicitly create a `shell` route
+
+There is no default `shell-<host>` platform route anymore.
+
+## Recommended Access Patterns
+
+### Use `client.user.auth_me()` for capability introspection
+
+The Python SDK exposes the current auth context, including resolved key capabilities:
+
+```python
+auth = client.user.auth_me()
+print(auth.auth_type)
+print(auth.capabilities)
+print(auth.key_id)
+```
+
+This resolves against the main product auth route at `/api/auth/me`.
+
+On Orchestra-backed product surfaces, scoped keys generally need `user:self`
+for this call. A flow-only key can still use `client.renders.*` helpers,
+because the SDK falls back to `/api/flow/*` when auth introspection is denied.
+
+### Use `client.voice` for subscription voice routes
+
+Voice helpers go through the current `/agents/voice/*` surface:
+
+```python
+audio = client.voice.tts("Hello from HyperCLI", voice="serena", response_format="mp3")
+
+with open("hello.mp3", "wb") as f:
+    f.write(audio)
+```
+
+Additional helpers:
+
+- `client.voice.clone(...)`
+- `client.voice.design(...)`
+
+The Python SDK sends these requests through the derived agents API base. For
+`api_url="https://api.hypercli.com"`, `client.voice.tts(...)` posts to
+`https://api.hypercli.com/agents/voice/tts`.
+
+Streaming voice uses the agents WebSocket base plus `/voice`:
+
+```python
+async with client.voice.connect() as session:
+    async for chunk in session.speak("Hello from HyperCLI", voice="serena"):
+        handle_audio(chunk.audio)
+
+async for chunk in client.voice.tts_stream("Hello from HyperCLI", voice="serena"):
+    handle_audio(chunk.audio)
+```
+
+The streaming request frame is a JSON message with `type="speak"`, an
+`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+The server replies with `start`, then ordered `audio` JSON headers followed
+immediately by binary payload frames, then `done`; server errors raise
+`VoiceStreamError`. A session handles one request at a time, and breaking the
+iterator early sends `{"type": "cancel"}` for the request.
+
+### Use backend `/ws/*` for logs and shells
+
+Preferred helpers:
+
+- `agent.logs_stream_ws()`
+- `agent.shell_connect()`
+- `client.deployments.logs_stream_ws(...)`
+- `client.deployments.shell_connect(...)`
+
+These use backend-issued short-lived tokens and the backend `/ws/logs/{agent_id}` and `/ws/shell/{agent_id}` endpoints.
+
+### Use `OpenClawAgent.gateway()` for gateway work
+
+Preferred helpers:
+
+- `agent.gateway()`
+- `agent.connect()`
+- `agent.wait_ready()`
+- `agent.config_get()`
+- `agent.chat_send()`
+
+These connect to the root agent host, not `openclaw-<host>`.
+
+## Next Pages
+
+- [Keys SDK](/sdk/keys)
+- [Agents SDK](/sdk/agents)
+- [Python SDK Reference](/sdk/reference)
+- [Gateway Client SDK](/sdk/gateway)

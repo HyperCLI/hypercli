@@ -1,0 +1,148 @@
+---
+title: Quickstart
+description: Subscribe to HyperCLI and start making requests in minutes
+---
+
+## Option 1: Web Dashboard (Easiest)
+
+### 1. Create an Account
+
+Sign up at [agents.hypercli.com](https://agents.hypercli.com) with email or wallet.
+
+### 2. Buy Capacity Or Start a Subscription
+
+From the [plans page](https://agents.hypercli.com/plans), choose capacity and pay with:
+
+- **Credit card** — via Stripe, takes 30 seconds
+- **USDC on Base** — via browser wallet (MetaMask, Coinbase Wallet, etc.)
+
+The plans page summarizes both:
+
+- effective current entitlements
+- active recurring billing subscriptions
+
+### 3. Create an API Key
+
+Go to [API Keys](https://agents.hypercli.com/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
+
+### 4. Make a Request
+
+Use the Anthropic Messages API as the default endpoint for chat models. HyperCLI also supports the OpenAI-compatible API at `/v1`, but tool calling quality is better with the Anthropic format.
+
+```bash
+export HYPER_AGENTS_API_KEY="hyper_api_..."
+
+curl https://api.hypercli.com/v1/messages \
+  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY" \
+  -H "x-api-key: $HYPER_AGENTS_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.6",
+    "max_tokens": 512,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is x402?"
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+Current plan configuration includes Kimi chat models. Query
+`GET /v1/models` for the live model catalog and metadata.
+
+Or with Python:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="hyper_api_...",
+    base_url="https://api.hypercli.com/v1"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k3",
+    messages=[{"role": "user", "content": "What is x402?"}]
+)
+print(response.choices[0].message.content)
+```
+
+## Option 2: CLI
+
+Subscribe with USDC via the HyperCLI:
+
+```bash
+# Install with wallet support
+pip install 'hypercli-cli[wallet]'
+
+# Create wallet
+hyper wallet create
+
+# Fund with USDC on Base (send to your wallet address)
+hyper wallet balance
+
+# Buy one Solo entitlement
+hyper agent subscribe solo
+
+# Get your key
+hyper agent status
+```
+
+<Note>
+If you used the CLI, your key is saved at `~/.hypercli/agent-key.json`. No need to create one from the dashboard.
+</Note>
+
+See [CLI commands](/cli/commands/agent) for details.
+
+## Option 3: x402-wallet (Headless)
+
+For servers or CI/CD environments without a browser:
+
+```bash
+# Install x402-wallet
+curl -L https://hypercli.com/binaries/x402-wallet -o x402-wallet
+chmod +x x402-wallet
+
+# Create and fund a wallet
+./x402-wallet wallet-init --keystore
+./x402-wallet config-set --network base
+
+# Create payment signature and subscribe
+./x402-wallet create-payment \
+  --pay-to <RECIPIENT_ADDRESS> \
+  --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --amount 39000000
+```
+
+See the [x402 wallet guide](/agents/x402-wallet) for the full flow.
+
+## Verify Your Setup
+
+### List Models
+
+```bash
+curl https://api.hypercli.com/v1/models \
+  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY"
+```
+
+### Check Your Entitlements
+
+From the dashboard or plans page, you can see your effective entitlements, active subscriptions, and billing reset timing.
+
+```bash
+curl https://api.hypercli.com/agents/plans/current \
+  -H "Authorization: Bearer <jwt-token>"
+```
+
+## What's Next?
+
+- [API Reference](/agents/api) — full REST API docs
+- [x402 Wallet](/agents/x402-wallet) — headless USDC payments
+- [CLI Commands](/cli/commands/agent) — manage subscriptions from the terminal

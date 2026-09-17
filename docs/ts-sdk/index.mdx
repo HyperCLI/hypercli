@@ -1,0 +1,164 @@
+---
+title: TypeScript SDK
+description: Detailed guide to the TypeScript SDK for jobs, renders, HyperCLI deployments, backend WebSocket shells/logs, and OpenClaw gateway sessions.
+---
+
+## Install
+
+```bash
+npm install @hypercli.com/sdk
+```
+
+Requirements:
+
+- Node.js 18+
+- ESM-compatible runtime
+
+## What The TS SDK Covers
+
+The SDK combines:
+
+- HyperCLI platform REST APIs
+- HyperCLI deployment lifecycle APIs
+- backend WebSocket helpers for logs and shells
+- OpenClaw gateway client and convenience wrappers
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({
+  apiKey: process.env.HYPER_API_KEY,
+  agentApiKey: process.env.HYPER_AGENTS_API_KEY,
+});
+```
+
+## Namespaces
+
+Platform:
+
+- `billing`
+- `jobs`
+- `instances`
+- `renders`
+- `files`
+- `keys`
+- `user`
+- `voice`
+
+HyperCLI:
+
+- `agent`
+- `deployments`
+
+## Current Route Model
+
+The SDK assumes the current OpenClaw route defaults:
+
+- root host = gateway / agent
+- `desktop-<host>` = desktop
+- custom routes come from the `routes` dict
+
+That means:
+
+- `agent.publicUrl` is the root host
+- `agent.desktopUrl` / `agent.vncUrl` point to `desktop-<host>`
+- `agent.shellUrl` is only populated when you explicitly define a `shell` route
+
+## Recommended Access Patterns
+
+### Use `client.user.authMe()` for capability introspection
+
+```ts
+const auth = await client.user.authMe();
+console.log(auth.authType);
+console.log(auth.capabilities);
+console.log(auth.keyId);
+```
+
+This resolves against the main product auth route at `/api/auth/me`.
+
+On Orchestra-backed product surfaces, scoped keys generally need `user:self`
+for this call. A flow-only key can still use `client.renders.*` helpers,
+because the SDK falls back to `/api/flow/*` when auth introspection is denied.
+
+### Use `client.voice` for subscription voice routes
+
+```ts
+const audio = await client.voice.tts({
+  text: "Hello from HyperCLI",
+  voice: "serena",
+  responseFormat: "mp3",
+});
+```
+
+Additional helpers:
+
+- `client.voice.clone(...)`
+- `client.voice.design(...)`
+
+The TypeScript SDK sends these requests through the derived agents API base.
+For `apiUrl: "https://api.hypercli.com"`, `client.voice.tts(...)` posts to
+`https://api.hypercli.com/agents/voice/tts`.
+
+Streaming voice uses the agents WebSocket base plus `/voice`:
+
+```ts
+const session = client.voice.connect();
+await session.open();
+
+try {
+  for await (const chunk of session.speak({ text: "Hello from HyperCLI", voice: "serena" })) {
+    handleAudio(chunk.audio);
+  }
+} finally {
+  session.close();
+}
+
+for await (const chunk of client.voice.ttsStream({ text: "Hello from HyperCLI", voice: "serena" })) {
+  handleAudio(chunk.audio);
+}
+```
+
+The streaming request frame is a JSON message with `type: "speak"`, an
+`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+The server replies with `start`, then ordered `audio` JSON headers followed
+immediately by binary payload frames, then `done`; server errors throw
+`VoiceStreamError`. A session handles one request at a time, and breaking the
+iterator early sends `{ type: "cancel" }` for the request.
+
+Preferred current helpers:
+
+- `deployments.logsConnect()`
+- `deployments.shellConnect()`
+- `OpenClawAgent.gateway()`
+- `OpenClawAgent.waitReady()`
+
+Use the backend WebSocket helpers for shells/logs and the gateway client for OpenClaw behavior.
+
+## Quick Start
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({
+  apiKey: "hyper_...",
+  agentApiKey: "hyper_api_...",
+});
+
+const agent = await client.deployments.createOpenClaw({
+  name: "docs-demo",
+});
+
+await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
+await client.deployments.startOpenClaw(agent.id);
+const running = await client.deployments.waitRunning(agent.id);
+console.log(running.publicUrl);
+console.log(running.desktopUrl);
+```
+
+## Detailed Pages
+
+- [Keys SDK](/ts-sdk/keys)
+- [Agents And Deployments](/ts-sdk/agents)
+- [TypeScript SDK Reference](/ts-sdk/reference)
+- [Gateway Client](/ts-sdk/gateway)

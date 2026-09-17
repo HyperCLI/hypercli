@@ -1,0 +1,185 @@
+---
+title: hyper agent
+description: Detailed reference for HyperCLI account, subscription, onboarding, and local audio commands.
+---
+
+`hyper agent` is the account and local-tooling surface for HyperCLI.
+
+Use it for:
+
+- onboarding
+- wallet-based subscribe/login
+- plan and model discovery
+- local transcription
+- voice and embedding helpers
+
+## Command Inventory
+
+| Area | Commands |
+| --- | --- |
+| Onboarding and payment | `onboard`, `subscribe`, `login`, `activate-code` |
+| Account inspection | `status`, `plans`, `current-plan`, `subscriptions`, `subscription-summary`, `models` |
+| Lifecycle aliases | `start`, `stop`, `exec`, `shell` |
+| Integrations | `enable`, `openclaw-setup` |
+| Inference helpers | `voice`, `embed` |
+
+The `voice` and `embed` entries are nested command groups. Use
+`hyper agent voice --help` or `hyper agent embed --help` for their subcommands.
+
+## Commands
+
+### `onboard`
+
+Guided flow for:
+
+- wallet creation
+- funding
+- plan selection
+- x402 entitlement purchase
+- verification
+
+### `subscribe`
+
+Buy a one-off HyperCLI plan entitlement through the x402 wallet flow. Despite
+the command name, this does not create a recurring subscription.
+
+```bash
+hyper agent subscribe solo
+hyper agent subscribe pro 149 --dev
+```
+
+Omitting the amount uses the server payment requirement. A custom amount buys
+a proportionally shorter or longer entitlement window; the current full-price
+x402 window is 30 days.
+
+### `status`
+
+Show status from the legacy `~/.hypercli/agent-key.json` file. This command
+prints a long key prefix; do not paste its output into chat or logs. Prefer
+`hyper me` for an authenticated identity/capability check.
+
+### `plans`
+
+List plan IDs, price, and limits.
+
+```bash
+hyper agent plans
+hyper agent plans --dev
+```
+
+### `current-plan`, `subscriptions`, and `subscription-summary`
+
+Inspect the current effective plan, recurring subscriptions and entitlement
+items, or the
+pooled effective limits and slot inventory:
+
+```bash
+hyper agent current-plan
+hyper agent subscriptions
+hyper agent subscription-summary
+```
+
+Each supports `--json` and `--dev`. JSON can contain account, provider, and
+entitlement identifiers; treat it as private account data.
+
+### `activate-code`
+
+Redeem a grant code for the current account:
+
+```bash
+hyper agent activate-code <code>
+hyper agent activate-code <code> --extend-existing
+```
+
+By default redemption creates a new entitlement. `--extend-existing`
+explicitly extends the matching entitlement. Treat activation codes as secrets
+until redeemed.
+
+### `models`
+
+List HyperCLI inference models.
+
+```bash
+hyper agent models
+hyper agent models --json
+```
+
+### `login`
+
+Wallet-based login that creates a user-bound HyperCLI API key and stores it locally.
+
+### `enable`
+
+Attach the hosted Slack relay to an agent:
+
+```bash
+hyper agent enable <agent>
+hyper agent enable <agent> --restart --wait
+```
+
+Without `--restart`, OpenClaw may need a later restart to read the persisted
+Slack configuration. This command changes remote integration state.
+
+### `openclaw-setup`
+
+Patch `~/.openclaw/openclaw.json` directly using the saved HyperCLI key.
+
+```bash
+hyper agent openclaw-setup
+hyper agent openclaw-setup --default
+```
+
+With `--default`, the generated OpenClaw config sets the primary coding model to
+the first recommended Anthropic-compatible HyperCLI model returned by the API.
+
+### `exec` and `shell`
+
+Compatibility forwards into `hyper agents`.
+
+### `start` and `stop`
+
+Lifecycle aliases accept an agent ID or unique name:
+
+```bash
+hyper agent start <agent>
+hyper agent stop <agent>
+hyper agent stop <agent> --wait --timeout 900
+```
+
+An unwaited stop reports **Agent stopping** while runtime cleanup is in
+progress. Use `--wait` when the next action depends on the final `STOPPED`
+state and released deployment slot.
+
+### `transcribe`
+
+Local faster-whisper transcription, no remote API required.
+
+### `voice`
+
+Voice generation helpers.
+
+### `embed`
+
+Embedding helpers against HyperCLI.
+
+```bash
+hyper agent embed text "Document chunk"
+hyper agent embed text "Document chunk" --output ./embedding.json
+hyper agent embed test
+```
+
+`text --json` writes or prints the complete OpenAI-compatible response;
+otherwise `--output` writes only the embedding vector. `test` embeds two fixed
+sentences and reports dimensions, tokens, and cosine similarity.
+
+## Files Written By `hyper agent`
+
+- `~/.hypercli/agent-key.json`
+- optionally `~/.openclaw/openclaw.json` when using `openclaw-setup`
+
+## Recommended Flow
+
+1. `hyper agent plans`
+2. `hyper agent subscribe solo`
+3. `hyper agent status`
+4. `hyper agents create ...`

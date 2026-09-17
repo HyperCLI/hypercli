@@ -1,0 +1,41 @@
+---
+title: Chat
+description: Talk to an agent from the desktop app — attachments, dictation, and read-aloud.
+---
+
+The center pane of the desktop app is the chat composer for the selected
+agent. Enter sends, Shift+Enter inserts a newline.
+
+## Attachments
+
+Attach files to a message in any of three ways:
+
+- the attach control in the composer,
+- drag a file onto the chat window,
+- paste from the clipboard.
+
+Each attachment is capped at 4 MB. Images show as thumbnails in the
+conversation; other files appear by name. On macOS, pasted images arrive with
+no type information, so the app sniffs the file contents and sends the correct
+type — clipboard screenshots just work.
+
+Attachments require an ACP-capable agent (Buzz Agent, OpenCode, Codex, Claude
+Code, Goose, or Kimi Code). Agents that only accept images reject file
+attachments with a note in the composer.
+
+## Dictation
+
+Click the microphone button in the composer to record; click again to stop and
+transcribe. The transcript is inserted at the cursor, ready to edit before you
+send. Escape discards an in-progress recording. The record indicator turns red
+while the mic is live; nothing is uploaded until you stop.
+
+## Read Aloud
+
+When the agent has a voice clip (see [Voice](/agents/voice)), a speaker button
+appears in the chat header. Toggle it on and each completed reply is read
+aloud; toggle it off to mute. The preference persists across sessions.
+
+Read-aloud speaks the visible text of a reply: fenced code blocks, URLs, and
+file paths are skipped, and very long replies trail off rather than reading to
+the end. Starting a new read stops whatever is currently playing.

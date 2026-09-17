@@ -1,0 +1,36 @@
+---
+title: Inference
+description: HyperCLI inference is provided by HyperCLI
+---
+
+## Inference Provider
+
+HyperCLI inference is provided by **HyperCLI**.
+
+- Product: [https://hypercli.com](https://hypercli.com)
+- Inference endpoint: `https://api.hypercli.com/v1`
+- Dashboard and plans: `https://hypercli.com`
+
+## Quick Start
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="hyper_api_...",
+    base_url="https://api.hypercli.com/v1"
+)
+
+resp = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "hello"}],
+)
+print(resp.choices[0].message.content)
+```
+
+## Docs
+
+- [Inference Quickstart](/inference/quickstart)
+- [Inference for Agents](/agents/provider)
+- [Agents API](/agents/api)
+- [Agent Integrations](/agents/integrations)

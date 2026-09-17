@@ -1,0 +1,67 @@
+---
+title: Instances
+description: Discover GPU types, regions, prices, and capacity from the Python SDK.
+---
+
+Use `client.instances` to inspect the current hardware catalog before launching jobs.
+
+## GPU Types
+
+```python
+types = client.instances.types()
+
+for gpu_id, gpu in types.items():
+    print(gpu_id, gpu.name, gpu.available_counts())
+```
+
+Each `GPUType` includes:
+
+- `id`
+- `name`
+- `description`
+- `configs`
+
+And helper methods:
+
+- `available_regions(gpu_count=1)`
+- `available_counts()`
+
+## Regions
+
+```python
+regions = client.instances.regions()
+
+for region_id, region in regions.items():
+    print(region_id, region.description, region.country)
+```
+
+## Pricing
+
+```python
+pricing = client.instances.pricing()
+spot = client.instances.get_price("l40s", "us", interruptible=True)
+ondemand = client.instances.get_price("l40s", "us", interruptible=False)
+```
+
+## Capacity And Availability
+
+```python
+capacity = client.instances.capacity()
+available = client.instances.list_available(gpu_type="l40s", region="us")
+```
+
+Use `list_available()` when you want a flattened list of real launch combinations including:
+
+- GPU type
+- GPU count
+- region and region name
+- spot and on-demand prices
+- CPU cores
+- memory
+
+## Lookup Helpers
+
+```python
+gpu = client.instances.get_type("l40s")
+region = client.instances.get_region("us")
+```

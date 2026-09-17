@@ -1,0 +1,6540 @@
+/**
+ * OpenClaw Gateway WebSocket Client
+ *
+ * Connects to an agent's OpenClaw gateway over WebSocket for real-time
+ * configuration, chat, session management, and file operations.
+ *
+ * Protocol: OpenClaw Gateway v3-v4
+ */
+
+import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
+import type NodeWebSocket from "ws";
+import type {
+  OpenClawSlackHttpConfiguration,
+  OpenClawSlackRelayConfiguration,
+  OpenClawSlackSocketConfiguration,
+} from "./slack.js";
+import type {
+  OpenClawTelegramConfigPatch,
+  OpenClawWhatsAppConfigPatch,
+} from "./channels.js";
+
+export const OPENCLAW_INTERNAL_MAIN_SESSION_KEY = "main";
+export const OPENCLAW_SDK_SESSION_PREFIX = "hcli:";
+export const OPENCLAW_DASHBOARD_SESSION_PREFIX = "dashboard:";
+const OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX = "\n...(truncated)...";
+
+export function createOpenClawSessionKey(
+  existingSessionKeys: Array<string | null | undefined> = [],
+  prefix = OPENCLAW_SDK_SESSION_PREFIX,
+): string {
+  const resolvedPrefix = prefix.trim();
+  const existing = new Set(
+    existingSessionKeys
+      .map((key) => key?.trim())
+      .filter((key): key is string => Boolean(key)),
+  );
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const suffix = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `${resolvedPrefix}${suffix}`;
+    if (!existing.has(key)) return key;
+  }
+  return `${resolvedPrefix}local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function createOpenClawSdkSessionKey(
+  existingSessionKeys: Array<string | null | undefined> = [],
+): string {
+  return createOpenClawSessionKey(existingSessionKeys, OPENCLAW_SDK_SESSION_PREFIX);
+}
+
+export function isOpenClawInternalMainSessionKey(sessionKey: string | null | undefined): boolean {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  const parsed = parseAgentSessionKey(normalized);
+  return (parsed?.rest ?? normalized) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
+}
+
+export function isOpenClawSdkSessionKey(sessionKey: string | null | undefined): boolean {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  const parsed = parseAgentSessionKey(normalized);
+  return (parsed?.rest ?? normalized).startsWith(OPENCLAW_SDK_SESSION_PREFIX);
+}
+
+export type GatewayProtocolErrorCode =
+  | "INVALID_JSON"
+  | "INVALID_FRAME"
+  | "INVALID_EVENT"
+  | "INVALID_RESPONSE"
+  | "AMBIGUOUS_CHAT_STREAM_EVENT"
+  | "DUPLICATE_SEQUENCE"
+  | "OUT_OF_ORDER_SEQUENCE";
+
+export interface GatewayProtocolErrorInfo {
+  code: GatewayProtocolErrorCode;
+  message: string;
+  frameType?: string;
+  event?: string;
+  requestId?: string;
+}
+
+export interface GatewayOptions {
+  /** WebSocket URL for the agent gateway (typically wss://{agent-host}) */
+  url: string;
+  /** Optional legacy query token for edge/proxy auth. Gateway auth uses `gatewayToken`. */
+  token?: string;
+  /** Shared gateway auth token used in the WebSocket connect handshake. */
+  gatewayToken?: string;
+  /** Bootstrap auth token used by newer OpenClaw gateway handshakes. */
+  bootstrapToken?: string;
+  /** Explicit device auth token used by newer OpenClaw gateway handshakes. */
+  deviceToken?: string;
+  /** Password auth field used by compatible gateway deployments. */
+  password?: string;
+  /** Approval-runtime auth token used by compatible gateway deployments. */
+  approvalRuntimeToken?: string;
+  /** Agent-runtime identity token used by compatible gateway deployments. */
+  agentRuntimeIdentityToken?: string;
+  /** Deployment id used for trusted pairing approval via agent exec. */
+  deploymentId?: string;
+  /** HyperCLI API bearer token used for trusted pairing approval via agent exec. */
+  apiKey?: string;
+  /** HyperCLI API base URL used for trusted pairing approval via agent exec. */
+  apiBase?: string;
+  /** Automatically approve first-time browser pairing using trusted agent exec. */
+  autoApprovePairing?: boolean;
+  /** Client ID (default: "cli") */
+  clientId?: string;
+  /** Client mode (default: "cli") */
+  clientMode?: string;
+  /** Optional client display name */
+  clientDisplayName?: string;
+  /** Client version sent to the gateway */
+  clientVersion?: string;
+  /** Client platform sent to the gateway */
+  platform?: string;
+  /** Optional device family sent to the gateway */
+  deviceFamily?: string;
+  /** Optional client instance ID */
+  instanceId?: string;
+  /** Optional gateway capability list */
+  caps?: string[];
+  /** Connection role in the connect handshake (default: "operator"). Use "node" to serve node commands. */
+  role?: string;
+  /** Auth scopes requested in the connect handshake (default: operator scopes for the operator role, else empty). */
+  scopes?: string[];
+  /** Declared node command surface advertised in the connect handshake (node role). */
+  commands?: string[];
+  /** Optional policy permissions advertised in the connect handshake. */
+  permissions?: Record<string, boolean>;
+  /** Optional PATH-like environment hint advertised in the connect handshake. */
+  pathEnv?: string;
+  /** Minimum gateway protocol version this client can speak. Defaults to v3 for live-agent compatibility. */
+  minProtocol?: number;
+  /** Maximum gateway protocol version this client can speak. */
+  maxProtocol?: number;
+  /** Origin header (default: omitted for non-browser SDK clients) */
+  origin?: string;
+  /** Default RPC and reconnect credential timeout in ms (default: 30000). */
+  timeout?: number;
+  /** Resolve the shared gateway token before authenticating a reconnect. */
+  refreshGatewayToken?: (signal: AbortSignal) => Promise<string>;
+  /** Called after a successful hello-ok response */
+  onHello?: (hello: GatewayHelloSnapshot) => void;
+  /** Called after the socket closes */
+  onClose?: (info: GatewayCloseInfo) => void;
+  /** Called when an event sequence gap is detected */
+  onGap?: (info: { expected: number; received: number }) => void;
+  /** Called when an inbound frame fails validation. Raw payloads are never included. */
+  onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
+  /** Called when a browser device pairing request is pending or updated. */
+  onPairing?: (pairing: GatewayPairingState | null) => void;
+}
+
+export interface GatewayHelloSnapshot extends Record<string, unknown> {
+  protocol: number;
+  server: {
+    version: string;
+    buildId?: string;
+    bootId?: string;
+    connId?: string;
+    [key: string]: unknown;
+  };
+  features: {
+    methods: string[];
+    events: string[];
+    capabilities: string[];
+    [key: string]: unknown;
+  };
+  auth: {
+    role: string;
+    scopes: string[];
+    [key: string]: unknown;
+  };
+}
+
+export interface GatewayConnectOptions {
+  /** Cancel only this caller's wait for the initial authenticated hello. */
+  signal?: AbortSignal;
+  /** Bound this caller's wait for the initial authenticated hello. */
+  timeoutMs?: number;
+}
+
+export interface GatewayEvent {
+  type: string;
+  event: string;
+  payload: Record<string, any>;
+  seq?: number;
+}
+
+export interface ChatEvent {
+  type: "content" | "commentary" | "reasoning" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
+  text?: string;
+  /** For content, commentary, or reasoning events, `true` replaces the current text; `false` or omission appends. */
+  replace?: boolean;
+  /** Protocol event identity, when supplied by the gateway payload. */
+  eventId?: string;
+  /** Protocol message identity, when supplied by the gateway payload. */
+  messageId?: string;
+  /** Protocol turn identity, when supplied by the gateway payload. */
+  turnId?: string;
+  /** Protocol run identity, when supplied by the gateway payload. */
+  runId?: string;
+  /** Canonical session key reported by the gateway. */
+  sessionKey?: string;
+  /** Protocol payload revision, when supplied by the gateway. */
+  revision?: number | string;
+  data?: Record<string, any>;
+}
+
+export class GatewayChatStreamInterruptedError extends Error {
+  static readonly code = "GATEWAY_CHAT_STREAM_INTERRUPTED" as const;
+
+  readonly code = GatewayChatStreamInterruptedError.code;
+  readonly reason: "sequence-gap" | "ambiguous-event";
+  readonly expectedSequence?: number;
+  readonly receivedSequence?: number;
+
+  constructor(
+    reason: "sequence-gap" | "ambiguous-event",
+    sequence?: { expected: number; received: number },
+  ) {
+    super(
+      reason === "sequence-gap" && sequence
+        ? `Gateway chat stream interrupted by a sequence gap (expected ${sequence.expected}, received ${sequence.received})`
+        : "Gateway chat stream interrupted by an event without run or session identity",
+    );
+    this.name = "GatewayChatStreamInterruptedError";
+    this.reason = reason;
+    this.expectedSequence = sequence?.expected;
+    this.receivedSequence = sequence?.received;
+  }
+}
+
+export interface GatewayAbortSignal {
+  readonly aborted: boolean;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
+export interface GatewayEphemeralChatOptions {
+  signal?: GatewayAbortSignal;
+  timeoutMs?: number;
+  maxResponseChars?: number;
+  /** Request the selected model's fastest supported service tier for this hidden session. */
+  fastMode?: boolean;
+  onEvent?: (event: ChatEvent) => void | Promise<void>;
+}
+
+export interface GatewayChatToolCall {
+  id?: string;
+  name: string;
+  args?: unknown;
+  result?: string;
+}
+
+export interface GatewayChatMessageSummary {
+  role: string;
+  text: string;
+  /** Provider-authored reasoning that may be presented separately from answer content. */
+  reasoning: string;
+  /** Compatibility alias for structured reasoning retained for existing consumers. */
+  thinking: string;
+  toolCalls: GatewayChatToolCall[];
+  mediaUrls: string[];
+  timestamp?: number;
+  /** Protocol message identity, when supplied by the raw history message. */
+  messageId?: string;
+  /** Protocol turn identity, when supplied by the raw history message. */
+  turnId?: string;
+  /** Protocol run identity, when supplied by the raw history message. */
+  runId?: string;
+  /** Canonical session key reported by the raw history message. */
+  sessionKey?: string;
+  /** Protocol message revision, when supplied by the raw history message. */
+  revision?: number | string;
+}
+
+export interface GatewayChatMessageGetOptions {
+  agentId?: string;
+  maxChars?: number;
+}
+
+export interface GatewayChatMessageGetResult {
+  ok: boolean;
+  message?: unknown;
+  unavailableReason?: "not_found" | "oversized" | "not_visible";
+}
+
+export interface GatewayChatHistorySessionInfo extends Record<string, unknown> {
+  key?: string;
+  sessionId?: string;
+  status?: string;
+  hasActiveRun?: boolean;
+  activeRunIds?: string[];
+}
+
+export interface GatewayChatInFlightRun extends Record<string, unknown> {
+  runId?: string;
+  text?: string;
+  events?: unknown[];
+  plan?: unknown;
+}
+
+export interface GatewayChatHistoryResult extends Record<string, unknown> {
+  messages: any[];
+  sessionKey?: string;
+  sessionId?: string;
+  sessionInfo?: GatewayChatHistorySessionInfo | null;
+  inFlightRun?: GatewayChatInFlightRun | null;
+}
+
+export interface GatewaySessionPatch {
+  key: string;
+  model?: string;
+  thinkingLevel?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewaySessionCreateParams {
+  key?: string;
+  agentId?: string;
+  label?: string;
+  model?: string;
+  parentSessionKey?: string;
+  fork?: boolean;
+  emitCommandHooks?: boolean;
+  task?: string;
+  message?: string;
+  worktree?: boolean;
+}
+
+export interface GatewaySessionCreateResult extends Record<string, unknown> {
+  ok: true;
+  key: string;
+  sessionId?: string;
+  entry?: Record<string, unknown>;
+  runStarted?: boolean;
+}
+
+export interface GatewaySessionsListResult extends Record<string, any> {
+  sessions: any[];
+  defaults?: Record<string, any>;
+}
+
+export interface GatewayChatAttachmentPayload {
+  type: string;
+  mimeType?: string;
+  content?: string;
+  fileName?: string;
+  [key: string]: unknown;
+}
+
+export interface BrowserChatAttachment {
+  id?: string;
+  dataUrl: string;
+  mimeType: string;
+  fileName?: string;
+}
+
+export type ChatAttachment = GatewayChatAttachmentPayload | BrowserChatAttachment;
+
+export interface GatewayEphemeralChatSession {
+  readonly sessionKey: string;
+  readonly closed: boolean;
+  chatSend(message: string, attachments?: ChatAttachment[]): AsyncGenerator<ChatEvent>;
+  chatHistory(limit?: number): Promise<any[]>;
+  chatAbort(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface GatewayCloseInfo {
+  code: number;
+  reason: string;
+  error?: GatewayErrorShape | null;
+}
+
+/**
+ * Authenticated gateway transport FSM:
+ *
+ * disconnected -> connecting -> connected
+ *                         |-> pairing -> connecting -> connected
+ *                         `-> disconnected (terminal auth/approval failure)
+ * connected    -> connecting (transient close, bounded backoff)
+ * any          -> disconnected (stop/invalidation)
+ *
+ * Pairing approval owns the transition between its two sockets. It must not
+ * create a parallel reconnect loop or reread the canonical gateway Secret.
+ */
+export type GatewayConnectionState = "disconnected" | "connecting" | "pairing" | "connected";
+
+export interface GatewayWaitReadyOptions {
+  retryIntervalMs?: number;
+  probe?: "config" | "status";
+}
+
+export interface GatewayPairingState {
+  requestId: string;
+  role: string;
+  gatewayUrl: string;
+  deviceId?: string;
+  status: "pending" | "approving" | "approved" | "failed";
+  updatedAtMs: number;
+  error?: string;
+}
+
+export interface OpenClawConfigUiHint {
+  label?: string;
+  help?: string;
+  tags?: string[];
+  group?: string;
+  order?: number;
+  advanced?: boolean;
+  sensitive?: boolean;
+  placeholder?: string;
+  itemTemplate?: unknown;
+}
+
+export interface OpenClawConfigSchemaResponse {
+  schema: Record<string, any>;
+  uiHints: Record<string, OpenClawConfigUiHint>;
+  version?: string;
+  generatedAt?: string;
+}
+
+export interface OpenClawSlackRelayOptions {
+  url: string;
+  gatewayId: string;
+  authTokenEnv?: string;
+  accountId?: string;
+  botToken?: OpenClawSlackRelayConfiguration["botToken"];
+}
+
+export interface OpenClawConfigNodeDescriptor {
+  schema: Record<string, any>;
+  type?: string;
+  properties: Record<string, Record<string, any>>;
+  additionalProperties: boolean;
+  additionalPropertySchema: Record<string, any> | null;
+  isDynamicMap: boolean;
+}
+
+export type OpenClawConfigReloadKind = "restart" | "hot" | "none";
+
+export interface OpenClawConfigSchemaLookupChild {
+  key: string;
+  path: string;
+  type?: string | string[];
+  required: boolean;
+  hasChildren: boolean;
+  reloadKind?: OpenClawConfigReloadKind;
+  hint?: OpenClawConfigUiHint;
+  hintPath?: string;
+}
+
+export interface OpenClawConfigSchemaLookupResult {
+  path: string;
+  schema: unknown;
+  reloadKind?: OpenClawConfigReloadKind;
+  hint?: OpenClawConfigUiHint;
+  hintPath?: string;
+  children: OpenClawConfigSchemaLookupChild[];
+}
+
+export interface GatewaySkillsStatusParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillsSearchParams {
+  query?: string;
+  limit?: number;
+}
+
+export interface GatewaySkillSearchOwner {
+  handle?: string | null;
+  displayName?: string | null;
+  image?: string | null;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillSearchResultItem {
+  score: number;
+  slug: string;
+  displayName: string;
+  summary?: string;
+  version?: string | null;
+  updatedAt?: number;
+  ownerHandle?: string;
+  owner?: GatewaySkillSearchOwner;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSearchResult {
+  results: GatewaySkillSearchResultItem[];
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsDetailParams {
+  slug: string;
+}
+
+export interface GatewaySkillsDetailResult {
+  skill: {
+    slug: string;
+    displayName: string;
+    summary?: string;
+    tags?: Record<string, string>;
+    createdAt: number;
+    updatedAt: number;
+    [key: string]: unknown;
+  } | null;
+  latestVersion?: {
+    version: string;
+    createdAt: number;
+    changelog?: string;
+    license?: string | null;
+    [key: string]: unknown;
+  } | null;
+  metadata?: {
+    os?: string[] | null;
+    systems?: string[] | null;
+    [key: string]: unknown;
+  } | null;
+  owner?: GatewaySkillSearchOwner | null;
+  [key: string]: unknown;
+}
+
+export type GatewaySkillInstallKind = "brew" | "node" | "go" | "uv" | "download" | (string & {});
+
+export interface GatewaySkillInstallOption {
+  id: string;
+  kind: GatewaySkillInstallKind;
+  label: string;
+  bins: string[];
+  [key: string]: unknown;
+}
+
+export type GatewayClawHubSkillStatusLink =
+  | {
+      status: "linked";
+      valid: true;
+      registry: string;
+      slug: string;
+      installedVersion: string;
+      installedAt: number;
+      originPath?: string;
+      lockPath?: string;
+    }
+  | {
+      status: "invalid";
+      valid: false;
+      reason: string;
+      registry?: string;
+      slug?: string;
+      installedVersion?: string;
+      installedAt?: number;
+      originPath?: string;
+      lockPath?: string;
+    };
+
+export interface GatewayLocalSkillCardStatus {
+  present: true;
+  path: string;
+  sizeBytes: number;
+}
+
+export interface GatewaySkillStatusConfigCheck {
+  path: string;
+  expected?: unknown;
+  actual?: unknown;
+  satisfied?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillStatusEntry {
+  name: string;
+  description: string;
+  source: string;
+  bundled: boolean;
+  filePath: string;
+  baseDir: string;
+  skillKey: string;
+  primaryEnv?: string;
+  emoji?: string;
+  homepage?: string;
+  always: boolean;
+  disabled: boolean;
+  blockedByAllowlist: boolean;
+  blockedByAgentFilter: boolean;
+  eligible: boolean;
+  modelVisible: boolean;
+  userInvocable: boolean;
+  commandVisible: boolean;
+  requirements: Record<string, unknown>;
+  missing: Record<string, unknown>;
+  configChecks: GatewaySkillStatusConfigCheck[];
+  install: GatewaySkillInstallOption[];
+  clawhub?: GatewayClawHubSkillStatusLink;
+  skillCard?: GatewayLocalSkillCardStatus;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsStatusReport {
+  workspaceDir: string;
+  managedSkillsDir: string;
+  agentId?: string;
+  agentSkillFilter?: string[];
+  skills: GatewaySkillStatusEntry[];
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSecurityVerdictsParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillSecurityVerdictItem {
+  registry: string;
+  ok: boolean;
+  decision: string;
+  reasons: string[];
+  requestedSlug: string;
+  requestedVersion: string;
+  slug?: string | null;
+  version?: string | null;
+  displayName?: string | null;
+  publisherHandle?: string | null;
+  publisherDisplayName?: string | null;
+  createdAt?: number | null;
+  checkedAt?: number | null;
+  skillUrl?: string | null;
+  securityAuditUrl?: string | null;
+  securityStatus?: string | null;
+  securityPassed?: boolean | null;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSecurityVerdictsResult {
+  schema: "openclaw.skills.security-verdicts.v1";
+  items: GatewaySkillSecurityVerdictItem[];
+}
+
+export interface GatewaySkillsSkillCardParams {
+  agentId?: string;
+  skillKey: string;
+}
+
+export interface GatewaySkillsSkillCardResult {
+  schema: "openclaw.skills.skill-card.v1";
+  skillKey: string;
+  path: string;
+  sizeBytes: number;
+  content: string;
+}
+
+export interface GatewaySkillsReadParams {
+  agentId?: string;
+  skillKey: string;
+}
+
+export interface GatewaySkillsReadResult {
+  schema: "openclaw.skills.read.v1";
+  skillKey: string;
+  path: string;
+  source: string;
+  sizeBytes: number;
+  content: string;
+}
+
+export type GatewaySkillProposalStatus = "pending" | "applied" | "rejected" | "quarantined" | "stale";
+export type GatewaySkillProposalKind = "create" | "update";
+export type GatewaySkillProposalScanState = "pending" | "clean" | "failed" | "quarantined";
+
+export interface GatewaySkillProposalManifestEntry extends Record<string, unknown> {
+  id: string;
+  kind: GatewaySkillProposalKind;
+  status: GatewaySkillProposalStatus;
+  title: string;
+  description: string;
+  skillName: string;
+  skillKey: string;
+  createdAt: string;
+  updatedAt: string;
+  scanState: GatewaySkillProposalScanState;
+  workspaceMismatch?: true;
+  degradedState?: "draft-missing";
+}
+
+export interface GatewaySkillsProposalsListParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillsProposalsListResult extends Record<string, unknown> {
+  schema: "openclaw.skill-workshop.proposals-manifest.v1";
+  updatedAt: string;
+  proposals: GatewaySkillProposalManifestEntry[];
+}
+
+export interface GatewaySkillProposalRecord extends Record<string, unknown> {
+  schema: "openclaw.skill-workshop.proposal.v1";
+  id: string;
+  kind: GatewaySkillProposalKind;
+  status: GatewaySkillProposalStatus;
+  title: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  proposedVersion: string;
+  draftFile: "PROPOSAL.md";
+  draftHash: string;
+  target: {
+    skillName: string;
+    skillKey: string;
+    skillDir: string;
+    skillFile: string;
+    source?: string;
+    currentContentHash?: string;
+  };
+  scan: {
+    state: GatewaySkillProposalScanState;
+    scannedAt: string;
+    critical: number;
+    warn: number;
+    info: number;
+    findings: unknown[];
+  };
+}
+
+export interface GatewaySkillProposalSupportFile {
+  path: string;
+  content: string;
+}
+
+export interface GatewaySkillsProposalInspectParams {
+  agentId?: string;
+  proposalId: string;
+}
+
+export interface GatewaySkillsProposalInspectResult extends Record<string, unknown> {
+  record: GatewaySkillProposalRecord;
+  /** Present on revision-bound OpenClaw servers and absent on the deployed legacy dialect. */
+  revisionHash?: string;
+  content: string;
+  supportFiles?: GatewaySkillProposalSupportFile[];
+}
+
+export interface GatewaySkillsProposalDecisionParams {
+  agentId?: string;
+  proposalId: string;
+  /** Required by revision-bound servers; omitted on the known v2026.7.1-2 legacy wire dialect. */
+  expectedRevisionHash?: string;
+  correlationId?: string;
+  reason?: string;
+}
+
+export interface GatewaySkillsProposalApplyResult extends Record<string, unknown> {
+  record: GatewaySkillProposalRecord;
+  targetSkillFile: string;
+}
+
+export type GatewaySkillsProposalRejectResult = GatewaySkillProposalRecord;
+export type GatewaySkillsProposalDialect = "legacy-v2026.7.1-2" | "revision-bound";
+export const OPENCLAW_SKILL_PROPOSALS_REVISION_BOUND_CAPABILITY = "skill-proposals-revision-bound-v1";
+
+export interface GatewayClawHubSkillInstallParams {
+  source: "clawhub";
+  slug: string;
+  version?: string;
+  force?: boolean;
+  timeoutMs?: number;
+}
+
+export interface GatewayLocalSkillInstallParams {
+  name: string;
+  installId: string;
+  dangerouslyForceUnsafeInstall?: boolean;
+  timeoutMs?: number;
+}
+
+export interface GatewayUploadedSkillInstallParams {
+  source: "upload";
+  uploadId: string;
+  slug: string;
+  force?: boolean;
+  sha256?: string;
+  timeoutMs?: number;
+}
+
+export type GatewaySkillsInstallParams =
+  | GatewayClawHubSkillInstallParams
+  | GatewayLocalSkillInstallParams
+  | GatewayUploadedSkillInstallParams;
+
+export type GatewaySkillsInstallResult = {
+  ok: boolean;
+  message?: string;
+  stdout?: string;
+  stderr?: string;
+  code?: number | null;
+  slug?: string;
+  version?: string;
+  targetDir?: string;
+  warnings?: string[];
+  [key: string]: unknown;
+};
+
+export interface GatewaySkillConfigUpdateParams {
+  skillKey: string;
+  enabled?: boolean;
+  apiKey?: string;
+  env?: Record<string, string>;
+}
+
+export type GatewayClawHubSkillsUpdateParams =
+  | { source: "clawhub"; slug: string; all?: never }
+  | { source: "clawhub"; all: true; slug?: never };
+
+export type GatewaySkillsUpdateParams = GatewaySkillConfigUpdateParams | GatewayClawHubSkillsUpdateParams;
+
+export interface GatewaySkillsUpdateResult {
+  ok: boolean;
+  skillKey: string;
+  config: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStartParams {
+  integrationId: string;
+  scopes?: string[];
+  accountId?: string;
+  force?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStartResult {
+  authId?: string;
+  integrationId?: string;
+  verificationUri?: string;
+  url?: string;
+  userCode?: string;
+  expiresAt?: string | number;
+  intervalMs?: number;
+  scopes?: string[];
+  instructions?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStatusParams {
+  authId: string;
+  integrationId?: string;
+  accountId?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStatusResult {
+  status?: string;
+  integrationId?: string;
+  connectionId?: string;
+  accountId?: string;
+  accountDisplayName?: string;
+  scopes?: string[];
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusEntry {
+  configured?: boolean;
+  authenticated?: boolean;
+  usable?: boolean;
+  connectionId?: string;
+  accountId?: string;
+  accountDisplayName?: string;
+  scopes?: string[];
+  missingScopes?: string[];
+  errorDetail?: string;
+  probe?: {
+    ok?: boolean;
+    code?: string;
+    message?: string;
+    latencyMs?: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusParams {
+  integrationId?: string;
+  connectionId?: string;
+  probe?: boolean;
+  timeoutMs?: number;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusResult {
+  integrations?: Record<string, GatewayIntegrationStatusEntry>;
+  integration?: GatewayIntegrationStatusEntry;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationDisconnectParams {
+  integrationId: string;
+  connectionId?: string;
+  accountId?: string;
+  revoke?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationDisconnectResult {
+  ok: boolean;
+  integrationId?: string;
+  connectionId?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayMessageActionParams {
+  channel: string;
+  action: string;
+  params: Record<string, unknown>;
+  accountId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  inboundTurnKind?: "user_request" | "room_event";
+  agentId?: string;
+  conversationReadOrigin?: "direct-operator";
+  idempotencyKey?: string;
+}
+
+export interface GatewaySendParams {
+  to: string;
+  message?: string;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+  buffer?: string;
+  filename?: string;
+  contentType?: string;
+  asVoice?: boolean;
+  gifPlayback?: boolean;
+  channel?: string;
+  accountId?: string;
+  agentId?: string;
+  replyToId?: string;
+  threadId?: string;
+  forceDocument?: boolean;
+  silent?: boolean;
+  parseMode?: "HTML";
+  sessionKey?: string;
+  idempotencyKey?: string;
+}
+
+export interface GatewaySendResult {
+  runId: string;
+  messageId: unknown;
+  channel: string;
+  chatId?: unknown;
+  channelId?: unknown;
+  toJid?: unknown;
+  conversationId?: unknown;
+  pollId?: unknown;
+}
+
+export type GatewayPluginState = "enabled" | "disabled" | "not-installed" | "error";
+
+export type GatewayPluginCatalogInstallAction =
+  | { source: "clawhub"; packageName: string }
+  | { source: "official"; pluginId: string };
+
+export interface GatewayPluginCatalogEntry {
+  id: string;
+  name: string;
+  packageName?: string;
+  description?: string;
+  version?: string;
+  kind?: string[];
+  origin?: string;
+  installed: boolean;
+  enabled: boolean;
+  state: GatewayPluginState;
+  featured?: boolean;
+  order?: number;
+  hasIcon?: boolean;
+  install?: GatewayPluginCatalogInstallAction;
+  error?: string;
+  category?: string;
+  removable?: boolean;
+}
+
+export interface GatewayPluginsListResult {
+  plugins: GatewayPluginCatalogEntry[];
+  diagnostics: unknown[];
+  mutationAllowed: boolean;
+}
+
+export type GatewayPluginsInstallParams =
+  | {
+      source: "clawhub";
+      packageName: string;
+      version?: string;
+      acknowledgeClawHubRisk?: boolean;
+    }
+  | {
+      source: "official";
+      pluginId: string;
+    };
+
+export interface GatewayPluginsInstallResult {
+  ok: true;
+  plugin: GatewayPluginCatalogEntry;
+  restartRequired: true;
+  warnings?: string[];
+}
+
+export interface GatewayPluginsSetEnabledParams {
+  pluginId: string;
+  enabled: boolean;
+}
+
+export interface GatewayPluginsSetEnabledResult {
+  ok: true;
+  plugin: GatewayPluginCatalogEntry;
+  restartRequired: boolean;
+  warnings?: string[];
+}
+
+export interface GatewayPluginsUninstallParams {
+  pluginId: string;
+}
+
+export interface GatewayPluginsUninstallResult {
+  ok: true;
+  pluginId: string;
+  restartRequired: true;
+  removed: string[];
+  warnings?: string[];
+}
+
+export interface GatewayPluginsRefreshResult {
+  ok: true;
+}
+
+export type GatewayToolProfileId = "minimal" | "coding" | "messaging" | "full";
+export type GatewayToolSource = "core" | "plugin" | "channel" | "mcp";
+export type GatewayToolRisk = "low" | "medium" | "high";
+
+export interface GatewayToolsCatalogParams {
+  agentId?: string;
+  includePlugins?: boolean;
+}
+
+export interface GatewayToolCatalogProfile {
+  id: GatewayToolProfileId;
+  label: string;
+}
+
+export interface GatewayToolCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  source: "core" | "plugin";
+  pluginId?: string;
+  optional?: boolean;
+  risk?: GatewayToolRisk;
+  tags?: string[];
+  defaultProfiles: GatewayToolProfileId[];
+}
+
+export interface GatewayToolCatalogGroup {
+  id: string;
+  label: string;
+  source: "core" | "plugin";
+  pluginId?: string;
+  tools: GatewayToolCatalogEntry[];
+}
+
+export interface GatewayToolsCatalogResult {
+  agentId: string;
+  profiles: GatewayToolCatalogProfile[];
+  groups: GatewayToolCatalogGroup[];
+}
+
+export interface GatewayToolsEffectiveParams {
+  agentId?: string;
+  sessionKey: string;
+}
+
+export interface GatewayToolsEffectiveEntry {
+  id: string;
+  label: string;
+  description: string;
+  rawDescription: string;
+  source: GatewayToolSource;
+  pluginId?: string;
+  channelId?: string;
+  risk?: GatewayToolRisk;
+  tags?: string[];
+}
+
+export interface GatewayToolsEffectiveGroup {
+  id: GatewayToolSource;
+  label: string;
+  source: GatewayToolSource;
+  tools: GatewayToolsEffectiveEntry[];
+}
+
+export interface GatewayToolsEffectiveNotice {
+  id: string;
+  severity: "info" | "warning";
+  message: string;
+}
+
+export interface GatewayToolsEffectiveResult {
+  agentId: string;
+  profile: string;
+  groups: GatewayToolsEffectiveGroup[];
+  notices?: GatewayToolsEffectiveNotice[];
+}
+
+export interface GatewayToolsInvokeParams {
+  name: string;
+  args?: Record<string, unknown>;
+  sessionKey?: string;
+  agentId?: string;
+  confirm?: boolean;
+  idempotencyKey?: string;
+  conversationReadOrigin?: "direct-operator";
+}
+
+export interface GatewayToolsInvokeError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+export interface GatewayToolsInvokeResult {
+  ok: boolean;
+  toolName: string;
+  output?: unknown;
+  requiresApproval?: boolean;
+  approvalId?: string;
+  source?: GatewayToolSource | (string & {});
+  error?: GatewayToolsInvokeError;
+}
+
+export type GatewayCommandSource = "native" | "skill" | "plugin";
+export type GatewayCommandScope = "text" | "native" | "both";
+export type GatewayCommandCategory =
+  | "session"
+  | "options"
+  | "status"
+  | "management"
+  | "media"
+  | "tools"
+  | "docks";
+
+export interface GatewayCommandArgChoice {
+  value: string;
+  label: string;
+}
+
+export interface GatewayCommandArg {
+  name: string;
+  description: string;
+  type: "string" | "number" | "boolean";
+  required?: boolean;
+  choices?: GatewayCommandArgChoice[];
+  dynamic?: boolean;
+}
+
+export interface GatewayCommandEntry {
+  name: string;
+  nativeName?: string;
+  textAliases?: string[];
+  description: string;
+  category?: GatewayCommandCategory;
+  source: GatewayCommandSource;
+  scope: GatewayCommandScope;
+  acceptsArgs: boolean;
+  args?: GatewayCommandArg[];
+}
+
+export interface GatewayCommandsListParams {
+  agentId?: string;
+  provider?: string;
+  scope?: GatewayCommandScope;
+  includeArgs?: boolean;
+}
+
+export interface GatewayCommandsListResult {
+  commands: GatewayCommandEntry[];
+}
+
+export interface ChannelsStatusParams {
+  probe?: boolean;
+  timeoutMs?: number;
+  channel?: string;
+}
+
+export interface ChannelsStartParams {
+  channel: string;
+  accountId?: string;
+}
+
+export interface ChannelsStartResult {
+  channel: string;
+  accountId: string;
+  started: boolean;
+}
+
+export interface ChannelsStopParams {
+  channel: string;
+  accountId?: string;
+}
+
+export interface ChannelsStopResult {
+  channel: string;
+  accountId: string;
+  stopped: boolean;
+}
+
+export type ChannelCredentialStatus = "available" | "configured_unavailable" | "missing";
+
+export interface ChannelAccountSnapshot {
+  accountId: string;
+  name?: string;
+  enabled?: boolean;
+  configured?: boolean;
+  linked?: boolean;
+  running?: boolean;
+  connected?: boolean;
+  restartPending?: boolean;
+  reconnectAttempts?: number;
+  lastConnectedAt?: number;
+  lastError?: string;
+  healthState?: string;
+  lastStartAt?: number;
+  lastStopAt?: number;
+  lastInboundAt?: number;
+  lastOutboundAt?: number;
+  lastMessageAt?: number | null;
+  lastEventAt?: number | null;
+  lastTransportActivityAt?: number;
+  statusState?: string;
+  terminalDisconnect?: boolean;
+  busy?: boolean;
+  activeRuns?: number;
+  lastRunActivityAt?: number;
+  lastProbeAt?: number;
+  mode?: string;
+  dmPolicy?: string;
+  allowFrom?: string[];
+  tokenSource?: string;
+  botTokenSource?: string;
+  appTokenSource?: string;
+  signingSecretSource?: string;
+  userTokenSource?: string;
+  tokenStatus?: ChannelCredentialStatus;
+  botTokenStatus?: ChannelCredentialStatus;
+  appTokenStatus?: ChannelCredentialStatus;
+  signingSecretStatus?: ChannelCredentialStatus;
+  userTokenStatus?: ChannelCredentialStatus;
+  baseUrl?: string;
+  allowUnmentionedGroups?: boolean;
+  cliPath?: string | null;
+  dbPath?: string | null;
+  port?: number | null;
+  probe?: unknown;
+  audit?: unknown;
+  application?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ChannelUiMeta {
+  id: string;
+  label: string;
+  detailLabel: string;
+  systemImage?: string;
+  [key: string]: unknown;
+}
+
+export interface ChannelEventLoopHealth {
+  degraded: boolean;
+  reasons: Array<"event_loop_delay" | "event_loop_utilization" | "cpu">;
+  intervalMs: number;
+  delayP99Ms: number;
+  delayMaxMs: number;
+  utilization: number;
+  cpuCoreRatio: number;
+  [key: string]: unknown;
+}
+
+export interface ChannelsStatusResult {
+  ts: number;
+  channelOrder: string[];
+  channelLabels: Record<string, string>;
+  channelDetailLabels?: Record<string, string>;
+  channelSystemImages?: Record<string, string>;
+  channelMeta?: ChannelUiMeta[];
+  channels: Record<string, unknown>;
+  channelAccounts: Record<string, ChannelAccountSnapshot[]>;
+  channelDefaultAccountId: Record<string, string>;
+  eventLoop?: ChannelEventLoopHealth;
+  partial?: boolean;
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface GatewayWebLoginStartOptions {
+  force?: boolean;
+  timeoutMs?: number;
+  verbose?: boolean;
+  accountId?: string;
+}
+
+export interface GatewayWebLoginStartResult {
+  qrDataUrl?: string;
+  message: string;
+  connected?: boolean;
+}
+
+export interface GatewayWebLoginWaitOptions {
+  timeoutMs?: number;
+  accountId?: string;
+  currentQrDataUrl?: string;
+}
+
+export interface GatewayWebLoginWaitResult {
+  connected: boolean;
+  message: string;
+  qrDataUrl?: string;
+}
+
+export type GatewayEventHandler = (event: GatewayEvent) => void;
+export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
+
+type InternalGatewayEventHandler = (event: GatewayEvent) => boolean;
+
+type InternalChatStreamState = {
+  close: (error: Error) => void;
+  terminalEvent: GatewayEvent | null;
+};
+
+export type GatewayClientRequestOptions = {
+  expectFinal?: boolean;
+  timeoutMs?: number | null;
+  signal?: AbortSignal;
+  /** Called once for expectFinal requests after an accepted response, before the final result. */
+  onAccepted?: (payload: unknown) => void;
+};
+
+type PendingRequest = {
+  resolve: (value: any) => void;
+  reject: (err: unknown) => void;
+  expectFinal: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  cleanup: () => void;
+  onAccepted?: (payload: unknown) => void;
+  acceptedNotified?: boolean;
+};
+
+type DeviceTokenEntry = {
+  token: string;
+  role: string;
+  scopes: string[];
+  updatedAtMs: number;
+  gatewayUrl?: string;
+};
+
+type DeviceAuthStore = {
+  version: 1;
+  deviceId?: string;
+  publicKey?: string;
+  privateKey?: string;
+  createdAtMs?: number;
+  tokens?: Record<string, DeviceTokenEntry>;
+  pendingPairings?: Record<string, GatewayPairingState>;
+};
+
+type DeviceIdentityRecord = {
+  deviceId: string;
+  publicKey: string;
+  privateKey: string;
+  createdAtMs?: number;
+};
+
+type StorageLike = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+};
+
+type NavigatorLike = {
+  platform?: string;
+  userAgent?: string;
+  language?: string;
+};
+
+type GatewayErrorShape = {
+  code: string;
+  message: string;
+  details?: unknown;
+};
+
+class GatewayRequestError extends Error {
+  readonly gatewayCode: string;
+  readonly details?: unknown;
+
+  constructor(error: GatewayErrorShape) {
+    super(error.message);
+    this.name = "GatewayRequestError";
+    this.gatewayCode = error.code;
+    this.details = error.details;
+  }
+}
+
+export function isOpenClawGatewayMethodUnsupported(error: unknown, method?: string): boolean {
+  const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const code = typeof record?.gatewayCode === "string" ? record.gatewayCode.trim().toUpperCase() : "";
+  if (["METHOD_NOT_FOUND", "NOT_IMPLEMENTED", "UNIMPLEMENTED", "UNSUPPORTED_METHOD"].includes(code)) return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!/unknown method|method not found|not implemented|unsupported method/i.test(message)) return false;
+  return !method || message.toLowerCase().includes(method.trim().toLowerCase());
+}
+
+export const MIN_GATEWAY_VERSION = 3;
+export const MAX_GATEWAY_VERSION = 4;
+const DEFAULT_CONNECTION_TIMEOUT = 30_000;
+const WEB_LOGIN_WAIT_TIMEOUT = 120_000;
+const DEFAULT_AGENT_TIMEOUT = 900_000;
+const CHAT_LIFECYCLE_ERROR_FALLBACK_TIMEOUT_MS = 20_000;
+// The third unchanged success stops the run; failures and changed results reset the counter.
+const MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES = 3;
+const SKILLS_MUTATION_TIMEOUT = 300_000;
+const PLUGIN_MUTATION_TIMEOUT = 300_000;
+const RECONNECT_CLOSE_CODE = 4008;
+const DEFAULT_CLIENT_ID = "cli";
+const DEFAULT_CLIENT_MODE = "cli";
+const DEFAULT_CLIENT_VERSION = "@hypercli/sdk";
+const DEFAULT_CAPS = ["tool-events"];
+const CONNECT_TIMER_MS = 750;
+const INITIAL_CONNECT_TIMEOUT_MS = 45_000;
+const PAIRING_APPROVAL_TIMEOUT_MS = 35_000;
+const INITIAL_BACKOFF_MS = 800;
+const MAX_BACKOFF_MS = 15_000;
+const BACKOFF_MULTIPLIER = 1.7;
+const OPERATOR_ROLE = "operator";
+const OPERATOR_SCOPES = [
+  "operator.admin",
+  "operator.read",
+  "operator.write",
+  "operator.approvals",
+  "operator.pairing",
+];
+const STORAGE_KEY = "openclaw.device.auth.v1";
+const EPHEMERAL_SESSION_PREFIX = "session-hypercli-ephemeral-";
+const EPHEMERAL_RUN_ID_SUPPRESSION_MS = DEFAULT_AGENT_TIMEOUT + 5 * 60_000;
+const EPHEMERAL_TURN_CLOSE_WAIT_MS = 1_000;
+const CONNECT_ERROR_PAIRING_REQUIRED = "PAIRING_REQUIRED";
+const CONNECT_ERROR_AUTH_TOKEN_MISMATCH = "AUTH_TOKEN_MISMATCH";
+const CONNECT_ERROR_AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED";
+const CONNECT_ERROR_DEVICE_TOKEN_MISMATCH = "AUTH_DEVICE_TOKEN_MISMATCH";
+const VALID_CLIENT_IDS = new Set([
+  "webchat-ui",
+  "openclaw-control-ui",
+  "openclaw-tui",
+  "webchat",
+  "cli",
+  "gateway-client",
+  "openclaw-macos",
+  "openclaw-ios",
+  "openclaw-watchos",
+  "openclaw-android",
+  "node-host",
+  "openclaw-worker",
+  "test",
+  "fingerprint",
+  "openclaw-probe",
+]);
+const VALID_CLIENT_MODES = new Set([
+  "webchat",
+  "cli",
+  "ui",
+  "backend",
+  "node",
+  "worker",
+  "probe",
+  "test",
+]);
+
+let memoryDeviceAuthStore: DeviceAuthStore | null = null;
+
+function makeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.random() * 16 | 0;
+    return (char === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
+function channelConfigPatch(
+  channelId: string,
+  config: Record<string, unknown> | null,
+  accountId?: string,
+  defaultAccount = false,
+): Record<string, unknown> {
+  if (!accountId) return { channels: { [channelId]: config } };
+  return {
+    channels: {
+      [channelId]: {
+        accounts: { [accountId]: config },
+        ...(defaultAccount ? { defaultAccount: accountId } : {}),
+      },
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function normalizeGatewayHelloSnapshot(value: Record<string, any>): GatewayHelloSnapshot {
+  const server = asRecord(value.server) ?? {};
+  const features = asRecord(value.features) ?? {};
+  const auth = asRecord(value.auth) ?? {};
+  return {
+    ...value,
+    protocol: typeof value.protocol === "number" ? value.protocol : 0,
+    server: {
+      ...server,
+      version: typeof server.version === "string"
+        ? server.version
+        : typeof value.version === "string" ? value.version : "",
+    },
+    features: {
+      ...features,
+      methods: stringArray(features.methods),
+      events: stringArray(features.events),
+      capabilities: stringArray(features.capabilities),
+    },
+    auth: {
+      ...auth,
+      role: typeof auth.role === "string" ? auth.role : "",
+      scopes: stringArray(auth.scopes),
+    },
+  };
+}
+
+function parseOpenClawCalver(value: string): [number, number, number] | null {
+  const match = /^v?(\d{4})\.(\d{1,2})\.(\d{1,2})(?:[-+].*)?$/.exec(value.trim());
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function compareCalver(
+  left: [number, number, number],
+  right: [number, number, number],
+): number {
+  if (left[0] !== right[0]) return left[0] - right[0];
+  if (left[1] !== right[1]) return left[1] - right[1];
+  return left[2] - right[2];
+}
+
+type GatewayResponseFrame =
+  | { type: "res"; id: string; ok: true; payload?: unknown }
+  | { type: "res"; id: string; ok: false; error: GatewayErrorShape };
+
+type GatewayEventFrame = GatewayEvent & { type: "event" };
+type GatewayFrame = GatewayEventFrame | GatewayResponseFrame;
+
+type GatewayFrameDecodeResult =
+  | { ok: true; frame: GatewayFrame }
+  | { ok: false; error: GatewayProtocolErrorInfo };
+
+function protocolError(
+  code: GatewayProtocolErrorCode,
+  message: string,
+  record?: Record<string, any> | null,
+): GatewayProtocolErrorInfo {
+  const frameType = typeof record?.type === "string" ? record.type : undefined;
+  const event = typeof record?.event === "string" ? record.event : undefined;
+  const requestId = typeof record?.id === "string" ? record.id : undefined;
+  return {
+    code,
+    message,
+    ...(frameType ? { frameType } : {}),
+    ...(event ? { event } : {}),
+    ...(requestId ? { requestId } : {}),
+  };
+}
+
+function normalizeGatewayResponseError(value: unknown): GatewayErrorShape {
+  if (typeof value === "string" && value.trim()) {
+    return { code: "UNAVAILABLE", message: value.trim() };
+  }
+  const error = asRecord(value);
+  return {
+    code: typeof error?.code === "string" && error.code.trim() ? error.code : "UNAVAILABLE",
+    message: typeof error?.message === "string" && error.message.trim()
+      ? error.message
+      : "gateway request failed",
+    ...(error?.details !== undefined ? { details: error.details } : {}),
+  };
+}
+
+function decodeGatewayFrame(raw: string): GatewayFrameDecodeResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: protocolError("INVALID_JSON", "gateway frame is not valid JSON") };
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return { ok: false, error: protocolError("INVALID_FRAME", "gateway frame must be an object") };
+  }
+
+  if (record.type === "event") {
+    if (typeof record.event !== "string" || !record.event.trim()) {
+      return { ok: false, error: protocolError("INVALID_EVENT", "gateway event requires a non-empty string event", record) };
+    }
+    if (record.seq !== undefined && (!Number.isSafeInteger(record.seq) || record.seq < 0)) {
+      return { ok: false, error: protocolError("INVALID_EVENT", "gateway event seq must be a non-negative safe integer", record) };
+    }
+    return { ok: true, frame: record as GatewayEventFrame };
+  }
+
+  if (record.type === "res") {
+    if (typeof record.id !== "string" || !record.id.trim()) {
+      return { ok: false, error: protocolError("INVALID_RESPONSE", "gateway response requires a non-empty string id", record) };
+    }
+    if (typeof record.ok !== "boolean") {
+      return { ok: false, error: protocolError("INVALID_RESPONSE", "gateway response ok must be a boolean", record) };
+    }
+    if (record.ok) {
+      return { ok: true, frame: { type: "res", id: record.id, ok: true, payload: record.payload } };
+    }
+    return {
+      ok: true,
+      frame: {
+        type: "res",
+        id: record.id,
+        ok: false,
+        error: normalizeGatewayResponseError(record.error),
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    error: protocolError("INVALID_FRAME", "gateway frame type must be event or res", record),
+  };
+}
+
+function asContentItems(value: unknown): Record<string, any>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, any> => item !== null);
+}
+
+function isBrowserChatAttachment(attachment: ChatAttachment): attachment is BrowserChatAttachment {
+  return typeof (attachment as BrowserChatAttachment).dataUrl === "string";
+}
+
+function parseAttachmentDataUrl(
+  dataUrl: string,
+): { mimeType: string; content: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+  return { mimeType: match[1], content: match[2] };
+}
+
+export function normalizeChatAttachments(
+  attachments?: ChatAttachment[],
+): GatewayChatAttachmentPayload[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+  return attachments.map((attachment) => {
+    if (!isBrowserChatAttachment(attachment)) {
+      return attachment;
+    }
+    const parsed = parseAttachmentDataUrl(attachment.dataUrl);
+    if (!parsed) {
+      throw new Error(`Invalid chat attachment dataUrl for mime type ${attachment.mimeType}`);
+    }
+    return {
+      type: "image",
+      mimeType: parsed.mimeType,
+      content: parsed.content,
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+    };
+  });
+}
+
+function normalizeToolArgs(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return value;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function canonicalizeToolValue(value: unknown): unknown {
+  const normalized = normalizeToolArgs(value);
+  if (Array.isArray(normalized)) {
+    return normalized.map(canonicalizeToolValue);
+  }
+  if (!normalized || typeof normalized !== "object") {
+    return normalized;
+  }
+  return Object.fromEntries(
+    Object.keys(normalized as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, canonicalizeToolValue((normalized as Record<string, unknown>)[key])]),
+  );
+}
+
+function serializeToolValue(value: unknown): string {
+  try {
+    return JSON.stringify(canonicalizeToolValue(value)) ?? "undefined";
+  } catch {
+    return String(value);
+  }
+}
+
+function stringifyToolResult(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function gatewayToolCallId(record: Record<string, any>): string | undefined {
+  const direct =
+    (typeof record.id === "string" && record.id.trim()) ||
+    (typeof record.call_id === "string" && record.call_id.trim()) ||
+    (typeof record.callId === "string" && record.callId.trim()) ||
+    (typeof record.toolCallId === "string" && record.toolCallId.trim()) ||
+    (typeof record.tool_call_id === "string" && record.tool_call_id.trim());
+  return direct || undefined;
+}
+
+function gatewayToolName(record: Record<string, any>): string | undefined {
+  const direct =
+    (typeof record.name === "string" && record.name.trim()) ||
+    (typeof record.toolName === "string" && record.toolName.trim()) ||
+    (typeof record.tool_name === "string" && record.tool_name.trim());
+  return direct || undefined;
+}
+
+function gatewayToolSignature(record: Record<string, any>): string {
+  return `${gatewayToolName(record) ?? "tool"}:${serializeToolValue(record.args ?? record.arguments ?? null)}`;
+}
+
+function gatewayToolResultValue(record: Record<string, any>): unknown {
+  return record.result ?? record.meta ?? record.content ?? record.text ?? record.partialResult ?? record.output;
+}
+
+function gatewayToolStreamPayload(record: Record<string, any>): Record<string, any> {
+  const id = gatewayToolCallId(record);
+  const name = gatewayToolName(record);
+  return {
+    ...(id ? { toolCallId: id } : {}),
+    ...(name ? { name } : {}),
+  };
+}
+
+function mergeGatewayToolResult(
+  toolCalls: GatewayChatToolCall[],
+  result: GatewayChatToolCall,
+): GatewayChatToolCall[] {
+  const next = [...toolCalls];
+  const index = result.id
+    ? next.findIndex((entry) => entry.id === result.id)
+    : (() => {
+        const matches = next
+          .map((entry, cursor) => ({ entry, cursor }))
+          .filter(({ entry }) =>
+            result.name &&
+            entry.name === result.name &&
+            (entry.result === null || entry.result === undefined),
+          );
+        return matches.length === 1 ? matches[0].cursor : -1;
+      })();
+  if (index >= 0) {
+    const current = next[index];
+    next[index] = {
+      ...current,
+      ...(result.id ? { id: result.id } : {}),
+      ...(result.result !== undefined ? { result: result.result } : {}),
+    };
+    return next;
+  }
+  next.push(result);
+  return next;
+}
+
+export function extractGatewayChatThinking(message: unknown): string {
+  const record = asRecord(message);
+  if (!record) {
+    return "";
+  }
+  const directReasoning = [record.reasoning_content, record.reasoningContent, record.reasoning]
+    .find((value) => typeof value === "string" && value.trim());
+  const parts = asContentItems(record.content)
+    .map((item) => {
+      const kind = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+      if (!["thinking", "reasoning", "reasoning_content"].includes(kind)) {
+        return null;
+      }
+      const value = [item.thinking, item.reasoning_content, item.reasoningContent, item.reasoning, item.text]
+        .find((candidate) => typeof candidate === "string" && candidate.trim());
+      return typeof value === "string" ? value.trim() : null;
+    })
+    .filter((value): value is string => Boolean(value));
+  return Array.from(new Set([
+    ...(typeof directReasoning === "string" ? [directReasoning.trim()] : []),
+    ...parts,
+  ])).join("\n");
+}
+
+function extractGatewayReasoningDelta(payload: Record<string, any>): string {
+  const directDelta = [
+    payload.reasoning_content_delta,
+    payload.reasoningContentDelta,
+    payload.reasoning_delta,
+  ].find((value) => typeof value === "string" && value);
+  if (typeof directDelta === "string") return directDelta;
+
+  const message = asRecord(payload.message);
+  const records = [
+    payload,
+    asRecord(payload.delta),
+    asRecord(asRecord(payload.data)?.delta),
+    asRecord(Array.isArray(payload.choices) ? asRecord(payload.choices[0])?.delta : null),
+    asRecord(message?.delta),
+    asRecord(Array.isArray(message?.choices) ? asRecord(message.choices[0])?.delta : null),
+  ].filter((value): value is Record<string, any> => value !== null);
+  for (const record of records) {
+    const kind = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+    const explicitlyReasoning = kind === "thinking_delta" || kind === "reasoning_delta";
+    const value = [record.reasoning_content, record.reasoningContent, record.reasoning, record.thinking]
+      .find((candidate) => typeof candidate === "string" && candidate);
+    if (typeof value === "string") return value;
+    if (explicitlyReasoning && typeof record.text === "string") return record.text;
+  }
+  return "";
+}
+
+export function extractGatewayChatMediaUrls(message: unknown): string[] {
+  const record = asRecord(message);
+  if (!record) {
+    return [];
+  }
+  const mediaUrls: string[] = [];
+  for (const item of asContentItems(record.content)) {
+    if (item.type !== "image" && item.type !== "audio" && item.type !== "input_audio" && item.type !== "output_audio") {
+      continue;
+    }
+    const isAudio = item.type === "audio" || item.type === "input_audio" || item.type === "output_audio";
+    if (typeof item.url === "string" && item.url.trim()) {
+      mediaUrls.push(item.url);
+      continue;
+    }
+    if (typeof item.openUrl === "string" && item.openUrl.trim()) {
+      mediaUrls.push(item.openUrl);
+      continue;
+    }
+    const source = asRecord(item.source) ?? (
+      isAudio
+        ? asRecord(item.audio) ?? asRecord(item.input_audio) ?? asRecord(item.output_audio) ?? item
+        : null
+    );
+    if (!source) {
+      continue;
+    }
+    if (source.type === "url" && typeof source.url === "string" && source.url.trim()) {
+      mediaUrls.push(source.url);
+      continue;
+    }
+    if (isAudio && typeof source.url === "string" && source.url.trim()) {
+      mediaUrls.push(source.url.trim());
+      continue;
+    }
+    if (typeof source.data === "string" && source.data.trim()) {
+      if (isAudio && /^data:audio\//i.test(source.data.trim())) {
+        mediaUrls.push(source.data.trim());
+        continue;
+      }
+      const rawMimeType = [source.media_type, source.mime_type, item.media_type, item.mime_type]
+        .find((value) => typeof value === "string" && value.trim());
+      const rawFormat = [source.format, item.format]
+        .find((value) => typeof value === "string" && value.trim());
+      const format = typeof rawFormat === "string" ? rawFormat.trim().toLowerCase() : "";
+      const normalizedMimeType = typeof rawMimeType === "string"
+        ? rawMimeType.trim().split(";", 1)[0].trim()
+        : "";
+      const audioMimeTypes: Record<string, string> = {
+        aac: "audio/aac",
+        flac: "audio/flac",
+        m4a: "audio/mp4",
+        mp3: "audio/mpeg",
+        oga: "audio/ogg",
+        ogg: "audio/ogg",
+        opus: "audio/ogg",
+        wav: "audio/wav",
+        weba: "audio/webm",
+        webm: "audio/webm",
+      };
+      const mimeType = isAudio
+        ? (/^audio\/[A-Za-z0-9.+-]+$/i.test(normalizedMimeType)
+            ? normalizedMimeType
+            : audioMimeTypes[format] ?? "audio/mpeg")
+        : (/^image\/[A-Za-z0-9.+-]+$/i.test(normalizedMimeType)
+            ? normalizedMimeType
+            : "image/png");
+      mediaUrls.push(`data:${mimeType};base64,${source.data.trim()}`);
+    }
+  }
+  if (typeof record.mediaUrl === "string" && record.mediaUrl.trim()) {
+    mediaUrls.push(record.mediaUrl);
+  }
+  if (Array.isArray(record.mediaUrls)) {
+    for (const entry of record.mediaUrls) {
+      if (typeof entry === "string" && entry.trim()) {
+        mediaUrls.push(entry);
+      }
+    }
+  }
+  return Array.from(new Set(mediaUrls));
+}
+
+export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCall[] {
+  const record = asRecord(message);
+  if (!record) {
+    return [];
+  }
+
+  let toolCalls: GatewayChatToolCall[] = [];
+  for (const item of asContentItems(record.content)) {
+    const kind = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    const name = gatewayToolName(item);
+    const id = gatewayToolCallId(item);
+
+    if (
+      kind === "toolcall" ||
+      kind === "tool_call" ||
+      kind === "tooluse" ||
+      kind === "tool_use" ||
+      kind === "function_call" ||
+      kind === "functioncall" ||
+      (name && (item.arguments !== undefined || item.args !== undefined))
+    ) {
+      toolCalls.push({
+        ...(id ? { id } : {}),
+        name: name ?? "tool",
+        args: normalizeToolArgs(item.arguments ?? item.args),
+      });
+      continue;
+    }
+
+    if (kind === "toolresult" || kind === "tool_result" || kind === "function_call_output" || kind === "functioncalloutput") {
+      toolCalls = mergeGatewayToolResult(toolCalls, {
+        ...(id ? { id } : {}),
+        name: name ?? "tool",
+        result: stringifyToolResult(item.text ?? item.content ?? item.result ?? item.output),
+      });
+    }
+  }
+
+  if (Array.isArray(record.tool_calls)) {
+    for (const item of record.tool_calls) {
+      const tool = asRecord(item);
+      if (!tool) continue;
+      const name = gatewayToolName(tool);
+      if (!name) continue;
+      toolCalls.push({
+        ...(gatewayToolCallId(tool) ? { id: gatewayToolCallId(tool) } : {}),
+        name,
+        args: normalizeToolArgs(tool.arguments ?? tool.args),
+        ...(stringifyToolResult(tool.result ?? tool.output ?? tool.content ?? tool.text) !== undefined
+          ? { result: stringifyToolResult(tool.result ?? tool.output ?? tool.content ?? tool.text) }
+          : {}),
+      });
+    }
+  }
+
+  const topLevelToolName = gatewayToolName(record);
+  const topLevelResult = stringifyToolResult(
+    record.result ?? record.content ?? record.text ?? record.partialResult,
+  );
+  const role = typeof record.role === "string" ? record.role.trim().toLowerCase() : "";
+  if (
+    topLevelToolName &&
+    topLevelResult &&
+    (role === "toolresult" || role === "tool_result" || role === "function_call_output" || record.toolCallId || record.tool_call_id || record.call_id || record.callId)
+  ) {
+    toolCalls = mergeGatewayToolResult(toolCalls, {
+      ...(gatewayToolCallId(record) ? { id: gatewayToolCallId(record) } : {}),
+      name: topLevelToolName,
+      result: topLevelResult,
+    });
+  }
+
+  return toolCalls;
+}
+
+export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessageSummary | null {
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const text = extractMessageText(record) ?? "";
+  const reasoning = extractGatewayChatThinking(record);
+  const toolCalls = extractGatewayChatToolCalls(record);
+  const mediaUrls = extractGatewayChatMediaUrls(record);
+  const timestamp = typeof record.timestamp === "number" ? record.timestamp : undefined;
+  const role = typeof record.role === "string" && record.role.trim() ? record.role : "assistant";
+  const messageId = protocolIdentityString(record.messageId);
+  const turnId = protocolIdentityString(record.turnId);
+  const runId = extractMessageRunId(record) ?? undefined;
+  const sessionKey = chatPayloadSessionKey(record);
+  const revision = protocolRevision(record.revision);
+
+  if (!text && !reasoning && toolCalls.length === 0 && mediaUrls.length === 0) {
+    return null;
+  }
+
+  return {
+    role,
+    text,
+    reasoning,
+    thinking: reasoning,
+    toolCalls,
+    mediaUrls,
+    ...(timestamp !== undefined ? { timestamp } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function extractMessageText(message: unknown): string | null {
+  if (typeof message === "string") {
+    return message;
+  }
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const content = record.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((entry) => {
+        const item = asRecord(entry);
+        if (!item || item.type !== "text" || typeof item.text !== "string" || !item.text) {
+          return null;
+        }
+        return item.text;
+      })
+      .filter((value): value is string => typeof value === "string");
+    if (parts.length > 0) {
+      return parts.join("\n");
+    }
+  }
+  return typeof record.text === "string" ? record.text : null;
+}
+
+function extractMessageRunId(message: unknown): string | null {
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const directRunId = typeof record.runId === "string" ? record.runId.trim() : "";
+  if (directRunId) {
+    return directRunId;
+  }
+  const agentRunId = typeof record.agentRunId === "string" ? record.agentRunId.trim() : "";
+  if (agentRunId) {
+    return agentRunId;
+  }
+  const meta = asRecord(record.meta);
+  const metaRunId = typeof meta?.runId === "string" ? meta.runId.trim() : "";
+  return metaRunId || null;
+}
+
+interface HistoryAssistantBaseline {
+  count: number;
+  latestText: string;
+}
+
+function historyAssistantBaseline(
+  messages: unknown[],
+  priorAssistantTexts: string[] = [],
+): HistoryAssistantBaseline {
+  const assistantTexts = messages.flatMap((candidate) => {
+    const message = asRecord(candidate);
+    const role = typeof message?.role === "string" ? message.role.trim().toLowerCase() : "";
+    const text = role === "assistant" ? extractMessageText(message)?.trim() : "";
+    return text ? [text] : [];
+  });
+  const useTrackedPrior = priorAssistantTexts.length > assistantTexts.length;
+  return {
+    count: Math.max(assistantTexts.length, priorAssistantTexts.length),
+    latestText: useTrackedPrior
+      ? priorAssistantTexts[priorAssistantTexts.length - 1] ?? ""
+      : assistantTexts[assistantTexts.length - 1] ?? "",
+  };
+}
+
+function latestHistoryAssistantText(
+  messages: unknown[],
+  acceptedRunIds: Set<string>,
+  baseline?: HistoryAssistantBaseline | null,
+): string | null {
+  const currentBaseline = historyAssistantBaseline(messages);
+  const hasNewUncorrelatedAssistant = baseline === undefined || Boolean(
+    baseline && (
+      currentBaseline.count > baseline.count ||
+      currentBaseline.latestText !== baseline.latestText
+    )
+  );
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = asRecord(messages[index]);
+    if (!message) {
+      continue;
+    }
+    const role = typeof message.role === "string" ? message.role.trim().toLowerCase() : "";
+    if (role !== "assistant") {
+      continue;
+    }
+    const messageRunId = extractMessageRunId(message);
+    if (messageRunId && acceptedRunIds.size > 0 && !acceptedRunIds.has(messageRunId)) {
+      continue;
+    }
+    if (!messageRunId && !hasNewUncorrelatedAssistant) {
+      continue;
+    }
+    const text = extractMessageText(message)?.trim();
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
+interface StreamContentUpdate {
+  text: string;
+  nextText: string;
+  replace: boolean;
+}
+
+function appendStreamContent(
+  previousText: string,
+  text: string,
+  replace: boolean,
+): StreamContentUpdate | null {
+  if (replace) return reconcileStreamContent(previousText, text, true);
+  if (!text) return null;
+  return { text, nextText: previousText + text, replace: false };
+}
+
+function reconcileStreamContent(
+  previousText: string,
+  snapshot: string,
+  replace = false,
+): StreamContentUpdate | null {
+  if (replace) return { text: snapshot, nextText: snapshot, replace: true };
+  if (snapshot === previousText) return null;
+  if (snapshot.startsWith(previousText)) {
+    const text = snapshot.slice(previousText.length);
+    return text ? { text, nextText: snapshot, replace: false } : null;
+  }
+  if (previousText.startsWith(snapshot)) return null;
+  return { text: snapshot, nextText: snapshot, replace: true };
+}
+
+function reconcileHistoryStreamContent(
+  previousText: string,
+  snapshot: string,
+): StreamContentUpdate | null {
+  if (snapshot.endsWith(OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX)) {
+    const projectedPrefix = snapshot.slice(0, -OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX.length);
+    if (previousText.startsWith(projectedPrefix)) return null;
+  }
+  return reconcileStreamContent(previousText, snapshot);
+}
+
+function protocolIdentityString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function chatPayloadSessionKey(payload: Record<string, any>): string | undefined {
+  return protocolIdentityString(payload.canonicalSessionKey) ?? protocolIdentityString(payload.sessionKey);
+}
+
+function protocolRevision(value: unknown): number | string | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : protocolIdentityString(value);
+}
+
+function chatEventIdentity(
+  payload: Record<string, any>,
+): Pick<ChatEvent, "eventId" | "messageId" | "turnId" | "runId" | "sessionKey" | "revision"> {
+  const message = asRecord(payload.message);
+  const eventId = protocolIdentityString(payload.eventId) ?? protocolIdentityString(message?.eventId);
+  const messageId = protocolIdentityString(payload.messageId) ?? protocolIdentityString(message?.messageId);
+  const turnId = protocolIdentityString(payload.turnId) ?? protocolIdentityString(message?.turnId);
+  const runId = protocolIdentityString(payload.runId) ?? extractMessageRunId(message);
+  const sessionKey = chatPayloadSessionKey(payload) ?? (message ? chatPayloadSessionKey(message) : undefined);
+  const revision = protocolRevision(payload.revision) ?? protocolRevision(message?.revision);
+  return {
+    ...(eventId ? { eventId } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function applyChatEventContent(currentText: string, event: ChatEvent): string {
+  if (event.type !== "content") return currentText;
+  return event.replace === true ? event.text ?? "" : currentText + (event.text ?? "");
+}
+
+function parseAgentSessionKey(sessionKey: string | null | undefined): { agentId: string; rest: string } | null {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  const parts = normalized.split(":").filter(Boolean);
+  if (parts.length < 3 || parts[0] !== "agent") {
+    return null;
+  }
+  const agentId = parts[1]?.trim();
+  const rest = parts.slice(2).join(":").trim();
+  if (!agentId || !rest) {
+    return null;
+  }
+  return { agentId, rest };
+}
+
+function sameSessionKey(left: string | undefined, right: string | undefined): boolean {
+  const normalizedLeft = (left ?? "").trim().toLowerCase();
+  const normalizedRight = (right ?? "").trim().toLowerCase();
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+  const parsedLeft = parseAgentSessionKey(normalizedLeft);
+  const parsedRight = parseAgentSessionKey(normalizedRight);
+  if (parsedLeft && parsedRight) {
+    return parsedLeft.agentId === parsedRight.agentId && parsedLeft.rest === parsedRight.rest;
+  }
+  if (parsedLeft) {
+    return parsedLeft.rest === normalizedRight;
+  }
+  if (parsedRight) {
+    return normalizedLeft === parsedRight.rest;
+  }
+  return false;
+}
+
+function isReservedEphemeralSessionKey(sessionKey: string): boolean {
+  return /^session-hypercli-ephemeral-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    sessionKey.trim().toLowerCase(),
+  );
+}
+
+function validateEphemeralCanonicalKey(requestedKey: string, canonicalKey: string): string | null {
+  if (!isReservedEphemeralSessionKey(requestedKey)) return null;
+  if (canonicalKey === requestedKey) return canonicalKey;
+  if (!canonicalKey.startsWith("agent:")) return null;
+  const agentSeparator = canonicalKey.indexOf(":", "agent:".length);
+  if (agentSeparator <= "agent:".length) return null;
+  if (!canonicalKey.slice("agent:".length, agentSeparator).trim()) return null;
+  return canonicalKey.slice(agentSeparator + 1) === requestedKey ? canonicalKey : null;
+}
+
+function valueReferencesEphemeralSession(
+  value: unknown,
+  activeSessionKeys: string[],
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") {
+    const candidate = value.trim();
+    const unscoped = parseAgentSessionKey(candidate)?.rest ?? candidate;
+    return isReservedEphemeralSessionKey(unscoped) || activeSessionKeys.some((key) => sameSessionKey(candidate, key));
+  }
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.some((item) => valueReferencesEphemeralSession(item, activeSessionKeys, seen));
+  }
+  return Object.values(value).some((item) => valueReferencesEphemeralSession(item, activeSessionKeys, seen));
+}
+
+async function promiseSettlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.then(() => true, () => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function booleanPromiseWithin(promise: Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.catch(() => false),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
+  if (event.event === "chat" || event.event.startsWith("chat.")) return true;
+  if (event.event !== "agent") return false;
+  const payload = asRecord(event.payload) ?? {};
+  const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
+  if (stream === "tool" || stream === "lifecycle") return true;
+  const phase = String(asRecord(payload.data)?.phase ?? "").toLowerCase();
+  return stream === "assistant" && phase === "commentary";
+}
+
+function isTerminalChatStreamGatewayEvent(event: GatewayEvent): boolean {
+  if (event.event === "chat.done" || event.event === "chat.error" || event.event === "chat.aborted") return true;
+  const payload = asRecord(event.payload) ?? {};
+  if (event.event === "agent" && String(payload.stream ?? "").toLowerCase() === "lifecycle") {
+    const phase = String(asRecord(payload.data)?.phase ?? "").toLowerCase();
+    return phase === "end";
+  }
+  if (event.event !== "chat") return false;
+  const state = String(payload.state ?? "").toLowerCase();
+  return state === "final" || state === "error" || state === "aborted";
+}
+
+function splitConfigPath(path: string): string[] {
+  return path
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) =>
+      part.endsWith("[]") && part !== "[]"
+        ? [part.slice(0, -2), "[]"]
+        : [part],
+    );
+}
+
+export function normalizeOpenClawConfigSchemaNode(value: unknown): Record<string, any> {
+  const schema = asRecord(value) ?? {};
+  const oneOf = Array.isArray(schema.oneOf) ? schema.oneOf : [];
+  const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf : [];
+  const union = [...oneOf, ...anyOf];
+  if (union.length === 0) return schema;
+  const primary = union.find((entry) => {
+    const obj = asRecord(entry);
+    if (!obj) return false;
+    const t = obj.type;
+    if (typeof t === "string") return t !== "null";
+    if (Array.isArray(t)) return t.some((v) => v !== "null");
+    return true;
+  });
+  return asRecord(primary) ?? schema;
+}
+
+export function describeOpenClawConfigNode(value: unknown): OpenClawConfigNodeDescriptor {
+  const schema = normalizeOpenClawConfigSchemaNode(value);
+  const rawType = schema.type;
+  const type = Array.isArray(rawType)
+    ? (rawType.find((entry) => entry !== "null") as string | undefined)
+    : (typeof rawType === "string" ? rawType : undefined);
+  const rawProperties = asRecord(schema.properties) ?? {};
+  const properties: Record<string, Record<string, any>> = {};
+  for (const [key, child] of Object.entries(rawProperties)) {
+    const childSchema = asRecord(child);
+    if (childSchema) {
+      properties[key] = childSchema;
+    }
+  }
+  const additionalPropertySchema = asRecord(schema.additionalProperties);
+  const additionalProperties = schema.additionalProperties === true || Boolean(additionalPropertySchema);
+  return {
+    schema,
+    type,
+    properties,
+    additionalProperties,
+    additionalPropertySchema,
+    isDynamicMap:
+      (type === "object" || Object.keys(properties).length > 0 || additionalProperties) &&
+      additionalProperties,
+  };
+}
+
+export function createOpenClawConfigValue(value: unknown): unknown {
+  const descriptor = describeOpenClawConfigNode(value);
+  switch (descriptor.type) {
+    case "object":
+      return {};
+    case "array":
+      return [];
+    case "boolean":
+      return false;
+    case "number":
+    case "integer":
+      return 0;
+    default:
+      return "";
+  }
+}
+
+function resolveSchemaRef(
+  ref: string,
+  root: Record<string, any>,
+): Record<string, any> | null {
+  // Handle JSON Pointer style refs: #/$defs/Name, #/definitions/Name
+  if (!ref.startsWith('#/')) return null;
+  const parts = ref.slice(2).split('/');
+  let cursor: any = root;
+  for (const part of parts) {
+    cursor = asRecord(cursor)?.[part];
+    if (cursor === undefined || cursor === null) return null;
+  }
+  return asRecord(cursor);
+}
+
+function mergeAllOfSchemas(schemas: Record<string, any>[]): Record<string, any> {
+  const merged: Record<string, any> = {};
+  for (const schema of schemas) {
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === 'properties') {
+        merged.properties = { ...(asRecord(merged.properties) ?? {}), ...(asRecord(value) ?? {}) };
+      } else if (key === 'required' && Array.isArray(value)) {
+        merged.required = [...(Array.isArray(merged.required) ? merged.required : []), ...value];
+      } else if (!(key in merged)) {
+        merged[key] = value;
+      }
+    }
+  }
+  return merged;
+}
+
+function resolveSchemaNode(
+  node: Record<string, any>,
+  root: Record<string, any>,
+  visited: Set<string>,
+): Record<string, any> {
+  // Resolve $ref
+  const ref = typeof node.$ref === 'string' ? node.$ref : null;
+  if (ref) {
+    if (visited.has(ref)) return node; // circular reference guard
+    visited.add(ref);
+    const resolved = resolveSchemaRef(ref, root);
+    if (resolved) {
+      // Merge any sibling properties (e.g. title, description) with the resolved ref
+      const { $ref: _, ...siblings } = node;
+      const resolvedNode = resolveSchemaNode(resolved, root, visited);
+      return Object.keys(siblings).length > 0
+        ? { ...resolvedNode, ...siblings, ...(resolvedNode.properties && siblings.properties ? { properties: { ...resolvedNode.properties, ...siblings.properties } } : {}) }
+        : resolvedNode;
+    }
+  }
+
+  // Resolve allOf
+  const allOf = Array.isArray(node.allOf) ? node.allOf : null;
+  if (allOf) {
+    const resolved = allOf
+      .map((entry: unknown) => asRecord(entry))
+      .filter((entry): entry is Record<string, any> => entry !== null)
+      .map((entry) => resolveSchemaNode(entry, root, new Set(visited)));
+    const { allOf: _, ...rest } = node;
+    const merged = mergeAllOfSchemas([...resolved, rest]);
+    return merged;
+  }
+
+  // Recursively resolve properties
+  const props = asRecord(node.properties);
+  if (props) {
+    const resolvedProps: Record<string, any> = {};
+    for (const [key, child] of Object.entries(props)) {
+      const childSchema = asRecord(child);
+      if (childSchema) {
+        resolvedProps[key] = resolveSchemaNode(childSchema, root, new Set(visited));
+      } else {
+        resolvedProps[key] = child;
+      }
+    }
+    return { ...node, properties: resolvedProps };
+  }
+
+  // Resolve additionalProperties if it's a schema object
+  const additionalProps = asRecord(node.additionalProperties);
+  if (additionalProps) {
+    return { ...node, additionalProperties: resolveSchemaNode(additionalProps, root, new Set(visited)) };
+  }
+
+  // Resolve items (for array schemas)
+  const items = asRecord(node.items);
+  if (items) {
+    return { ...node, items: resolveSchemaNode(items, root, new Set(visited)) };
+  }
+
+  return node;
+}
+
+function resolveSchemaRefs(schema: Record<string, any>): Record<string, any> {
+  return resolveSchemaNode(schema, schema, new Set());
+}
+
+export function normalizeOpenClawConfigSchema(
+  value: unknown,
+): OpenClawConfigSchemaResponse | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+
+  const wrappedSchema = asRecord(raw.schema);
+  const uiHints = asRecord(raw.uiHints) ?? {};
+  const resolvedSchema = wrappedSchema
+    ? resolveSchemaRefs(wrappedSchema)
+    : resolveSchemaRefs(raw);
+  const normalized: OpenClawConfigSchemaResponse = {
+    schema: resolvedSchema,
+    uiHints: uiHints as Record<string, OpenClawConfigUiHint>,
+  };
+
+  if (typeof raw.version === "string") {
+    normalized.version = raw.version;
+  }
+  if (typeof raw.generatedAt === "string") {
+    normalized.generatedAt = raw.generatedAt;
+  }
+
+  return normalized;
+}
+
+export function resolveOpenClawConfigUiHint(
+  source: OpenClawConfigSchemaResponse | Record<string, OpenClawConfigUiHint> | null | undefined,
+  path: string,
+): { path: string; hint: OpenClawConfigUiHint } | null {
+  if (!path.trim()) return null;
+  const sourceRecord = asRecord(source);
+  const uiHints =
+    sourceRecord && asRecord(sourceRecord.uiHints)
+      ? (sourceRecord.uiHints as Record<string, OpenClawConfigUiHint>)
+      : (sourceRecord as Record<string, OpenClawConfigUiHint> | null);
+  if (!uiHints || typeof uiHints !== "object") return null;
+
+  const targetParts = splitConfigPath(path);
+  let best: { path: string; hint: OpenClawConfigUiHint; wildcardCount: number } | null = null;
+
+  for (const [hintPath, hint] of Object.entries(uiHints)) {
+    const hintParts = splitConfigPath(hintPath);
+    if (hintParts.length !== targetParts.length) continue;
+
+    let wildcardCount = 0;
+    let matches = true;
+    for (let index = 0; index < hintParts.length; index += 1) {
+      const hintPart = hintParts[index];
+      const targetPart = targetParts[index];
+      if (hintPart === targetPart) continue;
+      if (hintPart === "*" || hintPart === "[]") {
+        wildcardCount += 1;
+        continue;
+      }
+      matches = false;
+      break;
+    }
+
+    if (!matches) continue;
+    if (!best || wildcardCount < best.wildcardCount) {
+      best = { path: hintPath, hint, wildcardCount };
+    }
+  }
+
+  return best ? { path: best.path, hint: best.hint } : null;
+}
+
+function normalizeClientId(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && VALID_CLIENT_IDS.has(normalized) ? normalized : DEFAULT_CLIENT_ID;
+}
+
+function normalizeClientMode(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && VALID_CLIENT_MODES.has(normalized) ? normalized : DEFAULT_CLIENT_MODE;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
+}
+
+function normalizeProtocolVersion(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : fallback;
+}
+
+function normalizePermissions(value: Record<string, boolean> | undefined): Record<string, boolean> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const entries = Object.entries(value)
+    .filter(([key, allowed]) => key.trim() && typeof allowed === "boolean")
+    .map(([key, allowed]) => [key.trim(), allowed] as const);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function getNavigatorLike(): NavigatorLike | null {
+  const maybeNavigator = (globalThis as typeof globalThis & { navigator?: NavigatorLike }).navigator;
+  return maybeNavigator ?? null;
+}
+
+function resolvePlatform(value: string | undefined): string {
+  const normalized = value?.trim();
+  if (normalized) return normalized;
+  const browserNavigator = getNavigatorLike();
+  if (browserNavigator?.platform) return browserNavigator.platform;
+  if (typeof process !== "undefined" && process.platform) return process.platform;
+  return "web";
+}
+
+function inferBrowserName(userAgent: string | undefined): string | null {
+  const ua = userAgent ?? "";
+  if (!ua) return null;
+  if (/Firefox\//i.test(ua)) return "Firefox";
+  if (/Edg\//i.test(ua)) return "Edge";
+  if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) return "Chrome";
+  if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return "Safari";
+  return null;
+}
+
+function inferPlatformName(platform: string): string | null {
+  const normalized = platform.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("mac")) return "macOS";
+  if (normalized.includes("win")) return "Windows";
+  if (normalized.includes("linux")) return "Linux";
+  if (normalized.includes("iphone") || normalized.includes("ipad") || normalized.includes("ios")) {
+    return "iOS";
+  }
+  if (normalized.includes("android")) return "Android";
+  return platform.trim();
+}
+
+function resolveBrowserHost(): string | null {
+  const browserWindow = (globalThis as typeof globalThis & {
+    window?: { location?: { hostname?: string } };
+  }).window;
+  const hostname = browserWindow?.location?.hostname?.trim();
+  return hostname || null;
+}
+
+function resolveClientDisplayName(value: string | undefined, platform: string): string {
+  const provided = value?.trim();
+  if (provided) return provided;
+  const browserName = inferBrowserName(resolveUserAgent());
+  const platformName = inferPlatformName(platform);
+  const host = resolveBrowserHost();
+  const details = [browserName, platformName ? `on ${platformName}` : null]
+    .filter(Boolean)
+    .join(" ");
+  if (details && host) {
+    return `Hyper Agent Web (${details}, ${host})`;
+  }
+  if (details) {
+    return `Hyper Agent Web (${details})`;
+  }
+  if (host) {
+    return `Hyper Agent Web (${host})`;
+  }
+  return "Hyper Agent Web";
+}
+
+function normalizeScopes(scopes: string[] | undefined): string[] {
+  if (!Array.isArray(scopes)) {
+    return [];
+  }
+  const unique = new Set<string>();
+  for (const scope of scopes) {
+    const normalized = scope.trim();
+    if (normalized) unique.add(normalized);
+  }
+  return [...unique].sort();
+}
+
+function getStorage(): StorageLike | null {
+  try {
+    const storage = (globalThis as typeof globalThis & { localStorage?: StorageLike }).localStorage;
+    return storage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readDeviceAuthStore(): DeviceAuthStore | null {
+  const storage = getStorage();
+  if (!storage) {
+    return memoryDeviceAuthStore;
+  }
+  try {
+    const raw = storage.getItem(STORAGE_KEY);
+    if (!raw) return memoryDeviceAuthStore;
+    const parsed = JSON.parse(raw) as DeviceAuthStore;
+    return parsed?.version === 1 && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : memoryDeviceAuthStore;
+  } catch {
+    return memoryDeviceAuthStore;
+  }
+}
+
+function writeDeviceAuthStore(store: DeviceAuthStore): void {
+  const normalized: DeviceAuthStore = {
+    version: 1,
+    ...(store.deviceId ? { deviceId: store.deviceId } : {}),
+    ...(store.publicKey ? { publicKey: store.publicKey } : {}),
+    ...(store.privateKey ? { privateKey: store.privateKey } : {}),
+    ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
+    ...(store.tokens ? { tokens: store.tokens } : {}),
+    ...(store.pendingPairings ? { pendingPairings: store.pendingPairings } : {}),
+  };
+  const storage = getStorage();
+  if (!storage) {
+    memoryDeviceAuthStore = normalized;
+    return;
+  }
+  try {
+    storage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    memoryDeviceAuthStore = null;
+  } catch {
+    memoryDeviceAuthStore = normalized;
+  }
+}
+
+function storageScopeKey(scope: string, role: string): string {
+  return `${scope.trim()}|${role.trim()}`;
+}
+
+function loadStoredDeviceToken(deviceId: string, scope: string, role: string): DeviceTokenEntry | null {
+  const store = readDeviceAuthStore();
+  if (!store || store.deviceId !== deviceId || !store.tokens) return null;
+  const entry = store.tokens[storageScopeKey(scope, role)];
+  return entry && typeof entry.token === "string" ? entry : null;
+}
+
+function storeStoredDeviceToken(params: {
+  deviceId: string;
+  scope: string;
+  gatewayUrl?: string;
+  role: string;
+  token: string;
+  scopes?: string[];
+}): DeviceTokenEntry {
+  const role = params.role.trim();
+  const key = storageScopeKey(params.scope, role);
+  const existing = readDeviceAuthStore();
+  const next: DeviceAuthStore = {
+    version: 1,
+    ...(existing?.deviceId ? { deviceId: existing.deviceId } : {}),
+    ...(existing?.publicKey ? { publicKey: existing.publicKey } : {}),
+    ...(existing?.privateKey ? { privateKey: existing.privateKey } : {}),
+    ...(typeof existing?.createdAtMs === "number" ? { createdAtMs: existing.createdAtMs } : {}),
+    ...(existing?.pendingPairings ? { pendingPairings: existing.pendingPairings } : {}),
+    tokens: {
+      ...(existing?.tokens ?? {}),
+      [key]: {
+        token: params.token,
+        role,
+        scopes: normalizeScopes(params.scopes),
+        updatedAtMs: Date.now(),
+        ...(params.gatewayUrl ? { gatewayUrl: params.gatewayUrl } : {}),
+      },
+    },
+  };
+  if (!next.deviceId) {
+    next.deviceId = params.deviceId;
+  }
+  writeDeviceAuthStore(next);
+  return next.tokens?.[key] as DeviceTokenEntry;
+}
+
+function clearStoredDeviceToken(deviceId: string, scope: string, role: string): void {
+  const store = readDeviceAuthStore();
+  if (!store || store.deviceId !== deviceId || !store.tokens) return;
+  const key = storageScopeKey(scope, role);
+  if (!store.tokens[key]) return;
+  const nextTokens = { ...store.tokens };
+  delete nextTokens[key];
+  writeDeviceAuthStore({
+    version: 1,
+    ...(store.deviceId ? { deviceId: store.deviceId } : {}),
+    ...(store.publicKey ? { publicKey: store.publicKey } : {}),
+    ...(store.privateKey ? { privateKey: store.privateKey } : {}),
+    ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
+    ...(store.pendingPairings ? { pendingPairings: store.pendingPairings } : {}),
+    tokens: nextTokens,
+  });
+}
+
+function pairingStoreKey(scope: string, role: string): string {
+  return storageScopeKey(scope, role);
+}
+
+function loadPendingPairing(scope: string, role: string): GatewayPairingState | null {
+  const store = readDeviceAuthStore();
+  const key = pairingStoreKey(scope, role);
+  return store?.pendingPairings?.[key] ?? null;
+}
+
+function storePendingPairing(pairing: GatewayPairingState, scope: string): GatewayPairingState {
+  const existing = readDeviceAuthStore();
+  const key = pairingStoreKey(scope, pairing.role);
+  writeDeviceAuthStore({
+    version: 1,
+    ...(existing?.deviceId ? { deviceId: existing.deviceId } : {}),
+    ...(existing?.publicKey ? { publicKey: existing.publicKey } : {}),
+    ...(existing?.privateKey ? { privateKey: existing.privateKey } : {}),
+    ...(typeof existing?.createdAtMs === "number" ? { createdAtMs: existing.createdAtMs } : {}),
+    ...(existing?.tokens ? { tokens: existing.tokens } : {}),
+    pendingPairings: {
+      ...(existing?.pendingPairings ?? {}),
+      [key]: pairing,
+    },
+  });
+  return pairing;
+}
+
+function clearPendingPairing(scope: string, role: string): void {
+  const store = readDeviceAuthStore();
+  if (!store?.pendingPairings) return;
+  const key = pairingStoreKey(scope, role);
+  if (!store.pendingPairings[key]) return;
+  const nextPendingPairings = { ...store.pendingPairings };
+  delete nextPendingPairings[key];
+  writeDeviceAuthStore({
+    version: 1,
+    ...(store.deviceId ? { deviceId: store.deviceId } : {}),
+    ...(store.publicKey ? { publicKey: store.publicKey } : {}),
+    ...(store.privateKey ? { privateKey: store.privateKey } : {}),
+    ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
+    ...(store.tokens ? { tokens: store.tokens } : {}),
+    ...(Object.keys(nextPendingPairings).length > 0 ? { pendingPairings: nextPendingPairings } : {}),
+  });
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes)
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+  }
+  const encoder = globalThis as typeof globalThis & { btoa?: (value: string) => string };
+  if (typeof encoder.btoa !== "function") {
+    throw new Error("base64 encoder unavailable");
+  }
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return encoder
+    .btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(padded, "base64"));
+  }
+  const decoder = globalThis as typeof globalThis & { atob?: (encoded: string) => string };
+  if (typeof decoder.atob !== "function") {
+    throw new Error("base64 decoder unavailable");
+  }
+  const binary = decoder.atob(padded);
+  const output = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    output[index] = binary.charCodeAt(index);
+  }
+  return output;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("crypto.subtle is required for device auth");
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as Parameters<typeof globalThis.crypto.subtle.digest>[1]);
+  return bytesToHex(new Uint8Array(digest));
+}
+
+let deviceIdentityFlight: Promise<DeviceIdentityRecord> | null = null;
+
+async function loadOrCreateDeviceIdentityUnshared(): Promise<DeviceIdentityRecord> {
+  const store = readDeviceAuthStore();
+  if (
+    store?.version === 1 &&
+    typeof store.deviceId === "string" &&
+    typeof store.publicKey === "string" &&
+    typeof store.privateKey === "string"
+  ) {
+    const derivedId = await sha256Hex(base64UrlToBytes(store.publicKey));
+    if (derivedId !== store.deviceId) {
+      writeDeviceAuthStore({
+        ...store,
+        version: 1,
+        deviceId: derivedId,
+      });
+      return {
+        deviceId: derivedId,
+        publicKey: store.publicKey,
+        privateKey: store.privateKey,
+        createdAtMs: store.createdAtMs,
+      };
+    }
+    return {
+      deviceId: store.deviceId,
+      publicKey: store.publicKey,
+      privateKey: store.privateKey,
+      createdAtMs: store.createdAtMs,
+    };
+  }
+
+  const privateKeyBytes = edUtils.randomSecretKey();
+  const publicKeyBytes = await getPublicKeyAsync(privateKeyBytes);
+  const deviceId = await sha256Hex(publicKeyBytes);
+  const identity: DeviceIdentityRecord = {
+    deviceId,
+    publicKey: bytesToBase64Url(publicKeyBytes),
+    privateKey: bytesToBase64Url(privateKeyBytes),
+    createdAtMs: Date.now(),
+  };
+  writeDeviceAuthStore({
+    version: 1,
+    ...identity,
+  });
+  return identity;
+}
+
+async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentityRecord> {
+  if (deviceIdentityFlight) return deviceIdentityFlight;
+  const flight = loadOrCreateDeviceIdentityUnshared();
+  deviceIdentityFlight = flight;
+  void flight.finally(() => {
+    if (deviceIdentityFlight === flight) deviceIdentityFlight = null;
+  }).catch(() => undefined);
+  return flight;
+}
+
+async function signDevicePayload(privateKey: string, payload: string): Promise<string> {
+  const signature = await signAsync(new TextEncoder().encode(payload), base64UrlToBytes(privateKey));
+  return bytesToBase64Url(signature);
+}
+
+function buildDeviceAuthPayload(params: {
+  deviceId: string;
+  clientId: string;
+  clientMode: string;
+  role: string;
+  scopes: string[];
+  signedAtMs: number;
+  token?: string | null;
+  nonce: string;
+}): string {
+  return [
+    "v2",
+    params.deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    params.scopes.join(","),
+    String(params.signedAtMs),
+    params.token ?? "",
+    params.nonce,
+  ].join("|");
+}
+
+function toCloseError(error: unknown): GatewayErrorShape | null {
+  if (error instanceof GatewayRequestError) {
+    return {
+      code: error.gatewayCode,
+      message: error.message,
+      details: error.details,
+    };
+  }
+  if (error instanceof Error) {
+    return {
+      code: "UNAVAILABLE",
+      message: error.message,
+    };
+  }
+  return null;
+}
+
+function readConnectErrorCode(error: unknown): string | null {
+  if (!(error instanceof GatewayRequestError)) return null;
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const code = (details as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim() : null;
+}
+
+function readConnectPairingRequestId(error: unknown): string | null {
+  if (!(error instanceof GatewayRequestError)) return null;
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const requestId = (details as { requestId?: unknown }).requestId;
+  return typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
+}
+
+function canRetryWithDeviceToken(error: unknown): boolean {
+  if (!(error instanceof GatewayRequestError)) return false;
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+  const record = details as {
+    canRetryWithDeviceToken?: unknown;
+    recommendedNextStep?: unknown;
+  };
+  return (
+    record.canRetryWithDeviceToken === true ||
+    record.recommendedNextStep === "retry_with_device_token"
+  );
+}
+
+function shouldPauseReconnectAfterAuthFailure(detailCode: string | null, pendingDeviceTokenRetry: boolean): boolean {
+  if (!detailCode) return false;
+  if (
+    detailCode === CONNECT_ERROR_AUTH_RATE_LIMITED ||
+    detailCode === CONNECT_ERROR_PAIRING_REQUIRED
+  ) {
+    return true;
+  }
+  if (detailCode !== CONNECT_ERROR_AUTH_TOKEN_MISMATCH) {
+    return false;
+  }
+  return !pendingDeviceTokenRetry;
+}
+
+function isConcurrentPairingApproval(error: unknown): boolean {
+  return error instanceof Error && /unknown request\s*id/i.test(error.message);
+}
+
+type GatewaySocket = WebSocket | NodeWebSocket;
+
+type NodeWebSocketConstructor = typeof NodeWebSocket;
+
+async function loadNodeWebSocket(): Promise<NodeWebSocketConstructor> {
+  const moduleName = "ws";
+  const mod = await import(moduleName);
+  return (mod.default ?? mod) as NodeWebSocketConstructor;
+}
+
+function isSocketOpen(ws: GatewaySocket | null): boolean {
+  return Boolean(ws && ws.readyState === 1);
+}
+
+function resolveUserAgent(): string | undefined {
+  return getNavigatorLike()?.userAgent;
+}
+
+function resolveLocale(): string | undefined {
+  return getNavigatorLike()?.language;
+}
+
+export class GatewayClient {
+  private url: string;
+  private token?: string;
+  private gatewayToken?: string;
+  private bootstrapToken?: string;
+  private deviceToken?: string;
+  private readonly configuredDeviceToken?: string;
+  private password?: string;
+  private approvalRuntimeToken?: string;
+  private agentRuntimeIdentityToken?: string;
+  private deploymentId?: string;
+  private apiKey?: string;
+  private apiBase?: string;
+  private autoApprovePairing: boolean;
+  private clientId: string;
+  private clientMode: string;
+  private clientDisplayName?: string;
+  private clientVersion: string;
+  private clientPlatform: string;
+  private clientDeviceFamily?: string;
+  private clientInstanceId?: string;
+  private caps: string[];
+  private role: string;
+  private scopes: string[];
+  private commands?: string[];
+  private permissions?: Record<string, boolean>;
+  private pathEnv?: string;
+  private minProtocol: number;
+  private maxProtocol: number;
+  private origin?: string;
+  private defaultTimeout: number;
+  private readonly refreshGatewayToken?: (signal: AbortSignal) => Promise<string>;
+  private ws: GatewaySocket | null = null;
+  private pending = new Map<string, PendingRequest>();
+  private eventHandlers = new Set<GatewayEventHandler>();
+  private internalEventHandlers = new Set<InternalGatewayEventHandler>();
+  private internalStreamCloseHandlers = new Set<(error: Error) => void>();
+  private activeNormalChatStreams = new Set<InternalChatStreamState>();
+  private activeStrictChatStreams = new Set<InternalChatStreamState>();
+  private activeEphemeralSessionKeys = new Map<string, number | null>();
+  private suppressedEphemeralRunIds = new Map<string, number>();
+  private pendingEphemeralChatAcks = 0;
+  private deferredEphemeralCorrelationEvents = new Set<GatewayEvent>();
+  private deferredEphemeralEventsCanRepublish = true;
+  private suppressUncorrelatedChatEventsUntil = 0;
+  private connectionStateHandlers = new Set<GatewayConnectionStateHandler>();
+  private connected = false;
+  private connectionState: GatewayConnectionState = "disconnected";
+  private closed = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  private initialConnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private backoffMs = INITIAL_BACKOFF_MS;
+  private connectNonce: string | null = null;
+  private connectSent = false;
+  private gatewayTokenRefreshSocket: GatewaySocket | null = null;
+  private gatewayTokenRefreshToken: string | null = null;
+  private gatewayTokenRefreshController: AbortController | null = null;
+  private pendingConnectError: GatewayErrorShape | null = null;
+  private pendingConnectTerminal = false;
+  private pairingApprovalInFlight = false;
+  private pairingApprovalController: AbortController | null = null;
+  private pairingState: GatewayPairingState | null = null;
+  private autoApproveAttemptedRequestIds = new Set<string>();
+  private authTokenMismatchRetried = false;
+  private deviceTokenMismatchRetried = false;
+  private pendingDeviceTokenRetry = false;
+  private lifecycleGeneration = 0;
+  private lastSeq: number | null = null;
+  private connectPromise: Promise<void> | null = null;
+  private resolveConnectPromise: (() => void) | null = null;
+  private rejectConnectPromise: ((error: unknown) => void) | null = null;
+  private _version: string | null = null;
+  private _protocol: number | null = null;
+  private _hello: GatewayHelloSnapshot | null = null;
+  onDisconnect: (() => void) | null = null;
+
+  constructor(options: GatewayOptions) {
+    this.url = options.url;
+    this.token = normalizeOptionalString(options.token);
+    this.gatewayToken = normalizeOptionalString(options.gatewayToken);
+    this.bootstrapToken = normalizeOptionalString(options.bootstrapToken);
+    this.configuredDeviceToken = normalizeOptionalString(options.deviceToken);
+    this.deviceToken = this.configuredDeviceToken;
+    this.password = normalizeOptionalString(options.password);
+    this.approvalRuntimeToken = normalizeOptionalString(options.approvalRuntimeToken);
+    this.agentRuntimeIdentityToken = normalizeOptionalString(options.agentRuntimeIdentityToken);
+    this.deploymentId = normalizeOptionalString(options.deploymentId);
+    this.apiKey = normalizeOptionalString(options.apiKey);
+    this.apiBase = options.apiBase?.trim().replace(/\/$/, "") || undefined;
+    this.autoApprovePairing = options.autoApprovePairing === true;
+    this.clientId = normalizeClientId(options.clientId);
+    this.clientMode = normalizeClientMode(options.clientMode);
+    this.clientVersion = options.clientVersion?.trim() || DEFAULT_CLIENT_VERSION;
+    this.clientPlatform = resolvePlatform(options.platform);
+    this.clientDeviceFamily = normalizeOptionalString(options.deviceFamily);
+    this.clientDisplayName = resolveClientDisplayName(options.clientDisplayName, this.clientPlatform);
+    this.clientInstanceId = normalizeOptionalString(options.instanceId) || makeId();
+    this.caps = Array.isArray(options.caps)
+      ? options.caps.map((cap) => cap.trim()).filter(Boolean)
+      : [...DEFAULT_CAPS];
+    this.role = options.role?.trim() || OPERATOR_ROLE;
+    this.scopes = Array.isArray(options.scopes)
+      ? options.scopes.map((scope) => scope.trim()).filter(Boolean)
+      : this.role === OPERATOR_ROLE
+        ? [...OPERATOR_SCOPES]
+        : [];
+    this.commands = Array.isArray(options.commands)
+      ? options.commands.map((command) => command.trim()).filter(Boolean)
+      : undefined;
+    this.permissions = normalizePermissions(options.permissions);
+    this.pathEnv = normalizeOptionalString(options.pathEnv);
+    this.minProtocol = normalizeProtocolVersion(options.minProtocol, MIN_GATEWAY_VERSION);
+    this.maxProtocol = normalizeProtocolVersion(options.maxProtocol, MAX_GATEWAY_VERSION);
+    // Non-browser SDK clients should not send Origin by default. OpenClaw
+    // treats any Origin header as browser-originated and applies browser
+    // origin checks to the connection.
+    this.origin = typeof options.origin === "string" && options.origin.trim()
+      ? options.origin.trim()
+      : undefined;
+    this.defaultTimeout = options.timeout ?? DEFAULT_CONNECTION_TIMEOUT;
+    this.refreshGatewayToken = options.refreshGatewayToken;
+    this.onHello = options.onHello;
+    this.onClose = options.onClose;
+    this.onGap = options.onGap;
+    this.onProtocolError = options.onProtocolError;
+    this.onPairing = options.onPairing;
+    this.pairingState = loadPendingPairing(this.storageScope(), this.role);
+  }
+
+  private readonly onHello?: (hello: GatewayHelloSnapshot) => void;
+  private readonly onClose?: (info: GatewayCloseInfo) => void;
+  private readonly onGap?: (info: { expected: number; received: number }) => void;
+  private readonly onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
+  private readonly onPairing?: (pairing: GatewayPairingState | null) => void;
+
+  get version() {
+    return this._version;
+  }
+
+  get protocol() {
+    return this._protocol;
+  }
+
+  /** Latest authenticated hello, retained while a shared connection is reused or reconnecting. */
+  get hello(): GatewayHelloSnapshot | null {
+    return this._hello;
+  }
+
+  supportsMethod(method: string): boolean {
+    return this._hello?.features.methods.includes(method) === true;
+  }
+
+  hasGrantedScope(scope: "operator.read" | "operator.admin"): boolean {
+    const scopes = this._hello?.auth.scopes ?? [];
+    return scopes.includes("operator.admin") || scopes.includes(scope);
+  }
+
+  get isConnected() {
+    return this.connected;
+  }
+
+  get state() {
+    return this.connectionState;
+  }
+
+  get pendingPairing() {
+    return this.pairingState;
+  }
+
+  onConnectionState(handler: GatewayConnectionStateHandler): () => void {
+    this.connectionStateHandlers.add(handler);
+    return () => this.connectionStateHandlers.delete(handler);
+  }
+
+  private setConnectionState(state: GatewayConnectionState): void {
+    if (this.connectionState === state) return;
+    this.connectionState = state;
+    for (const handler of this.connectionStateHandlers) {
+      try {
+        handler(state);
+      } catch {
+        // state handlers are isolated from socket lifecycle
+      }
+    }
+  }
+
+  /** Update the gateway token for subsequent connect attempts. */
+  setGatewayToken(token: string): void {
+    this.gatewayToken = token.trim() || undefined;
+  }
+
+  private storageScope(): string {
+    return this.deploymentId || this.url;
+  }
+
+  /** Subscribe to server-sent events */
+  onEvent(handler: GatewayEventHandler): () => void {
+    this.eventHandlers.add(handler);
+    return () => this.eventHandlers.delete(handler);
+  }
+
+  private currentEphemeralSessionKeys(): string[] {
+    const now = Date.now();
+    for (const [sessionKey, expiresAt] of this.activeEphemeralSessionKeys) {
+      if (expiresAt !== null && expiresAt <= now) this.activeEphemeralSessionKeys.delete(sessionKey);
+    }
+    return [...this.activeEphemeralSessionKeys.keys()];
+  }
+
+  private shouldSuppressPublicEvent(event: GatewayEvent, handledInternally: boolean): boolean {
+    if (handledInternally) return true;
+    const payload = asRecord(event.payload) ?? {};
+    const activeSessionKeys = this.currentEphemeralSessionKeys();
+    if (valueReferencesEphemeralSession(payload, activeSessionKeys)) return true;
+    const sessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
+    const unscopedSessionKey = parseAgentSessionKey(sessionKey)?.rest ?? sessionKey;
+    if (isReservedEphemeralSessionKey(unscopedSessionKey)) return true;
+    if (
+      sessionKey &&
+      activeSessionKeys.some((activeKey) => sameSessionKey(sessionKey, activeKey))
+    ) {
+      return true;
+    }
+    const runId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+    const suppressedRunExpiry = runId ? this.suppressedEphemeralRunIds.get(runId) : undefined;
+    if (suppressedRunExpiry !== undefined) {
+      if (suppressedRunExpiry > Date.now()) return true;
+      this.suppressedEphemeralRunIds.delete(runId);
+    }
+    if (
+      runId &&
+      !sessionKey &&
+      isChatStreamGatewayEvent(event) &&
+      this.suppressUncorrelatedChatEventsUntil > Date.now()
+    ) {
+      return true;
+    }
+    if (activeSessionKeys.length > 0 && event.event === "activity.log" && !sessionKey && !runId) {
+      return true;
+    }
+    return (
+      activeSessionKeys.length > 0 &&
+      !sessionKey &&
+      !runId &&
+      isChatStreamGatewayEvent(event)
+    );
+  }
+
+  private suppressEphemeralRunId(runId: string): void {
+    const normalized = runId.trim();
+    if (!normalized) return;
+    const now = Date.now();
+    for (const [candidate, expiresAt] of this.suppressedEphemeralRunIds) {
+      if (expiresAt <= now) this.suppressedEphemeralRunIds.delete(candidate);
+    }
+    this.suppressedEphemeralRunIds.set(normalized, now + EPHEMERAL_RUN_ID_SUPPRESSION_MS);
+  }
+
+  private beginEphemeralChatAcknowledgement(): void {
+    if (this.pendingEphemeralChatAcks === 0) this.deferredEphemeralEventsCanRepublish = true;
+    this.pendingEphemeralChatAcks += 1;
+  }
+
+  private deferEphemeralCorrelationEvent(event: GatewayEvent): void {
+    if (this.pendingEphemeralChatAcks > 0) this.deferredEphemeralCorrelationEvents.add(event);
+  }
+
+  private finishEphemeralChatAcknowledgement(canRepublishDeferredEvents: boolean): void {
+    if (this.pendingEphemeralChatAcks <= 0) return;
+    this.deferredEphemeralEventsCanRepublish &&= canRepublishDeferredEvents;
+    this.pendingEphemeralChatAcks -= 1;
+    if (this.pendingEphemeralChatAcks > 0) return;
+
+    if (!this.deferredEphemeralEventsCanRepublish) {
+      this.suppressUncorrelatedChatEventsUntil = Math.max(
+        this.suppressUncorrelatedChatEventsUntil,
+        Date.now() + EPHEMERAL_RUN_ID_SUPPRESSION_MS,
+      );
+    }
+
+    const deferredEvents = [...this.deferredEphemeralCorrelationEvents];
+    this.deferredEphemeralCorrelationEvents.clear();
+    const shouldRepublish = this.deferredEphemeralEventsCanRepublish;
+    this.deferredEphemeralEventsCanRepublish = true;
+    if (shouldRepublish) deferredEvents.forEach((event) => this.publishPublicEvent(event));
+  }
+
+  private publishPublicEvent(event: GatewayEvent, handledInternally = false): void {
+    if (this.shouldSuppressPublicEvent(event, handledInternally)) return;
+    for (const handler of this.eventHandlers) {
+      try {
+        handler(event);
+      } catch {
+        // Event handlers are isolated from the socket lifecycle.
+      }
+    }
+  }
+
+  private notifyInternalStreamClose(error: Error): void {
+    for (const handler of this.internalStreamCloseHandlers) {
+      try {
+        handler(error);
+      } catch {
+        // Stream close handlers are isolated from the socket lifecycle.
+      }
+    }
+  }
+
+  private interruptNormalChatStreams(error: GatewayChatStreamInterruptedError): void {
+    for (const stream of [...this.activeNormalChatStreams]) stream.close(error);
+  }
+
+  private handleForwardSequenceGap(
+    info: { expected: number; received: number },
+    receivedEvent: GatewayEvent,
+  ): void {
+    try {
+      this.onGap?.(info);
+    } catch {
+      // Gap callbacks are observational and must not affect the socket.
+    }
+    queueMicrotask(() => {
+      const error = new GatewayChatStreamInterruptedError("sequence-gap", info);
+      const streams = new Set([
+        ...this.activeNormalChatStreams,
+        ...this.activeStrictChatStreams,
+      ]);
+      for (const stream of streams) {
+        if (stream.terminalEvent !== receivedEvent) stream.close(error);
+      }
+    });
+  }
+
+  private reportProtocolError(info: GatewayProtocolErrorInfo): void {
+    try {
+      this.onProtocolError?.(info);
+    } catch {
+      // Protocol diagnostics are observational and must not affect the socket.
+    }
+  }
+
+  private rejectMalformedPendingResponse(info: GatewayProtocolErrorInfo): void {
+    if (info.frameType !== "res" || !info.requestId) return;
+    const pending = this.pending.get(info.requestId);
+    if (!pending) return;
+    this.pending.delete(info.requestId);
+    pending.cleanup();
+    pending.reject(new GatewayRequestError({
+      code: "PROTOCOL_ERROR",
+      message: info.message,
+    }));
+  }
+
+  /** Connect and wait for the first authenticated hello. */
+  connect(options: GatewayConnectOptions = {}): Promise<void> {
+    if (options.signal?.aborted) {
+      return Promise.reject(this.connectWaitAbortError(options.signal));
+    }
+    const connection = this.start();
+    if (options.signal === undefined && options.timeoutMs === undefined) return connection;
+    const timeoutMs = options.timeoutMs;
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        options.signal?.removeEventListener("abort", abort);
+        callback();
+      };
+      const abort = () => finish(() => reject(this.connectWaitAbortError(options.signal)));
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          finish(() => reject(new Error(`gateway connect timed out after ${timeoutMs}ms`)));
+        }, Math.max(0, timeoutMs));
+      }
+      options.signal?.addEventListener("abort", abort, { once: true });
+      connection.then(
+        () => finish(resolve),
+        (error) => finish(() => reject(error)),
+      );
+    });
+  }
+
+  start(): Promise<void> {
+    this.closed = false;
+    if (this.connected) {
+      return Promise.resolve();
+    }
+    this.setConnectionState("connecting");
+    if (!this.connectPromise) {
+      this.connectPromise = new Promise<void>((resolve, reject) => {
+        this.resolveConnectPromise = resolve;
+        this.rejectConnectPromise = reject;
+      });
+      // The initial connect must always settle: transport-level refusals
+      // (1008 policy close, dead URLs) enter the reconnect loop without ever
+      // rejecting, and every pool acquisition joins this same promise.
+      this.initialConnectTimer = setTimeout(() => {
+        this.initialConnectTimer = null;
+        this.rejectInitialConnect(new Error(`gateway initial connect timed out after ${INITIAL_CONNECT_TIMEOUT_MS}ms`));
+      }, INITIAL_CONNECT_TIMEOUT_MS);
+    }
+    const connection = this.connectPromise;
+    try {
+      this.openSocket();
+    } catch (error) {
+      this.setConnectionState("disconnected");
+      this.rejectInitialConnect(error);
+    }
+    return connection;
+  }
+
+  private connectWaitAbortError(signal?: AbortSignal): Error {
+    if (signal?.reason instanceof Error) return signal.reason;
+    const error = new Error("gateway connect cancelled");
+    error.name = "AbortError";
+    return error;
+  }
+
+  private resolveInitialConnect(): void {
+    this.clearInitialConnectTimer();
+    const resolve = this.resolveConnectPromise;
+    this.connectPromise = null;
+    this.resolveConnectPromise = null;
+    this.rejectConnectPromise = null;
+    resolve?.();
+  }
+
+  private rejectInitialConnect(error: unknown): void {
+    this.clearInitialConnectTimer();
+    const reject = this.rejectConnectPromise;
+    this.connectPromise = null;
+    this.resolveConnectPromise = null;
+    this.rejectConnectPromise = null;
+    reject?.(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private clearInitialConnectTimer(): void {
+    if (this.initialConnectTimer) {
+      clearTimeout(this.initialConnectTimer);
+      this.initialConnectTimer = null;
+    }
+  }
+
+  /** Close permanently and stop reconnecting */
+  close(): void {
+    this.stop();
+  }
+
+  stop(): void {
+    this.lifecycleGeneration += 1;
+    this.closed = true;
+    this.connected = false;
+    this.setConnectionState("disconnected");
+    this.connectSent = false;
+    this.connectNonce = null;
+    this.gatewayTokenRefreshSocket = null;
+    this.gatewayTokenRefreshToken = null;
+    this.gatewayTokenRefreshController?.abort(new Error("gateway client stopped"));
+    this.gatewayTokenRefreshController = null;
+    this.pendingConnectError = null;
+    this.pendingConnectTerminal = false;
+    this.pairingApprovalInFlight = false;
+    this.pairingApprovalController?.abort(new Error("gateway client stopped"));
+    this.pairingApprovalController = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      ws.close();
+    }
+    const stoppedError = new Error("gateway client stopped");
+    this.flushPending(stoppedError);
+    this.notifyInternalStreamClose(stoppedError);
+    this.rejectInitialConnect(new Error("gateway client stopped"));
+  }
+
+  private updatePairingState(pairing: GatewayPairingState | null): void {
+    this.pairingState = pairing;
+    if (pairing) {
+      storePendingPairing(pairing, this.storageScope());
+    } else {
+      clearPendingPairing(this.storageScope(), this.role);
+    }
+    try {
+      this.onPairing?.(pairing);
+    } catch {
+      // Pairing callbacks are observational and must not affect the transport FSM.
+    }
+  }
+
+  private clearCurrentDeviceAuth(identity: DeviceIdentityRecord): void {
+    clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
+    clearPendingPairing(this.storageScope(), this.role);
+    this.pairingState = null;
+    this.deviceToken = this.configuredDeviceToken;
+  }
+
+  private canAutoApprovePairing(): boolean {
+    return Boolean(
+      this.autoApprovePairing &&
+      this.deploymentId &&
+      this.apiKey &&
+      this.apiBase &&
+      typeof fetch === "function",
+    );
+  }
+
+  private async approvePairingRequest(requestId: string): Promise<void> {
+    if (!this.canAutoApprovePairing()) {
+      throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
+    }
+    // The exec WebSocket takes one argv list (PublicExecRequest.command:
+    // list[str]); a shell string is rejected with 4400 "Invalid exec request".
+    const command = ["openclaw", "devices", "approve", requestId, "--json"];
+    const controller = new AbortController();
+    this.pairingApprovalController = controller;
+    const timeout = setTimeout(() => {
+      controller.abort(new Error("Pairing approval timed out"));
+    }, PAIRING_APPROVAL_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec/token`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${this.apiKey}` },
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pairing approval failed: ${response.status} ${errorText}`);
+      }
+      const token = await response.json() as Record<string, unknown>;
+      const deploymentId = this.deploymentId as string;
+      const tokenKeys = token && typeof token === "object" ? Object.keys(token).sort() : [];
+      const credential = typeof token.token === "string" ? token.token : "";
+      const expectedTokenKeys = ["agent_id", "expires_at", "token", "ws_url"].sort();
+      let parsed: URL;
+      try {
+        parsed = new URL(typeof token.ws_url === "string" ? token.ws_url : "");
+      } catch {
+        throw new Error("Pairing approval received an invalid exec token");
+      }
+      if (
+        !credential
+        || tokenKeys.length !== expectedTokenKeys.length
+        || tokenKeys.some((key, index) => key !== expectedTokenKeys[index])
+        || token.agent_id !== deploymentId
+        || typeof token.expires_at !== "string"
+        || !token.expires_at
+        || !["ws:", "wss:"].includes(parsed.protocol)
+        || !parsed.hostname
+        || parsed.username
+        || parsed.password
+        || parsed.search
+        || parsed.hash
+        || !parsed.pathname.endsWith(`/ws/exec/${deploymentId}`)
+      ) {
+        throw new Error("Pairing approval received an invalid exec token");
+      }
+      parsed.searchParams.set("token", credential);
+
+      // Match openSocket(): native WebSocket is browser-only. Node 18+ has a
+      // global undici WebSocket that loses frames when close+FIN coalesce, so
+      // Node must take the `ws` implementation.
+      const useBrowserSocket = "localStorage" in globalThis && typeof WebSocket !== "undefined";
+      const socket: GatewaySocket = useBrowserSocket
+        ? new WebSocket(parsed.toString())
+        : new (await loadNodeWebSocket())(parsed.toString());
+      const payload = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        let opened = false;
+        let result: Record<string, unknown> | null = null;
+        let resultCount = 0;
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          controller.signal.removeEventListener("abort", abort);
+          if (error) reject(error);
+          else if (result) resolve(result);
+          else reject(new Error("Pairing approval exec WebSocket closed without one result"));
+        };
+        const abort = () => {
+          try {
+            socket.close(1000, "Pairing approval cancelled");
+          } finally {
+            finish(controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : new Error("Pairing approval cancelled"));
+          }
+        };
+        const handleOpen = () => {
+          opened = true;
+          socket.send(JSON.stringify({ command, timeout: 30, dry_run: false }));
+        };
+        const handleMessage = (data: unknown) => {
+          const rejectFrame = (message: string, reason: string) => {
+            const error = new Error(message);
+            try {
+              socket.close(1008, reason);
+            } finally {
+              finish(error);
+            }
+          };
+          if (typeof data !== "string") {
+            rejectFrame(
+              "Pairing approval received a non-text exec result",
+              "Non-text exec result",
+            );
+            return;
+          }
+          resultCount += 1;
+          if (resultCount !== 1) {
+            rejectFrame(
+              "Pairing approval received multiple exec results",
+              "Multiple exec results",
+            );
+            return;
+          }
+          try {
+            const value = JSON.parse(data) as unknown;
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              throw new Error("invalid");
+            }
+            result = value as Record<string, unknown>;
+          } catch {
+            rejectFrame("Pairing approval received invalid exec JSON", "Invalid exec JSON");
+          }
+        };
+        const handleClose = (code: number, reason: string) => {
+          if (code !== 1000) {
+            finish(new Error(`Pairing approval exec WebSocket closed with code ${code}${reason ? `: ${reason}` : ""}`));
+          } else if (!opened || resultCount !== 1) {
+            finish(new Error("Pairing approval exec WebSocket closed without one result"));
+          } else {
+            finish();
+          }
+        };
+        controller.signal.addEventListener("abort", abort, { once: true });
+        if (useBrowserSocket) {
+          socket.onopen = handleOpen;
+          socket.onmessage = (event: { data?: unknown }) => handleMessage(event.data);
+          socket.onerror = () => undefined;
+          socket.onclose = (event: { code?: number; reason?: string }) => {
+            handleClose(event.code ?? 1006, String(event.reason ?? ""));
+          };
+        } else {
+          const nodeSocket = socket as NodeWebSocket;
+          nodeSocket.on("open", handleOpen);
+          nodeSocket.on("message", (data: NodeWebSocket.RawData, isBinary: boolean) => {
+            handleMessage(isBinary ? data : data.toString());
+          });
+          nodeSocket.on("error", () => undefined);
+          nodeSocket.on("close", (code: number, reason: Buffer) => {
+            handleClose(code, reason.toString());
+          });
+        }
+      });
+
+      const payloadKeys = Object.keys(payload).sort();
+      if (
+        payload.event !== "agent_exec_result"
+        || payload.ok !== true
+        || payloadKeys.length !== 5
+        || ["event", "exit_code", "ok", "stderr", "stdout"].some(
+          (key, index) => payloadKeys[index] !== key,
+        )
+        || !Number.isInteger(payload.exit_code)
+        || typeof payload.stdout !== "string"
+        || typeof payload.stderr !== "string"
+      ) {
+        if (
+          payload.event === "agent_exec_result"
+          && payload.ok === false
+          && Object.keys(payload).sort().join(",") === "error,event,ok"
+          && typeof payload.error === "string"
+        ) {
+          throw new Error(payload.error);
+        }
+        throw new Error("Pairing approval received an invalid exec result");
+      }
+      if (payload.exit_code !== 0) {
+        throw new Error(payload.stderr.trim() || payload.stdout.trim() || "pairing approval command failed");
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (this.pairingApprovalController === controller) {
+        this.pairingApprovalController = null;
+      }
+    }
+  }
+
+  private openSocket(): void {
+    if (this.closed || this.ws) return;
+    const useBrowserSocket = "localStorage" in globalThis && typeof WebSocket !== "undefined";
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const wsUrl = this.token
+      ? `${this.url}${this.url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.token)}`
+      : this.url;
+    if (!useBrowserSocket) {
+      loadNodeWebSocket()
+        .then((NodeSocket) => {
+          if (this.closed || this.ws) return;
+          this.attachSocket(new NodeSocket(
+            wsUrl,
+            this.origin ? { headers: { Origin: this.origin } } : undefined,
+          ), false);
+        })
+        .catch((error) => {
+          const websocketError = error instanceof Error
+            ? error
+            : new Error("WebSocket is not available in this environment");
+          this.pendingConnectError = toCloseError(websocketError);
+          this.setConnectionState("disconnected");
+          this.rejectInitialConnect(websocketError);
+        });
+      return;
+    }
+    this.attachSocket(new WebSocket(wsUrl), true);
+  }
+
+  private attachSocket(ws: GatewaySocket, useBrowserSocket: boolean): void {
+    if (this.closed || this.ws) {
+      try {
+        ws.close();
+      } catch {
+        // already closed
+      }
+      return;
+    }
+    this.ws = ws;
+    this.lastSeq = null;
+
+    if (useBrowserSocket) {
+      ws.onopen = () => {
+        this.queueConnect(ws);
+      };
+
+      ws.onmessage = (event: { data?: unknown }) => {
+        this.handleMessage(String(event.data ?? ""), ws);
+      };
+
+      ws.onerror = () => {
+        // Close handling covers retries and surfaced errors.
+      };
+
+      ws.onclose = (event: { code?: number; reason?: string }) => {
+        this.handleClose(ws, event.code ?? 1006, String(event.reason ?? ""));
+      };
+      return;
+    }
+
+    const nodeWs = ws as NodeWebSocket;
+    nodeWs.on("open", () => {
+      this.queueConnect(ws);
+    });
+    nodeWs.on("message", (data: NodeWebSocket.RawData) => {
+      this.handleMessage(typeof data === "string" ? data : data.toString(), ws);
+    });
+    nodeWs.on("error", () => {
+      // Close handling covers retries and surfaced errors.
+    });
+    nodeWs.on("close", (code: number, reason: Buffer) => {
+      this.handleClose(ws, code ?? 1006, reason?.toString() ?? "");
+    });
+  }
+
+  private queueConnect(ws: GatewaySocket): void {
+    if (this.ws !== ws || this.closed) return;
+    this.connectNonce = null;
+    this.connectSent = false;
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+    }
+    this.connectTimer = setTimeout(() => {
+      if (this.ws !== ws || !isSocketOpen(ws) || this.closed || this.connectSent) {
+        return;
+      }
+      if (!this.connectNonce) {
+        this.pendingConnectError = {
+          code: "CONNECT_CHALLENGE_TIMEOUT",
+          message: "gateway connect challenge timeout",
+        };
+        ws.close(RECONNECT_CLOSE_CODE, "connect challenge timeout");
+      }
+    }, CONNECT_TIMER_MS);
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closed || this.reconnectTimer) {
+      return;
+    }
+    this.setConnectionState("connecting");
+    const delay = this.backoffMs;
+    this.backoffMs = Math.min(this.backoffMs * BACKOFF_MULTIPLIER, MAX_BACKOFF_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      try {
+        this.openSocket();
+      } catch (error) {
+        this.pendingConnectError = toCloseError(error);
+        this.setConnectionState("disconnected");
+        this.scheduleReconnect();
+      }
+    }, delay);
+  }
+
+  private flushPending(error: Error): void {
+    for (const [, pending] of this.pending) {
+      pending.cleanup();
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private handleClose(ws: GatewaySocket, code: number, reason: string): void {
+    if (this.ws !== ws) {
+      return;
+    }
+    this.ws = null;
+    this.connected = false;
+    this.connectSent = false;
+    this.connectNonce = null;
+    if (this.gatewayTokenRefreshSocket === ws) {
+      this.gatewayTokenRefreshSocket = null;
+      this.gatewayTokenRefreshToken = null;
+    }
+    this.gatewayTokenRefreshController?.abort(new Error("gateway socket closed during token refresh"));
+    this.gatewayTokenRefreshController = null;
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
+    const error = this.pendingConnectError;
+    this.pendingConnectError = null;
+    const terminal = this.pendingConnectTerminal;
+    this.pendingConnectTerminal = false;
+    const pairingReconnect = this.pairingApprovalInFlight || error?.code === "PAIRING_APPROVED";
+    if (!pairingReconnect) {
+      this.setConnectionState("disconnected");
+    }
+    const closeError = new Error(`gateway closed (${code}): ${reason || "no reason"}`);
+    this.flushPending(closeError);
+    this.notifyInternalStreamClose(closeError);
+    try {
+      this.onClose?.({ code, reason, error });
+    } catch {
+      // Close callbacks are observational and must not affect the FSM.
+    }
+    if (!this.closed) {
+      const detailCode =
+        error && typeof error === "object"
+          ? readConnectErrorCode(new GatewayRequestError({
+              code: error.code ?? "UNAVAILABLE",
+              message: error.message ?? "gateway request failed",
+              details: error.details,
+            }))
+          : null;
+      if (this.pairingApprovalInFlight) {
+        // The approval result owns the next transition. A late successful
+        // approval opens one fresh socket; a failure rejects the initial hello.
+      } else if (this._hello === null && code === 1008) {
+        // A pre-hello policy violation (e.g. origin not allowed) is a
+        // configuration refusal, not a transient drop: retrying re-dials the
+        // same rejection forever and the initial connect never settles.
+        this.rejectInitialConnect(closeError);
+      } else if (terminal || shouldPauseReconnectAfterAuthFailure(detailCode, this.pendingDeviceTokenRetry)) {
+        this.rejectInitialConnect(error ? new GatewayRequestError(error) : closeError);
+      } else {
+        this.scheduleReconnect();
+      }
+      try {
+        this.onDisconnect?.();
+      } catch {
+        // Disconnect callbacks are observational and must not affect the FSM.
+      }
+    }
+  }
+
+  private async sendConnect(): Promise<void> {
+    if (this.connectSent || !this.ws || !isSocketOpen(this.ws)) {
+      return;
+    }
+    const nonce = this.connectNonce?.trim() ?? "";
+    if (!nonce) {
+      this.pendingConnectError = {
+        code: "DEVICE_AUTH_NONCE_REQUIRED",
+        message: "gateway connect challenge missing nonce",
+      };
+      this.ws.close(RECONNECT_CLOSE_CODE, "connect challenge missing nonce");
+      return;
+    }
+
+    const socket = this.ws;
+    this.connectSent = true;
+    const lifecycleGeneration = this.lifecycleGeneration;
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
+
+    let identity: DeviceIdentityRecord | null = null;
+    let storedDeviceToken: string | null = null;
+    let gatewayTokenRefreshFailed = false;
+    try {
+      if (
+        this._hello &&
+        this.refreshGatewayToken &&
+        this.gatewayTokenRefreshSocket !== socket
+      ) {
+        const controller = new AbortController();
+        this.gatewayTokenRefreshController = controller;
+        const timeout = setTimeout(() => {
+          controller.abort(new Error("gateway token refresh timed out"));
+        }, this.defaultTimeout);
+        let rejectForAbort: (() => void) | null = null;
+        const abort = new Promise<never>((_resolve, reject) => {
+          rejectForAbort = () => reject(
+            controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : new Error("gateway token refresh cancelled"),
+          );
+          if (controller.signal.aborted) {
+            rejectForAbort();
+            return;
+          }
+          controller.signal.addEventListener("abort", rejectForAbort, { once: true });
+        });
+        try {
+          const refreshedGatewayToken = (
+            await Promise.race([this.refreshGatewayToken(controller.signal), abort])
+          ).trim();
+          if (!refreshedGatewayToken) throw new Error("gateway token refresh returned an empty token");
+          if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+          this.gatewayToken = refreshedGatewayToken;
+          this.gatewayTokenRefreshSocket = socket;
+          this.gatewayTokenRefreshToken = refreshedGatewayToken;
+        } catch (error) {
+          gatewayTokenRefreshFailed = true;
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          if (rejectForAbort) controller.signal.removeEventListener("abort", rejectForAbort);
+          if (this.gatewayTokenRefreshController === controller) {
+            this.gatewayTokenRefreshController = null;
+          }
+        }
+      }
+      identity = await loadOrCreateDeviceIdentity();
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+      storedDeviceToken = loadStoredDeviceToken(
+        identity.deviceId,
+        this.storageScope(),
+        this.role,
+      )?.token ?? null;
+      const resolvedDeviceToken = this.deviceToken ?? storedDeviceToken ?? undefined;
+      const socketGatewayToken = this.gatewayTokenRefreshSocket === socket
+        ? this.gatewayTokenRefreshToken ?? undefined
+        : undefined;
+      const authToken = socketGatewayToken ?? this.gatewayToken ?? resolvedDeviceToken;
+      const authBootstrapToken =
+        !authToken && !this.password
+          ? this.bootstrapToken
+          : undefined;
+      const authDeviceToken =
+        this.deviceToken ?? (this.pendingDeviceTokenRetry ? resolvedDeviceToken : undefined);
+      const signatureToken = authToken ?? authBootstrapToken;
+      const signedAtMs = Date.now();
+      const payload = buildDeviceAuthPayload({
+        deviceId: identity.deviceId,
+        clientId: this.clientId,
+        clientMode: this.clientMode,
+        role: this.role,
+        scopes: this.scopes,
+        signedAtMs,
+        token: signatureToken ?? null,
+        nonce,
+      });
+      const signature = await signDevicePayload(identity.privateKey, payload);
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+
+      const auth: Record<string, string> = {};
+      if (authToken) auth.token = authToken;
+      if (authBootstrapToken) auth.bootstrapToken = authBootstrapToken;
+      if (authDeviceToken) auth.deviceToken = authDeviceToken;
+      if (this.password) auth.password = this.password;
+      if (this.approvalRuntimeToken) auth.approvalRuntimeToken = this.approvalRuntimeToken;
+      if (this.agentRuntimeIdentityToken) auth.agentRuntimeIdentityToken = this.agentRuntimeIdentityToken;
+
+      const params: Record<string, any> = {
+        minProtocol: this.minProtocol,
+        maxProtocol: this.maxProtocol,
+        client: {
+          id: this.clientId,
+          ...(this.clientDisplayName ? { displayName: this.clientDisplayName } : {}),
+          version: this.clientVersion,
+          platform: this.clientPlatform,
+          ...(this.clientDeviceFamily ? { deviceFamily: this.clientDeviceFamily } : {}),
+          mode: this.clientMode,
+          ...(this.clientInstanceId ? { instanceId: this.clientInstanceId } : {}),
+        },
+        role: this.role,
+        scopes: [...this.scopes],
+        device: {
+          id: identity.deviceId,
+          publicKey: identity.publicKey,
+          signature,
+          signedAt: signedAtMs,
+          nonce,
+        },
+        caps: this.caps,
+        ...(this.commands ? { commands: this.commands } : {}),
+        ...(this.permissions ? { permissions: this.permissions } : {}),
+        ...(this.pathEnv ? { pathEnv: this.pathEnv } : {}),
+        ...(Object.keys(auth).length ? { auth } : {}),
+        ...(resolveUserAgent() ? { userAgent: resolveUserAgent() } : {}),
+        ...(resolveLocale() ? { locale: resolveLocale() } : {}),
+      };
+
+      const hello = await this.sendRawRequest<Record<string, any>>(
+        "connect",
+        params,
+        { timeoutMs: this.defaultTimeout },
+        true,
+      );
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+
+      if (hello?.auth?.deviceToken) {
+        this.deviceToken = hello.auth.deviceToken;
+        storeStoredDeviceToken({
+          deviceId: identity.deviceId,
+          scope: this.storageScope(),
+          gatewayUrl: this.url,
+          role: hello.auth.role ?? this.role,
+          token: hello.auth.deviceToken,
+          scopes: hello.auth.scopes ?? [],
+        });
+      }
+
+      const helloSnapshot = normalizeGatewayHelloSnapshot(hello);
+      this._hello = helloSnapshot;
+      this._version = helloSnapshot.server.version || null;
+      this._protocol = helloSnapshot.protocol || null;
+      this.connected = true;
+      this.setConnectionState("connected");
+      this.pendingConnectError = null;
+      this.backoffMs = INITIAL_BACKOFF_MS;
+      this.authTokenMismatchRetried = false;
+      this.deviceTokenMismatchRetried = false;
+      this.pendingDeviceTokenRetry = false;
+      this.updatePairingState(null);
+
+      this.resolveInitialConnect();
+
+      try {
+        this.onHello?.(helloSnapshot);
+      } catch {
+        // Hello callbacks are observational and must not affect an authenticated socket.
+      }
+    } catch (error) {
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+      this.pendingConnectError = toCloseError(error);
+      this.pendingConnectTerminal = gatewayTokenRefreshFailed;
+      const detailCode = readConnectErrorCode(error);
+      const requestId = readConnectPairingRequestId(error);
+
+      // Stale device token after agent restart — clear it and retry on the
+      // same socket instead of forcing a full reconnect cycle. Guard with a
+      // one-shot flag to prevent infinite recursion if the retry also fails.
+      if (identity && detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && !this.deviceTokenMismatchRetried) {
+        this.deviceTokenMismatchRetried = true;
+        this.clearCurrentDeviceAuth(identity);
+        this.connectSent = false;
+        this.pendingConnectError = null;
+        this.pendingConnectTerminal = false;
+        this.pendingDeviceTokenRetry = false;
+        await this.sendConnect();
+        return;
+      }
+
+      if (
+        identity &&
+        detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH &&
+        !this.authTokenMismatchRetried &&
+        storedDeviceToken &&
+        (this.gatewayTokenRefreshSocket === socket ? this.gatewayTokenRefreshToken : this.gatewayToken) &&
+        canRetryWithDeviceToken(error)
+      ) {
+        this.authTokenMismatchRetried = true;
+        this.pendingDeviceTokenRetry = true;
+        this.connectSent = false;
+        this.pendingConnectError = null;
+        this.pendingConnectTerminal = false;
+        await this.sendConnect();
+        return;
+      }
+
+      if (
+        identity &&
+        detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH &&
+        this.authTokenMismatchRetried &&
+        storedDeviceToken
+      ) {
+        this.clearCurrentDeviceAuth(identity);
+      }
+
+      if (identity && detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
+        this.clearCurrentDeviceAuth(identity);
+      }
+      if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
+        this.setConnectionState("pairing");
+      }
+      if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
+        if (this.canAutoApprovePairing() && !this.autoApproveAttemptedRequestIds.has(requestId)) {
+          this.autoApproveAttemptedRequestIds.add(requestId);
+          this.pairingApprovalInFlight = true;
+          this.updatePairingState({
+            requestId,
+            role: this.role,
+            gatewayUrl: this.url,
+            ...(identity ? { deviceId: identity.deviceId } : {}),
+            status: "approving",
+            updatedAtMs: Date.now(),
+          });
+          try {
+            await this.approvePairingRequest(requestId);
+            if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
+            this.pairingApprovalInFlight = false;
+            this.updatePairingState(null);
+            this.setConnectionState("connecting");
+            this.pendingConnectError = {
+              code: "PAIRING_APPROVED",
+              message: "Pairing approved, reconnecting",
+            };
+            this.pendingConnectTerminal = false;
+            this.connectSent = false;
+            if (!this.ws || !isSocketOpen(this.ws)) {
+              this.openSocket();
+              return;
+            }
+            this.ws.close(RECONNECT_CLOSE_CODE, "pairing approved");
+            return;
+          } catch (approvalError) {
+            if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
+            this.pairingApprovalInFlight = false;
+            if (isConcurrentPairingApproval(approvalError)) {
+              this.updatePairingState(null);
+              this.setConnectionState("connecting");
+              this.pendingConnectError = {
+                code: "PAIRING_APPROVED",
+                message: "Pairing was already approved, reconnecting",
+              };
+              this.pendingConnectTerminal = false;
+              if (!this.ws) {
+                this.openSocket();
+                return;
+              }
+            } else {
+              this.pendingConnectError = toCloseError(approvalError);
+              this.pendingConnectTerminal = true;
+              this.updatePairingState({
+                requestId,
+                role: this.role,
+                gatewayUrl: this.url,
+                ...(identity ? { deviceId: identity.deviceId } : {}),
+                status: "failed",
+                updatedAtMs: Date.now(),
+                error: approvalError instanceof Error ? approvalError.message : String(approvalError),
+              });
+              if (!this.ws) {
+                this.setConnectionState("disconnected");
+                this.rejectInitialConnect(approvalError);
+                return;
+              }
+            }
+          }
+        } else {
+          // No auto-approve — surface pairing state so the UI can prompt.
+          this.updatePairingState({
+            requestId,
+            role: this.role,
+            gatewayUrl: this.url,
+            ...(identity ? { deviceId: identity.deviceId } : {}),
+            status: "pending",
+            updatedAtMs: Date.now(),
+          });
+          this.pendingConnectTerminal = true;
+        }
+      }
+      if (
+        detailCode === CONNECT_ERROR_AUTH_RATE_LIMITED
+        || detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH
+        || (detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && this.deviceTokenMismatchRetried)
+      ) {
+        this.pendingConnectTerminal = true;
+      }
+      if (this.ws) {
+        this.ws.close(RECONNECT_CLOSE_CODE, "connect failed");
+      }
+    }
+  }
+
+  private handleMessage(raw: string, sourceSocket?: GatewaySocket): void {
+    if (sourceSocket && this.ws !== sourceSocket) return;
+    const decoded = decodeGatewayFrame(raw);
+    if (!decoded.ok) {
+      this.reportProtocolError(decoded.error);
+      this.rejectMalformedPendingResponse(decoded.error);
+      return;
+    }
+    const message = decoded.frame;
+
+    if (message.type === "event") {
+      const gatewayEvent = message;
+      if (gatewayEvent.event === "connect.challenge") {
+        const challenge = asRecord(gatewayEvent.payload);
+        const nonce = typeof challenge?.nonce === "string" ? challenge.nonce.trim() : "";
+        if (!nonce) {
+          this.pendingConnectError = {
+            code: "DEVICE_AUTH_NONCE_REQUIRED",
+            message: "gateway connect challenge missing nonce",
+          };
+          this.ws?.close(RECONNECT_CLOSE_CODE, "connect challenge missing nonce");
+          return;
+        }
+        this.connectNonce = nonce;
+        void this.sendConnect();
+        return;
+      }
+
+      let sequenceGap: { expected: number; received: number } | null = null;
+      if (typeof gatewayEvent.seq === "number") {
+        if (this.lastSeq !== null) {
+          if (gatewayEvent.seq === this.lastSeq) {
+            this.reportProtocolError({
+              code: "DUPLICATE_SEQUENCE",
+              message: "duplicate gateway event sequence was discarded",
+              frameType: "event",
+              event: gatewayEvent.event,
+            });
+            return;
+          }
+          if (gatewayEvent.seq < this.lastSeq) {
+            this.reportProtocolError({
+              code: "OUT_OF_ORDER_SEQUENCE",
+              message: "out-of-order gateway event sequence was discarded",
+              frameType: "event",
+              event: gatewayEvent.event,
+            });
+            return;
+          }
+          if (gatewayEvent.seq > this.lastSeq + 1) {
+            sequenceGap = { expected: this.lastSeq + 1, received: gatewayEvent.seq };
+          }
+        }
+        this.lastSeq = gatewayEvent.seq;
+      }
+
+      const payload = asRecord(gatewayEvent.payload) ?? {};
+      const identity = chatEventIdentity(payload);
+      if (
+        isChatStreamGatewayEvent(gatewayEvent) &&
+        !identity.runId &&
+        !identity.sessionKey &&
+        this.activeNormalChatStreams.size > 1
+      ) {
+        this.reportProtocolError({
+          code: "AMBIGUOUS_CHAT_STREAM_EVENT",
+          message: "chat stream event without run or session identity was discarded",
+          frameType: "event",
+          event: gatewayEvent.event,
+        });
+        this.interruptNormalChatStreams(
+          new GatewayChatStreamInterruptedError("ambiguous-event"),
+        );
+        if (sequenceGap) this.handleForwardSequenceGap(sequenceGap, gatewayEvent);
+        return;
+      }
+
+      let handledInternally = false;
+      for (const handler of this.internalEventHandlers) {
+        try {
+          handledInternally = handler(gatewayEvent) || handledInternally;
+        } catch {
+          // Internal stream handlers are isolated from the socket lifecycle.
+        }
+      }
+      this.publishPublicEvent(gatewayEvent, handledInternally);
+      if (sequenceGap) this.handleForwardSequenceGap(sequenceGap, gatewayEvent);
+      return;
+    }
+
+    const pending = this.pending.get(message.id);
+    if (!pending) {
+      return;
+    }
+    const payload = message.ok ? asRecord(message.payload) : null;
+    if (pending.expectFinal && payload?.status === "accepted") {
+      if (!pending.acceptedNotified) {
+        pending.acceptedNotified = true;
+        try {
+          pending.onAccepted?.(payload);
+        } catch {
+          // Accepted callbacks are observational and must not break the request.
+        }
+      }
+      return;
+    }
+    this.pending.delete(message.id);
+    pending.cleanup();
+
+    if (message.ok) {
+      pending.resolve(message.payload);
+      return;
+    }
+
+    pending.reject(new GatewayRequestError(message.error));
+  }
+
+  private sendRawRequest<T>(
+    method: string,
+    params: Record<string, any> = {},
+    options: GatewayClientRequestOptions = {},
+    allowBeforeHello = false,
+  ): Promise<T> {
+    if (!this.ws || !isSocketOpen(this.ws)) {
+      return Promise.reject(new Error("gateway not connected"));
+    }
+    if (!allowBeforeHello && !this.connected) {
+      return Promise.reject(new Error("gateway not connected"));
+    }
+    if (options.signal?.aborted) {
+      return Promise.reject(createGatewayRequestAbortError(method));
+    }
+
+    const id = makeId();
+    const request = { type: "req", id, method, params };
+    const expectFinal = options.expectFinal === true;
+    const timeout =
+      options.timeoutMs === null
+        ? null
+        : typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+          ? Math.max(0, options.timeoutMs)
+          : expectFinal
+            ? null
+            : this.defaultTimeout;
+    const promise = new Promise<T>((resolve, reject) => {
+      const timer =
+        timeout === null
+          ? null
+          : setTimeout(() => {
+              const pending = this.pending.get(id);
+              this.pending.delete(id);
+              pending?.cleanup();
+              reject(new Error(`RPC timeout: ${method}`));
+            }, timeout);
+      const abortHandler = () => {
+        const pending = this.pending.get(id);
+        this.pending.delete(id);
+        pending?.cleanup();
+        reject(createGatewayRequestAbortError(method));
+      };
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        options.signal?.removeEventListener("abort", abortHandler);
+      };
+
+      this.pending.set(id, {
+        resolve,
+        reject,
+        expectFinal,
+        timer,
+        cleanup,
+        onAccepted: options.onAccepted,
+      });
+      options.signal?.addEventListener("abort", abortHandler, { once: true });
+    });
+    try {
+      this.ws?.send(JSON.stringify(request));
+    } catch (error) {
+      const pending = this.pending.get(id);
+      this.pending.delete(id);
+      pending?.cleanup();
+      throw error;
+    }
+    return promise;
+  }
+
+  // ---------------------------------------------------------------------------
+  // RPC
+  // ---------------------------------------------------------------------------
+
+  private rpc(
+    method: string,
+    params: Record<string, any> = {},
+    timeout?: number | null,
+  ): Promise<any> {
+    return this.sendRawRequest(method, params, {
+      timeoutMs: timeout === undefined ? this.defaultTimeout : timeout,
+    });
+  }
+
+  request<T = any>(
+    method: string,
+    params: Record<string, any> = {},
+    options?: number | null | GatewayClientRequestOptions,
+  ): Promise<T> {
+    return this.sendRawRequest(
+      method,
+      params,
+      typeof options === "object" && options !== null ? options : { timeoutMs: options },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------------------
+
+  async configGet(): Promise<Record<string, any>> {
+    const res = await this.rpc("config.get");
+    if (res?.parsed) return res.parsed;
+    if (res?.raw) {
+      try {
+        return JSON.parse(res.raw);
+      } catch {
+        // Fall through to the raw payload.
+      }
+    }
+    return res?.config ?? res ?? {};
+  }
+
+  async configSchema(): Promise<OpenClawConfigSchemaResponse> {
+    const res = await this.rpc("config.schema");
+    return normalizeOpenClawConfigSchema(res) ?? { schema: {}, uiHints: {} };
+  }
+
+  async configSchemaLookup(path: string): Promise<OpenClawConfigSchemaLookupResult> {
+    return await this.rpc("config.schema.lookup", { path });
+  }
+
+  async configPatch(patch: Record<string, any>): Promise<void> {
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.patch", {
+      raw: JSON.stringify(patch),
+      baseHash: hash ?? baseHash ?? "",
+    });
+  }
+
+  async configApply(config: Record<string, any>): Promise<void> {
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.apply", {
+      raw: JSON.stringify(config),
+      baseHash: hash ?? baseHash ?? "",
+    });
+  }
+
+  async configSet(config: Record<string, any>): Promise<void> {
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.set", {
+      raw: JSON.stringify(config),
+      baseHash: hash ?? baseHash ?? "",
+    });
+  }
+
+  async configureSlackSocket(config: OpenClawSlackSocketConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", null, accountId));
+    await this.configPatch(channelConfigPatch("slack", { ...config, mode: "socket" }, accountId));
+  }
+
+  async configureSlackHttp(config: OpenClawSlackHttpConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", null, accountId));
+    await this.configPatch(channelConfigPatch("slack", { ...config, mode: "http" }, accountId));
+  }
+
+  async configureSlackRelay(
+    options: OpenClawSlackRelayOptions | OpenClawSlackRelayConfiguration,
+    accountId?: string,
+  ): Promise<void> {
+    if ("relay" in options) {
+      await this.configPatch(channelConfigPatch("slack", null, accountId));
+      await this.configPatch(channelConfigPatch("slack", {
+        ...options,
+        enterpriseOrgInstall: false,
+        mode: "relay",
+      }, accountId));
+      return;
+    }
+
+    const relayConfig: Record<string, unknown> = {
+      mode: "relay",
+      ...(options.botToken ? { botToken: options.botToken } : {}),
+      relay: {
+        url: options.url,
+        authToken: {
+          source: "env",
+          provider: "default",
+          id: options.authTokenEnv ?? "HYPER_AGENTS_API_KEY",
+        },
+        gatewayId: options.gatewayId,
+      },
+    };
+    await this.configPatch(channelConfigPatch("slack", null, options.accountId, Boolean(options.accountId)));
+    await this.configPatch(channelConfigPatch("slack", relayConfig, options.accountId, Boolean(options.accountId)));
+  }
+
+  async configureTelegram(config: OpenClawTelegramConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("telegram", null, accountId));
+    await this.configPatch(channelConfigPatch("telegram", config, accountId));
+  }
+
+  async configureWhatsapp(config: OpenClawWhatsAppConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("whatsapp", null, accountId));
+    await this.configPatch(channelConfigPatch("whatsapp", config, accountId));
+  }
+
+  async modelsList(): Promise<any[]> {
+    const res = await this.rpc("models.list");
+    return res?.models ?? res ?? [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skills
+  // ---------------------------------------------------------------------------
+
+  private requireAdvertisedMethod(method: string, scope: "operator.read" | "operator.admin"): void {
+    const hello = this._hello;
+    if (!hello) throw new Error(`Cannot call ${method} before an authenticated Gateway hello.`);
+    if (!hello.features.methods.includes(method)) {
+      throw new Error(`The authenticated Gateway did not advertise ${method}.`);
+    }
+    if (!this.hasGrantedScope(scope)) {
+      throw new Error(`${method} requires granted ${scope} scope.`);
+    }
+  }
+
+  get skillsProposalDialect(): GatewaySkillsProposalDialect | null {
+    const hello = this._hello;
+    if (!hello) return null;
+    if (hello.features.capabilities.includes(OPENCLAW_SKILL_PROPOSALS_REVISION_BOUND_CAPABILITY)) {
+      return "revision-bound";
+    }
+    const version = parseOpenClawCalver(hello.server.version);
+    if (!version) return null;
+    if (compareCalver(version, [2026, 7, 1]) === 0) return "legacy-v2026.7.1-2";
+    if (compareCalver(version, [2026, 8, 1]) >= 0) return "revision-bound";
+    return null;
+  }
+
+  private proposalDecisionPayload(
+    method: "skills.proposals.apply" | "skills.proposals.reject",
+    params: GatewaySkillsProposalDecisionParams,
+  ): Record<string, unknown> {
+    this.requireAdvertisedMethod(method, "operator.admin");
+    const dialect = this.skillsProposalDialect;
+    if (!dialect) {
+      throw new Error(
+        `Cannot safely select the ${method} wire dialect from the authenticated Gateway version and capabilities.`,
+      );
+    }
+    const base = {
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      proposalId: params.proposalId,
+      ...(params.reason !== undefined ? { reason: params.reason } : {}),
+    };
+    if (dialect === "legacy-v2026.7.1-2") return base;
+    if (!params.expectedRevisionHash) {
+      throw new Error(`${method} requires expectedRevisionHash on a revision-bound Gateway.`);
+    }
+    return {
+      ...base,
+      expectedRevisionHash: params.expectedRevisionHash,
+      ...(params.correlationId !== undefined ? { correlationId: params.correlationId } : {}),
+    };
+  }
+
+  async skillsStatus(params: GatewaySkillsStatusParams = {}): Promise<GatewaySkillsStatusReport> {
+    return await this.rpc("skills.status", params);
+  }
+
+  async skillsSearch(params: GatewaySkillsSearchParams = {}): Promise<GatewaySkillsSearchResult> {
+    return await this.rpc("skills.search", params);
+  }
+
+  async skillsDetail(params: GatewaySkillsDetailParams): Promise<GatewaySkillsDetailResult> {
+    return await this.rpc("skills.detail", params);
+  }
+
+  async skillsSecurityVerdicts(
+    params: GatewaySkillsSecurityVerdictsParams = {},
+  ): Promise<GatewaySkillsSecurityVerdictsResult> {
+    return await this.rpc("skills.securityVerdicts", params);
+  }
+
+  async skillsSkillCard(params: GatewaySkillsSkillCardParams): Promise<GatewaySkillsSkillCardResult> {
+    return await this.rpc("skills.skillCard", params);
+  }
+
+  async skillsRead(
+    params: GatewaySkillsReadParams,
+  ): Promise<GatewaySkillsReadResult> {
+    this.requireAdvertisedMethod("skills.read", "operator.read");
+    return await this.rpc("skills.read", params);
+  }
+
+  async skillsProposalsList(
+    params: GatewaySkillsProposalsListParams = {},
+  ): Promise<GatewaySkillsProposalsListResult> {
+    this.requireAdvertisedMethod("skills.proposals.list", "operator.read");
+    return await this.rpc("skills.proposals.list", params);
+  }
+
+  async skillsProposalInspect(
+    params: GatewaySkillsProposalInspectParams,
+  ): Promise<GatewaySkillsProposalInspectResult> {
+    this.requireAdvertisedMethod("skills.proposals.inspect", "operator.read");
+    return await this.rpc("skills.proposals.inspect", params);
+  }
+
+  async skillsProposalApply(
+    params: GatewaySkillsProposalDecisionParams,
+  ): Promise<GatewaySkillsProposalApplyResult> {
+    return await this.rpc(
+      "skills.proposals.apply",
+      this.proposalDecisionPayload("skills.proposals.apply", params),
+    );
+  }
+
+  async skillsProposalReject(
+    params: GatewaySkillsProposalDecisionParams,
+  ): Promise<GatewaySkillsProposalRejectResult> {
+    return await this.rpc(
+      "skills.proposals.reject",
+      this.proposalDecisionPayload("skills.proposals.reject", params),
+    );
+  }
+
+  async skillsInstall(params: GatewaySkillsInstallParams): Promise<GatewaySkillsInstallResult> {
+    const timeoutMs = Math.max(params.timeoutMs ?? SKILLS_MUTATION_TIMEOUT, this.defaultTimeout);
+    return await this.rpc("skills.install", params, timeoutMs);
+  }
+
+  async skillsUpdate(params: GatewaySkillsUpdateParams): Promise<GatewaySkillsUpdateResult> {
+    const isClawHubUpdate = "source" in params && params.source === "clawhub";
+    return await this.rpc(
+      "skills.update",
+      params,
+      isClawHubUpdate ? SKILLS_MUTATION_TIMEOUT : undefined,
+    );
+  }
+
+  async integrationsAuthStart(
+    params: GatewayIntegrationAuthStartParams,
+  ): Promise<GatewayIntegrationAuthStartResult> {
+    return await this.rpc("integrations.auth.start", params, 30_000);
+  }
+
+  async integrationsAuthStatus(
+    params: GatewayIntegrationAuthStatusParams,
+  ): Promise<GatewayIntegrationAuthStatusResult> {
+    return await this.rpc("integrations.auth.status", params);
+  }
+
+  async integrationsStatus(
+    params: GatewayIntegrationStatusParams = {},
+  ): Promise<GatewayIntegrationStatusResult> {
+    return await this.rpc("integrations.status", params);
+  }
+
+  async integrationsDisconnect(
+    params: GatewayIntegrationDisconnectParams,
+  ): Promise<GatewayIntegrationDisconnectResult> {
+    return await this.rpc("integrations.disconnect", params);
+  }
+
+  async waitReady(
+    timeoutMs = 300_000,
+    options: GatewayWaitReadyOptions = {},
+  ): Promise<Record<string, any>> {
+    const retryIntervalMs = options.retryIntervalMs ?? 5_000;
+    const probe = options.probe ?? "config";
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown = null;
+
+    while (!this.closed) {
+      try {
+        if (!this.connected) {
+          await this.connect();
+        }
+        if (probe === "status") {
+          return await this.status();
+        }
+        return await this.configGet();
+      } catch (error) {
+        lastError = error;
+        this.close();
+        if (Date.now() >= deadline) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+      }
+    }
+
+    const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
+    throw new Error(`Gateway readiness probe timed out after ${timeoutMs}ms${detail}`);
+  }
+
+  async channelsStatus(probe = false, timeoutMs?: number, channel?: string): Promise<ChannelsStatusResult> {
+    const params: ChannelsStatusParams = { probe };
+    if (timeoutMs !== undefined) params.timeoutMs = timeoutMs;
+    if (channel !== undefined) params.channel = channel;
+    return await this.rpc("channels.status", params);
+  }
+
+  async channelsStart(channel: string, accountId?: string): Promise<ChannelsStartResult> {
+    const params: ChannelsStartParams = { channel };
+    if (accountId !== undefined) params.accountId = accountId;
+    return await this.rpc("channels.start", params);
+  }
+
+  async channelsStop(channel: string, accountId?: string): Promise<ChannelsStopResult> {
+    const params: ChannelsStopParams = { channel };
+    if (accountId !== undefined) params.accountId = accountId;
+    return await this.rpc("channels.stop", params);
+  }
+
+  async channelsLogout(channel: string, accountId?: string): Promise<Record<string, any>> {
+    const params: Record<string, any> = { channel };
+    if (accountId !== undefined) params.accountId = accountId;
+    return await this.rpc("channels.logout", params);
+  }
+
+  async messageAction<TResult = unknown>(params: GatewayMessageActionParams): Promise<TResult> {
+    const request: Record<string, unknown> = {
+      channel: params.channel,
+      action: params.action,
+      params: params.params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    };
+    if (params.accountId !== undefined) request.accountId = params.accountId;
+    if (params.sessionKey !== undefined) request.sessionKey = params.sessionKey;
+    if (params.sessionId !== undefined) request.sessionId = params.sessionId;
+    if (params.inboundTurnKind !== undefined) request.inboundTurnKind = params.inboundTurnKind;
+    if (params.agentId !== undefined) request.agentId = params.agentId;
+    if (params.conversationReadOrigin !== undefined) {
+      request.conversationReadOrigin = params.conversationReadOrigin;
+    }
+    return await this.rpc("message.action", request);
+  }
+
+  async send(params: GatewaySendParams): Promise<GatewaySendResult> {
+    return await this.rpc("send", {
+      ...params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    });
+  }
+
+  async readMediaBytes(pathOrUrl: string): Promise<Uint8Array> {
+    const token = this.gatewayToken ?? this.deviceToken ?? this.password;
+    if (!token) {
+      throw new Error("Gateway media requires an auth token");
+    }
+    if (typeof globalThis.fetch !== "function") {
+      throw new Error("fetch is not available in this runtime");
+    }
+    const base = new URL(this.url);
+    const protocol = base.protocol === "wss:" ? "https:" : base.protocol === "ws:" ? "http:" : base.protocol;
+    const url = pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")
+      ? pathOrUrl
+      : `${protocol}//${base.host}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
+    const response = await globalThis.fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`Gateway media read failed: ${response.status} ${response.statusText}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async pluginsList(): Promise<GatewayPluginsListResult> {
+    return await this.rpc("plugins.list", {});
+  }
+
+  async pluginsInstall(params: GatewayPluginsInstallParams): Promise<GatewayPluginsInstallResult> {
+    return await this.rpc("plugins.install", params, Math.max(PLUGIN_MUTATION_TIMEOUT, this.defaultTimeout));
+  }
+
+  async pluginsSetEnabled(
+    params: GatewayPluginsSetEnabledParams,
+  ): Promise<GatewayPluginsSetEnabledResult> {
+    return await this.rpc("plugins.setEnabled", params);
+  }
+
+  async pluginsUninstall(
+    params: GatewayPluginsUninstallParams,
+  ): Promise<GatewayPluginsUninstallResult> {
+    return await this.rpc("plugins.uninstall", params, Math.max(PLUGIN_MUTATION_TIMEOUT, this.defaultTimeout));
+  }
+
+  async pluginsRefresh(): Promise<GatewayPluginsRefreshResult> {
+    return await this.rpc("plugins.refresh", {});
+  }
+
+  async toolsCatalog(params: GatewayToolsCatalogParams = {}): Promise<GatewayToolsCatalogResult> {
+    return await this.rpc("tools.catalog", params);
+  }
+
+  async toolsEffective(params: GatewayToolsEffectiveParams): Promise<GatewayToolsEffectiveResult> {
+    return await this.rpc("tools.effective", params);
+  }
+
+  async toolsInvoke(params: GatewayToolsInvokeParams): Promise<GatewayToolsInvokeResult> {
+    return await this.rpc("tools.invoke", {
+      ...params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    });
+  }
+
+  async commandsList(params: GatewayCommandsListParams = {}): Promise<GatewayCommandsListResult> {
+    return await this.rpc("commands.list", params);
+  }
+
+  async webLoginStart(options: GatewayWebLoginStartOptions = {}): Promise<GatewayWebLoginStartResult> {
+    const params: Record<string, any> = {};
+    if (options.force) params.force = true;
+    if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
+    if (options.verbose) params.verbose = true;
+    if (options.accountId) params.accountId = options.accountId;
+    return await this.rpc("web.login.start", params, 30_000);
+  }
+
+  async webLoginWait(options: GatewayWebLoginWaitOptions = {}): Promise<GatewayWebLoginWaitResult> {
+    const params: Record<string, any> = {};
+    if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
+    if (options.accountId) params.accountId = options.accountId;
+    if (options.currentQrDataUrl) params.currentQrDataUrl = options.currentQrDataUrl;
+    return await this.rpc("web.login.wait", params, WEB_LOGIN_WAIT_TIMEOUT);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sessions
+  // ---------------------------------------------------------------------------
+
+  async sessionsListResult(): Promise<GatewaySessionsListResult> {
+    const res = await this.rpc("sessions.list");
+    if (Array.isArray(res)) return { sessions: res };
+    if (!res || typeof res !== "object") return { sessions: [] };
+    return {
+      ...res,
+      sessions: Array.isArray(res.sessions) ? res.sessions : [],
+    };
+  }
+
+  async sessionsList(): Promise<any[]> {
+    return (await this.sessionsListResult()).sessions;
+  }
+
+  async sessionsPreview(sessionKey: string, limit = 20): Promise<any[]> {
+    const res = await this.rpc("sessions.preview", { keys: [sessionKey], limit });
+    return res?.previews?.[0]?.items ?? [];
+  }
+
+  async sessionsSubscribe(): Promise<boolean> {
+    const result = await this.rpc("sessions.subscribe", {});
+    return result?.subscribed === true;
+  }
+
+  async sessionsCreate(params: GatewaySessionCreateParams = {}): Promise<GatewaySessionCreateResult> {
+    return await this.rpc("sessions.create", params);
+  }
+
+  async sessionsPatch(patch: GatewaySessionPatch): Promise<Record<string, any>> {
+    return await this.rpc("sessions.patch", patch);
+  }
+
+  async chatHistoryResult(sessionKey?: string, limit = 50): Promise<GatewayChatHistoryResult> {
+    const params: Record<string, any> = { limit };
+    if (sessionKey) params.sessionKey = sessionKey;
+    const res = await this.rpc("chat.history", params);
+    if (Array.isArray(res)) return { messages: res };
+    if (asRecord(res) && Array.isArray(res.messages)) {
+      return { ...res, messages: res.messages } as GatewayChatHistoryResult;
+    }
+    throw new GatewayRequestError({
+      code: "PROTOCOL_ERROR",
+      message: "Gateway protocol error: chat.history response must be an array or an object with an array `messages` property",
+    });
+  }
+
+  async chatHistory(sessionKey?: string, limit = 50): Promise<any[]> {
+    return (await this.chatHistoryResult(sessionKey, limit)).messages;
+  }
+
+  async chatMessageGet(
+    sessionKey: string,
+    messageId: string,
+    options: GatewayChatMessageGetOptions = {},
+  ): Promise<GatewayChatMessageGetResult> {
+    const params: Record<string, any> = { sessionKey, messageId };
+    if (options.agentId) params.agentId = options.agentId;
+    if (options.maxChars !== undefined) params.maxChars = options.maxChars;
+    const res = await this.rpc("chat.message.get", params);
+    if (!asRecord(res) || typeof res.ok !== "boolean") {
+      throw new GatewayRequestError({
+        code: "PROTOCOL_ERROR",
+        message: "Gateway protocol error: chat.message.get response must contain a boolean `ok` property",
+      });
+    }
+    return res as GatewayChatMessageGetResult;
+  }
+
+  async chatAbort(sessionKey?: string, runId?: string): Promise<void> {
+    const params: Record<string, any> = {};
+    if (sessionKey) params.sessionKey = sessionKey;
+    if (runId) params.runId = runId;
+    await this.rpc("chat.abort", params);
+  }
+
+  async sendChat(
+    message: string,
+    sessionKey?: string,
+    agentId?: string,
+    attachments?: ChatAttachment[],
+  ): Promise<any> {
+    const resolvedSessionKey = sessionKey?.trim() || createOpenClawSdkSessionKey();
+    const normalizedAttachments = normalizeChatAttachments(attachments);
+    const params: Record<string, any> = {
+      message,
+      deliver: false,
+      sessionKey: resolvedSessionKey,
+      idempotencyKey: makeId(),
+    };
+    if (agentId) params.agentId = agentId;
+    if (normalizedAttachments) params.attachments = normalizedAttachments;
+    return this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT);
+  }
+
+  async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<string> {
+    const params: Record<string, any> = { key: sessionKey };
+    if (reason) params.reason = reason;
+    const result = await this.rpc("sessions.reset", params);
+    const canonicalKey = result?.key ?? result?.sessionKey ?? result?.session?.key;
+    return typeof canonicalKey === "string" && canonicalKey.trim() ? canonicalKey.trim() : sessionKey;
+  }
+
+  async createEphemeralChatSession(): Promise<GatewayEphemeralChatSession> {
+    if (!this.connected || !this.ws) throw new Error("Not connected");
+
+    const requestedSessionKey = `${EPHEMERAL_SESSION_PREFIX}${makeId()}`;
+    const canonicalSessionKey = await this.sessionsReset(requestedSessionKey, "new");
+    const sessionKey = validateEphemeralCanonicalKey(requestedSessionKey, canonicalSessionKey);
+    if (!sessionKey) {
+      await this.sessionsReset(requestedSessionKey, "reset").catch(() => undefined);
+      throw new Error(`Gateway returned an unsafe ephemeral session key: ${canonicalSessionKey}`);
+    }
+
+    this.activeEphemeralSessionKeys.set(sessionKey, null);
+    let closed = false;
+    let activeStream: AsyncGenerator<ChatEvent> | null = null;
+    let closePromise: Promise<void> | null = null;
+    let turnsStarted = 0;
+    let backendTurnMayBeActive = false;
+    const priorAssistantTexts: string[] = [];
+    const assertOpen = () => {
+      if (closed) throw new Error("Ephemeral chat session is closed.");
+    };
+
+    const session: GatewayEphemeralChatSession = {
+      sessionKey,
+      get closed() {
+        return closed;
+      },
+      chatSend: (message, attachments) => {
+        assertOpen();
+        if (activeStream || backendTurnMayBeActive) {
+          throw new Error("Ephemeral chat session already has an active turn.");
+        }
+
+        normalizeChatAttachments(attachments);
+        const source = this.chatSend(message, sessionKey, attachments, {
+          strictCorrelation: true,
+          ephemeralSession: true,
+          ...(turnsStarted > 0 ? { captureHistoryBaseline: true } : {}),
+          ...(priorAssistantTexts.length > 0 ? { priorAssistantTexts: [...priorAssistantTexts] } : {}),
+        });
+        turnsStarted += 1;
+        backendTurnMayBeActive = true;
+        let turnText = "";
+        let turnRecorded = false;
+        const observeEvent = (event: ChatEvent) => {
+          turnText = applyChatEventContent(turnText, event);
+          if (event.type !== "done" && event.type !== "error") return;
+          backendTurnMayBeActive = false;
+          if (event.type === "done" && turnText.trim() && !turnRecorded) {
+            turnRecorded = true;
+            priorAssistantTexts.push(turnText.trim());
+          }
+        };
+        const release = () => {
+          if (activeStream === stream) activeStream = null;
+        };
+        const stream = {
+          async next(value?: unknown) {
+            try {
+              const result = await source.next(value);
+              if (result.done) {
+                backendTurnMayBeActive = false;
+                release();
+              } else {
+                observeEvent(result.value);
+              }
+              return result;
+            } catch (error) {
+              release();
+              throw error;
+            }
+          },
+          async return(value?: any) {
+            try {
+              return await source.return(value);
+            } finally {
+              release();
+            }
+          },
+          async throw(error?: any) {
+            try {
+              const result = await source.throw(error);
+              if (result.done) {
+                backendTurnMayBeActive = false;
+                release();
+              } else {
+                observeEvent(result.value);
+              }
+              return result;
+            } catch (cause) {
+              release();
+              throw cause;
+            }
+          },
+          [Symbol.asyncIterator]() {
+            return stream;
+          },
+        } as AsyncGenerator<ChatEvent>;
+        activeStream = stream;
+        return stream;
+      },
+      chatHistory: (limit = 50) => {
+        assertOpen();
+        return this.chatHistory(sessionKey, limit);
+      },
+      chatAbort: async () => {
+        assertOpen();
+        const stream = activeStream;
+        await this.chatAbort(sessionKey);
+        backendTurnMayBeActive = false;
+        if (stream && !await promiseSettlesWithin(stream.return(undefined), EPHEMERAL_TURN_CLOSE_WAIT_MS)) {
+          throw new Error("Ephemeral chat turn is still stopping.");
+        }
+      },
+      close: () => {
+        if (closePromise) return closePromise;
+        closed = true;
+        const stream = activeStream;
+        const abortPromise = backendTurnMayBeActive
+          ? this.chatAbort(sessionKey).then(
+            () => {
+              backendTurnMayBeActive = false;
+              return true;
+            },
+            () => false,
+          )
+          : Promise.resolve(true);
+        const streamReturnPromise = stream?.return(undefined);
+        let cleanupComplete = false;
+        const attempt = (async () => {
+          try {
+            const backendStopped = await booleanPromiseWithin(abortPromise, EPHEMERAL_TURN_CLOSE_WAIT_MS);
+            if (!backendStopped) throw new Error("Ephemeral chat turn did not stop before cleanup timed out.");
+            if (streamReturnPromise) {
+              await promiseSettlesWithin(streamReturnPromise, EPHEMERAL_TURN_CLOSE_WAIT_MS);
+            }
+            await this.sessionsReset(sessionKey, "reset");
+            backendTurnMayBeActive = false;
+            cleanupComplete = true;
+          } finally {
+            if (cleanupComplete) {
+              this.activeEphemeralSessionKeys.delete(sessionKey);
+            } else {
+              this.activeEphemeralSessionKeys.set(
+                sessionKey,
+                Date.now() + EPHEMERAL_RUN_ID_SUPPRESSION_MS,
+              );
+            }
+          }
+        })();
+        closePromise = attempt;
+        void attempt.catch(() => {
+          if (closePromise === attempt) closePromise = null;
+        });
+        return attempt;
+      },
+    };
+    return session;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nodes (operator-side: manage & drive paired nodes)
+  //
+  // A "node" is a device/machine connected to the same gateway with
+  // `role: "node"` that exposes a command surface. An operator lists/approves
+  // node pairings and drives them with `node.invoke`; the node executes the
+  // command locally and returns the result. This is the gateway's built-in
+  // "agent asks a connected machine to do X and use the result" path.
+  // ---------------------------------------------------------------------------
+
+  /** Paired nodes known to the gateway. */
+  async nodesList(): Promise<any[]> {
+    const res = await this.rpc("node.list");
+    return res?.nodes ?? res ?? [];
+  }
+
+  /** Detailed metadata for one paired node (caps + supported invoke commands). */
+  async nodeDescribe(nodeId: string): Promise<any> {
+    return await this.rpc("node.describe", { nodeId });
+  }
+
+  /** Pending and paired node-pairing requests. */
+  async nodePairList(): Promise<{ pending: any[]; paired: any[] }> {
+    const res = await this.rpc("node.pair.list");
+    return { pending: res?.pending ?? [], paired: res?.paired ?? [] };
+  }
+
+  /**
+   * Approve a pending node pairing (and its declared command surface). This is
+   * the sibling of `device.pair.approve`; it requires `operator.pairing` and,
+   * for command-bearing nodes, `operator.write`/`operator.admin`.
+   */
+  async nodePairApprove(requestId: string): Promise<any> {
+    return await this.rpc("node.pair.approve", { requestId });
+  }
+
+  /** Reject a pending node pairing request. */
+  async nodePairReject(requestId: string): Promise<void> {
+    await this.rpc("node.pair.reject", { requestId });
+  }
+
+  /** Remove an already-paired node from the gateway trust set. */
+  async nodePairRemove(nodeId: string): Promise<void> {
+    await this.rpc("node.pair.remove", { nodeId });
+  }
+
+  /** Rename a paired node while preserving its stable node id. */
+  async nodeRename(nodeId: string, displayName: string): Promise<void> {
+    await this.rpc("node.rename", { nodeId, displayName });
+  }
+
+  /**
+   * Invoke a command on a paired node and return its result. The node must be
+   * connected, have declared `command`, and the command must be allowed by the
+   * gateway policy (declared + approved surface, and/or
+   * `gateway.nodes.allowCommands`).
+   */
+  async nodeInvoke(
+    nodeId: string,
+    command: string,
+    params: Record<string, any> = {},
+    timeoutMs?: number,
+  ): Promise<any> {
+    const rpcParams: Record<string, any> = {
+      nodeId,
+      command,
+      params,
+      idempotencyKey: makeId(),
+    };
+    if (timeoutMs !== undefined) rpcParams.timeoutMs = timeoutMs;
+    return await this.rpc("node.invoke", rpcParams, timeoutMs);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat (streaming via events)
+  // ---------------------------------------------------------------------------
+
+  async *chatSend(
+    message: string,
+    sessionKey: string,
+    attachments?: ChatAttachment[],
+    options: {
+      strictCorrelation?: boolean;
+      ephemeralSession?: boolean;
+      captureHistoryBaseline?: boolean;
+      priorAssistantTexts?: string[];
+    } = {},
+  ): AsyncGenerator<ChatEvent> {
+    if (!this.connected || !this.ws) {
+      throw new Error("Not connected");
+    }
+
+    const idempotencyKey = makeId();
+    const runDeadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
+    const acceptedRunIds = new Set<string>([idempotencyKey]);
+    if (options.ephemeralSession) this.suppressEphemeralRunId(idempotencyKey);
+    const queuedEvents: GatewayEvent[] = [];
+    let resolveWait: (() => void) | null = null;
+    let correlationReady = false;
+    let emittedDisplayText = "";
+    let fallbackReplacementAfterSeq: number | null | undefined;
+    let pendingLifecycleError: {
+      text: string;
+      identity: ReturnType<typeof chatEventIdentity>;
+      data: Record<string, any>;
+      seq: number | null;
+      expiresAt: number;
+    } | null = null;
+    let lastThinkingText = "";
+    let emittedReasoningText = "";
+    const seenToolCallIds = new Set<string>();
+    const seenToolResultIds = new Set<string>();
+    const outstandingToolCalls = new Map<string, {
+      id?: string;
+      name: string;
+      signature: string;
+    }>();
+    let anonymousToolCallIndex = 0;
+    let lastSuccessfulToolSignature: string | null = null;
+    let lastSuccessfulToolCycle: string | null = null;
+    let identicalSuccessfulToolCycles = 0;
+    let acknowledgementPending = false;
+    let terminalAcknowledgementEvent: GatewayEvent | null = null;
+    let historyBaseline: HistoryAssistantBaseline | null | undefined;
+    let streamCloseError: Error | null = null;
+    let resolveStreamClose: ((error: Error) => void) | null = null;
+    const streamClosed = new Promise<Error>((resolve) => {
+      resolveStreamClose = resolve;
+    });
+    let streamState: InternalChatStreamState | null = null;
+    const wakeWaiter = () => {
+      const waiter = resolveWait;
+      resolveWait = null;
+      waiter?.();
+    };
+    const closeHandler = (error: Error) => {
+      if (streamCloseError) return;
+      streamCloseError = error;
+      this.internalEventHandlers.delete(handler);
+      this.internalStreamCloseHandlers.delete(closeHandler);
+      if (streamState) {
+        this.activeNormalChatStreams.delete(streamState);
+        this.activeStrictChatStreams.delete(streamState);
+      }
+      resolveStreamClose?.(error);
+      wakeWaiter();
+    };
+    const stopOnStreamClose = async <T>(promise: Promise<T>): Promise<T> => {
+      return await Promise.race([
+        promise,
+        streamClosed.then((error) => Promise.reject(error)),
+      ]);
+    };
+    const registerToolCall = (record: Record<string, any>): { duplicate: boolean } => {
+      const id = gatewayToolCallId(record);
+      if (id && seenToolCallIds.has(id)) {
+        return { duplicate: true };
+      }
+
+      const name = gatewayToolName(record) ?? "tool";
+      const signature = gatewayToolSignature(record);
+      if (lastSuccessfulToolSignature && lastSuccessfulToolSignature !== signature) {
+        lastSuccessfulToolSignature = null;
+        lastSuccessfulToolCycle = null;
+        identicalSuccessfulToolCycles = 0;
+      }
+      seenToolCallIds.add(id ?? signature);
+      outstandingToolCalls.set(id ? `id:${id}` : `anonymous:${++anonymousToolCallIndex}`, {
+        ...(id ? { id } : {}),
+        name,
+        signature,
+      });
+      return { duplicate: false };
+    };
+    const registerToolResult = (record: Record<string, any>): {
+      duplicate: boolean;
+      accepted: boolean;
+      failure: {
+        code: string;
+        text: string;
+        details: Record<string, any>;
+      } | null;
+    } => {
+      const id = gatewayToolCallId(record);
+      if (id && seenToolResultIds.has(id)) {
+        return { duplicate: true, accepted: false, failure: null };
+      }
+
+      const name = gatewayToolName(record);
+      let matchedEntry: [string, { id?: string; name: string; signature: string }] | undefined;
+      if (id) {
+        const exact = outstandingToolCalls.get(`id:${id}`);
+        if (exact) {
+          matchedEntry = [`id:${id}`, exact];
+        } else {
+          const anonymousMatches = [...outstandingToolCalls.entries()].filter(([, call]) =>
+            !call.id && (!name || call.name === name),
+          );
+          if (anonymousMatches.length === 1) matchedEntry = anonymousMatches[0];
+        }
+      } else {
+        const matches = [...outstandingToolCalls.entries()].filter(([, call]) =>
+          !name || call.name === name,
+        );
+        if (matches.length === 1) matchedEntry = matches[0];
+      }
+
+      if (!matchedEntry && outstandingToolCalls.size > 0) {
+        return {
+          duplicate: false,
+          accepted: false,
+          failure: {
+            code: "CHAT_TOOL_RESULT_CORRELATION_FAILED",
+            text: "Chat stopped because a tool result could not be matched to one active tool call.",
+            details: {
+              ...(id ? { toolCallId: id } : {}),
+              ...(name ? { toolName: name } : {}),
+              outstandingToolCalls: outstandingToolCalls.size,
+            },
+          },
+        };
+      }
+
+      if (matchedEntry) {
+        outstandingToolCalls.delete(matchedEntry[0]);
+      }
+      if (id) seenToolResultIds.add(id);
+      if (matchedEntry) {
+        seenToolResultIds.add(matchedEntry[1].id ?? matchedEntry[1].signature);
+      } else if (!id) {
+        seenToolResultIds.add(gatewayToolSignature(record));
+      }
+
+      const isError = record.isError === true || record.is_error === true;
+      if (!matchedEntry || isError) {
+        lastSuccessfulToolSignature = null;
+        lastSuccessfulToolCycle = null;
+        identicalSuccessfulToolCycles = 0;
+        return { duplicate: false, accepted: true, failure: null };
+      }
+
+      const call = matchedEntry[1];
+      const cycle = `${call.signature}:${serializeToolValue(gatewayToolResultValue(record))}`;
+      if (lastSuccessfulToolCycle === cycle) {
+        identicalSuccessfulToolCycles += 1;
+      } else {
+        lastSuccessfulToolSignature = call.signature;
+        lastSuccessfulToolCycle = cycle;
+        identicalSuccessfulToolCycles = 1;
+      }
+      if (identicalSuccessfulToolCycles < MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES) {
+        return { duplicate: false, accepted: true, failure: null };
+      }
+      return {
+        duplicate: false,
+        accepted: true,
+        failure: {
+          code: "CHAT_REPEATED_TOOL_CALL_LIMIT",
+          text: "Chat stopped because the same tool call completed repeatedly without making progress.",
+          details: {
+            toolName: call.name,
+            repeatCount: identicalSuccessfulToolCycles,
+            repeatLimit: MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES,
+          },
+        },
+      };
+    };
+
+    const handler: InternalGatewayEventHandler = (evt) => {
+      if (!isChatStreamGatewayEvent(evt)) return false;
+      const payload = asRecord(evt.payload) ?? {};
+      const identity = chatEventIdentity(payload);
+      const payloadRunId = identity.runId?.trim() ?? "";
+      const payloadSessionKey = identity.sessionKey?.trim() ?? "";
+      if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
+      if (payloadRunId && correlationReady && !acceptedRunIds.has(payloadRunId)) return false;
+      if (options.strictCorrelation) {
+        if (!payloadRunId && !payloadSessionKey) return false;
+        if (
+          options.ephemeralSession &&
+          !correlationReady &&
+          payloadRunId &&
+          !payloadSessionKey &&
+          !acceptedRunIds.has(payloadRunId)
+        ) {
+          this.deferEphemeralCorrelationEvent(evt);
+        }
+      }
+      queuedEvents.push(evt);
+      if (correlationReady && isTerminalChatStreamGatewayEvent(evt) && streamState) {
+        streamState.terminalEvent = evt;
+      }
+      wakeWaiter();
+      return options.strictCorrelation === true;
+    };
+    streamState = { close: closeHandler, terminalEvent: null };
+
+    try {
+      if (options.captureHistoryBaseline) {
+        try {
+          historyBaseline = historyAssistantBaseline(
+            await this.chatHistory(sessionKey, 20),
+            options.priorAssistantTexts,
+          );
+        } catch {
+          historyBaseline = options.priorAssistantTexts?.length
+            ? historyAssistantBaseline([], options.priorAssistantTexts)
+            : null;
+        }
+      } else if (options.priorAssistantTexts) {
+        historyBaseline = historyAssistantBaseline([], options.priorAssistantTexts);
+      }
+      const normalizedAttachments = normalizeChatAttachments(attachments);
+      if (options.ephemeralSession) {
+        this.beginEphemeralChatAcknowledgement();
+        acknowledgementPending = true;
+      }
+      this.internalEventHandlers.add(handler);
+      this.internalStreamCloseHandlers.add(closeHandler);
+      if (options.strictCorrelation) {
+        this.activeStrictChatStreams.add(streamState);
+      } else {
+        this.activeNormalChatStreams.add(streamState);
+      }
+      const params: Record<string, any> = {
+        message,
+        deliver: false,
+        sessionKey,
+        idempotencyKey,
+      };
+      if (normalizedAttachments) params.attachments = normalizedAttachments;
+
+      const ack = await stopOnStreamClose(
+        this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT),
+      );
+      const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
+      if (serverRunId) {
+        acceptedRunIds.add(serverRunId);
+        if (options.ephemeralSession) this.suppressEphemeralRunId(serverRunId);
+      }
+      correlationReady = true;
+      if (queuedEvents.length > 0) {
+        for (let index = queuedEvents.length - 1; index >= 0; index -= 1) {
+          const payload = asRecord(queuedEvents[index]?.payload) ?? {};
+          const identity = chatEventIdentity(payload);
+          const queuedRunId = identity.runId?.trim() ?? "";
+          const queuedSessionKey = identity.sessionKey?.trim() ?? "";
+          const mismatchedSession = Boolean(queuedSessionKey && !sameSessionKey(queuedSessionKey, sessionKey));
+          const unacceptedRun = Boolean(queuedRunId && !acceptedRunIds.has(queuedRunId));
+          if (mismatchedSession || unacceptedRun) {
+            queuedEvents.splice(index, 1);
+          }
+        }
+        streamState.terminalEvent =
+          [...queuedEvents].reverse().find(isTerminalChatStreamGatewayEvent) ?? null;
+      }
+      if (acknowledgementPending) {
+        acknowledgementPending = false;
+        this.finishEphemeralChatAcknowledgement(Boolean(serverRunId));
+      }
+      const acknowledgementStatus = typeof ack?.status === "string" ? ack.status.trim().toLowerCase() : "";
+      if (["ok", "timeout", "error"].includes(acknowledgementStatus)) {
+        const acknowledgementError = asRecord(ack?.error);
+        const acknowledgementMessage = [ack?.message, ack?.errorMessage, acknowledgementError?.message]
+          .find((value) => typeof value === "string" && value.trim());
+        terminalAcknowledgementEvent = {
+          type: "event",
+          event: acknowledgementStatus === "ok" ? "chat.done" : "chat.error",
+          payload: {
+            ...asRecord(ack),
+            runId: serverRunId || idempotencyKey,
+            sessionKey,
+            ...(acknowledgementStatus === "ok"
+              ? {}
+              : {
+                  message: typeof acknowledgementMessage === "string"
+                    ? acknowledgementMessage.trim()
+                    : acknowledgementStatus === "timeout"
+                      ? "The run ended before the message was accepted."
+                      : "Chat failed before the run started; try again.",
+                }),
+          },
+        };
+        queuedEvents.push(terminalAcknowledgementEvent);
+        streamState.terminalEvent = terminalAcknowledgementEvent;
+      }
+
+      const readLatestHistoryText = async (): Promise<string> => {
+        try {
+          return latestHistoryAssistantText(
+            await stopOnStreamClose(this.chatHistory(sessionKey, 20)),
+            acceptedRunIds,
+            historyBaseline,
+          ) ?? "";
+        } catch (error) {
+          if (streamCloseError) throw error;
+          return "";
+        }
+      };
+      const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
+        const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
+        while (true) {
+          const historyText = await readLatestHistoryText();
+          if (historyText) return historyText;
+          if (Date.now() >= historyDeadline) return "";
+          await stopOnStreamClose(new Promise<void>((resolve) => setTimeout(resolve, 500)));
+        }
+      };
+      const reconcileHistoryAfterToolActivity = async (streamedText: string): Promise<string> => {
+        let historyText = await readLatestHistoryText();
+        if (!historyText || historyText !== streamedText) return historyText;
+
+        const historyDeadline = Date.now() + 1_500;
+        while (Date.now() < historyDeadline) {
+          await stopOnStreamClose(new Promise<void>((resolve) => setTimeout(resolve, 500)));
+          const nextHistoryText = await readLatestHistoryText();
+          if (!nextHistoryText) continue;
+          historyText = nextHistoryText;
+          if (historyText !== streamedText) break;
+        }
+        return historyText;
+      };
+      const stopForChatSafety = (
+        failure: { code: string; text: string; details: Record<string, any> },
+        identity: ReturnType<typeof chatEventIdentity>,
+      ): { event: ChatEvent; abort: Promise<void> } => {
+        const runId = identity.runId?.trim() || serverRunId || idempotencyKey;
+        queuedEvents.length = 0;
+        this.internalEventHandlers.delete(handler);
+        this.internalStreamCloseHandlers.delete(closeHandler);
+        if (streamState) {
+          this.activeNormalChatStreams.delete(streamState);
+          this.activeStrictChatStreams.delete(streamState);
+        }
+        const abort = this.chatAbort(sessionKey, runId).catch(() => undefined);
+        return {
+          event: {
+            type: "error",
+            text: failure.text,
+            ...identity,
+            runId,
+            sessionKey: identity.sessionKey ?? sessionKey,
+            data: {
+              code: failure.code,
+              ...failure.details,
+              abortRequested: true,
+            },
+          },
+          abort,
+        };
+      };
+
+      while (true) {
+        if (Date.now() >= runDeadline) {
+          const terminalEvent = streamState.terminalEvent;
+          if (!terminalEvent) break;
+          queuedEvents.length = 0;
+          queuedEvents.push(terminalEvent);
+          streamState.terminalEvent = null;
+        }
+        if (queuedEvents.length === 0) {
+          if (streamCloseError) throw streamCloseError;
+          if (pendingLifecycleError && Date.now() >= pendingLifecycleError.expiresAt) {
+            yield {
+              type: "error",
+              text: pendingLifecycleError.text,
+              ...pendingLifecycleError.identity,
+              data: pendingLifecycleError.data,
+            };
+            return;
+          }
+          const remainingMs = Math.max(1, Math.min(
+            1000,
+            runDeadline - Date.now(),
+            pendingLifecycleError ? pendingLifecycleError.expiresAt - Date.now() : Number.POSITIVE_INFINITY,
+          ));
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+              if (resolveWait === release) {
+                resolveWait = null;
+              }
+              resolve();
+            }, remainingMs);
+            const release = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+            resolveWait = release;
+          });
+          if (queuedEvents.length === 0 && streamCloseError) throw streamCloseError;
+          continue;
+        }
+
+        const evt = queuedEvents.shift()!;
+        const payload = asRecord(evt.payload) ?? {};
+        const routingIdentity = chatEventIdentity(payload);
+        const payloadRunId = routingIdentity.runId?.trim() ?? "";
+        const payloadSessionKey = routingIdentity.sessionKey?.trim() ?? "";
+        if (payloadRunId && !acceptedRunIds.has(payloadRunId)) {
+          continue;
+        }
+        if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) {
+          continue;
+        }
+        const identity = chatEventIdentity(payload);
+        const eventRunSeq = Number.isSafeInteger(payload.seq) ? payload.seq as number : null;
+        const replacesFailedAttempt = fallbackReplacementAfterSeq !== undefined && (
+          fallbackReplacementAfterSeq === null ||
+          eventRunSeq === null ||
+          eventRunSeq > fallbackReplacementAfterSeq
+        );
+        const eventLifecyclePhase = evt.event === "agent" && String(payload.stream ?? "").toLowerCase() === "lifecycle"
+          ? String(asRecord(payload.data)?.phase ?? "").toLowerCase()
+          : "";
+        const fallbackContinued = replacesFailedAttempt && (
+          evt.event === "chat" ||
+          evt.event === "chat.content" ||
+          Boolean(eventLifecyclePhase && eventLifecyclePhase !== "error")
+        );
+        if (pendingLifecycleError && fallbackContinued) {
+          pendingLifecycleError = null;
+        }
+
+        if (evt.event === "chat.content") {
+          const text = typeof payload.text === "string" ? payload.text : "";
+          const update = appendStreamContent(
+            emittedDisplayText,
+            text,
+            payload.replace === true || replacesFailedAttempt,
+          );
+          if (update) {
+            emittedDisplayText = update.nextText;
+            if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
+            yield {
+              type: "content",
+              text: update.text,
+              ...(update.replace ? { replace: true } : {}),
+              ...identity,
+            };
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "assistant") {
+          const commentaryPayload = asRecord(payload.data) ?? {};
+          const phase = typeof commentaryPayload.phase === "string"
+            ? commentaryPayload.phase.toLowerCase()
+            : "";
+          if (phase === "commentary") {
+            const cumulativeText = typeof commentaryPayload.text === "string" ? commentaryPayload.text : "";
+            const deltaText = typeof commentaryPayload.delta === "string" ? commentaryPayload.delta : "";
+            const text = cumulativeText.trim() ? cumulativeText : deltaText;
+            if (text.trim()) {
+              yield {
+                type: "commentary",
+                text,
+                ...(commentaryPayload.replace === true ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "tool") {
+          const toolPayload = asRecord(payload.data) ?? {};
+          const phase = typeof toolPayload.phase === "string" ? toolPayload.phase.toLowerCase() : "";
+          if (phase === "start") {
+            if (registerToolCall(toolPayload).duplicate) continue;
+            yield {
+              type: "tool_call",
+              ...identity,
+              data: {
+                ...gatewayToolStreamPayload(toolPayload),
+                args: toolPayload.args,
+              },
+            };
+          } else if (phase === "result") {
+            const result = registerToolResult(toolPayload);
+            if (result.duplicate) continue;
+            if (result.accepted) {
+              yield {
+                type: "tool_result",
+                ...identity,
+                data: {
+                  ...gatewayToolStreamPayload(toolPayload),
+                  result: gatewayToolResultValue(toolPayload),
+                  isError: toolPayload.isError,
+                },
+              };
+            }
+            if (result.failure && !streamState.terminalEvent) {
+              const stopped = stopForChatSafety(result.failure, identity);
+              yield stopped.event;
+              await stopped.abort;
+              return;
+            }
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "lifecycle") {
+          const lifecyclePayload = asRecord(payload.data) ?? {};
+          const phase =
+            typeof lifecyclePayload.phase === "string" ? lifecyclePayload.phase.toLowerCase() : "";
+          if (phase === "end") {
+            const hasNonTextActivity =
+              Boolean(lastThinkingText || emittedReasoningText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+            const historyText =
+              emittedDisplayText && hasNonTextActivity
+                ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
+                : emittedDisplayText
+                  ? await readLatestHistoryText()
+                  : hasNonTextActivity
+                    ? ""
+                    : await waitForHistoryText();
+            if (queuedEvents.length > 0) continue;
+            if (historyText) {
+              const update = replacesFailedAttempt
+                ? reconcileStreamContent(emittedDisplayText, historyText, true)
+                : reconcileHistoryStreamContent(emittedDisplayText, historyText);
+              if (update) {
+                emittedDisplayText = update.nextText;
+                if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
+                yield {
+                  type: "content",
+                  text: update.text,
+                  ...(update.replace ? { replace: true } : {}),
+                  ...identity,
+                  data: payload,
+                };
+              }
+            }
+            yield { type: "done", ...identity, data: payload };
+            return;
+          }
+          if (phase === "error") {
+            // OpenClaw emits lifecycle errors for failed provider attempts, then
+            // may continue the same chat run through a fallback provider.
+            fallbackReplacementAfterSeq = eventRunSeq;
+            pendingLifecycleError = {
+              text:
+                typeof lifecyclePayload.error === "string" && lifecyclePayload.error
+                  ? lifecyclePayload.error
+                  : typeof payload.errorMessage === "string" && payload.errorMessage
+                    ? payload.errorMessage
+                    : phase,
+              identity,
+              data: payload,
+              seq: eventRunSeq,
+              expiresAt: Date.now() + CHAT_LIFECYCLE_ERROR_FALLBACK_TIMEOUT_MS,
+            };
+            continue;
+          }
+          continue;
+        }
+        if (evt.event === "chat.thinking") {
+          const reasoningDelta = extractGatewayReasoningDelta(payload);
+          if (reasoningDelta) {
+            const update = appendStreamContent(emittedReasoningText, reasoningDelta, false);
+            if (update) {
+              emittedReasoningText = update.nextText;
+              yield { type: "reasoning", text: update.text, ...identity, data: payload };
+            }
+            continue;
+          }
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (text) {
+            lastThinkingText += text;
+          }
+          yield { type: "thinking", text, ...identity };
+          continue;
+        }
+        if (evt.event === "chat.reasoning" || evt.event === "chat.reasoning.delta" || evt.event === "chat.thinking.delta") {
+          const text = extractGatewayReasoningDelta(payload) || (typeof payload.text === "string" ? payload.text : "");
+          if (text) {
+            const update = evt.event === "chat.reasoning"
+              ? reconcileStreamContent(emittedReasoningText, text, payload.replace === true)
+              : appendStreamContent(emittedReasoningText, text, payload.replace === true);
+            if (update) {
+              emittedReasoningText = update.nextText;
+              yield {
+                type: "reasoning",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+          }
+          continue;
+        }
+        if (evt.event === "chat.tool_call") {
+          if (registerToolCall(payload).duplicate) continue;
+          yield { type: "tool_call", ...identity, data: payload };
+          continue;
+        }
+        if (evt.event === "chat.tool_result") {
+          const result = registerToolResult(payload);
+          if (result.duplicate) continue;
+          if (result.accepted) {
+            yield { type: "tool_result", ...identity, data: payload };
+          }
+          if (result.failure && !streamState.terminalEvent) {
+            const stopped = stopForChatSafety(result.failure, identity);
+            yield stopped.event;
+            await stopped.abort;
+            return;
+          }
+          continue;
+        }
+        if (evt.event === "chat.done") {
+          const hasNonTextActivity =
+            Boolean(lastThinkingText || emittedReasoningText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+          const historyText = evt === terminalAcknowledgementEvent
+            ? await readLatestHistoryText()
+            : emittedDisplayText && hasNonTextActivity
+              ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
+              : (!emittedDisplayText && !hasNonTextActivity) || fallbackReplacementAfterSeq !== undefined
+                ? await waitForHistoryText()
+                : "";
+          if (historyText) {
+            const update = replacesFailedAttempt || fallbackReplacementAfterSeq !== undefined
+              ? reconcileStreamContent(emittedDisplayText, historyText, true)
+              : reconcileHistoryStreamContent(emittedDisplayText, historyText);
+            if (update) {
+              emittedDisplayText = update.nextText;
+              fallbackReplacementAfterSeq = undefined;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+          }
+          yield { type: "done", ...identity, data: payload };
+          return;
+        }
+        if (evt.event === "chat.aborted") {
+          yield { type: "error", text: "aborted", ...identity, data: payload };
+          return;
+        }
+        if (evt.event === "chat.error") {
+          yield {
+            type: "error",
+            text: typeof payload.message === "string" ? payload.message : "Unknown error",
+            ...identity,
+            data: payload,
+          };
+          return;
+        }
+        if (evt.event !== "chat") {
+          continue;
+        }
+
+        const state = typeof payload.state === "string" ? payload.state.trim().toLowerCase() : "";
+        const currentText = extractMessageText(payload.message);
+        const currentDeltaText = typeof payload.deltaText === "string" ? payload.deltaText : "";
+        const normalizedMessage = normalizeGatewayChatMessage(payload.message);
+        if (state === "delta") {
+          const reasoningSnapshot = normalizedMessage?.reasoning ?? "";
+          const reasoningDelta = reasoningSnapshot ? "" : extractGatewayReasoningDelta(payload);
+          const reasoningUpdate = reasoningSnapshot
+            ? reconcileStreamContent(emittedReasoningText, reasoningSnapshot)
+            : appendStreamContent(emittedReasoningText, reasoningDelta, false);
+          if (reasoningUpdate) {
+            emittedReasoningText = reasoningUpdate.nextText;
+            yield {
+              type: "reasoning",
+              text: reasoningUpdate.text,
+              ...(reasoningUpdate.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
+          }
+          const replaceContent = payload.replace === true || replacesFailedAttempt;
+          const update = currentText !== null && (currentText || payload.replace === true)
+            ? reconcileStreamContent(emittedDisplayText, currentText, replaceContent)
+            : appendStreamContent(emittedDisplayText, currentDeltaText, replaceContent);
+          if (update) {
+            emittedDisplayText = update.nextText;
+            if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
+            yield {
+              type: "content",
+              text: update.text,
+              ...(update.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
+          }
+          continue;
+        }
+        if (state === "final") {
+          const reasoningSnapshot = normalizedMessage?.reasoning ?? "";
+          const reasoningUpdate = reasoningSnapshot
+            ? reconcileStreamContent(emittedReasoningText, reasoningSnapshot)
+            : null;
+          if (reasoningUpdate) {
+            emittedReasoningText = reasoningUpdate.nextText;
+            yield {
+              type: "reasoning",
+              text: reasoningUpdate.text,
+              ...(reasoningUpdate.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
+          }
+
+          for (const toolCall of normalizedMessage?.toolCalls ?? []) {
+            const toolCallKey =
+              toolCall.id?.trim() ||
+              `${toolCall.name}:${serializeToolValue(toolCall.args ?? null)}`;
+            if (toolCall.args !== undefined && !seenToolCallIds.has(toolCallKey)) {
+              seenToolCallIds.add(toolCallKey);
+              yield {
+                type: "tool_call",
+                ...identity,
+                data: {
+                  ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+                  name: toolCall.name,
+                  args: toolCall.args,
+                },
+              };
+            }
+            if (toolCall.result !== undefined && !seenToolResultIds.has(toolCallKey)) {
+              seenToolResultIds.add(toolCallKey);
+              yield {
+                type: "tool_result",
+                ...identity,
+                data: {
+                  ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+                  name: toolCall.name,
+                  result: toolCall.result,
+                },
+              };
+            }
+          }
+
+          if (currentText !== null && (currentText || payload.replace === true)) {
+            const update = reconcileStreamContent(
+              emittedDisplayText,
+              currentText,
+              payload.replace === true || replacesFailedAttempt,
+            );
+            if (update) {
+              emittedDisplayText = update.nextText;
+              if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+            yield { type: "done", ...identity, data: payload };
+            return;
+          }
+          if (emittedDisplayText && fallbackReplacementAfterSeq === undefined) {
+            yield { type: "done", ...identity, data: payload };
+            return;
+          }
+          if (normalizedMessage?.reasoning || (normalizedMessage?.toolCalls.length ?? 0) > 0) {
+            yield { type: "done", ...identity, data: payload };
+            return;
+          }
+          const historyText = await waitForHistoryText();
+          if (historyText) {
+            const update = fallbackReplacementAfterSeq !== undefined
+              ? reconcileStreamContent(emittedDisplayText, historyText, true)
+              : reconcileHistoryStreamContent(emittedDisplayText, historyText);
+            if (update) {
+              emittedDisplayText = update.nextText;
+              fallbackReplacementAfterSeq = undefined;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+          }
+          yield { type: "done", ...identity, data: payload };
+          return;
+        }
+        if (state === "error" || state === "aborted") {
+          if (currentText !== null && (currentText || payload.replace === true)) {
+            const update = reconcileStreamContent(
+              emittedDisplayText,
+              currentText,
+              payload.replace === true,
+            );
+            if (update) {
+              emittedDisplayText = update.nextText;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
+          }
+          yield {
+            type: "error",
+            text: typeof payload.errorMessage === "string" ? payload.errorMessage : state,
+            ...identity,
+            data: payload,
+          };
+          return;
+        }
+      }
+
+      if (streamCloseError) throw streamCloseError;
+      const stopped = stopForChatSafety(
+        {
+          code: "CHAT_RUN_DURATION_LIMIT",
+          text: "Chat stopped after reaching the maximum run duration.",
+          details: { durationMs: DEFAULT_AGENT_TIMEOUT },
+        },
+        { runId: serverRunId || idempotencyKey, sessionKey },
+      );
+      yield stopped.event;
+      await stopped.abort;
+      return;
+    } finally {
+      if (acknowledgementPending) this.finishEphemeralChatAcknowledgement(false);
+      this.internalEventHandlers.delete(handler);
+      this.internalStreamCloseHandlers.delete(closeHandler);
+      this.activeNormalChatStreams.delete(streamState);
+      this.activeStrictChatStreams.delete(streamState);
+    }
+  }
+
+  async runEphemeralChat(
+    message: string,
+    options: GatewayEphemeralChatOptions = {},
+  ): Promise<string> {
+    const prompt = message.trim();
+    if (!prompt) throw new Error("Ephemeral chat requires a message.");
+    if (!this.connected || !this.ws) throw new Error("Not connected");
+
+    const timeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT;
+    const maxResponseChars = options.maxResponseChars ?? 128 * 1024;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > DEFAULT_AGENT_TIMEOUT) {
+      throw new Error(`Ephemeral chat timeout must be between 1 and ${DEFAULT_AGENT_TIMEOUT} milliseconds.`);
+    }
+    if (!Number.isSafeInteger(maxResponseChars) || maxResponseChars <= 0) {
+      throw new Error("Ephemeral chat response limit must be a positive integer.");
+    }
+
+    let session: GatewayEphemeralChatSession | null = null;
+    let terminal = false;
+    let stream: AsyncGenerator<ChatEvent> | null = null;
+    let stopError: Error | null = null;
+    let abortPromise: Promise<void> | null = null;
+    let primaryError: unknown = null;
+    let cleanupError: unknown = null;
+    let resultContent: string | null = null;
+    let resolveStop: ((error: Error) => void) | null = null;
+    const stopped = new Promise<Error>((resolve) => {
+      resolveStop = resolve;
+    });
+    const requestAbort = (error: Error) => {
+      if (!stopError) {
+        stopError = error;
+        resolveStop?.(error);
+      }
+      if (session && !terminal && !abortPromise) {
+        abortPromise = session.chatAbort().catch(() => undefined);
+      }
+      void stream?.return(undefined).catch(() => undefined);
+    };
+    const dispatchEvent = async (event: ChatEvent) => {
+      if (!options.onEvent) return;
+      await Promise.race([
+        Promise.resolve().then(() => options.onEvent?.(event)),
+        stopped.then((error) => Promise.reject(error)),
+      ]);
+    };
+    const abortError = () => {
+      const error = new Error("Ephemeral chat was cancelled.");
+      error.name = "AbortError";
+      return error;
+    };
+    const handleSignalAbort = () => requestAbort(abortError());
+    const timeout = setTimeout(() => requestAbort(new Error("Ephemeral chat timed out.")), timeoutMs);
+    options.signal?.addEventListener("abort", handleSignalAbort, { once: true });
+
+    try {
+      if (options.signal?.aborted) throw abortError();
+      session = await this.createEphemeralChatSession();
+      if (options.signal?.aborted) throw abortError();
+      if (stopError) throw stopError;
+
+      if (options.fastMode) {
+        let fastModeTerminal = false;
+        stream = session.chatSend("/fast on");
+        while (true) {
+          const next = await Promise.race([
+            stream.next(),
+            stopped.then((error) => Promise.reject(error)),
+          ]);
+          if (next.done) break;
+          const event = next.value;
+          if (event.type === "error") {
+            fastModeTerminal = true;
+            throw new Error(event.text || "Ephemeral fast mode failed.");
+          }
+          if (event.type === "done") {
+            fastModeTerminal = true;
+            break;
+          }
+        }
+        await stream.return(undefined).catch(() => undefined);
+        stream = null;
+        if (stopError) throw stopError;
+        if (!fastModeTerminal) throw new Error("Ephemeral fast mode ended without completing.");
+      }
+
+      let content = "";
+      stream = session.chatSend(prompt);
+      while (true) {
+        const next = await Promise.race([
+          stream.next(),
+          stopped.then((error) => Promise.reject(error)),
+        ]);
+        if (next.done) break;
+        const event = next.value;
+        if (stopError) throw stopError;
+        if (event.type === "content") {
+          content = applyChatEventContent(content, event);
+          if (content.length > maxResponseChars) {
+            const error = new Error("Ephemeral chat response exceeds the configured limit.");
+            requestAbort(error);
+            throw error;
+          }
+        }
+        await dispatchEvent(event);
+        if (event.type === "error") {
+          terminal = true;
+          throw new Error(event.text || "Ephemeral chat failed.");
+        } else if (event.type === "done") {
+          terminal = true;
+        }
+      }
+      if (stopError) throw stopError;
+      if (!terminal) throw new Error("Ephemeral chat ended without completing.");
+      if (!content.trim()) throw new Error("Ephemeral chat returned an empty response.");
+      resultContent = content;
+    } catch (error) {
+      if (session && !terminal) requestAbort(error instanceof Error ? error : new Error("Ephemeral chat failed."));
+      await abortPromise;
+      primaryError = stopError ?? error;
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", handleSignalAbort);
+      if (stream && !primaryError) {
+        await promiseSettlesWithin(stream.return(undefined), EPHEMERAL_TURN_CLOSE_WAIT_MS);
+      }
+      if (session) {
+        try {
+          await session.close();
+        } catch (error) {
+          cleanupError = error;
+        }
+      }
+    }
+    if (primaryError && cleanupError) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+      const combinedError = new Error(`${primaryMessage} Private chat cleanup also failed: ${cleanupMessage}`);
+      combinedError.name = primaryError instanceof Error ? primaryError.name : "Error";
+      (combinedError as Error & { cause?: unknown }).cause = cleanupError;
+      throw combinedError;
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+    if (resultContent === null) throw new Error("Ephemeral chat ended without a result.");
+    return resultContent;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Files (agent workspace files)
+  // ---------------------------------------------------------------------------
+
+  async filesList(agentId: string = "main"): Promise<any[]> {
+    const res = await this.rpc("agents.files.list", { agentId });
+    return res?.files ?? [];
+  }
+
+  async fileGet(agentId: string, name: string): Promise<string> {
+    const res = await this.rpc("agents.files.get", { agentId, name });
+    return res?.content ?? "";
+  }
+
+  async fileSet(agentId: string, name: string, content: string): Promise<void> {
+    await this.rpc("agents.files.set", { agentId, name, content });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agents
+  // ---------------------------------------------------------------------------
+
+  async agentsList(): Promise<any[]> {
+    const res = await this.rpc("agents.list");
+    const agents = res?.agents ?? res ?? [];
+    return Array.isArray(agents)
+      ? agents.map((agent: any) => ({ ...agent, id: agent?.agentId ?? agent?.id }))
+      : [];
+  }
+
+  async agentGet(agentId = "main"): Promise<any> {
+    const res = await this.rpc("agents.get", { agentId });
+    return res?.agent ?? res ?? {};
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cron
+  // ---------------------------------------------------------------------------
+
+  async cronList(): Promise<any[]> {
+    const res = await this.rpc("cron.list");
+    return res?.jobs ?? res ?? [];
+  }
+
+  async cronAdd(job: Record<string, any>): Promise<any> {
+    return this.rpc("cron.add", job);
+  }
+
+  async cronRemove(jobId: string): Promise<void> {
+    await this.rpc("cron.remove", { jobId });
+  }
+
+  async cronRun(jobId: string): Promise<any> {
+    return this.rpc("cron.run", { jobId });
+  }
+
+  async execApprove(execId: string): Promise<void> {
+    await this.rpc("exec.approve", { execId });
+  }
+
+  async execDeny(execId: string): Promise<void> {
+    await this.rpc("exec.deny", { execId });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Status
+  // ---------------------------------------------------------------------------
+
+  async status(): Promise<Record<string, any>> {
+    return this.rpc("status");
+  }
+}
+
+function createGatewayRequestAbortError(method: string): Error {
+  const err = new Error(`gateway request aborted for ${method}`);
+  err.name = "AbortError";
+  return err;
+}
+
+// -----------------------------------------------------------------------------
+// Node receiver (node-side: be a node the agent drives)
+//
+// The operator methods above (nodesList/nodeInvoke/...) drive paired nodes.
+// NodeServer is the other half: it connects to the gateway with role "node",
+// declares a command surface, then answers `node.invoke.request` events by
+// dispatching to local handlers and replying with the `node.invoke.result` RPC.
+// The gateway correlates request and result by the request `id`.
+// -----------------------------------------------------------------------------
+
+/** Handler for one node command. Receives decoded params, returns a JSON-serializable payload. */
+export type NodeCommandHandler = (params: any) => Promise<any> | any;
+
+export interface NodeServerOptions
+  extends Omit<GatewayOptions, "role" | "scopes" | "commands" | "clientMode"> {
+  /** Stable node id advertised to operators (defaults to the client instance id). */
+  nodeId?: string;
+}
+
+interface NodeInvokeRequest {
+  id: string;
+  nodeId: string;
+  command: string;
+  paramsJSON: string | null;
+}
+
+type NodeInvokeResult =
+  | { ok: true; payloadJSON: string }
+  | { ok: false; error: { code: string; message: string } };
+
+function coerceNodeInvokeRequest(payload: unknown): NodeInvokeRequest | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const obj = payload as Record<string, unknown>;
+  const id = typeof obj.id === "string" ? obj.id.trim() : "";
+  const nodeId = typeof obj.nodeId === "string" ? obj.nodeId.trim() : "";
+  const command = typeof obj.command === "string" ? obj.command.trim() : "";
+  if (!id || !nodeId || !command) {
+    return null;
+  }
+  const paramsJSON =
+    typeof obj.paramsJSON === "string"
+      ? obj.paramsJSON
+      : obj.params !== undefined
+        ? JSON.stringify(obj.params)
+        : null;
+  return { id, nodeId, command, paramsJSON };
+}
+
+/**
+ * Serve a node command surface over a gateway connection. Wraps a
+ * {@link GatewayClient} connected as `role: "node"`, subscribes to
+ * `node.invoke.request`, dispatches to the registered handlers, and replies with
+ * `node.invoke.result` (JSON-encoded payload on success, or an error).
+ */
+export class NodeServer {
+  readonly gateway: GatewayClient;
+  private readonly handlers: Record<string, NodeCommandHandler>;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(commands: Record<string, NodeCommandHandler>, options: NodeServerOptions) {
+    this.handlers = { ...commands };
+    const nodeId = options.nodeId?.trim() || undefined;
+    this.gateway = new GatewayClient({
+      ...options,
+      clientId: options.clientId ?? "node-host",
+      clientMode: "node",
+      role: "node",
+      scopes: [],
+      caps: options.caps ?? [],
+      commands: Object.keys(this.handlers),
+      ...(nodeId ? { instanceId: nodeId } : {}),
+    });
+  }
+
+  /** Connect as a node and start answering invoke requests. Resolves once connected. */
+  async start(): Promise<void> {
+    if (!this.unsubscribe) {
+      this.unsubscribe = this.gateway.onEvent((event) => {
+        if (event.event === "node.invoke.request") {
+          void this.handleInvoke(event.payload);
+        }
+      });
+    }
+    await this.gateway.connect();
+  }
+
+  /** Stop answering requests and disconnect. */
+  stop(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.gateway.stop();
+  }
+
+  private async handleInvoke(payload: Record<string, any>): Promise<void> {
+    const frame = coerceNodeInvokeRequest(payload);
+    if (!frame) {
+      return;
+    }
+    const result = await this.dispatch(frame);
+    try {
+      await this.gateway.request("node.invoke.result", {
+        id: frame.id,
+        nodeId: frame.nodeId,
+        ...result,
+      });
+    } catch {
+      // node invoke replies are best-effort; the gateway times out stale ids.
+    }
+  }
+
+  private async dispatch(frame: NodeInvokeRequest): Promise<NodeInvokeResult> {
+    const handler = this.handlers[frame.command];
+    if (!handler) {
+      return {
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: `command not supported: ${frame.command}` },
+      };
+    }
+    let params: any;
+    try {
+      params = frame.paramsJSON ? JSON.parse(frame.paramsJSON) : {};
+    } catch {
+      return {
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: "paramsJSON malformed JSON" },
+      };
+    }
+    try {
+      const result = await handler(params);
+      return { ok: true, payloadJSON: JSON.stringify(result === undefined ? null : result) };
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: "UNAVAILABLE", message: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+}

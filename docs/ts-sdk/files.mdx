@@ -1,0 +1,90 @@
+---
+title: Files
+description: Upload local assets and asynchronous URL or base64 imports with the TypeScript SDK.
+---
+
+Uploaded files are primarily intended for use inside HyperCLI render workflows. The returned `url` is an internal storage reference, not a public download URL.
+
+## Upload From Disk
+
+```ts
+const file = await client.files.upload("./image.png");
+
+console.log(file.id);
+console.log(file.url);
+```
+
+The SDK infers common MIME types for:
+
+- PNG, JPEG, GIF, WebP
+- MP3, WAV
+- MP4, WebM
+
+## Upload Raw Bytes
+
+```ts
+const file = await client.files.uploadBytes(
+  Buffer.from(binaryPayload),
+  "mask.png",
+  "image/png",
+);
+```
+
+## Import From URL
+
+`uploadUrl()` is asynchronous on the backend. It usually returns a file in `processing` state first.
+
+```ts
+const imported = await client.files.uploadUrl(
+  "https://example.com/reference.png",
+  "imports/reference.png",
+);
+
+const ready = await client.files.waitReady(imported.id);
+```
+
+## Import From Base64
+
+```ts
+const file = await client.files.uploadB64(
+  base64String,
+  "frame.png",
+  "image/png",
+  "frames",
+);
+```
+
+## Polling Helpers
+
+```ts
+const ready = await client.files.waitReady(file.id, 60_000, 1_000);
+
+if (client.files.isReady(ready)) {
+  console.log(ready.url);
+}
+```
+
+Helpers:
+
+- `isReady(file)`
+- `isFailed(file)`
+- `isProcessing(file)`
+
+## Metadata And Deletion
+
+```ts
+const current = await client.files.get(file.id);
+await client.files.delete(file.id);
+```
+
+## Typical Render Flow
+
+```ts
+const image = await client.files.upload("./avatar.png");
+const audio = await client.files.upload("./voice.wav");
+
+const render = await client.renders.speakingVideo({
+  prompt: "a person speaking to camera",
+  fileIds: [image.id, audio.id],
+});
+```

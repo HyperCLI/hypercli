@@ -1,0 +1,33 @@
+# Build output
+dist/
+build/
+target/
+out/
+
+# Caches
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.turbo/
+*.tsbuildinfo
+*.pyc
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Test/coverage artifacts
+coverage/
+htmlcov/
+.coverage*
+coverage.xml
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store

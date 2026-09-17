@@ -1,0 +1,213 @@
+---
+title: Configuration
+description: Configure HyperCLI credentials, API URLs, and local state files used by the CLI.
+---
+
+## Interactive Setup
+
+```bash
+hyper configure
+```
+
+This writes the shared config file at `~/.hypercli/config`.
+
+## Verification Commands
+
+`hyper me` calls the authenticated product `/api/auth/me` endpoint and then
+attempts to add the current agent entitlement summary:
+
+```bash
+hyper me
+hyper me --output json
+```
+
+Use it to verify identity and key capabilities before a billed operation. Its
+output contains account identifiers and should not be pasted into public logs.
+
+`hyper status` queries compact model and cluster health through the agents API:
+
+```bash
+hyper status
+hyper status --output json
+```
+
+It is a health check, not an identity check. A successful `status` does not
+replace `me` when diagnosing which account a product credential resolves to.
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `HYPER_API_KEY` | Main HyperCLI API key |
+| `HYPERCLI_API_KEY` | Legacy alias for the main API key |
+| `HYPER_API_BASE` | Primary HyperCLI REST API base URL |
+| `HYPERCLI_API_URL` | Legacy alias for the primary REST API base URL |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key used by `hyper agents` |
+| `HYPERCLI_WS_URL` | Primary HyperCLI WebSocket base URL |
+| `AGENTS_API_BASE_URL` | HyperCLI deployments API base URL |
+| `AGENTS_WS_URL` | HyperCLI backend WebSocket base for logs and shell |
+| `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
+
+## URL Model
+
+The CLI now separates the primary product API from the agents API:
+
+- `HYPER_API_BASE`
+  - billing
+  - jobs
+  - keys
+  - account APIs
+- `HYPERCLI_WS_URL`
+  - primary WebSocket base derived from the main API
+- `AGENTS_API_BASE_URL`
+  - HyperCLI deployments REST base
+  - create/start/stop/delete
+  - files
+  - exec
+  - desktop token APIs
+- `AGENTS_WS_URL`
+  - HyperCLI backend WebSocket base
+  - `/logs/{agent_id}`
+  - `/shell/{agent_id}`
+
+Recommended production values:
+
+```bash
+HYPER_API_BASE=https://api.hypercli.com
+HYPERCLI_WS_URL=wss://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+Recommended dev values:
+
+```bash
+HYPER_API_BASE=https://api.dev.hypercli.com
+HYPERCLI_WS_URL=wss://api.dev.hypercli.com
+AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
+```
+
+## Shared Config File
+
+Location:
+
+```text
+~/.hypercli/config
+```
+
+Example:
+
+```bash
+HYPER_API_KEY=hyper_...
+HYPER_API_BASE=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+## Local State Files
+
+The CLI stores additional state in `~/.hypercli/`:
+
+- `config`: shared API key and base URL
+- `agent-key.json`: saved HyperCLI key from `hyper agent subscribe` or `hyper agent login`
+- `agent-keys.yaml`: key history written by `hyper agent subscribe`
+- `agent-jwt.json`: wallet-auth JWT used during agent login flows
+- `agents.json`: cached agent metadata for ID prefix resolution
+- `wallet.json`: local wallet file, either an encrypted keystore or a plaintext private-key wallet
+
+## Priority Rules
+
+For product APIs, the SDK resolves credentials in this exact order:
+
+1. an explicit command `--key` or SDK `api_key` argument, where supported
+2. `HYPER_API_KEY` in the environment
+3. `HYPER_API_KEY` in `~/.hypercli/config`
+4. legacy `HYPERCLI_API_KEY` in the environment
+5. legacy `HYPERCLI_API_KEY` in `~/.hypercli/config`
+
+The `hyper agents` group and most `hyper agent` account queries resolve agent
+credentials in this order:
+
+1. `HYPER_AGENTS_API_KEY` in the environment
+2. `HYPER_AGENTS_API_KEY` in `~/.hypercli/config`
+3. `HYPER_API_KEY` in the environment
+4. `HYPER_API_KEY` in `~/.hypercli/config`
+5. legacy `HYPERCLI_API_KEY` in the environment, then the config file
+6. legacy `~/.hypercli/agent-key.json`
+
+This ordering is per variable name. For example, a saved
+`HYPER_AGENTS_API_KEY` takes precedence over an environment
+`HYPER_API_KEY`. Remove or update the higher-priority value when replacing a
+credential; writing a new lower-priority value will not change the active key.
+
+Other command-specific exceptions still exist:
+
+- `hyper voice`: explicit `--key`, canonical product/agent config resolution,
+  then a non-expired `agent-key.json`; its API base is explicit `--base-url`,
+  environment `HYPER_API_BASE`, environment `HYPERCLI_API_URL`, then production
+- `hyper agent embed`: explicit `--key`, environment `HYPER_API_KEY`, then
+  `agent-key.json`; it does not read the shared config file
+- `hyper agent models`: sends authentication only from environment
+  `HYPER_API_KEY`
+- `hyper agent status`: reads the legacy `agent-key.json` locally and does not
+  validate that key against the API
+
+Use each command's `--help` before assuming the common priority rules apply.
+
+## Diagnosing 401 Errors
+
+A `401` with a server detail such as `API key is inactive` is an authentication
+failure, not a flow or prompt failure. Repeating the render request will not
+repair it.
+
+1. Confirm the CLI version and resolved product API base without printing a
+   credential:
+
+```bash
+hyper --version
+python - <<'PY'
+from hypercli.config import get_api_url
+print(get_api_url())
+PY
+```
+
+2. Check which credential *names* are present. Do not print their values:
+
+```bash
+python - <<'PY'
+import os
+from hypercli.config import CONFIG_FILE
+
+names = ("HYPER_API_KEY", "HYPERCLI_API_KEY", "HYPER_AGENTS_API_KEY")
+print("environment:", [name for name in names if os.environ.get(name)])
+if CONFIG_FILE.exists():
+    configured = {
+        line.split("=", 1)[0].strip()
+        for line in CONFIG_FILE.read_text().splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    print("config file:", [name for name in names if name in configured])
+else:
+    print("config file: absent")
+PY
+```
+
+3. Test the product identity once:
+
+```bash
+hyper me --output json
+```
+
+Do not paste successful `me` JSON into a public thread; it contains account
+identifiers. If the command fails, report the API base, the source variable or
+file name, HTTP status, and server detail. Never report the credential itself.
+
+4. Activate or replace the credential at its highest-priority source. Use
+`hyper configure` for `~/.hypercli/config`; update or unset an environment
+variable when it is the active source. Run `hyper me` once more before retrying
+the original operation.
+
+Do not switch to a wallet, another account, dev, or `--x402` as an automatic
+fallback. Besides changing billing identity, local flow inputs still require a
+normal product-authenticated upload.

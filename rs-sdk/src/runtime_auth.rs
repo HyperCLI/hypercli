@@ -1,0 +1,1029 @@
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use futures_util::{SinkExt, StreamExt};
+use regex::Regex;
+use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::net::TcpStream;
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use url::Url;
+use uuid::Uuid;
+
+use std::collections::BTreeMap;
+
+use serde_json::Value;
+
+use crate::{HyperCliClient, HyperCliError};
+
+const AUTH_STATUS_EXECUTABLE: &str = "/usr/local/bin/hypercli-runtime-auth";
+const AUTH_LOGIN_COMMAND: &str = "/usr/local/bin/hypercli-runtime-auth login";
+const MAX_TERMINAL_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// Coding runtimes whose upstream-native credentials can be managed remotely.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeRuntime {
+    ClaudeCode,
+    Codex,
+    KimiCode,
+}
+
+impl NativeRuntime {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+            Self::KimiCode => "kimi-code",
+        }
+    }
+
+    const fn requires_device_challenge(self) -> bool {
+        matches!(self, Self::Codex | Self::KimiCode)
+    }
+
+    /// The ACP agent command used for auth-method discovery, matching the
+    /// Python SDK's `RuntimeAuthClient._COMMANDS[*]["agent"]`.
+    fn acp_agent_command(self) -> Vec<String> {
+        match self {
+            Self::ClaudeCode => vec!["claude-agent-acp"],
+            Self::Codex => vec!["codex-acp"],
+            Self::KimiCode => vec!["kimi", "acp"],
+        }
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    }
+
+    /// Login methods the runtime natively supports but does not advertise
+    /// over ACP, matching the Python SDK's `native_methods`.
+    fn native_auth_methods(self) -> Vec<RuntimeAuthMethod> {
+        let method = |id: &str, name: &str, description: &str, kind: &str, command: &[&str]| {
+            RuntimeAuthMethod {
+                id: id.to_owned(),
+                name: name.to_owned(),
+                description: description.to_owned(),
+                kind: kind.to_owned(),
+                command: command.iter().map(|part| (*part).to_owned()).collect(),
+                metadata: BTreeMap::new(),
+            }
+        };
+        match self {
+            Self::ClaudeCode => vec![
+                method(
+                    "claude-ai",
+                    "Claude subscription",
+                    "",
+                    "browser",
+                    &["claude", "auth", "login", "--claudeai"],
+                ),
+                method(
+                    "console",
+                    "Anthropic Console",
+                    "",
+                    "browser",
+                    &["claude", "auth", "login", "--console"],
+                ),
+                method(
+                    "sso",
+                    "Claude SSO",
+                    "",
+                    "browser",
+                    &["claude", "auth", "login", "--sso"],
+                ),
+            ],
+            Self::Codex => vec![method(
+                "device",
+                "ChatGPT device login",
+                "Open a verification URL and enter the displayed device code.",
+                "device",
+                &["codex", "login", "--device-auth"],
+            )],
+            Self::KimiCode => Vec::new(),
+        }
+    }
+
+    /// The non-interactive logout command, when the runtime exposes one.
+    fn logout_command(self) -> Option<Vec<String>> {
+        match self {
+            Self::ClaudeCode => Some(vec!["claude", "auth", "logout"]),
+            Self::Codex => Some(vec!["codex", "logout"]),
+            Self::KimiCode => None,
+        }
+        .map(|command| command.into_iter().map(str::to_owned).collect())
+    }
+
+    /// Why [`NativeRuntime::logout_command`] is absent, for error messages.
+    fn logout_unsupported_reason(self) -> &'static str {
+        match self {
+            Self::KimiCode => "does not expose a noninteractive logout command",
+            Self::ClaudeCode | Self::Codex => "does not expose a noninteractive logout command",
+        }
+    }
+}
+
+/// One login method advertised by a coding runtime, from ACP discovery or the
+/// runtime's static native list. Mirrors the Python SDK's `RuntimeAuthMethod`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct RuntimeAuthMethod {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub kind: String,
+    #[serde(default)]
+    pub command: Vec<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+/// Normalized output from the image-owned `hypercli-runtime-auth status` wrapper.
+///
+/// Every supported image must provide a definitive boolean. Treating an
+/// unknown status as a third state made Desktop appear to support wrappers
+/// whose login contract was not actually testable.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RuntimeAuthStatus {
+    pub runtime: NativeRuntime,
+    pub authenticated: bool,
+}
+
+impl RuntimeAuthStatus {
+    pub(crate) fn parse(stdout: &str) -> Result<Self, RuntimeAuthError> {
+        serde_json::from_str(stdout.trim()).map_err(|_| RuntimeAuthError::InvalidStatus)
+    }
+}
+
+/// Short-lived credential used only to connect to the protected shell proxy.
+///
+/// This type deliberately does not implement `Debug`, `Clone`, or `Serialize`:
+/// its token is not an application credential and must never enter logs, traces,
+/// Tauri events, or persisted state.
+pub struct RuntimeShellToken {
+    pub agent_id: String,
+    pub expires_at: String,
+    pub ws_url: Url,
+    pub shell: Option<String>,
+    pub dry_run: bool,
+    pub(crate) token: SecretString,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RuntimeShellTokenResponse {
+    agent_id: String,
+    token: String,
+    expires_at: String,
+    ws_url: String,
+    #[serde(default)]
+    dry_run: bool,
+    #[serde(default)]
+    shell: Option<String>,
+}
+
+impl RuntimeShellTokenResponse {
+    pub(crate) fn into_token(self) -> Result<RuntimeShellToken, RuntimeAuthError> {
+        let ws_url = Url::parse(&self.ws_url).map_err(|_| RuntimeAuthError::InvalidShellToken)?;
+        if ws_url.query().is_some() || ws_url.fragment().is_some() {
+            return Err(RuntimeAuthError::InvalidShellToken);
+        }
+        Ok(RuntimeShellToken {
+            agent_id: self.agent_id,
+            expires_at: self.expires_at,
+            ws_url,
+            shell: self.shell,
+            dry_run: self.dry_run,
+            token: SecretString::from(self.token),
+        })
+    }
+}
+
+impl RuntimeShellToken {
+    /// The full shell-proxy websocket URL, including the short-lived token
+    /// and shell query parameters. The URL embeds a live token: treat it as a
+    /// credential and keep it out of logs and traces.
+    pub fn websocket_url(&self) -> Result<Url, RuntimeAuthError> {
+        if !matches!(self.ws_url.scheme(), "ws" | "wss") {
+            return Err(RuntimeAuthError::InvalidShellToken);
+        }
+        let mut url = self.ws_url.clone();
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("token", self.token.expose_secret());
+            if let Some(shell) = self.shell.as_deref() {
+                query.append_pair("shell", shell);
+            }
+        }
+        Ok(url)
+    }
+}
+
+/// Sanitized, UI-safe state extracted from a native runtime's terminal login.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct RuntimeLoginChallenge {
+    pub verification_url: Option<String>,
+    pub user_code: Option<String>,
+    pub instructions: String,
+    pub interactive_required: bool,
+    pub completed: bool,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeLoginResult {
+    pub exit_code: i32,
+}
+
+#[derive(Debug, Error)]
+pub enum RuntimeAuthError {
+    #[error(transparent)]
+    Api(#[from] HyperCliError),
+    #[error("runtime authentication status command exited with status {0}")]
+    StatusCommandFailed(i32),
+    #[error("runtime authentication status was not valid normalized JSON")]
+    InvalidStatus,
+    #[error("runtime shell token response was invalid")]
+    InvalidShellToken,
+    #[error("runtime login websocket connection failed")]
+    Connection,
+    #[error("runtime login websocket stream failed")]
+    Stream,
+    #[error("runtime login input must be a single authorization code")]
+    InvalidInput,
+    #[error("runtime login websocket closed before the command completed")]
+    Closed,
+    #[error("timed out waiting for {0} login instructions")]
+    ChallengeTimeout(&'static str),
+    #[error("timed out waiting for {0} login")]
+    LoginTimeout(&'static str),
+    #[error("{0} login exited with status {1}")]
+    LoginFailed(&'static str, i32),
+    #[error("{0} {1} and cannot log out")]
+    LogoutUnsupported(&'static str, &'static str),
+    #[error("{0} logout exited with status {1}")]
+    LogoutFailed(&'static str, i32),
+}
+
+type RuntimeSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// Live native-authentication process running in an agent PTY.
+///
+/// The session deliberately does not implement `Debug`. Its WebSocket URL was
+/// authenticated with a short-lived token, and terminal input can contain a
+/// one-time authorization code. Only [`RuntimeLoginChallenge`] is suitable for
+/// forwarding to a UI.
+pub struct RuntimeLoginSession {
+    socket: RuntimeSocket,
+    parser: RuntimeLoginParser,
+}
+
+struct RuntimeLoginParser {
+    runtime: NativeRuntime,
+    marker: String,
+    raw_output: String,
+    challenge: RuntimeLoginChallenge,
+}
+
+impl RuntimeLoginSession {
+    /// Consume a shell token, connect to the PTY, and start the fixed login wrapper.
+    pub async fn connect(
+        token: RuntimeShellToken,
+        runtime: NativeRuntime,
+        challenge_timeout: Duration,
+    ) -> Result<Self, RuntimeAuthError> {
+        let url = token.websocket_url()?;
+        let (socket, _) = connect_async(url.as_str())
+            .await
+            .map_err(|_| RuntimeAuthError::Connection)?;
+        let marker = format!("__HYPERCLI_AUTH_EXIT_{}__", Uuid::new_v4().simple());
+        let mut session = Self {
+            socket,
+            parser: RuntimeLoginParser::new(runtime, marker),
+        };
+        let command = format!(
+            "{AUTH_LOGIN_COMMAND}; _hypercli_auth_rc=$?; printf '\\n{}=%s\\n' \"$_hypercli_auth_rc\"; exit \"$_hypercli_auth_rc\"\n",
+            session.parser.marker
+        );
+        session
+            .socket
+            .send(Message::Text(command.into()))
+            .await
+            .map_err(|_| RuntimeAuthError::Stream)?;
+
+        tokio::time::timeout(challenge_timeout, session.read_until_ready())
+            .await
+            .map_err(|_| RuntimeAuthError::ChallengeTimeout(runtime.as_str()))??;
+        Ok(session)
+    }
+
+    pub fn runtime(&self) -> NativeRuntime {
+        self.parser.runtime
+    }
+
+    pub fn challenge(&self) -> &RuntimeLoginChallenge {
+        &self.parser.challenge
+    }
+
+    /// Send terminal input. A trailing newline is added when absent.
+    ///
+    /// The value is never retained by the session or included in an error.
+    pub async fn send_input(&mut self, value: &str) -> Result<(), RuntimeAuthError> {
+        if value.is_empty()
+            || value.len() > 2048
+            || !value.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'+' | b'/' | b'=' | b'#')
+            })
+        {
+            return Err(RuntimeAuthError::InvalidInput);
+        }
+        let input = format!("{value}\n");
+        self.socket
+            .send(Message::Text(input.into()))
+            .await
+            .map_err(|_| RuntimeAuthError::Stream)
+    }
+
+    /// Read until the terminal state changes, returning a sanitized snapshot.
+    pub async fn refresh(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<RuntimeLoginChallenge, RuntimeAuthError> {
+        let prior = self.parser.challenge.clone();
+        tokio::time::timeout(timeout, async {
+            while self.parser.challenge == prior && !self.parser.challenge.completed {
+                self.read_one().await?;
+            }
+            Ok::<(), RuntimeAuthError>(())
+        })
+        .await
+        .map_err(|_| RuntimeAuthError::ChallengeTimeout(self.parser.runtime.as_str()))??;
+        Ok(self.parser.challenge.clone())
+    }
+
+    /// Wait for the login command to exit.
+    pub async fn wait(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<RuntimeLoginResult, RuntimeAuthError> {
+        tokio::time::timeout(timeout, async {
+            while !self.parser.challenge.completed {
+                self.read_one().await?;
+            }
+            Ok::<(), RuntimeAuthError>(())
+        })
+        .await
+        .map_err(|_| RuntimeAuthError::LoginTimeout(self.parser.runtime.as_str()))??;
+        let exit_code = self
+            .parser
+            .challenge
+            .exit_code
+            .ok_or(RuntimeAuthError::Closed)?;
+        if exit_code != 0 {
+            return Err(RuntimeAuthError::LoginFailed(
+                self.parser.runtime.as_str(),
+                exit_code,
+            ));
+        }
+        Ok(RuntimeLoginResult { exit_code })
+    }
+
+    /// Interrupt and close the remote login process.
+    pub async fn cancel(&mut self) {
+        let _ = self.socket.send(Message::Text("\u{3}".into())).await;
+        let _ = self.socket.close(None).await;
+        self.parser.challenge.completed = true;
+    }
+
+    async fn read_until_ready(&mut self) -> Result<(), RuntimeAuthError> {
+        while !self.is_ready() {
+            self.read_one().await?;
+        }
+        Ok(())
+    }
+
+    fn is_ready(&self) -> bool {
+        self.parser.is_ready()
+    }
+
+    async fn read_one(&mut self) -> Result<(), RuntimeAuthError> {
+        loop {
+            match self.socket.next().await {
+                Some(Ok(Message::Text(value))) => {
+                    self.parser.consume(value.as_str());
+                    return Ok(());
+                }
+                Some(Ok(Message::Binary(value))) => {
+                    self.parser.consume(&String::from_utf8_lossy(&value));
+                    return Ok(());
+                }
+                Some(Ok(Message::Ping(value))) => {
+                    self.socket
+                        .send(Message::Pong(value))
+                        .await
+                        .map_err(|_| RuntimeAuthError::Stream)?;
+                }
+                Some(Ok(Message::Close(_))) | None => {
+                    self.parser.challenge.completed = true;
+                    return Err(RuntimeAuthError::Closed);
+                }
+                Some(Ok(_)) => {}
+                Some(Err(_)) => return Err(RuntimeAuthError::Stream),
+            }
+        }
+    }
+}
+
+impl RuntimeLoginParser {
+    fn new(runtime: NativeRuntime, marker: String) -> Self {
+        Self {
+            runtime,
+            marker,
+            raw_output: String::new(),
+            challenge: RuntimeLoginChallenge::default(),
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        if self.challenge.completed || self.challenge.interactive_required {
+            return true;
+        }
+        if self.runtime.requires_device_challenge() {
+            self.challenge.verification_url.is_some() && self.challenge.user_code.is_some()
+        } else {
+            self.challenge.verification_url.is_some() || self.challenge.user_code.is_some()
+        }
+    }
+
+    fn consume(&mut self, value: &str) {
+        self.raw_output.push_str(value);
+        truncate_prefix(&mut self.raw_output, MAX_TERMINAL_OUTPUT_BYTES);
+        let output = clean_terminal_output(&self.raw_output);
+
+        if let Some(exit_code) = parse_exit_code(&output, &self.marker) {
+            self.challenge.exit_code = Some(exit_code);
+            self.challenge.completed = true;
+        }
+        if self.challenge.verification_url.is_none() {
+            self.challenge.verification_url =
+                parse_auth_url(&self.raw_output).or_else(|| parse_auth_url(&output));
+        }
+        if self.challenge.user_code.is_none() {
+            self.challenge.user_code = parse_auth_code(&output);
+        }
+        let lowered = output.to_ascii_lowercase();
+        self.challenge.interactive_required |= [
+            "select",
+            "choose",
+            "provider",
+            "login method",
+            "paste code",
+            "paste the code",
+            "enter the code",
+        ]
+        .iter()
+        .any(|token| lowered.contains(token));
+        self.challenge.instructions = output.replace(&self.marker, "").trim().to_owned();
+    }
+}
+
+pub(crate) fn auth_status_command() -> Vec<String> {
+    vec![AUTH_STATUS_EXECUTABLE.to_owned(), "status".to_owned()]
+}
+
+/// Parse the `hyper-acp plugin auth-methods --json` payload, mirroring the
+/// Python SDK's `RuntimeAuthClient.methods` discovery normalization.
+fn parse_auth_methods_payload(stdout: &str) -> Vec<RuntimeAuthMethod> {
+    let parse_command = |item: &serde_json::Map<String, Value>| -> Vec<String> {
+        (|| {
+            let raw = match item.get("command") {
+                Some(value) => value.clone(),
+                None => return Vec::new(),
+            };
+            match raw {
+                Value::Array(parts) => parts
+                    .iter()
+                    .map(|part| part.as_str().unwrap_or_default().to_owned())
+                    .collect(),
+                Value::String(command) => {
+                    let mut command = vec![command];
+                    if let Some(args) = item.get("args").and_then(Value::as_array) {
+                        command.extend(
+                            args.iter()
+                                .map(|arg| arg.as_str().unwrap_or_default().to_owned()),
+                        );
+                    }
+                    command
+                }
+                _ => Vec::new(),
+            }
+        })()
+    };
+    let payload: Value = match serde_json::from_str(stdout) {
+        Ok(payload) => payload,
+        Err(_) => return Vec::new(),
+    };
+    let Some(methods) = payload.get("methods").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    methods
+        .iter()
+        .filter_map(Value::as_object)
+        .map(|item| {
+            let metadata: BTreeMap<String, Value> = item
+                .get("_meta")
+                .and_then(Value::as_object)
+                .map(|meta| meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default();
+            let mut command = parse_command(item);
+            // The ACP `terminal-auth` metadata carries the real command.
+            if command.is_empty() {
+                if let Some(terminal) = metadata.get("terminal-auth").and_then(Value::as_object) {
+                    let raw = terminal.get("command").cloned().unwrap_or(Value::Null);
+                    command = match raw {
+                        Value::Array(parts) => parts
+                            .iter()
+                            .map(|part| part.as_str().unwrap_or_default().to_owned())
+                            .collect(),
+                        Value::String(command) => {
+                            let mut command = vec![command];
+                            if let Some(args) = terminal.get("args").and_then(Value::as_array) {
+                                command.extend(
+                                    args.iter()
+                                        .map(|arg| arg.as_str().unwrap_or_default().to_owned()),
+                                );
+                            }
+                            command
+                        }
+                        _ => Vec::new(),
+                    };
+                    if item.get("id").and_then(Value::as_str) == Some("claude-login")
+                        && !command.is_empty()
+                    {
+                        command.extend(["auth".to_owned(), "login".to_owned()]);
+                    }
+                }
+            }
+            let kind = item
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or(if command.is_empty() {
+                    "acp"
+                } else {
+                    "terminal"
+                })
+                .to_owned();
+            RuntimeAuthMethod {
+                id: item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                name: item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.get("id").and_then(Value::as_str))
+                    .unwrap_or_default()
+                    .to_owned(),
+                description: item
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                kind,
+                command,
+                metadata,
+            }
+        })
+        .filter(|method| !method.id.is_empty())
+        .collect()
+}
+
+impl HyperCliClient {
+    /// Discover the login methods a coding runtime advertises, merging ACP
+    /// discovery with the runtime's static native methods.
+    ///
+    /// Discovery runs through the existing protected exec surface; a failed
+    /// discovery command degrades to the native list, matching the Python
+    /// SDK's `RuntimeAuthClient.methods`.
+    pub async fn runtime_auth_methods(
+        &self,
+        deployment_id: &str,
+        runtime: NativeRuntime,
+    ) -> Result<Vec<RuntimeAuthMethod>, RuntimeAuthError> {
+        let agent_command = runtime.acp_agent_command();
+        let mut argv = vec![
+            "hyper-acp".to_owned(),
+            "plugin".to_owned(),
+            "auth-methods".to_owned(),
+            "--agent-command".to_owned(),
+            agent_command[0].clone(),
+        ];
+        if agent_command.len() > 1 {
+            argv.push("--agent-args".to_owned());
+            argv.push(agent_command[1..].join(","));
+        }
+        argv.push("--json".to_owned());
+        let mut request = crate::ExecDeploymentRequest::new(argv);
+        request.timeout = 30;
+        let response = self.exec_deployment(deployment_id, &request).await?;
+        let mut methods = if response.exit_code == 0 {
+            parse_auth_methods_payload(&response.stdout)
+        } else {
+            Vec::new()
+        };
+        for method in runtime.native_auth_methods() {
+            if !methods.iter().any(|existing| existing.id == method.id) {
+                methods.push(method);
+            }
+        }
+        Ok(methods)
+    }
+
+    /// Run the runtime's non-interactive logout, then re-read its status.
+    ///
+    /// Runtimes without a logout command (Kimi Code uses the injected
+    /// deployment credential) reject with
+    /// [`RuntimeAuthError::LogoutUnsupported`].
+    pub async fn runtime_auth_logout(
+        &self,
+        deployment_id: &str,
+        runtime: NativeRuntime,
+    ) -> Result<RuntimeAuthStatus, RuntimeAuthError> {
+        let Some(command) = runtime.logout_command() else {
+            return Err(RuntimeAuthError::LogoutUnsupported(
+                runtime.as_str(),
+                runtime.logout_unsupported_reason(),
+            ));
+        };
+        let mut request = crate::ExecDeploymentRequest::new(command);
+        request.timeout = 30;
+        let response = self.exec_deployment(deployment_id, &request).await?;
+        if response.exit_code != 0 {
+            return Err(RuntimeAuthError::LogoutFailed(
+                runtime.as_str(),
+                response.exit_code,
+            ));
+        }
+        self.runtime_auth_status(deployment_id).await
+    }
+}
+
+fn ansi_escape_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+            .expect("ANSI escape regex is valid")
+    })
+}
+
+fn auth_url_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r#"(https?://[^\s<>\"'\x1b\x07]+)[\s<>\"'\x1b\x07]"#)
+            .expect("auth URL regex is valid")
+    })
+}
+
+fn auth_code_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(
+            r"(?im)\b(?:(?:user|device|verification|one[- ]time)\s+code|enter\s+(?:the\s+)?code)\b\s*(?:is|:)?\s*(?:\([^\r\n)]*\)\s*)*([A-Z0-9][A-Z0-9-]{2,}[A-Z0-9])(?:[\s.,;:)\]])",
+        )
+        .expect("auth code regex is valid")
+    })
+}
+
+fn clean_terminal_output(value: &str) -> String {
+    ansi_escape_regex().replace_all(value, "").replace('\r', "")
+}
+
+fn parse_auth_url(output: &str) -> Option<String> {
+    auth_url_regex()
+        .captures(output)
+        .and_then(|captures| captures.get(1))
+        .map(|value| {
+            value
+                .as_str()
+                .trim_end_matches(['.', ',', ')', ';', ']'])
+                .to_owned()
+        })
+}
+
+fn parse_auth_code(output: &str) -> Option<String> {
+    auth_code_regex()
+        .captures_iter(output)
+        .find_map(|captures| {
+            let value = captures.get(1)?.as_str();
+            (!value.eq_ignore_ascii_case("authorization")).then(|| value.to_owned())
+        })
+}
+
+fn parse_exit_code(output: &str, marker: &str) -> Option<i32> {
+    let suffix = output.split_once(&format!("{marker}="))?.1;
+    suffix
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+fn truncate_prefix(value: &mut String, max_bytes: usize) {
+    if value.len() <= max_bytes {
+        return;
+    }
+    let mut start = value.len() - max_bytes;
+    while !value.is_char_boundary(start) {
+        start += 1;
+    }
+    value.drain(..start);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::accept_async;
+
+    #[test]
+    fn status_parses_all_normalized_runtime_shapes() {
+        assert_eq!(
+            RuntimeAuthStatus::parse(r#"{"runtime":"claude-code","authenticated":true}"#).unwrap(),
+            RuntimeAuthStatus {
+                runtime: NativeRuntime::ClaudeCode,
+                authenticated: true,
+            }
+        );
+        assert!(
+            !RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":false}"#)
+                .unwrap()
+                .authenticated
+        );
+        assert!(
+            RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":null}"#).is_err()
+        );
+        assert!(RuntimeAuthStatus::parse(r#"{"runtime":"codex"}"#).is_err());
+        assert!(RuntimeAuthStatus::parse("not json").is_err());
+    }
+
+    #[test]
+    fn parser_handles_split_ansi_device_challenge() {
+        let mut parser = parser(NativeRuntime::Codex);
+        parser.consume("\x1b]0;codex login --device-auth\x07Open https://auth.openai.com/cod");
+        parser.consume("ex/device and enter your one-time code:\nABCD-");
+        parser.consume("EFGHJ\n");
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://auth.openai.com/codex/device")
+        );
+        assert_eq!(parser.challenge.user_code.as_deref(), Some("ABCD-EFGHJ"));
+        assert!(!parser.challenge.instructions.contains('\x1b'));
+        assert!(parser.is_ready());
+    }
+
+    #[test]
+    fn parser_does_not_treat_authorization_as_a_device_code() {
+        let mut parser = parser(NativeRuntime::Codex);
+        parser.consume("Complete device code authorization at https://example.com/device\n");
+        assert_eq!(parser.challenge.user_code, None);
+    }
+
+    #[test]
+    fn claude_browser_challenge_can_request_pasted_input() {
+        let mut parser = parser(NativeRuntime::ClaudeCode);
+        parser.consume(
+            "Open https://claude.ai/oauth/authorize?code=true in your browser.\n\
+             Paste the code here when authentication completes: ",
+        );
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://claude.ai/oauth/authorize?code=true")
+        );
+        assert!(parser.challenge.interactive_required);
+        assert!(parser.is_ready());
+    }
+
+    #[test]
+    fn claude_osc8_browser_link_survives_terminal_sanitizing() {
+        let mut parser = parser(NativeRuntime::ClaudeCode);
+        parser.consume(
+            "Opening browser to sign in…\nIf the browser didn't open, visit: \x1b]8;;https://claude.com/cai/oauth/authorize?code=true\x07\x1b[94mhttps://claude.com/cai/oauth/authorize?code=true\x1b[39m\x1b]8;;\x07\nPaste code here if prompted > ",
+        );
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://claude.com/cai/oauth/authorize?code=true")
+        );
+        assert!(parser.challenge.interactive_required);
+        assert!(parser.is_ready());
+    }
+
+    #[test]
+    fn kimi_device_prompt_extracts_enter_code_shape() {
+        let mut parser = parser(NativeRuntime::KimiCode);
+        parser.consume(
+            "Opening browser for Kimi device login: https://auth.kimi.com/device\nIf the browser did not open, paste the URL above and enter code: ABCD-EFGH\nCode expires in 1800s.\nWaiting for authorization to complete...\n",
+        );
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://auth.kimi.com/device")
+        );
+        assert_eq!(parser.challenge.user_code.as_deref(), Some("ABCD-EFGH"));
+        assert!(!parser.challenge.interactive_required);
+        assert!(parser.is_ready());
+    }
+
+    #[tokio::test]
+    async fn terminal_input_rejects_shell_control_and_multiline_values_before_io() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let command = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            let marker_start = command.find("__HYPERCLI_AUTH_EXIT_").unwrap();
+            let marker_end = command[marker_start + 2..].find("__").unwrap() + marker_start + 4;
+            let marker = &command[marker_start..marker_end];
+            socket
+                .send(Message::Text(
+                    "Paste the code: https://auth.example/device\nABCD-EFGH\n".into(),
+                ))
+                .await
+                .unwrap();
+            let input = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert_eq!(input, "authorization-code#state-value\n");
+            socket
+                .send(Message::Text(format!("\n{marker}=0\n").into()))
+                .await
+                .unwrap();
+        });
+        let token = RuntimeShellToken {
+            agent_id: "agent-1".to_owned(),
+            expires_at: "2026-08-05T12:00:00Z".to_owned(),
+            ws_url: Url::parse(&format!("ws://{address}/ws/shell/agent-1")).unwrap(),
+            shell: Some("/bin/bash".to_owned()),
+            dry_run: false,
+            token: SecretString::from("short-lived-token".to_owned()),
+        };
+        let mut session =
+            RuntimeLoginSession::connect(token, NativeRuntime::ClaudeCode, Duration::from_secs(2))
+                .await
+                .unwrap();
+        session
+            .send_input("authorization-code#state-value")
+            .await
+            .unwrap();
+        for rejected in ["code\nuname -a", "code;uname", "$(uname)", "code\u{1b}"] {
+            assert!(matches!(
+                session.send_input(rejected).await,
+                Err(RuntimeAuthError::InvalidInput)
+            ));
+        }
+        assert_eq!(
+            session.wait(Duration::from_secs(2)).await.unwrap(),
+            RuntimeLoginResult { exit_code: 0 }
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn session_uses_fixed_wrapper_and_waits_for_exit_marker() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let command = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert!(command.starts_with(AUTH_LOGIN_COMMAND));
+            let marker_start = command.find("__HYPERCLI_AUTH_EXIT_").unwrap();
+            let marker_end = command[marker_start + 2..].find("__").unwrap() + marker_start + 4;
+            let marker = &command[marker_start..marker_end];
+            socket
+                .send(Message::Text(
+                    "Open https://auth.example/device and enter device code ABCD-EFGH\n".into(),
+                ))
+                .await
+                .unwrap();
+            let input = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert_eq!(input, "continue\n");
+            socket
+                .send(Message::Text(format!("\n{marker}=0\n").into()))
+                .await
+                .unwrap();
+        });
+
+        let token = RuntimeShellToken {
+            agent_id: "agent-1".to_owned(),
+            expires_at: "2026-08-05T12:00:00Z".to_owned(),
+            ws_url: Url::parse(&format!("ws://{address}/ws/shell/agent-1")).unwrap(),
+            shell: Some("/bin/bash".to_owned()),
+            dry_run: false,
+            token: SecretString::from("short-lived-token".to_owned()),
+        };
+        let mut session =
+            RuntimeLoginSession::connect(token, NativeRuntime::Codex, Duration::from_secs(2))
+                .await
+                .unwrap();
+        assert_eq!(
+            session.challenge().verification_url.as_deref(),
+            Some("https://auth.example/device")
+        );
+        assert_eq!(session.challenge().user_code.as_deref(), Some("ABCD-EFGH"));
+        session.send_input("continue").await.unwrap();
+        assert_eq!(
+            session.wait(Duration::from_secs(2)).await.unwrap(),
+            RuntimeLoginResult { exit_code: 0 }
+        );
+        server.await.unwrap();
+    }
+
+    fn parser(runtime: NativeRuntime) -> RuntimeLoginParser {
+        RuntimeLoginParser::new(runtime, "__HYPERCLI_AUTH_EXIT_test__".to_owned())
+    }
+
+    #[test]
+    fn parses_acp_auth_methods_with_meta_and_terminal_auth_fallback() {
+        let stdout = serde_json::json!({
+            "methods": [
+                {
+                    "id": "oauth",
+                    "name": "Sign in",
+                    "description": "",
+                    "_meta": {
+                        "terminal-auth": {"command": "codex", "args": ["login", "--device-auth"]}
+                    }
+                },
+                {
+                    "id": "claude-login",
+                    "name": "Claude",
+                    "description": "",
+                    "_meta": {
+                        "terminal-auth": {"command": ["claude"]}
+                    }
+                },
+                {
+                    "id": "terminal",
+                    "name": "Shell",
+                    "description": "",
+                    "command": ["kimi", "auth"]
+                },
+                {
+                    "id": "command-and-args",
+                    "name": "Shell args",
+                    "description": "",
+                    "command": "codex",
+                    "args": ["login"]
+                },
+                {"id": "empty", "name": "", "description": ""}
+            ]
+        })
+        .to_string();
+        let methods = parse_auth_methods_payload(&stdout);
+
+        assert_eq!(methods.len(), 5);
+        assert_eq!(methods[0].command, vec!["codex", "login", "--device-auth"]);
+        assert_eq!(methods[0].kind, "terminal");
+        assert_eq!(methods[1].command, vec!["claude", "auth", "login"]);
+        assert_eq!(methods[2].kind, "terminal");
+        assert_eq!(methods[3].command, vec!["codex", "login"]);
+        assert!(methods[4].command.is_empty());
+        assert_eq!(methods[4].kind, "acp");
+        // Falls back to native list when ACP does not advertise any methods.
+        assert!(parse_auth_methods_payload("{}").is_empty());
+        assert!(parse_auth_methods_payload("not json").is_empty());
+    }
+
+    #[test]
+    fn native_auth_methods_and_logout_commands_match_runtime() {
+        assert_eq!(
+            NativeRuntime::ClaudeCode.native_auth_methods()[0].id,
+            "claude-ai"
+        );
+        assert_eq!(
+            NativeRuntime::Codex.native_auth_methods()[0].command,
+            vec!["codex", "login", "--device-auth"]
+        );
+        assert!(NativeRuntime::KimiCode.native_auth_methods().is_empty());
+
+        assert_eq!(
+            NativeRuntime::ClaudeCode.logout_command(),
+            Some(vec![
+                "claude".to_owned(),
+                "auth".to_owned(),
+                "logout".to_owned()
+            ])
+        );
+        assert_eq!(
+            NativeRuntime::Codex.logout_command(),
+            Some(vec!["codex".to_owned(), "logout".to_owned()])
+        );
+        assert_eq!(NativeRuntime::KimiCode.logout_command(), None);
+        assert!(NativeRuntime::KimiCode
+            .logout_unsupported_reason()
+            .contains("noninteractive logout"));
+    }
+}

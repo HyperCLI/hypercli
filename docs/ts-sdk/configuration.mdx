@@ -1,0 +1,148 @@
+---
+title: Configuration
+description: Configure the TypeScript SDK and shared HyperCLI credentials.
+---
+
+## Resolution Order
+
+The SDK reads configuration using the same precedence as the CLI:
+
+1. Environment variables
+2. `~/.hypercli/config`
+3. SDK defaults
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `HYPER_API_KEY` | Main REST API key used by `HyperCLI` |
+| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
+| `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
+| `AGENTS_API_BASE_URL` | HyperCLI deployments API base. Defaults to `https://api.hypercli.com/agents` |
+| `AGENTS_WS_URL` | HyperCLI backend WebSocket base. Defaults to `wss://api.agents.hypercli.com/ws` |
+
+## URL Model
+
+The TS SDK uses four URL concepts:
+
+- `HYPER_API_BASE`
+  - main product API
+  - jobs
+  - billing
+  - keys
+  - user/account APIs
+- `HYPERCLI_WS_URL`
+  - main WebSocket base for flows derived from the primary API
+- `AGENTS_API_BASE_URL`
+  - HyperCLI deployments API
+  - `create`, `start`, `stop`, `delete`
+  - files
+  - exec
+  - desktop token/bootstrap APIs
+- `AGENTS_WS_URL`
+  - HyperCLI backend WebSocket base
+  - shell
+  - logs
+
+Production defaults:
+
+```bash
+HYPER_API_BASE=https://api.hypercli.com
+HYPERCLI_WS_URL=wss://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+Dev defaults:
+
+```bash
+HYPER_API_BASE=https://api.dev.hypercli.com
+HYPERCLI_WS_URL=wss://api.dev.hypercli.com
+AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
+```
+
+### OpenClaw / Inference Base URLs
+
+For OpenClaw provider files, the agents host is also the inference host.
+
+Rule of thumb:
+
+- `anthropic-messages` provider `baseUrl` should be `https://api.agents.hypercli.com`
+- do not add `/v1` there
+- OpenClaw appends `/v1/messages` itself
+- OpenAI-compatible providers and embeddings should use `https://api.agents.hypercli.com/v1`
+
+## Shared Config File
+
+Path:
+
+```text
+~/.hypercli/config
+```
+
+Format:
+
+```bash
+HYPER_API_KEY=hyper_...
+HYPER_API_BASE=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+`configure()` creates the directory if needed and writes the file with `0600` permissions when the platform supports it.
+
+```ts
+import { configure } from "@hypercli.com/sdk";
+
+configure("hyper_...");
+configure("hyper_...", "https://api.dev.hypercli.com");
+configure(
+  "hyper_...",
+  "https://api.hypercli.com",
+  "https://api.hypercli.com/agents",
+  "wss://api.agents.hypercli.com/ws",
+);
+```
+
+## Runtime Helpers
+
+```ts
+import {
+  getApiKey,
+  getApiUrl,
+  getAgentsApiBaseUrl,
+  getAgentsWsUrl,
+  getWsUrl,
+  DEFAULT_API_URL,
+  DEFAULT_AGENTS_API_BASE_URL,
+  DEFAULT_AGENTS_WS_URL,
+  DEFAULT_WS_URL,
+} from "@hypercli.com/sdk";
+```
+
+## Constructor Overrides
+
+Constructor values win over env vars and the config file.
+
+```ts
+const client = new HyperCLI({
+  apiKey: "hyper_...",
+  apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
+  timeout: 30_000,
+});
+```
+
+## Image Constants
+
+The SDK exports a few image helpers used by the workflow wrappers:
+
+```ts
+import { GHCR_IMAGES, COMFYUI_IMAGE } from "@hypercli.com/sdk";
+```
+
+- `GHCR_IMAGES`: base GitHub Container Registry namespace
+- `COMFYUI_IMAGE`: default image used by `ComfyUIJob`

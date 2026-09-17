@@ -1,0 +1,34 @@
+---
+title: Render API
+description: Advanced render endpoints; use Flows for most use cases
+---
+
+## Overview
+
+`/api/renders` is the advanced render surface.
+
+HyperCLI supports both direct renders and managed flows.
+
+For most workloads, use [Flows](/flows/index):
+
+- simpler input schema
+- fixed per-flow pricing
+- optional x402 pay-per-use path
+
+Use `/api/renders` when you want lower-level control over render creation, polling, and cancellation.
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/renders` | Create advanced render |
+| `GET` | `/api/renders` | List renders |
+| `GET` | `/api/renders/{id}` | Render details |
+| `GET` | `/api/renders/{id}/status` | Lightweight polling |
+| `DELETE` | `/api/renders/{id}` | Cancel render |
+
+## Auth
+
+Use standard HyperCLI JWT or API key auth. For x402 per-use media generation, use `/api/x402/flow/{flow_type}` instead.
+
+See [Flows](/flows/index) and [x402 Top-Ups and Flow Checkout](/flows/x402).

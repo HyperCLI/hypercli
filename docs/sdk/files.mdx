@@ -1,0 +1,76 @@
+---
+title: Files
+description: Upload local files, bytes, URLs, and base64 payloads for use in render workflows.
+---
+
+Uploaded files are primarily intended for use inside HyperCLI workflows. The returned `url` is an internal storage reference, not a public download URL.
+
+## Upload From Disk
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI()
+file = client.files.upload("./face.png")
+
+print(file.id)
+print(file.url)
+```
+
+## Upload From Bytes
+
+```python
+file = client.files.upload_bytes(
+    content=image_bytes,
+    filename="generated.png",
+    content_type="image/png",
+)
+```
+
+## Async URL And Base64 Imports
+
+`upload_url()` and `upload_b64()` return immediately and usually start in `processing` state.
+
+```python
+file = client.files.upload_url("https://example.com/image.png")
+file = client.files.wait_ready(file.id)
+```
+
+```python
+file = client.files.upload_b64(base64_payload, "image.png", "image/png")
+file = client.files.wait_ready(file.id, timeout=30)
+```
+
+## Use With Renders
+
+```python
+image = client.files.upload("./face.png")
+audio = client.files.upload("./speech.wav")
+
+render = client.renders.speaking_video(
+    prompt="A person speaking naturally",
+    image_url=image.url,
+    audio_url=audio.url,
+)
+```
+
+## Metadata And Deletion
+
+```python
+current = client.files.get(file.id)
+client.files.delete(file.id)
+```
+
+## File Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `str` | File UUID |
+| `user_id` | `str` | Owner user ID |
+| `filename` | `str` | Original filename |
+| `content_type` | `str` | MIME type |
+| `file_size` | `int` | Size in bytes |
+| `url` | `str` | Internal S3 reference used by HyperCLI workflows |
+| `state` | `str \| None` | `processing`, `done`, or `failed` for async uploads |
+| `error` | `str \| None` | Backend error for failed async uploads |
+| `created_at` | `str \| None` | Upload timestamp |

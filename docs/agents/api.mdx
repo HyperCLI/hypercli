@@ -1,0 +1,284 @@
+---
+title: Agents API
+description: Checkout and account API for HyperCLI inference
+---
+
+## Base URLs
+
+| Surface | URL |
+|---------|-----|
+| Inference (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| Agents, plans, and plan billing | `https://api.hypercli.com/agents` |
+| Orchestra account, jobs, and balance | `https://api.hypercli.com/api` |
+| Product UI | `https://agents.hypercli.com` |
+
+<Note>
+In production, routes are served under `/agents` (for example `/agents/stripe/{plan_id}` and `/agents/x402/{plan_id}`).
+</Note>
+
+Published backend spec: `https://api.agents.hypercli.com/agents/openapi.json`
+
+Vendored docs copy: [agents-openapi.json](/agents-openapi.json)
+
+## Auth Modes
+
+- Inference endpoints (`/v1/*`): `Authorization: Bearer hyper_api_...`
+- Plan and plan-billing endpoints (`/agents/*`): `Authorization: Bearer <jwt>`
+  unless the endpoint is public or explicitly supports an agent API key
+- x402 checkout (`/agents/x402/{plan_id}`): JWT is optional
+
+For scoped API keys:
+
+- `GET /v1/models` uses the `models:*` baseline
+- model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k2.6`
+- subscription voice routes live under `/agents/voice/*` and use the `voice:*` family
+
+## Deployment Lifecycle Updates
+
+Deployment REST endpoints are the authoritative account snapshot. SDK
+deployment subscriptions use an authenticated account-scoped WebSocket only to
+signal that the snapshot may have changed. On startup and reconnect, an SDK
+reads REST, obtains a short-lived token from
+`POST /agents/deployments/events/token`, authenticates the stream, waits for a
+flat `ready` frame, and reads REST again before delivering invalidations.
+
+Applications should re-read REST in their handler. The stream is best effort:
+there is no client ACK, resume cursor, resource snapshot, or durable per-client
+outbox. Transport failures reconnect with backoff; `401` and `403` remain
+permanent until the caller supplies new credentials or scopes.
+
+A user JWT receives only its owner's account stream. An API key needs the
+canonical `agents:*` scope, global `*:*`, or an exact `agent:<uuid>` selector;
+an exact key receives only that deployment's events. `agents:self` and
+inference-only keys cannot subscribe. Credentials are exchanged for the
+short-lived socket token and are never placed in a WebSocket query string.
+
+## Plans
+
+List plans:
+
+```bash
+curl https://api.hypercli.com/agents/plans
+```
+
+Current paid contracts are Solo (`solo`, $39, 25M pooled tokens/day, one small
+slot), Team (`team`, $79, 50M pooled tokens/day, three medium slots), and Pro
+(`pro`, $149, 100M pooled tokens/day, three large slots). The catalog response
+is authoritative for checkout availability and features.
+
+Get current plan (JWT required):
+
+```bash
+curl https://api.hypercli.com/agents/plans/current \
+  -H "Authorization: Bearer <jwt>"
+```
+
+## Stripe Checkout (Credit Card)
+
+Endpoint: `POST /agents/stripe/{plan_id}`
+
+- Requires JWT auth
+- Returns a Stripe-hosted `checkout_url`
+- Webhook (`/agents/stripe/hook`) creates or renews entitlement records and
+  applies the resulting account limits
+
+```bash
+curl -X POST https://api.hypercli.com/agents/stripe/solo \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "success_url": "https://agents.hypercli.com/plans?session_id={CHECKOUT_SESSION_ID}",
+    "cancel_url": "https://agents.hypercli.com/plans?cancelled=true",
+    "quantity": 1
+  }'
+```
+
+### Team Trial Checkout
+
+Endpoint: `POST /agents/stripe/trial`
+
+This authenticated endpoint creates or resumes the account's one-time Team
+trial checkout. It requires a card, grants seven days of Team access, and
+starts the recurring Team subscription when the trial ends unless it is
+cancelled.
+
+```bash
+curl -X POST https://api.hypercli.com/agents/stripe/trial \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "success_url": "https://agents.hypercli.com/dashboard/agents?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+    "cancel_url": "https://agents.hypercli.com/dashboard/agents?checkout=cancelled"
+  }'
+```
+
+`GET /agents/subscriptions/summary` returns trial timing on the matching
+subscription. Use `trial.active`, `trial.ends_at`, and
+`trial.seconds_remaining` for presentation; the backend remains authoritative
+for access and expiration. An active trial is a fixed Team contract, so plan or
+quantity updates return `409` until the trial converts or ends. Cancellation
+remains available and immediately makes `trial.active` false while access stays
+bounded by the original trial end.
+
+### Update Or Cancel A Stripe Subscription
+
+Update endpoint: `POST /agents/subscriptions/{subscription_id}/update`
+
+```bash
+curl -X POST https://api.hypercli.com/agents/subscriptions/<subscription_id>/update \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"plan_id":"team","quantity":1}'
+```
+
+The recurring contract is one canonical `plan_id` plus a positive `quantity`.
+Arbitrary per-tier slot maps are not accepted. To cancel at period end, call the
+dedicated endpoint:
+
+```bash
+curl -X POST https://api.hypercli.com/agents/subscriptions/<subscription_id>/cancel \
+  -H "Authorization: Bearer <jwt>"
+```
+
+## x402 Checkout (USDC)
+
+Endpoint: `POST /agents/x402/{plan_id}`
+
+- Uses x402 HTTP 402 flow
+- Middleware validates payment and accepts amounts `>=` plan minimum
+- Route calculates duration from the signed transfer amount (`authorization.value`)
+
+### Flow
+
+1. POST request without payment headers
+2. Receive HTTP 402 with payment requirements
+3. Sign and retry with the client-generated payment header
+   (`PAYMENT-SIGNATURE` for x402 v2; `X-PAYMENT` for v1)
+4. Receive API key + expiry + plan-unit limits
+
+```bash
+# Step 1
+curl -X POST https://api.hypercli.com/agents/x402/solo
+
+# Step 2: retry with x402 payment payload
+curl -X POST https://api.hypercli.com/agents/x402/solo \
+  -H "PAYMENT-SIGNATURE: <signed-payment-payload>"
+```
+
+### Duration Calculation
+
+Duration scales with paid amount:
+
+- `duration_days = (amount_paid / (plan_price * quantity)) * X402_PLAN_DURATION_DAYS`
+- Includes sub-day precision (seconds)
+
+With the current production default, a full-price unit grants 30 days. Stripe
+plans use a separate `duration_days: 32` entitlement-window configuration.
+For `quantity > 1`, paying `plan_price * quantity` gives every purchased
+entitlement the same 30-day window; quantity buys parallel capacity rather
+than extra time.
+
+### JWT Optional Behavior
+
+- With JWT: creates account-linked entitlements and a payment record, then updates team limits
+- Without JWT: creates or reuses a wallet-backed user, creates entitlements and
+  a payment record, and returns a usable API key
+
+x402 purchases are one-off and never create recurring subscription rows.
+
+### Response Shape
+
+```json
+{
+  "ok": true,
+  "key": "hyper_api_...",
+  "plan_id": "solo",
+  "quantity": 1,
+  "contract_version": "2026-08",
+  "amount_paid": "39.000000",
+  "duration_days": 30.0,
+  "expires_at": "2026-09-03T12:00:00+00:00",
+  "tpm_limit": 868050,
+  "rpm_limit": 86
+}
+```
+
+The timestamp and derived rate limits are illustrative and follow the active
+plan and burst-window configuration.
+
+## Balance-Funded Entitlements
+
+Endpoint: `POST /agents/billing/balance/{plan_id}`
+
+- Requires JWT auth
+- Charges the linked Orchestra balance
+- Creates a `grant`
+- Applies that grant to create a new entitlement unless `extend_existing` is explicit
+
+Request body:
+
+```json
+{
+  "duration": 2592000,
+  "tags": ["customer=acme"],
+  "extend_existing": false
+}
+```
+
+Response shape:
+
+```json
+{
+  "grant": {
+    "id": "2b1c...",
+    "type": "BALANCE",
+    "plan_id": "solo",
+    "duration": 2592000,
+    "tags": ["customer=acme"]
+  },
+  "entitlement": {
+    "id": "6a54...",
+    "starts_at": "2026-04-19T20:00:00+00:00",
+    "expires_at": "2026-05-19T20:00:00+00:00",
+    "plan_id": "solo",
+    "tags": ["customer=acme"]
+  },
+  "payment": {
+    "provider": "BALANCE",
+    "status": "SUCCEEDED"
+  }
+}
+```
+
+Notes:
+
+- `duration` is in seconds
+- grant application creates a new entitlement by default, so repeated purchases can add parallel slots
+- pass `extend_existing: true` only when the intent is to renew the latest matching `plan_id + tags` entitlement
+- ownership is not encoded with hidden tags; entitlement binding remains a DB relationship
+
+## Grant-Code Redemption
+
+Endpoint: `POST /agents/billing/grants/redeem`
+
+- Requires JWT auth
+- Treats the code as an unapplied `grant`
+- Applies that grant to create a new entitlement unless the code or request explicitly extends
+
+Request body:
+
+```json
+{
+  "code": "7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59",
+  "extend_existing": false
+}
+```
+
+Important:
+
+- unactivated codes are `grants`, not `entitlements`
+- redeemed codes become applied grants linked to an entitlement
+
+Pay-per-use GPU jobs are a separate Orchestra surface at `/api/x402/job`; they
+are not an Agents plan-checkout route. See [Job Tags](/api-reference/job-tags)
+for that API.

@@ -1,0 +1,26 @@
+active_provider: hypercli
+providers:
+  hypercli:
+    configured: true
+    enabled: true
+    model: coding-anthropic
+GOOSE_MODE: auto
+GOOSE_TELEMETRY_ENABLED: false
+extensions:
+  developer:
+    bundled: true
+    enabled: true
+    name: developer
+    timeout: 300
+    type: builtin
+  memory:
+    bundled: true
+    enabled: true
+    name: memory
+    timeout: 300
+    type: builtin
+  skills:
+    bundled: true
+    enabled: true
+    name: skills
+    type: platform

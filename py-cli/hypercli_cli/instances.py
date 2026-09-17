@@ -1,0 +1,418 @@
+"""hyper instances commands"""
+import typer
+from typing import Optional
+from hypercli import HyperCLI, X402Client
+from .output import output, console, success, spinner
+
+app = typer.Typer(help="GPU instances - browse and launch")
+
+
+def get_client() -> HyperCLI:
+    return HyperCLI()
+
+
+def _parse_constraints(
+    constraints: Optional[list[str]],
+    cpu_vendor: Optional[str],
+) -> dict[str, str] | None:
+    parsed: dict[str, str] = {}
+    for item in constraints or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key or not value:
+            raise typer.BadParameter(f"Invalid constraint '{item}', expected KEY=VALUE")
+        parsed[key.strip()] = value.strip()
+    if cpu_vendor:
+        parsed.setdefault("cpu_vendor", cpu_vendor.strip())
+    return parsed or None
+
+
+@app.command("list")
+def list_instances(
+    gpu: Optional[str] = typer.Option(None, "--gpu", "-g", help="Filter by GPU type"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="Filter by region"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List available GPU instances with pricing"""
+    client = get_client()
+    with spinner("Fetching instances..."):
+        available = client.instances.list_available(gpu_type=gpu, region=region)
+
+    if fmt == "json":
+        output(available, "json")
+    else:
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("GPU")
+        table.add_column("Count", justify="right")
+        table.add_column("Region")
+        table.add_column("Spot $/hr", justify="right")
+        table.add_column("On-Demand $/hr", justify="right")
+        table.add_column("vCPUs", justify="right")
+        table.add_column("RAM GB", justify="right")
+
+        for item in sorted(available, key=lambda x: (x["gpu_type"], x["gpu_count"], x.get("price_spot") or 999)):
+            spot_price = f"${item['price_spot']:.2f}" if item['price_spot'] else "-"
+            od_price = f"${item['price_on_demand']:.2f}" if item['price_on_demand'] else "-"
+
+            table.add_row(
+                f"[green]{item['gpu_type']}[/]",
+                str(item['gpu_count']),
+                f"{item['region']} ({item['region_name']})",
+                f"[cyan]{spot_price}[/]",
+                od_price,
+                str(int(item['cpu_cores'])),
+                str(int(item['memory_gb'])),
+            )
+
+        console.print(table)
+
+
+@app.command("gpus")
+def list_gpus(
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="Filter by region"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List available GPU types"""
+    client = get_client()
+    with spinner("Fetching GPU types..."):
+        types = client.instances.types()
+
+    if fmt == "json":
+        output({k: {"name": v.name, "description": v.description, "configs": [
+            {
+                "gpu_count": c.gpu_count,
+                "cpu_cores": c.cpu_cores,
+                "memory_gb": c.memory_gb,
+                "regions": c.regions,
+                "constraints": c.constraints,
+            }
+            for c in v.configs
+        ]} for k, v in types.items()}, "json")
+    else:
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("GPU Type")
+        table.add_column("Name")
+        table.add_column("Description")
+        table.add_column("Counts")
+        table.add_column("Regions")
+
+        for gpu_id, gpu in types.items():
+            available_counts = []
+            available_regions = set()
+            for config in gpu.configs:
+                if config.regions:
+                    if region and region not in config.regions:
+                        continue
+                    available_counts.append(str(config.gpu_count))
+                    available_regions.update(config.regions)
+
+            if not available_counts:
+                continue
+
+            table.add_row(
+                f"[green]{gpu_id}[/]",
+                gpu.name,
+                gpu.description,
+                ", ".join(available_counts),
+                ", ".join(sorted(available_regions)),
+            )
+
+        console.print(table)
+
+
+@app.command("regions")
+def list_regions(
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List available regions"""
+    client = get_client()
+    with spinner("Fetching regions..."):
+        regions = client.instances.regions()
+
+    if fmt == "json":
+        output({k: {"description": v.description, "country": v.country} for k, v in regions.items()}, "json")
+    else:
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Code")
+        table.add_column("Location")
+        table.add_column("Country")
+
+        for region_id, region in regions.items():
+            table.add_row(
+                f"[green]{region_id}[/]",
+                region.description,
+                region.country,
+            )
+
+        console.print(table)
+
+
+@app.command("capacity")
+def show_capacity(
+    gpu: Optional[str] = typer.Option(None, "--gpu", "-g", help="Filter by GPU type"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Show real-time GPU capacity (idle and launching instances)"""
+    client = get_client()
+    with spinner("Fetching capacity..."):
+        data = client.instances.capacity(gpu_type=gpu)
+
+    if fmt == "json":
+        output(data, "json")
+    else:
+        from rich.table import Table
+
+        idle = data.get("idle", {})
+        launching = data.get("launching", {})
+
+        if not idle and not launching:
+            console.print("[yellow]No GPU capacity available[/]")
+            return
+
+        # Collect all gpu types and regions
+        all_gpus = set(idle.keys()) | set(launching.keys())
+        all_regions = set()
+        for gpu_data in list(idle.values()) + list(launching.values()):
+            all_regions.update(gpu_data.keys())
+
+        table = Table(show_header=True, header_style="bold cyan", title="GPU Capacity")
+        table.add_column("GPU Type")
+        table.add_column("Region")
+        table.add_column("Idle", justify="right", style="green")
+        table.add_column("Launching", justify="right", style="yellow")
+
+        for gpu_type in sorted(all_gpus):
+            gpu_idle = idle.get(gpu_type, {})
+            gpu_launching = launching.get(gpu_type, {})
+            regions = set(gpu_idle.keys()) | set(gpu_launching.keys())
+
+            for region in sorted(regions):
+                idle_count = gpu_idle.get(region, 0)
+                launching_count = gpu_launching.get(region, 0)
+                table.add_row(
+                    f"[cyan]{gpu_type}[/]",
+                    region,
+                    str(idle_count) if idle_count else "-",
+                    str(launching_count) if launching_count else "-",
+                )
+
+        console.print(table)
+
+
+@app.command("launch")
+def launch(
+    image: str = typer.Argument(..., help="Docker image"),
+    command: Optional[str] = typer.Option(None, "--command", "-c", help="Command to run"),
+    gpu: str = typer.Option("l40s", "--gpu", "-g", help="GPU type"),
+    count: int = typer.Option(1, "--count", "-n", help="Number of GPUs"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="Region code"),
+    constraint: Optional[list[str]] = typer.Option(None, "--constraint", help="Placement constraint KEY=VALUE (repeatable)"),
+    cpu_vendor: Optional[str] = typer.Option(None, "--cpu-vendor", help="CPU vendor constraint (e.g. intel, amd)"),
+    runtime: Optional[int] = typer.Option(None, "--runtime", "-t", help="Runtime in seconds"),
+    interruptible: bool = typer.Option(True, "--interruptible/--on-demand", help="Use interruptible instances"),
+    env: Optional[list[str]] = typer.Option(None, "--env", "-e", help="Env vars (KEY=VALUE)"),
+    port: Optional[list[int]] = typer.Option(None, "--port", "-p", help="TCP ports to expose"),
+    lb: Optional[int] = typer.Option(None, "--lb", help="HTTPS load balancer port (Traefik + TLS on hostname)"),
+    lb_auth: bool = typer.Option(False, "--lb-auth", help="Enable auth on load balancer"),
+    registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
+    registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
+    dockerfile: Optional[str] = typer.Option(None, "--dockerfile", "-d", help="Path to Dockerfile (built on GPU node, overrides image as base)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate configuration without creating job or reserving funds"),
+    x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
+    amount: Optional[float] = typer.Option(None, "--amount", help="USDC amount to spend with --x402"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
+    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Launch a new GPU instance
+
+    Examples:
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -c 'nvidia-smi && sleep 60'
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -r kr -c 'nvidia-smi' -t 120
+        hyper instances launch my-registry.com/my-image:latest -g h100 -n 8 -c 'python train.py'
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 --x402 --amount 2.5
+    """
+
+    # Parse env vars
+    env_dict = None
+    if env:
+        env_dict = {}
+        for e in env:
+            if "=" in e:
+                k, v = e.split("=", 1)
+                env_dict[k] = v
+
+    # Parse ports
+    ports_dict = None
+    if port or lb:
+        ports_dict = {}
+        if port:
+            for p in port:
+                ports_dict[f"{p}/tcp"] = p
+        if lb:
+            ports_dict["lb"] = lb
+
+    raw_tcp_ports = []
+    if ports_dict:
+        raw_tcp_ports = sorted(
+            int(p.split("/")[0]) for p in ports_dict.keys() if p.endswith("/tcp")
+        )
+
+    # Build registry auth if provided
+    registry_auth = None
+    if registry_user and registry_password:
+        registry_auth = {"username": registry_user, "password": registry_password}
+
+    # Read and base64-encode Dockerfile if provided
+    dockerfile_b64 = None
+    if dockerfile:
+        import base64
+        from pathlib import Path
+        df_path = Path(dockerfile)
+        if not df_path.exists():
+            raise typer.BadParameter(f"Dockerfile not found: {dockerfile}")
+        dockerfile_b64 = base64.b64encode(df_path.read_bytes()).decode()
+
+    # Auto-wrap command in sh -c if it contains shell operators
+    if command and any(op in command for op in ["&&", "||", "|", ";", ">", "<", "$"]):
+        command = f'sh -c "{command}"'
+
+    constraints = _parse_constraints(constraint, cpu_vendor)
+
+    follow_api_key = None
+
+    if x402:
+        if amount is None:
+            raise typer.BadParameter("--amount is required when using --x402")
+        if amount <= 0:
+            raise typer.BadParameter("--amount must be greater than 0")
+        if runtime is not None:
+            console.print("[yellow]Ignoring --runtime with --x402 (runtime is computed from payment amount).[/yellow]")
+
+        from .wallet import require_wallet_deps, load_wallet
+
+        require_wallet_deps()
+        account = load_wallet()
+        x402_client = X402Client()
+
+        with spinner("Launching instance with x402..."):
+            x402_job = x402_client.create_job(
+                amount=amount,
+                account=account,
+                image=image,
+                command=command,
+                gpu_type=gpu,
+                gpu_count=count,
+                region=region,
+                constraints=constraints,
+                interruptible=interruptible,
+                env=env_dict,
+                ports=ports_dict,
+                registry_auth=registry_auth,
+            )
+        job = x402_job.job
+        follow_api_key = x402_job.access_key
+
+        if fmt == "json":
+            output(
+                {
+                    "job": job.__dict__,
+                    "access_key": x402_job.access_key,
+                    "status_url": x402_job.status_url,
+                    "logs_url": x402_job.logs_url,
+                    "cancel_url": x402_job.cancel_url,
+                },
+                "json",
+            )
+        else:
+            success(f"Instance launched: {job.job_id}")
+            console.print(f"  State:      {job.state}")
+            console.print(f"  GPU:        {job.gpu_type} x{job.gpu_count}")
+            console.print(f"  Region:     {job.region}")
+            console.print(f"  Price:      ${job.price_per_hour:.2f}/hr")
+            if job.hostname:
+                console.print(f"  Hostname:   {job.hostname}")
+            if lb:
+                console.print(f"  HTTPS LB:   Traefik TLS on https://{job.hostname}")
+                console.print(f"  LB Target:  container port {lb}")
+                if lb_auth:
+                    console.print("  LB Auth:    enabled (Bearer token required)")
+            if raw_tcp_ports:
+                console.print(f"  TCP Ports:  raw TCP exposed: {', '.join(map(str, raw_tcp_ports))}")
+            console.print(f"  Access Key: {x402_job.access_key}")
+            console.print(f"  Status URL: {x402_job.status_url}")
+            console.print(f"  Logs URL:   {x402_job.logs_url}")
+            console.print(f"  Cancel URL: {x402_job.cancel_url}")
+    else:
+        client = get_client()
+
+        spinner_msg = "Validating configuration..." if dry_run else "Launching instance..."
+        with spinner(spinner_msg):
+            job = client.jobs.create(
+                image=image,
+                command=command,
+                gpu_type=gpu,
+                gpu_count=count,
+                region=region,
+                constraints=constraints,
+                runtime=runtime,
+                interruptible=interruptible,
+                env=env_dict,
+                ports=ports_dict,
+                auth=lb_auth,
+                registry_auth=registry_auth,
+                dockerfile=dockerfile_b64,
+                dry_run=dry_run,
+            )
+
+        if fmt == "json":
+            output(job, "json")
+        else:
+            if dry_run:
+                console.print("[bold green]✓[/] Dry run successful - configuration valid")
+                console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
+                console.print(f"  Region:   {job.region}")
+                console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
+                console.print(f"  Runtime:  {job.runtime}s")
+                if lb:
+                    console.print(f"  HTTPS LB: Traefik TLS will be provisioned for container port {lb}")
+                    if lb_auth:
+                        console.print("  LB Auth:  enabled (Bearer token required)")
+                if raw_tcp_ports:
+                    console.print(f"  TCP:      raw TCP ports: {', '.join(map(str, raw_tcp_ports))}")
+                # Display cold boot status
+                if job.cold_boot:
+                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]")
+                else:
+                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]")
+            else:
+                success(f"Instance launched: {job.job_id}")
+                console.print(f"  State:    {job.state}")
+                console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
+                console.print(f"  Region:   {job.region}")
+                console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
+                if job.hostname:
+                    console.print(f"  Hostname: {job.hostname}")
+                if lb and job.hostname:
+                    console.print(f"  HTTPS LB: Traefik TLS endpoint https://{job.hostname}")
+                    console.print(f"  LB Target: container port {lb}")
+                    if lb_auth:
+                        console.print("  LB Auth:  enabled (Bearer token required)")
+                if raw_tcp_ports:
+                    console.print(f"  TCP:      raw TCP ports: {', '.join(map(str, raw_tcp_ports))}")
+                # Display cold boot status for real launches too
+                if job.cold_boot:
+                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]")
+                else:
+                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]")
+
+    if follow:
+        console.print()
+        from .tui.job_monitor import run_job_monitor
+
+        if follow_api_key:
+            run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit, api_key=follow_api_key)
+        else:
+            run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit)

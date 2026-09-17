@@ -1,0 +1,46 @@
+---
+title: hyper routines
+description: Manage scheduled agent routines and run them on demand.
+---
+
+`hyper routines` manages the platform-side scheduled prompts described in
+[Routines](/agents/routines). The older `hyper agents routines
+list|create|delete` subcommands remain available and behave the same.
+
+## Usage
+
+```bash
+hyper routines list [--agent ID] [--json]
+hyper routines get <routine-id> [--json]
+hyper routines create (--cron EXPR | --run-at ISO) --prompt TEXT [--agent ID] [--name N] [--session ID] [--disabled]
+hyper routines run <routine-id> [--wait] [--timeout S] [--json]
+hyper routines delete <routine-id> [--yes] [--json]
+```
+
+## create
+
+Recurring routines take a five-field cron expression; one-shot routines take an
+ISO `--run-at` timestamp instead. Exactly one of `--cron` or `--run-at` is
+required:
+
+```bash
+hyper routines create --cron "*/15 * * * *" --prompt "Check the queue" --agent my-agent
+hyper routines create --run-at 2026-09-20T14:00:00Z --prompt "Send the wrap-up" --agent my-agent --name Wrap-up
+```
+
+`--session ID` binds the routine to an existing chat session so runs resume
+that conversation; without it, each run starts a fresh session. `--disabled`
+creates the routine without enabling it.
+
+## run
+
+Triggers the routine's prompt immediately against its agent — there is no
+server-side run-now, so the CLI replays the run locally over the agent's chat
+bridge. The agent must be running and ACP-capable. The replay always runs the
+turn to completion; `--wait` additionally prints the assistant reply once the
+turn stops, and `--timeout S` bounds the wait.
+
+## delete
+
+Prompts for confirmation on an interactive terminal; pass `--yes` to skip it,
+or `--json` for scripts.

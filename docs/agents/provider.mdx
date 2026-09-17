@@ -1,0 +1,45 @@
+---
+title: Inference for Agents
+description: HyperCLI is HyperCLI's inference provider for agent workloads
+---
+
+## What HyperCLI Is
+
+HyperCLI is the dedicated inference provider for agentic workloads.
+
+- Product site: [https://hypercli.com](https://hypercli.com)
+- Inference API:
+  - `https://api.hypercli.com` for `anthropic-messages` (recommended)
+  - `https://api.hypercli.com/v1` for `openai-completions`
+- Account/Billing API: `https://api.hypercli.com/agents`
+
+Use HyperCLI when your agent needs LLM inference with API keys, subscription plans, and either Anthropic Messages or OpenAI-compatible clients.
+
+## Why Agents Use It
+
+- Anthropic Messages API for best agent/tool-calling behavior
+- OpenAI-compatible API surface when your tool requires it
+- Plan-based throughput controls (TPM/RPM)
+- Checkout options:
+  - Stripe (`/agents/stripe/{plan_id}`)
+  - x402 USDC (`/agents/x402/{plan_id}`)
+
+## Basic Agent Setup
+
+```bash
+export OPENAI_API_KEY="hyper_api_..."
+export OPENAI_BASE_URL="https://api.hypercli.com/v1"
+```
+
+Then select a HyperCLI model in your agent toolchain.
+
+- For OpenClaw and agent setups, prefer `hypercli/kimi-k2.6-anthropic`.
+- For direct Anthropic Messages usage, use `kimi-k2.6-anthropic`.
+- For direct OpenAI-compatible usage, use `kimi-k2.6`.
+
+## Related Pages
+
+- [Inference Overview](/inference/index)
+- [Agents API](/agents/api)
+- [Agent Integrations](/agents/integrations)
+- [Inference Quickstart](/inference/quickstart)

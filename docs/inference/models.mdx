@@ -1,0 +1,36 @@
+---
+title: Models
+description: HyperCLI model discovery and usage
+---
+
+Model discovery for inference should use HyperCLI endpoints.
+
+## List Models
+
+```bash
+curl https://api.hypercli.com/v1/models \
+  -H "Authorization: Bearer hyper_api_..."
+```
+
+`/v1/models` is the discovery route. Scoped keys can allow model discovery with `models:*` even when actual inference is narrowed to one or more exact models.
+
+## Use a Model
+
+```bash
+curl https://api.hypercli.com/v1/chat/completions \
+  -H "Authorization: Bearer hyper_api_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "messages": [{"role": "user", "content": "Say hello"}]
+  }'
+```
+
+If you are minting narrowed keys, inference routes resolve the requested model from the request body. The key scopes are reserved `models:<id>` tags such as:
+
+- `models:kimi-k2.5`
+- `models:qwen3-embedding-4b`
+
+Aliases such as `kimi-k2.5-anthropic` still resolve back to the same canonical model for auth.
+
+See [Inference Overview](/inference/index) and [Agent Integrations](/agents/integrations).

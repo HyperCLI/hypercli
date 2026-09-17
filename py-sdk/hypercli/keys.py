@@ -1,0 +1,120 @@
+"""API Keys management"""
+from dataclasses import dataclass, field
+from typing import List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .http import HTTPClient
+
+
+@dataclass
+class ApiKey:
+    key_id: str
+    name: str
+    tags: list[str]
+    api_key: Optional[str]  # Full key only on create
+    api_key_preview: Optional[str]  # Masked key on list
+    last4: Optional[str]
+    is_active: bool
+    created_at: str
+    last_used_at: Optional[str]
+    expires_at: Optional[str]
+    # Deprecated: orchestra dropped per-key capabilities from the key schema,
+    # so this is always empty. Kept for backward compatibility.
+    capabilities: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ApiKey":
+        return cls(
+            key_id=data.get("key_id", ""),
+            name=data.get("name", ""),
+            tags=list(data.get("tags") or []),
+            api_key=data.get("api_key"),
+            api_key_preview=data.get("api_key_preview"),
+            last4=data.get("last4"),
+            is_active=data.get("is_active", True),
+            created_at=data.get("created_at", ""),
+            last_used_at=data.get("last_used_at"),
+            expires_at=data.get("expires_at"),
+            capabilities=list(data.get("capabilities") or []),
+        )
+
+
+class KeysAPI:
+    """API Keys management"""
+
+    def __init__(self, http: "HTTPClient"):
+        self._http = http
+
+    def create(
+        self,
+        name: str = "default",
+        tags: list[str] | None = None,
+        duration: str | None = None,
+        expires_at: str | None = None,
+    ) -> ApiKey:
+        """Create a new API key"""
+        payload = {"name": name}
+        if tags is not None:
+            payload["tags"] = tags
+        if duration is not None:
+            payload["duration"] = duration
+        if expires_at is not None:
+            payload["expires_at"] = expires_at
+        data = self._http.post("/api/keys", json=payload)
+        return ApiKey.from_dict(data)
+
+    def list(self) -> List[ApiKey]:
+        """List all API keys (masked)"""
+        data = self._http.get("/api/keys")
+        return [ApiKey.from_dict(k) for k in data]
+
+    def get(self, key_id: str) -> ApiKey:
+        """Get a specific API key (masked)"""
+        data = self._http.get(f"/api/keys/{key_id}")
+        return ApiKey.from_dict(data)
+
+    def disable(self, key_id: str) -> dict:
+        """Deactivate an API key (irreversible)"""
+        return self._http.delete(f"/api/keys/{key_id}")
+
+    def rename(self, key_id: str, name: str) -> ApiKey:
+        """Rename an API key"""
+        data = self._http.patch(f"/api/keys/{key_id}", json={"name": name})
+        return ApiKey.from_dict(data)
+
+
+def issue_api_key_from_jwt(
+    jwt: str,
+    *,
+    tags: list[str],
+    name: str = "default",
+    duration: str | None = None,
+    expires_at: str | None = None,
+    api_url: str | None = None,
+    timeout: float = 30.0,
+) -> ApiKey:
+    """Issue a scoped API key for the user represented by an app JWT.
+
+    The JWT authenticates only the key-creation request. Use the returned API
+    key for subsequent SDK operations.
+    """
+    token = jwt.strip()
+    if not token:
+        raise ValueError("JWT required")
+
+    from .config import get_api_url
+    from .http import HTTPClient
+
+    http = HTTPClient(api_url or get_api_url(), token, timeout=timeout)
+    try:
+        issued = KeysAPI(http).create(
+            name=name,
+            tags=tags,
+            duration=duration,
+            expires_at=expires_at,
+        )
+    finally:
+        http.close()
+    if not issued.api_key:
+        raise RuntimeError("API key issue response did not include the key secret")
+    return issued

@@ -1,0 +1,62 @@
+---
+title: Remote Desktop
+description: View and interact with an agent's graphical desktop from the desktop app or a browser.
+---
+
+Agents on desktop-enabled runtimes (the OpenClaw pro image, or any agent whose
+launch config enables `HYPER_DESKTOP_ENABLED`) expose a browser desktop over a
+protected noVNC route.
+
+## Enable Desktop
+
+Desktop access applies at agent start:
+
+- **[Web console](https://agents.hypercli.com/dashboard/agents)** — agent
+  settings → Desktop toggle. Enabling it restarts the agent so the route comes
+  up.
+- **Desktop app** — Settings tab → Desktop switch. It takes effect the next
+  time the agent starts.
+
+## View From The Desktop App
+
+The Agent tab shows a live thumbnail of the desktop when the agent is running
+and the route is up. Click it to expand a full, interactive desktop session;
+close the modal to return to the preview.
+
+## View From A Browser
+
+Use **Open Desktop** in the
+[web console](https://agents.hypercli.com/dashboard/agents). It mints a
+short-lived token and opens the signed URL in a new tab.
+
+## Signed URL Shape
+
+Every desktop session URL is signed and expiring — mint a fresh one per open
+rather than bookmarking it:
+
+```
+https://desktop-<agent>.hypercli.app/_jwt_auth?jwt=<token>&redirect=vnc_lite.html%3Fscale%3Dtrue
+```
+
+The `redirect` parameter selects the viewer; it must be a relative path:
+
+- `vnc_lite.html` (the default) is the minimal viewer and takes `scale`.
+- `vnc.html` is the full noVNC UI and takes `resize`.
+
+### From The SDK
+
+```ts
+const { url, expiresAt } = await client.deployments.desktopUrl(agentId);
+// redirect/resize override:
+await client.deployments.desktopUrl(agentId, { redirect: "vnc.html", resize: "scale" });
+```
+
+```python
+client.deployments.refresh_token(agent_id)  # mints the token
+url = agent.browser_desktop_url(token)
+```
+
+Both throw when the agent is not running or the desktop route is not enabled.
+
+Interaction inside the desktop — clipboard, keyboard, and the viewer's file
+controls — is handled by the noVNC viewer itself.

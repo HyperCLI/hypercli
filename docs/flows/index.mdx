@@ -1,0 +1,74 @@
+---
+title: Flows
+description: High-level image, video, speech, and transcription endpoints with fixed pricing
+---
+
+## Overview
+
+Flows are the recommended API surface for media generation on HyperCLI.
+
+Instead of manually choosing templates, GPUs, and regions for each request, you call a flow endpoint and HyperCLI handles the routing using defaults from infrastructure `flows.yaml`.
+
+- Create flow jobs: `POST /api/flow/{flow_type}`
+- Poll flow renders: `GET /api/flow/renders/{render_id}/status`
+- Get flow catalog: `GET /flows` and `GET /flows/{flow_type}`
+
+## Public Flow Catalog
+
+These endpoints are public and do not require authentication:
+
+- `GET https://api.hypercli.com/flows`
+- `GET https://api.hypercli.com/flows/{flow_type}`
+
+`/flows` returns a compact list (`name`, `path`, `price_usd`).
+`/flows/{flow_type}` returns the full config for that flow (template, regions, type, pricing, etc.).
+
+```bash
+curl https://api.hypercli.com/flows
+curl https://api.hypercli.com/flows/text-to-image
+```
+
+## Current Flow Prices
+
+| Flow | Price (USD) |
+|------|-------------|
+| `text-to-image` | `0.10` |
+| `text-to-image-hidream` | `0.10` |
+| `image-to-image` | `0.10` |
+| `text-to-video` | `0.25` |
+| `image-to-video` | `0.25` |
+| `speaking-video` | `0.25` |
+| `first-last-frame-video` | `0.25` |
+| `text-to-speech` | `0.05` |
+| `audio-to-text` | `0.01` |
+
+<Note>
+Source of truth is infrastructure `flows.yaml`. Use `GET /flows` at runtime to avoid stale client-side price tables.
+</Note>
+
+## Auth and Billing Modes
+
+Flows support two billing/auth paths:
+
+1. Account billing (JWT or API key)
+- Endpoint family: `/api/flow/*`
+- Charges your HyperCLI account balance
+
+2. x402 pay-per-use
+- Endpoint family: `/api/x402/flow/{flow_type}`
+- Pays with USDC per request
+- Returns a per-render access key for polling/cancel without a full account
+
+See [x402 Top-Ups and Flow Checkout](/flows/x402).
+
+## CLI Usage
+
+```bash
+# Account-billed flow
+hyper flow text-to-image "a cinematic portrait"
+
+# x402 pay-per-use flow
+hyper flow text-to-image "a cinematic portrait" --x402
+```
+
+See [hyper flow command](/cli/commands/flow).

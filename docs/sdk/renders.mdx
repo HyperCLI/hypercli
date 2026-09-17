@@ -1,0 +1,113 @@
+---
+title: Renders
+description: Create managed render jobs or use the higher-level flow helpers for common media tasks.
+---
+
+## Recommended Flow Methods
+
+The flow helpers are the easiest way to generate images, video, speech, and transcription results.
+
+When the current auth context can resolve `/api/auth/me` with an active
+subscription and `flows:*`, the SDK prefers the subscription-backed
+`/agents/flow/*` routes. Otherwise it falls back to the public account-billed
+`/api/flow/*` routes automatically.
+
+### Text to Image
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI()
+
+render = client.renders.text_to_image("a cat wearing sunglasses")
+render = client.renders.text_to_image_hidream("a mystical forest at sunset")
+```
+
+### Video Generation
+
+```python
+render = client.renders.text_to_video(
+    prompt="ocean waves at sunset",
+    width=832,
+    height=480,
+)
+```
+
+### Image And Audio Conditioned Flows
+
+```python
+image = client.files.upload("./character.png")
+audio = client.files.upload("./speech.wav")
+
+render = client.renders.image_to_video(
+    prompt="the character is dancing",
+    image_url=image.url,
+)
+
+render = client.renders.speaking_video(
+    prompt="A person speaking to the camera",
+    image_url=image.url,
+    audio_url=audio.url,
+)
+```
+
+Available helpers:
+
+- `text_to_image`
+- `text_to_image_hidream`
+- `text_to_video`
+- `image_to_video`
+- `speaking_video`
+- `speaking_video_wan`
+- `image_to_image`
+- `first_last_frame_video`
+- `audio_to_text`
+- `text_to_speech`
+
+## Wait For Completion
+
+Use the built-in waiter when you want the SDK to poll for you.
+
+```python
+final_render = client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
+print(final_render.result_url, final_render.error)
+```
+
+## Manual Polling
+
+```python
+import time
+
+while True:
+    status = client.renders.status(render.render_id)
+    if status.state in ("completed", "failed", "cancelled"):
+        break
+    time.sleep(2)
+
+final_render = client.renders.get(render.render_id)
+print(final_render.result_url, final_render.error)
+```
+
+## Advanced: Create Render
+
+```python
+render = client.renders.create(
+    params={
+        "template": "hidream_i1_full",
+        "prompt": "a cat in space",
+        "gpu_type": "L40S",
+    },
+    render_type="comfyui",
+    notify_url="https://example.com/webhooks/render",
+)
+```
+
+## Listing, Status, And Cancellation
+
+```python
+client.renders.list(state="completed")
+client.renders.get(render.render_id)
+client.renders.status(render.render_id)
+client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
+client.renders.cancel(render.render_id)
+```

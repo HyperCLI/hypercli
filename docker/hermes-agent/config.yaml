@@ -1,0 +1,32 @@
+_config_version: 33
+
+model:
+  provider: custom:hypercli
+  default: default-anthropic
+
+providers:
+  hypercli:
+    name: HyperCLI
+    api: ${env:HYPER_AGENTS_API_BASE}
+    key_env: HYPER_AGENTS_API_KEY
+    transport: anthropic_messages
+
+memory:
+  provider: mem0
+
+cron:
+  enabled: ${env:HERMES_CRON_ENABLED}
+
+skills:
+  external_dirs:
+    - /opt/hypercli/skills
+
+gateway:
+  platforms:
+    api_server:
+      extra:
+        model_name: default-anthropic
+        model_routes:
+          default-anthropic:
+            provider: custom:hypercli
+            model: default-anthropic

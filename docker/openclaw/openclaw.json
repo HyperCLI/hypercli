@@ -1,0 +1,107 @@
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hypercli": {
+        "baseUrl": "${HYPER_AGENTS_API_BASE}",
+        "apiKey": "${HYPER_AGENTS_API_KEY}",
+        "api": "anthropic-messages",
+        "authHeader": true,
+        "models": [
+          {
+            "id": "default-anthropic",
+            "name": "default-anthropic",
+            "reasoning": true,
+            "input": [
+              "text",
+              "image"
+            ],
+            "contextWindow": 262144,
+            "maxTokens": 65536
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789"
+      ]
+    },
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "model": {
+        "primary": "hypercli/default-anthropic"
+      },
+      "models": {
+        "hypercli/default-anthropic": {
+          "alias": "default-anthropic"
+        }
+      },
+      "memorySearch": {
+        "enabled": true,
+        "provider": "openai",
+        "model": "qwen3-embedding-4b",
+        "remote": {
+          "baseUrl": "${HYPER_AGENTS_API_BASE}/v1",
+          "apiKey": "${HYPER_AGENTS_API_KEY}"
+        },
+        "sync": {
+          "onSessionStart": false,
+          "onSearch": false,
+          "watch": false,
+          "watchDebounceMs": 30000,
+          "intervalMinutes": 0
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "default",
+        "name": "OpenClaw Assistant",
+        "workspace": "~/.openclaw/workspace"
+      }
+    ]
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "cron": {
+    "enabled": false
+  },
+  "plugins": {
+    "entries": {
+      "brave": {
+        "enabled": true,
+        "config": {
+          "webSearch": {
+            "baseUrl": "${HYPER_AGENTS_WEB_SEARCH_BASE}",
+            "apiKey": "${HYPER_AGENTS_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "brave"
+      }
+    }
+  }
+}

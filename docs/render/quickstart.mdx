@@ -1,0 +1,34 @@
+---
+title: Render Quickstart
+description: Recommended flow-first quickstart for media generation
+---
+
+## Recommended: Use Flows
+
+```bash
+# Account-billed
+hyper flow text-to-image "minimalist product shot"
+
+# x402 pay-per-use
+hyper flow text-to-image "minimalist product shot" --x402
+```
+
+## Poll Status
+
+From API:
+
+```bash
+curl -H "Authorization: Bearer <jwt-or-api-key>" \
+  https://api.hypercli.com/api/flow/renders/<render_id>/status
+```
+
+If launched with x402 flow checkout, use returned access key:
+
+```bash
+curl -H "Authorization: Bearer hypercli_access_..." \
+  https://api.hypercli.com/api/flow/renders/<render_id>/status
+```
+
+## Advanced `/api/renders`
+
+Use direct render endpoints only when you need lower-level template control. Otherwise, prefer [Flows](/flows/index).

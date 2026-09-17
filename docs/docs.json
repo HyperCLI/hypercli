@@ -1,0 +1,285 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "HyperCLI",
+  "colors": {
+    "primary": "#2DB789",
+    "light": "#38D39F",
+    "dark": "#1F8F65"
+  },
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png"
+  },
+  "favicon": "/favicon.svg",
+  "api": {
+    "baseUrl": "https://api.hypercli.com",
+    "auth": {
+      "method": "bearer",
+      "name": "Authorization"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "index",
+              "quickstart",
+              "authentication"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Deployment Recipes",
+            "pages": [
+              "examples/index",
+              "examples/kimi-k2-5",
+              "examples/minimax-m2-5",
+              "examples/speaches",
+              "examples/whisper",
+              "examples/qwen3-tts",
+              "examples/embeddings"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Instances",
+        "groups": [
+          {
+            "group": "GPU Instances",
+            "pages": [
+              "instances/index",
+              "instances/pricing",
+              "instances/types",
+              "instances/regions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Flows",
+        "groups": [
+          {
+            "group": "Flow API",
+            "pages": [
+              "flows/index",
+              "flows/x402"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Inference",
+        "groups": [
+          {
+            "group": "Inference",
+            "pages": [
+              "inference/index",
+              "inference/quickstart",
+              "inference/models",
+              "inference/pricing",
+              "inference/tiers"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Agents",
+        "groups": [
+          {
+            "group": "Agent Pods",
+            "pages": [
+              "agents/index",
+              "agents/quickstart",
+              "agents/desktop-app",
+              "agents/chat",
+              "agents/voice",
+              "agents/remote-desktop",
+              "agents/routines",
+              "agents/slack",
+              "agents/tags",
+              "agents/workspaces",
+              "agents/openclaw-config",
+              "agents/hermes",
+              "agents/provider",
+              "agents/integrations",
+              "agents/images",
+              "agents/coding-runtimes",
+              "agents/buzz",
+              "agents/api",
+              "agents/x402-wallet"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "SDK",
+        "groups": [
+          {
+            "group": "TypeScript SDK",
+            "pages": [
+              "ts-sdk/index",
+              "ts-sdk/configuration",
+              "ts-sdk/jobs",
+              "ts-sdk/renders",
+              "ts-sdk/files",
+              "ts-sdk/agents",
+              "ts-sdk/hermes",
+              "ts-sdk/workflows",
+              "ts-sdk/workspaces",
+              "ts-sdk/gateway",
+              "ts-sdk/reference"
+            ]
+          },
+          {
+            "group": "Python SDK",
+            "pages": [
+              "sdk/index",
+              "sdk/configuration",
+              "sdk/billing",
+              "sdk/jobs",
+              "sdk/instances",
+              "sdk/renders",
+              "sdk/files",
+              "sdk/logs",
+              "sdk/comfyui",
+              "sdk/agents",
+              "sdk/hermes",
+              "sdk/workspaces",
+              "sdk/gateway",
+              "sdk/x402",
+              "sdk/reference"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "MCP",
+        "groups": [
+          {
+            "group": "MCP Server",
+            "pages": [
+              "mcp-server/index"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Render",
+        "groups": [
+          {
+            "group": "Render API",
+            "pages": [
+              "render/index",
+              "render/quickstart",
+              "render/templates"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI",
+        "groups": [
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/index",
+              "cli/quickstart",
+              "cli/configuration",
+              "cli/skills"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/commands/agent",
+              "cli/commands/agents",
+              "cli/commands/billing",
+              "cli/commands/comfyui",
+              "cli/commands/files",
+              "cli/commands/instances",
+              "cli/commands/jobs",
+              "cli/commands/keys",
+              "cli/commands/flow",
+              "cli/commands/llm",
+              "cli/commands/memory",
+              "cli/commands/renders",
+              "cli/commands/routines",
+              "cli/commands/voice",
+              "cli/commands/user",
+              "cli/commands/wallet",
+              "cli/commands/workspaces"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "cli/tui"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/authentication",
+              "api-reference/job-tags",
+              "api-reference/downloads"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Dashboard",
+          "href": "https://console.hypercli.com",
+          "icon": "gauge"
+        },
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/HyperCLI/hypercli",
+          "icon": "github"
+        }
+      ]
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Pricing",
+        "href": "https://hypercli.com/pricing"
+      },
+      {
+        "label": "Support",
+        "href": "mailto:support@hypercli.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://console.hypercli.com"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/hypercliai",
+      "github": "https://github.com/HyperCLI/hypercli",
+      "linkedin": "https://www.linkedin.com/company/hypercli"
+    }
+  }
+}

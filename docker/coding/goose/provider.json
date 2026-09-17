@@ -1,0 +1,73 @@
+{
+  "name": "hypercli",
+  "engine": "anthropic",
+  "display_name": "HyperCLI",
+  "description": "HyperCLI native Anthropic Messages route",
+  "api_key_env": "HYPER_AGENTS_API_KEY",
+  "base_url": "${HYPER_AGENTS_API_BASE}",
+  "env_vars": [
+    {
+      "name": "HYPER_AGENTS_API_BASE",
+      "required": false,
+      "secret": false,
+      "default": "https://api.agents.hypercli.com"
+    }
+  ],
+  "models": [
+    {
+      "name": "default-anthropic",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "default",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "coding-anthropic",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "coding",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k3-anthropic",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k3",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k2.6-anthropic",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k2.6",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k2.5-anthropic",
+      "context_limit": 262144,
+      "reasoning": true
+    },
+    {
+      "name": "kimi-k2.5",
+      "context_limit": 262144,
+      "reasoning": true
+    }
+  ],
+  "supports_streaming": true,
+  "requires_auth": true,
+  "dynamic_models": false,
+  "skip_canonical_filtering": true,
+  "preserves_thinking": true
+}

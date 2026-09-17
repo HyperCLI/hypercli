@@ -1,0 +1,42 @@
+---
+title: hyper memory
+description: Convert captions and documents into OpenClaw-indexable Markdown memory artifacts.
+---
+
+`hyper memory import` is primarily local file preparation. It accepts one file
+or recursively discovers supported files in a directory:
+
+- captions: `.srt`, `.vtt`, `.ttml`
+- documents: `.pdf`, `.doc`, `.docx`, `.epub`, `.txt`, `.md`
+
+Install document parsers with `pip install "hypercli-cli[documents]"` before
+importing PDF, DOCX, or EPUB sources. Plain text/Markdown and caption support do
+not require that extra.
+
+## Import
+
+`--collection` is required and selects a path below the memory root:
+
+```bash
+hyper memory import ./notes \
+  --collection research/project \
+  --workspace ~/.openclaw/workspace
+```
+
+The default memory root is `<workspace>/memory`. Override it with
+`--memory-dir` or `HYPER_MEMORY_DIR`.
+
+For a single input, metadata flags include `--source-id`, `--title`,
+`--source-url`, and caption/document-specific fields. These single-file flags
+are rejected when importing multiple discovered files. `--raw-json3` applies
+only to caption imports, and `--no-copy-raw` omits raw source copies.
+
+## Optional Remote Work
+
+`--enrich` sends sampled content to the HyperCLI `/v1` model API to generate
+summary and keyword metadata. It accepts `--model`, `--base-url`, and `--key`.
+Without `--enrich`, conversion does not require a HyperCLI API call.
+
+`--index` runs `openclaw memory index` after all imports. Add `--agent <id>` to
+pass that agent selection to OpenClaw. Indexing invokes a local subprocess and
+fails the command if OpenClaw indexing fails.
