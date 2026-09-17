@@ -1,0 +1,343 @@
+---
+title: Gateway Client SDK
+description: Low-level Python gateway client for OpenClaw config, chat, files, sessions, channels, cron, and pairing-aware WebSocket connections.
+---
+
+`GatewayClient` is the low-level async WebSocket client for the OpenClaw gateway protocol.
+
+Use it when you want direct access to:
+
+- config RPC
+- chat/session RPC
+- workspace file RPC
+- paired node command RPC
+- channel auth flows
+- cron management
+- raw event handling
+
+In most apps, you will construct it via `OpenClawAgent.gateway()`.
+
+## Connection Model
+
+Gateway auth is application-level.
+
+Current remote flow:
+
+- connect to `wss://<agent-host>`
+- present the canonical `OPENCLAW_GATEWAY_TOKEN` shared/bootstrap credential
+- complete device challenge
+- auto-approve pairing if the SDK is bound to a deployment and API key
+- reuse cached device auth when possible
+
+The Agent helper obtains the shared token through the exact-key Secret API and
+keeps it in memory. Do not place it in a URL, log, or browser storage. Device
+identity is separate: the Python SDK persists its device-auth store at
+`~/.hypercli/openclaw-device-auth.json` by default. Issued tokens and pending
+pairings are scoped by deployment and role, so invalid-token repair does not
+discard another Agent's auth.
+
+A cold not-paired response can be approved through the token-authenticated
+Agent exec WebSocket and then
+reconnected. A warm connection from the same stored identity to the same
+deployment and role reuses device auth.
+
+This is not the same as browser `/_jwt_auth` route bootstrap.
+
+## Create A Client
+
+```python
+from hypercli.gateway import GatewayClient
+
+gw = GatewayClient(
+    url="wss://my-agent.hypercli.app",
+    gateway_token="...",
+    deployment_id="agent-id",
+    api_key="hyper_api_...",
+    api_base="https://api.hypercli.com/agents",
+    auto_approve_pairing=True,
+)
+```
+
+Common options:
+
+- `url`
+- `gateway_token`
+- `deployment_id`
+- `api_key`
+- `api_base`
+- `auto_approve_pairing`
+- `timeout`
+- `chat_timeout`
+- `client_id`
+- `client_mode`
+- `role`
+- `scopes`
+- `caps`
+
+Default handshake behavior for the Python SDK:
+
+- `client_id="cli"`
+- `client_mode="cli"`
+- no `Origin` header unless you pass `origin=...` explicitly
+
+That matters because OpenClaw applies browser/control-ui origin checks to
+`webchat`/control-ui clients and to any connection carrying an `Origin` header.
+
+## Lifecycle
+
+```python
+async with gw:
+    print(gw.version, gw.protocol)
+```
+
+Or manually:
+
+```python
+await gw.connect()
+...
+await gw.close()
+```
+
+Properties:
+
+- `version`
+- `protocol`
+- `is_connected`
+- `pending_pairing`
+
+## Events
+
+Register a raw event callback:
+
+```python
+unsubscribe = gw.on_event(lambda event: print(event))
+```
+
+The callback sees the raw gateway event stream, which is useful for:
+
+- custom chat UX
+- progress events
+- approval flows
+- debugging provider behavior
+
+## Readiness
+
+Use readiness explicitly after a pod reaches `RUNNING`:
+
+```python
+await gw.wait_ready(timeout=300)
+```
+
+By default this polls `config.get`, which is a better signal than pod state
+alone. `RUNNING`, public route/DNS readiness, pairing, and an authenticated
+gateway connection are separate boundaries.
+
+## Configuration
+
+```python
+config = await gw.config_get()
+schema = await gw.config_schema()
+await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "hyper_api_..."}}}})
+await gw.config_apply(config)
+```
+
+Config methods:
+
+- `config_get()`
+- `config_schema()`
+- `config_patch()`
+- `config_set()`
+- `config_apply()`
+
+## Chat And Sessions
+
+High-level streaming helper:
+
+```python
+async for event in gw.chat_send("Summarize this repo", session_key="docs"):
+    print(event)
+```
+
+Available helpers:
+
+- `chat_send()`
+- `send_chat()`
+- `chat_history()`
+- `chat_abort()`
+- `sessions_list()`
+- `sessions_preview()`
+- `sessions_reset()`
+
+The Python client now handles:
+
+- modern `chat.content` / `chat.done`
+- legacy `event == "chat"` final states
+- run correlation using both client idempotency and server `runId`
+
+## Files
+
+```python
+files = await gw.files_list("main")
+text = await gw.file_get("main", "README.md")
+await gw.file_set("main", "notes.txt", "hello")
+```
+
+## Channels
+
+Use these for channel login and status surfaces exposed by OpenClaw:
+
+- `channels_status()`
+- `channels_logout()`
+- `web_login_start()`
+- `web_login_wait()`
+
+## Models, Agents, Cron
+
+```python
+await gw.models_list()
+await gw.agents_list()
+await gw.cron_list()
+await gw.cron_add({...})
+await gw.cron_remove("job-id")
+await gw.cron_run("job-id")
+await gw.status()
+```
+
+## Approvals
+
+If the gateway exposes approval-driven exec flows:
+
+- `exec_approvals_get()`
+- `exec_approvals_set()`
+- `exec_approval_resolve()`
+
+## Nodes
+
+Nodes are separate machines or processes connected to the same gateway with
+`role="node"`. A node declares a command surface; an operator approves that
+surface and invokes commands through the gateway.
+
+Operator-side methods:
+
+- `nodes_list()`
+- `node_describe(node_id)`
+- `node_pair_list()`
+- `node_pair_approve(request_id)`
+- `node_pair_reject(request_id)`
+- `node_pair_remove(node_id)`
+- `node_rename(node_id, display_name)`
+- `node_invoke(node_id, command, params=None, timeout_ms=None)`
+
+Node-side helper:
+
+```python
+from hypercli.gateway import NodeServer
+
+node = NodeServer(
+    "wss://my-agent.hypercli.app",
+    "node-abc",
+    {
+        "shell.run": lambda params: {"stdout": "ok", "exitCode": 0},
+    },
+    gateway_token="...",
+)
+
+await node.connect()
+```
+
+`NodeServer` connects with `role="node"`, sends `commands` during the gateway
+handshake, listens for `node.invoke.request`, and replies with
+`node.invoke.result`. Success replies contain `payloadJSON`; handler failures
+return an error object.
+
+Pairing has two layers:
+
+- device pairing, approved with `device.pair.approve`
+- node command-surface pairing, approved with `node_pair_approve(request_id)`
+
+For custom commands such as `shell.run`, `fs.read`, or `fs.write`, the gateway
+policy must also allow the command names through `gateway.nodes.allowCommands`.
+If you patch that config in a containerized agent, restart the whole agent and
+reconnect clients before pairing or invoking nodes. A config patch alone can
+leave the running gateway on the old command policy.
+
+## Node Egress Prototype
+
+The Python SDK includes an experimental node egress reference implementation in
+`hypercli.openclaw.node_proxy`.
+
+The cross-platform contract is:
+
+- connect as `role="node"`
+- declare explicit command names in the handshake
+- approve the node command surface
+- invoke through `node.invoke`
+- move bytes as bounded base64 chunks in JSON payloads
+
+It is not a raw gateway socket bus. `node.invoke` is one request and one result,
+so long-lived transport has to be modeled as repeated RPC calls with explicit
+connection ids, chunk sizes, max bytes, timeouts, and cleanup.
+
+Python/Linux is the first tested implementation because the SDK already has
+`NodeServer` and the behavior is easy to unit test without a live gateway.
+Backseat Driver's macOS `NodeRuntime` is the native-node precedent for a later
+macOS port. Android should grow Kotlin `NodeRuntime` parity and serve the same
+`egress.*` command contract instead of a separate protocol. The TS SDK can
+mirror the operator-side types if browser/node TypeScript clients need the same
+helpers.
+
+Node side:
+
+```python
+from hypercli.openclaw import NodeEgressServer
+
+node = NodeEgressServer(
+    "wss://my-agent.hypercli.app",
+    "home-linux-egress",
+    gateway_token="...",
+)
+
+await node.connect()
+```
+
+Operator side:
+
+```python
+from hypercli.openclaw import NodeEgressClient
+
+egress = NodeEgressClient(gw, node_id="home-linux-egress")
+res = await egress.http_fetch("https://example.com/")
+```
+
+Command surface:
+
+- `egress.http.fetch`: bounded HTTP(S) fetch; returns status, headers, and
+  response body chunks
+- `egress.tcp.open`
+- `egress.tcp.read`
+- `egress.tcp.write`
+- `egress.tcp.close`
+
+Security defaults:
+
+- local proxy listeners bind to `127.0.0.1`
+- the operator must pass an explicit `node_id`
+- private/RFC1918, loopback, link-local, multicast, reserved, and cloud metadata
+  destinations are blocked by default on the node
+- base64 chunks are capped at 64 KiB and HTTP responses are bounded
+
+`LoopbackNodeProxy` can expose a local HTTP proxy for absolute-form HTTP
+requests. Its `CONNECT` support is experimental: it polls `egress.tcp.read` and
+uses `egress.tcp.write` over repeated `node.invoke` calls, so it has materially
+higher latency and overhead than a real tunnel.
+
+Custom `egress.*` commands may need `gateway.nodes.allowCommands` in addition to
+device pairing and node surface approval.
+
+## Recommendation
+
+Use `OpenClawAgent.gateway()` unless you are:
+
+- building a custom transport wrapper
+- debugging raw gateway behavior
+- implementing a custom pairing or event model

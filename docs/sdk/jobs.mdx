@@ -1,0 +1,135 @@
+---
+title: Jobs
+description: Create GPU jobs, inspect them, collect logs and metrics, and resolve jobs by ID, hostname, or IP.
+---
+
+## Create Job
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI()
+
+job = client.jobs.create(
+    image="nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+    command="python train.py",
+    gpu_type="l40s",
+    gpu_count=1,
+    runtime=3600,
+    interruptible=True,
+    env={"KEY": "value"},
+    ports={"lb": 8080},
+    auth=True,
+    tags=["team=ml", "env=prod"],
+)
+```
+
+### Create Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `image` | `str` | required | Docker image |
+| `command` | `str` | `None` | Command to run |
+| `gpu_type` | `str` | `"l40s"` | GPU type |
+| `gpu_count` | `int` | `1` | Number of GPUs |
+| `region` | `str` | `None` | Region code |
+| `runtime` | `int` | `None` | Max runtime in seconds |
+| `interruptible` | `bool` | `True` | Use interruptible instances |
+| `env` | `dict` | `None` | Environment variables |
+| `ports` | `dict` | `None` | Port mappings passed through to the API |
+| `auth` | `bool` | `False` | Require bearer auth on the load balancer |
+| `registry_auth` | `dict` | `None` | Private registry credentials |
+| `tags` | `list[str] \| dict[str, str]` | `None` | Raw tag strings like `team=ml` |
+| `dockerfile` | `str` | `None` | Base64-encoded Dockerfile payload |
+| `dry_run` | `bool` | `False` | Validate without creating the job |
+
+## Tags
+
+Jobs can include optional raw tag strings. The Python SDK also accepts a dict as a convenience and serializes it to `key=value` strings.
+
+```python
+job = client.jobs.create(
+    image="nvidia/cuda:12.0",
+    command="python train.py",
+    gpu_type="l40s",
+    tags=["team=ml", "env=prod"],
+)
+
+jobs = client.jobs.list(tags=["team=ml", "env=prod"])
+```
+
+## Port Exposure
+
+The SDK forwards the `ports` map directly to the API.
+
+```python
+job = client.jobs.create(
+    image="my-api:latest",
+    gpu_type="l40s",
+    ports={
+        "lb": 8000,
+        "2222/tcp": 2222,
+    },
+    auth=True,
+    command="uvicorn app:app --host 0.0.0.0 --port 8000",
+)
+```
+
+- Use `lb` for a public HTTPS endpoint at `https://{job.hostname}`.
+- Use `"<port>/tcp"` for raw TCP ports.
+- Fetch the service token with `client.jobs.token(job.job_id)`.
+
+## List And Inspect Jobs
+
+```python
+jobs = client.jobs.list()
+jobs = client.jobs.list(state="running")
+jobs = client.jobs.list(tags=["team=ml"])
+job = client.jobs.get("job_id")
+```
+
+### Job Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `job_id` | `str` | Job UUID |
+| `job_key` | `str` | Key used by streaming helpers |
+| `state` | `str` | Current job state |
+| `gpu_type` | `str` | GPU type |
+| `gpu_count` | `int` | Number of GPUs |
+| `region` | `str` | Region |
+| `hostname` | `str \| None` | Assigned hostname when available |
+| `interruptible` | `bool` | Whether the job uses interruptible capacity |
+| `price_per_hour` | `float` | Hourly price |
+| `price_per_second` | `float` | Per-second price |
+| `runtime` | `int` | Max runtime in seconds |
+| `elapsed` | `int` | Elapsed runtime derived from `started_at` or `created_at` when needed |
+| `time_left` | `int` | Remaining runtime in seconds, derived defensively by the SDK |
+| `command` | `str \| None` | Decoded command when returned |
+| `env_vars` | `dict \| None` | Environment variables when returned |
+| `tags` | `list[str] \| None` | Tags when present, including auto-tags such as `owner=<id>` and `job=<id>` |
+| `cold_boot` | `bool` | Whether placement required cold provisioning |
+
+`elapsed` and `time_left` are safe to use even against older Orchestra deployments that still return stale runtime counters, because the SDK recomputes them from the job timestamps when needed.
+
+## Logs, Metrics, Exec, And Lifecycle
+
+```python
+client.jobs.logs(job.job_id)
+client.jobs.metrics(job.job_id)
+client.jobs.exec(job.job_id, ["nvidia-smi"], timeout=30)
+client.jobs.extend(job.job_id, 7200)
+client.jobs.cancel(job.job_id)
+```
+
+`exec()` returns an `ExecResult` with `stdout`, `stderr`, and `exit_code`.
+
+## Lookup Helpers
+
+The package exports several search helpers:
+
+```python
+from hypercli import find_job, find_by_id, find_by_hostname, find_by_ip
+
+resolved = find_job(client.jobs, "abc123")
+```

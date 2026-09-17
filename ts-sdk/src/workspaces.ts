@@ -1,0 +1,881 @@
+/**
+ * Shared knowledge API - shared Markdown-backed file collections.
+ */
+import { requestWithRetry } from './http.js';
+import { APIError } from './errors.js';
+import { getAgentsApiBaseUrl } from './config.js';
+
+// Node-only builtins are loaded through an opaque specifier so browser bundles
+// (console, desktop webview) never try to resolve them; the sync helpers below
+// throw a clear error when called outside Node.
+async function loadNodeBuiltin<T>(moduleName: string): Promise<T> {
+  try {
+    return (await import(/* webpackIgnore: true */ moduleName)) as T;
+  } catch {
+    throw new Error(`shared knowledge sync requires a Node.js runtime (${moduleName} is unavailable)`);
+  }
+}
+
+function envValue(key: string): string | undefined {
+  const maybeProcess = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
+  return maybeProcess.process?.env?.[key];
+}
+
+export function deriveWorkspacesApiBase(agentsApiBase?: string): string {
+  const configured = envValue('HYPER_WORKSPACES_API_BASE');
+  const raw = (configured || agentsApiBase || getAgentsApiBaseUrl()).replace(/\/$/, '');
+  const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  let path = url.pathname.replace(/\/$/, '');
+  if (path.endsWith('/workspaces')) {
+    return `${url.protocol}//${url.host}${path}`;
+  }
+  if (path.endsWith('/agents')) {
+    path = path.slice(0, -'/agents'.length);
+  }
+  return `${url.protocol}//${url.host}${path}/workspaces`;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  displayName: string | null;
+  displaySlug: string | null;
+  role: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface WorkspaceAgentAssociation {
+  workspaceId: string;
+  agentId: string;
+  role: string;
+  expiresAt: string | null;
+}
+
+export interface WorkspaceGrant {
+  id: string;
+  workspaceId: string;
+  subjectType: string;
+  subjectId: string;
+  role: string;
+  displayName: string | null;
+  displaySlug: string | null;
+  isOwner: boolean;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export type WorkspaceAccessVisibility = 'all-direct-access' | 'current-access-only';
+
+export interface WorkspaceAccessEntry {
+  workspaceId: string;
+  subjectType: string;
+  subjectId: string;
+  role: string;
+  displayName: string | null;
+  displaySlug: string | null;
+  grants: WorkspaceGrant[];
+}
+
+export interface WorkspaceAccessSnapshot {
+  workspace: Workspace;
+  currentRole: string | null;
+  visibility: WorkspaceAccessVisibility;
+  capturedAt: string;
+  entries: WorkspaceAccessEntry[] | null;
+  grants: WorkspaceGrant[] | null;
+}
+
+export interface WorkspaceFile {
+  id: string;
+  workspaceId: string;
+  path: string;
+  displayName: string;
+  currentVersionId: string | null;
+  fileState: string;
+  uploadStatus: string | null;
+  processingState: string | null;
+  keywords: string[];
+  summary: string | null;
+}
+
+export interface WorkspaceFileSearchResult extends WorkspaceFile {
+  matchReasons: string[];
+  keywordScore: number;
+  vectorScore: number | null;
+  score: number;
+}
+
+export interface WorkspaceManifest {
+  workspaceId: string;
+  workspaceName: string;
+  workspaceSlug: string;
+  snapshotId: string;
+  basePath: string;
+  markdownFiles: Array<Record<string, any>>;
+}
+
+export interface WorkspaceDownloadUrl {
+  fileId: string;
+  path: string;
+  version: number;
+  url: string | null;
+  downloadCommand: string;
+}
+
+export interface WorkspaceFileBytes {
+  content: Uint8Array;
+  path: string;
+  name: string;
+}
+
+export interface WorkspaceSubjectOptions {
+  /** @deprecated Workspaces identity is resolved from the bearer credential. */
+  userId?: string;
+  /** @deprecated Workspaces identity is resolved from the bearer credential. */
+  agentId?: string;
+}
+
+export interface EnsureWorkspaceResult {
+  workspace: Workspace;
+  created: boolean;
+}
+
+export interface EnsureWorkspaceOptions {
+  name: string;
+  slug?: string;
+  description?: string;
+  match?: (workspace: Workspace) => boolean;
+}
+
+function workspaceFromDict(data: any): Workspace {
+  return {
+    id: String(data?.id || ''),
+    name: data?.name || '',
+    slug: data?.slug || '',
+    description: data?.description ?? null,
+    displayName: data?.display_name ?? data?.displayName ?? null,
+    displaySlug: data?.display_slug ?? data?.displaySlug ?? null,
+    role: data?.role ?? data?.current_role ?? data?.currentRole ?? null,
+    createdAt: data?.created_at ?? data?.createdAt ?? null,
+    updatedAt: data?.updated_at ?? data?.updatedAt ?? null,
+  };
+}
+
+function grantFromDict(data: any): WorkspaceGrant {
+  return {
+    id: String(data?.id || ''),
+    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
+    subjectType: data?.subject_type || data?.subjectType || '',
+    subjectId: data?.subject_id || data?.subjectId || '',
+    role: data?.role || '',
+    displayName: data?.display_name ?? data?.displayName ?? null,
+    displaySlug: data?.display_slug ?? data?.displaySlug ?? null,
+    isOwner: Boolean(data?.is_owner ?? data?.isOwner ?? false),
+    expiresAt: data?.expires_at ?? data?.expiresAt ?? null,
+    revokedAt: data?.revoked_at ?? data?.revokedAt ?? null,
+  };
+}
+
+const WORKSPACE_ROLE_STRENGTH: Record<string, number> = {
+  viewer: 1,
+  contributor: 2,
+  admin: 3,
+};
+
+function grantExpirationTimestamp(grant: WorkspaceGrant): number | null {
+  if (grant.expiresAt === null) return null;
+  if (typeof grant.expiresAt !== 'string') {
+    throw new Error(
+      `Invalid expiration timestamp for workspace grant ${grant.id || '<unknown>'}: ${String(grant.expiresAt)}`,
+    );
+  }
+  const timestamp = Date.parse(grant.expiresAt);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(
+      `Invalid expiration timestamp for workspace grant ${grant.id || '<unknown>'}: ${grant.expiresAt}`,
+    );
+  }
+  return timestamp;
+}
+
+function strongestWorkspaceRole(grants: WorkspaceGrant[]): string {
+  let strongest = '';
+  let strongestValue = -1;
+  for (const grant of grants) {
+    const value = WORKSPACE_ROLE_STRENGTH[grant.role] ?? 0;
+    if (value > strongestValue || (value === strongestValue && grant.role < strongest)) {
+      strongest = grant.role;
+      strongestValue = value;
+    }
+  }
+  return strongest;
+}
+
+function agreedNonEmptyValue(values: Array<string | null>): string | null {
+  const nonEmpty = new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0));
+  return nonEmpty.size === 1 ? nonEmpty.values().next().value ?? null : null;
+}
+
+function workspaceAccessEntries(grants: WorkspaceGrant[], capturedAt: number): WorkspaceAccessEntry[] {
+  const grouped = new Map<string, {
+    workspaceId: string;
+    subjectType: string;
+    subjectId: string;
+    grants: WorkspaceGrant[];
+  }>();
+
+  for (const grant of grants) {
+    const expiresAt = grantExpirationTimestamp(grant);
+    if (grant.revokedAt !== null || (expiresAt !== null && expiresAt <= capturedAt)) continue;
+
+    const key = JSON.stringify([grant.workspaceId, grant.subjectType, grant.subjectId]);
+    let group = grouped.get(key);
+    if (!group) {
+      group = {
+        workspaceId: grant.workspaceId,
+        subjectType: grant.subjectType,
+        subjectId: grant.subjectId,
+        grants: [],
+      };
+      grouped.set(key, group);
+    }
+    group.grants.push(grant);
+  }
+
+  return Array.from(grouped.values(), (group) => ({
+    workspaceId: group.workspaceId,
+    subjectType: group.subjectType,
+    subjectId: group.subjectId,
+    role: strongestWorkspaceRole(group.grants),
+    displayName: agreedNonEmptyValue(group.grants.map((grant) => grant.displayName)),
+    displaySlug: agreedNonEmptyValue(group.grants.map((grant) => grant.displaySlug)),
+    grants: group.grants,
+  })).sort((left, right) => {
+    if (left.subjectType !== right.subjectType) return left.subjectType < right.subjectType ? -1 : 1;
+    if (left.subjectId !== right.subjectId) return left.subjectId < right.subjectId ? -1 : 1;
+    if (left.workspaceId !== right.workspaceId) return left.workspaceId < right.workspaceId ? -1 : 1;
+    return 0;
+  });
+}
+
+function latestGrantExpiration(grants: WorkspaceGrant[]): string | null {
+  if (grants.some((grant) => grant.expiresAt === null)) return null;
+
+  let latestValue: string | null = null;
+  let latestTimestamp = -Infinity;
+  for (const grant of grants) {
+    const value = grant.expiresAt as string;
+    const timestamp = grantExpirationTimestamp(grant) as number;
+    if (timestamp > latestTimestamp || (timestamp === latestTimestamp && (latestValue === null || value > latestValue))) {
+      latestValue = value;
+      latestTimestamp = timestamp;
+    }
+  }
+  return latestValue;
+}
+
+function fileFromDict(data: any): WorkspaceFile {
+  return {
+    id: String(data?.id || ''),
+    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
+    path: data?.path || '',
+    displayName: data?.display_name || data?.displayName || '',
+    currentVersionId: data?.current_version_id || data?.currentVersionId || null,
+    fileState: data?.file_state || data?.fileState || '',
+    uploadStatus: data?.upload_status || data?.uploadStatus || null,
+    processingState: data?.processing_state || data?.processingState || null,
+    keywords: Array.isArray(data?.keywords) ? data.keywords.map(String) : [],
+    summary: data?.summary || null,
+  };
+}
+
+function fileSearchResultFromDict(data: any): WorkspaceFileSearchResult {
+  return {
+    ...fileFromDict(data),
+    matchReasons: data?.match_reasons || data?.matchReasons || [],
+    keywordScore: Number(data?.keyword_score ?? data?.keywordScore ?? 0),
+    vectorScore:
+      data?.vector_score !== undefined && data?.vector_score !== null
+        ? Number(data.vector_score)
+        : data?.vectorScore !== undefined && data?.vectorScore !== null
+          ? Number(data.vectorScore)
+          : null,
+    score: Number(data?.score ?? 0),
+  };
+}
+
+function manifestFromDict(data: any): WorkspaceManifest {
+  return {
+    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
+    workspaceName: data?.workspace_name || data?.workspaceName || '',
+    workspaceSlug: data?.workspace_slug || data?.workspaceSlug || '',
+    snapshotId: data?.snapshot_id || data?.snapshotId || '',
+    basePath: data?.base_path || data?.basePath || '',
+    markdownFiles: Array.isArray(data?.markdown_files) ? data.markdown_files : Array.isArray(data?.markdownFiles) ? data.markdownFiles : [],
+  };
+}
+
+function downloadUrlFromDict(data: any): WorkspaceDownloadUrl {
+  return {
+    fileId: String(data?.file_id || data?.fileId || ''),
+    path: data?.path || '',
+    version: Number(data?.version || 0),
+    url: data?.url ?? null,
+    downloadCommand: data?.download_command || data?.downloadCommand || '',
+  };
+}
+
+async function responseErrorDetail(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) return response.statusText;
+  try {
+    const payload: any = JSON.parse(text);
+    const detail = payload?.detail ?? payload?.message ?? payload?.error;
+    if (typeof detail === 'string') return detail;
+    if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+    return text;
+  } catch {
+    return text;
+  }
+}
+
+async function handleResponse<T = any>(response: Response): Promise<T> {
+  if (response.status >= 400) {
+    throw new APIError(response.status, await responseErrorDetail(response));
+  }
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
+}
+
+async function handleBytesResponse(response: Response): Promise<Uint8Array> {
+  if (response.status >= 400) {
+    throw new APIError(response.status, await responseErrorDetail(response));
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function encodeRef(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function encodeFileRef(value: string): string {
+  return normalizePosixPath(value)
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+}
+
+function workspaceMatchesEnsureOptions(workspace: Workspace, options: EnsureWorkspaceOptions): boolean {
+  if (options.match?.(workspace)) return true;
+  if (options.slug && workspace.slug === options.slug) return true;
+  return !options.slug && workspace.name === options.name;
+}
+
+export class WorkspacesAPI {
+  private apiBase: string;
+  private apiKey: string;
+  private timeout: number;
+  private uploadTimeout: number;
+
+  constructor(apiKey: string, options: { apiBase?: string; agentsApiBase?: string; timeout?: number; uploadTimeout?: number } = {}) {
+    if (!apiKey) {
+      throw new Error('API key required for shared knowledge');
+    }
+    this.apiKey = apiKey;
+    this.apiBase = (options.apiBase || deriveWorkspacesApiBase(options.agentsApiBase)).replace(/\/$/, '');
+    this.timeout = options.timeout ?? 30000;
+    this.uploadTimeout = options.uploadTimeout ?? Math.max(this.timeout, 120000);
+  }
+
+  private headers(_subject: WorkspaceSubjectOptions = {}): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+    };
+    return headers;
+  }
+
+  private authHeaders(_subject: WorkspaceSubjectOptions = {}): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+    return headers;
+  }
+
+  private async request<T = any>(
+    method: string,
+    path: string,
+    subject: WorkspaceSubjectOptions = {},
+    body?: any,
+  ): Promise<T> {
+    const response = await requestWithRetry({
+      method,
+      url: `${this.apiBase}${path}`,
+      headers: this.headers(subject),
+      body,
+      retries: method === 'GET' ? 3 : 1,
+      timeout: this.timeout,
+    });
+    return handleResponse<T>(response);
+  }
+
+  async list(subject: WorkspaceSubjectOptions = {}): Promise<Workspace[]> {
+    const data = await this.request<any[]>('GET', '', subject);
+    return (data || []).map(workspaceFromDict);
+  }
+
+  async get(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<Workspace> {
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}`, subject);
+    return workspaceFromDict(data);
+  }
+
+  async accessSnapshot(
+    workspaceRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceAccessSnapshot> {
+    const workspace = await this.get(workspaceRef, subject);
+    const capturedTime = new Date();
+    const capturedAt = capturedTime.toISOString();
+    const currentRole = workspace.role;
+
+    if (currentRole !== 'admin') {
+      return {
+        workspace,
+        currentRole,
+        visibility: 'current-access-only',
+        capturedAt,
+        entries: null,
+        grants: null,
+      };
+    }
+
+    const grants = await this.listGrants(workspaceRef, subject);
+    return {
+      workspace,
+      currentRole,
+      visibility: 'all-direct-access',
+      capturedAt,
+      entries: workspaceAccessEntries(grants, capturedTime.getTime()),
+      grants,
+    };
+  }
+
+  async listAgentAssociations(
+    workspaceRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceAgentAssociation[]> {
+    const snapshot = await this.accessSnapshot(workspaceRef, subject);
+    if (snapshot.visibility !== 'all-direct-access' || snapshot.entries === null) {
+      throw new Error('Workspace agent associations are available only to Workspace admins.');
+    }
+    return snapshot.entries
+      .filter((entry) => entry.subjectType === 'agent')
+      .map((entry) => ({
+        workspaceId: entry.workspaceId,
+        agentId: entry.subjectId,
+        role: entry.role,
+        expiresAt: latestGrantExpiration(entry.grants),
+      }));
+  }
+
+  async search(
+    query: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { vector?: boolean } = {},
+  ): Promise<Workspace[]> {
+    const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
+    const data = await this.request<any[]>('GET', `/search?${params.toString()}`, subject);
+    return (data || []).map(workspaceFromDict);
+  }
+
+  async create(
+    body: { name: string; slug?: string; description?: string },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<Workspace> {
+    const data = await this.request('POST', '', subject, body);
+    return workspaceFromDict(data);
+  }
+
+  async ensureWorkspace(
+    options: EnsureWorkspaceOptions,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<EnsureWorkspaceResult> {
+    const listed = await this.list(subject);
+    const existing = listed.find((workspace) => workspaceMatchesEnsureOptions(workspace, options));
+    if (existing) return { workspace: existing, created: false };
+
+    try {
+      return {
+        workspace: await this.create({
+          name: options.name,
+          ...(options.slug !== undefined ? { slug: options.slug } : {}),
+          ...(options.description !== undefined ? { description: options.description } : {}),
+        }, subject),
+        created: true,
+      };
+    } catch (error) {
+      if (!(error instanceof APIError) || error.statusCode !== 409) throw error;
+      const recovered = await this.list(subject);
+      const recoveredWorkspace = recovered.find((workspace) => workspaceMatchesEnsureOptions(workspace, options));
+      if (recoveredWorkspace) return { workspace: recoveredWorkspace, created: false };
+      throw error;
+    }
+  }
+
+  async update(
+    workspaceRef: string,
+    body: { name?: string; slug?: string; description?: string },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<Workspace> {
+    const data = await this.request('PATCH', `/${encodeRef(workspaceRef)}`, subject, body);
+    return workspaceFromDict(data);
+  }
+
+  async delete(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}`, subject);
+  }
+
+  async grant(
+    workspaceRef: string,
+    body: {
+      subjectType: 'user' | 'agent';
+      subjectId: string;
+      role?: 'viewer' | 'contributor' | 'admin';
+      displayName?: string;
+      displaySlug?: string;
+      expiresAt?: string | null;
+    },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceGrant> {
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/grants`, subject, {
+      subject_type: body.subjectType,
+      subject_id: body.subjectId,
+      role: body.role ?? 'viewer',
+      ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
+      ...(body.displaySlug !== undefined ? { display_slug: body.displaySlug } : {}),
+      ...(body.expiresAt !== undefined ? { expires_at: body.expiresAt } : {}),
+    });
+    return grantFromDict(data);
+  }
+
+  async listGrants(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant[]> {
+    const data = await this.request<unknown>('GET', `/${encodeRef(workspaceRef)}/grants`, subject);
+    if (!Array.isArray(data)) {
+      throw new Error('Workspace grants response must be an array.');
+    }
+    return data.map(grantFromDict);
+  }
+
+  async updateGrant(
+    workspaceRef: string,
+    grantId: string,
+    body: { role?: 'viewer' | 'contributor' | 'admin'; expiresAt?: string | null },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceGrant> {
+    const data = await this.request(
+      'PATCH',
+      `/${encodeRef(workspaceRef)}/grants/${encodeRef(grantId)}`,
+      subject,
+      {
+        ...(body.role !== undefined ? { role: body.role } : {}),
+        ...(body.expiresAt !== undefined ? { expires_at: body.expiresAt } : {}),
+      },
+    );
+    return grantFromDict(data);
+  }
+
+  async revokeGrant(workspaceRef: string, grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}/grants/${encodeRef(grantId)}`, subject);
+  }
+
+  async registerFile(
+    workspaceRef: string,
+    body: {
+      path: string;
+      sourceFilename?: string;
+      sourceContentType?: string;
+      sourceSizeBytes?: number;
+      sourceSha256?: string;
+      sourceEtag?: string;
+      keywords?: string[];
+    },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/files`, subject, {
+      path: body.path,
+      source_filename: body.sourceFilename,
+      source_content_type: body.sourceContentType,
+      source_size_bytes: body.sourceSizeBytes,
+      source_sha256: body.sourceSha256,
+      source_etag: body.sourceEtag,
+      keywords: body.keywords,
+    });
+    return fileFromDict(data);
+  }
+
+  async uploadFile(
+    workspaceRef: string,
+    file: Blob,
+    options: { path?: string; filename?: string; sourceEtag?: string } = {},
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const formData = new FormData();
+    const filename = options.filename || (typeof File !== 'undefined' && file instanceof File ? file.name : 'upload');
+    formData.append('workspace', workspaceRef);
+    formData.append('file', file, filename);
+    if (options.path) formData.append('path', options.path);
+    if (options.sourceEtag) formData.append('source_etag', options.sourceEtag);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.uploadTimeout);
+    try {
+      const response = await fetch(`${this.apiBase}/upload`, {
+        method: 'POST',
+        headers: this.authHeaders(subject),
+        body: formData,
+        signal: controller.signal,
+      });
+      return fileFromDict(await handleResponse(response));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async getFile(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject);
+    return fileFromDict(data);
+  }
+
+  async updateFile(
+    workspaceRef: string,
+    fileRef: string,
+    body: { displayName?: string; keywords?: string[]; summary?: string | null },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const data = await this.request('PATCH', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject, {
+      ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
+      ...(body.keywords !== undefined ? { keywords: body.keywords } : {}),
+      ...(body.summary !== undefined ? { summary: body.summary } : {}),
+    });
+    return fileFromDict(data);
+  }
+
+  async regenerateFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile> {
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}/regenerate`, subject);
+    return fileFromDict(data);
+  }
+
+  async waitUntilProcessed(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {},
+  ): Promise<WorkspaceFile> {
+    const timeoutMs = options.timeoutMs ?? 300000;
+    const pollIntervalMs = options.pollIntervalMs ?? 2000;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const file = await this.getFile(workspaceRef, fileRef, subject);
+      if (file.fileState === 'processed' && file.processingState === 'processed') {
+        return file;
+      }
+      if (file.fileState === 'failed' || file.fileState === 'deleted' || file.processingState === 'failed' || file.processingState === 'deleted') {
+        throw new Error(`Shared knowledge file ${fileRef} is ${file.fileState} with processing ${file.processingState || 'unknown'}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    throw new Error(`Shared knowledge file ${fileRef} did not process within ${timeoutMs}ms`);
+  }
+
+  async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/files`, subject);
+    return (data || []).map(fileFromDict);
+  }
+
+  async searchFiles(
+    workspaceRef: string,
+    query: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { vector?: boolean } = {},
+  ): Promise<WorkspaceFileSearchResult[]> {
+    const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/files/search?${params.toString()}`, subject);
+    return (data || []).map(fileSearchResultFromDict);
+  }
+
+  async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}/manifest`, subject);
+    return manifestFromDict(data);
+  }
+
+  async downloadUrl(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceDownloadUrl> {
+    const data = await this.request('POST', `/download-url`, subject, { workspace: workspaceRef, path: fileRef });
+    return downloadUrlFromDict(data);
+  }
+
+  async downloadFileBytes(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { raw?: boolean; index?: number } = {},
+  ): Promise<WorkspaceFileBytes> {
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.apiBase}/download`,
+      headers: this.headers(subject),
+      body: { workspace: workspaceRef, path: fileRef, raw: Boolean(options.raw), index: options.index ?? 1 },
+      timeout: this.timeout,
+    });
+    const path = fileRef;
+    return {
+      content: await handleBytesResponse(response),
+      path,
+      name: fileNameFromPath(path),
+    };
+  }
+
+  async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject);
+  }
+
+  /**
+   * Get raw metadata for one file (`POST /workspaces/meta`).
+   */
+  async meta(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<Record<string, any>> {
+    return await this.request('POST', '/meta', subject, { workspace: workspaceRef, path: fileRef });
+  }
+
+  /**
+   * Write every Markdown projection for a workspace to
+   * `<outputDir>/<workspace_slug>/<path>.md` and return the written paths.
+   */
+  async syncManifest(
+    workspaceRef: string,
+    outputDir: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { readyOnly?: boolean } = {},
+  ): Promise<string[]> {
+    // Node-only: keep this module browser-importable by loading fs/path lazily
+    // with an opaque specifier so browser bundles skip these imports.
+    const fs = await loadNodeBuiltin<typeof import('node:fs')>('node:fs');
+    const path = await loadNodeBuiltin<typeof import('node:path')>('node:path');
+    const manifest = await this.manifest(workspaceRef, subject);
+    const workspaceRoot = path.join(outputDir, manifest.workspaceSlug);
+    const written: string[] = [];
+    for (const markdownFile of manifest.markdownFiles) {
+      if (!markdownFile || typeof markdownFile !== 'object') continue;
+      if (options.readyOnly && markdownFile.state !== 'processed') continue;
+      const markdownPath = normalizePosixPath(String(markdownFile.path || ''));
+      if (!markdownPath) {
+        throw new Error('Workspace manifest markdown entry is missing a path');
+      }
+      const target = path.resolve(workspaceRoot, ...`${markdownPath}.md`.split('/').filter(Boolean));
+      const rootResolved = path.resolve(workspaceRoot);
+      if (target !== rootResolved && !target.startsWith(rootResolved + path.sep)) {
+        throw new Error(`Unsafe markdown path: ${markdownPath}.md`);
+      }
+      let body: string;
+      try {
+        const response = await requestWithRetry({
+          method: 'POST',
+          url: `${this.apiBase}/tomd`,
+          headers: this.headers(subject),
+          body: { workspace: workspaceRef, path: markdownFile.path, index: 1 },
+          retries: options.readyOnly ? 1 : 3,
+          timeout: this.timeout,
+        });
+        body = new TextDecoder().decode(await handleBytesResponse(response));
+      } catch (error) {
+        if (
+          options.readyOnly &&
+          error instanceof APIError &&
+          error.statusCode === 404 &&
+          String(error.detail ?? '').toLowerCase().includes('workspace markdown not found')
+        ) {
+          continue;
+        }
+        throw error;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, body, 'utf8');
+      written.push(target);
+    }
+    return written;
+  }
+
+  /**
+   * Sync every shared Markdown collection to `<outputDir>/<slug>/...`.
+   * Returns a map from workspace slug to written file paths.
+   */
+  async syncAll(
+    outputDir: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { readyOnly?: boolean } = {},
+  ): Promise<Record<string, string[]>> {
+    const synced: Record<string, string[]> = {};
+    for (const workspace of await this.list(subject)) {
+      synced[workspace.slug] = await this.syncManifest(workspace.id, outputDir, subject, options);
+    }
+    return synced;
+  }
+
+  async markdownFile(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<{ markdownFile: Record<string, any>; markdown: string }> {
+    const manifest = await this.manifest(workspaceRef, subject);
+    const markdownFile = findMarkdownFile(manifest, fileRef);
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.apiBase}/tomd`,
+      headers: this.headers(subject),
+      body: { workspace: workspaceRef, path: markdownFile.path || fileRef, index: 1 },
+      timeout: this.timeout,
+    });
+    const bytes = await handleBytesResponse(response);
+    return { markdownFile, markdown: new TextDecoder().decode(bytes) };
+  }
+}
+
+function findMarkdownFile(manifest: WorkspaceManifest, fileRef: string): Record<string, any> {
+  const normalizedRef = normalizePosixPath(fileRef);
+  for (const markdownFile of manifest.markdownFiles) {
+    if (!markdownFile || typeof markdownFile !== 'object') continue;
+    if (fileRef === String(markdownFile.file_id || '')) {
+      return markdownFile;
+    }
+    if (normalizedRef === normalizePosixPath(String(markdownFile.path || ''))) {
+      return markdownFile;
+    }
+  }
+  throw new Error(`Shared knowledge Markdown file not found for ${fileRef}`);
+}
+
+function normalizePosixPath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function fileNameFromPath(path: string): string {
+  const normalized = normalizePosixPath(path).replace(/^\/+/, '').replace(/\/+$/, '');
+  return normalized.split('/').filter(Boolean).at(-1) || normalized || 'file';
+}

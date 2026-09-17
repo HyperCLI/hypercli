@@ -1,0 +1,105 @@
+---
+title: hyper voice
+description: Text-to-speech, voice cloning, and speech-to-text commands.
+---
+
+`hyper voice` contains the TypeScript CLI voice commands.
+
+Remote generation commands use the subscription voice API under
+`/agents/voice/*` or `/ws/voice` and require a key with `voice:*`.
+
+Global output format is controlled by `--json` or `--output json`. File
+destinations use `--out`.
+
+## tts
+
+```bash
+hyper voice tts "Hello world"
+hyper voice tts "Hello world" --voice ivy --out hello.mp3
+hyper voice tts "Long text..." --stream --out long.mp3
+```
+
+Defaults:
+
+- `--voice serena`
+- without `--out`, writes `tts-<timestamp>.mp3` in the current directory
+
+Without `--stream`, the command posts to `/agents/voice/tts`. With `--stream`,
+it opens the agents WebSocket `/ws/voice` endpoint and saves the collected audio
+chunks.
+
+Useful options:
+
+- `--voice`
+- `--stream`
+- `--out`
+- `--json`
+
+## design
+
+```bash
+hyper voice design "Hello" --description "warm upbeat narrator" --out designed.mp3
+hyper voice design "Hello" --desc "calm low-pitched narrator" --rest --out designed.mp3
+```
+
+Design creates a new voice from a text description instead of a reference file.
+By default, it opens the agents WebSocket `/ws/voice` endpoint and saves the
+collected audio chunks. `--rest` posts to `/agents/voice/design` and receives one
+assembled audio response instead. Without `--out`, design writes generated audio
+bytes to stdout; use `--out` with `--json`.
+
+Useful options:
+
+- `--description`, `--desc`, `-d`
+- `--out`
+- `--rest`
+- `--json`
+
+## clone
+
+```bash
+hyper voice clone "Hello" --file voice.wav --out cloned.mp3
+hyper voice clone "Hello" --url https://example.com/voice.wav --out cloned.mp3
+hyper voice clone "Hello" --file voice.wav --rest --out cloned.mp3
+```
+
+Provide exactly one reference source:
+
+- `--file` reads local reference audio.
+- `--url` downloads reference audio client-side, then sends the bytes through
+  the SDK.
+
+The TypeScript CLI accepts only HTTPS reference URLs and rejects localhost plus
+private, link-local, multicast, and reserved IP literal targets. Reference audio
+is capped at 25MiB. Without `--out`, clone writes generated audio bytes to
+stdout; use `--out` with `--json`.
+
+By default, clone opens the agents WebSocket `/ws/voice` endpoint and saves the
+collected audio chunks. `--rest` posts to `/agents/voice/clone` and receives one
+assembled audio response instead.
+
+Useful options:
+
+- `--file`
+- `--url`
+- `--out`
+- `--rest`
+- `--json`
+
+## transcribe
+
+```bash
+hyper voice transcribe speech.wav
+hyper voice transcribe speech.wav --language en
+hyper voice transcribe speech.wav --rest --out transcript.txt --json
+```
+
+By default, transcription uses the agents WebSocket `/ws/voice/transcribe`.
+`--rest` posts to `/agents/voice/transcribe` instead.
+
+Useful options:
+
+- `--language`
+- `--rest`
+- `--out`
+- `--json`

@@ -1,0 +1,27 @@
+{
+  "agent_id": "hermes",
+  "mode": "oss",
+  "oss": {
+    "embedder": {
+      "config": {
+        "embedding_dims": 2560,
+        "model": "qwen3-embedding-4b",
+        "openai_base_url": "https://api.agents.hypercli.com/v1"
+      },
+      "provider": "openai"
+    },
+    "llm": {
+      "config": {
+        "model": "default-anthropic",
+        "openai_base_url": "https://api.agents.hypercli.com/v1"
+      },
+      "provider": "openai"
+    },
+    "vector_store": {
+      "config": {
+        "path": "/home/hermes/.hermes/mem0_qdrant"
+      },
+      "provider": "qdrant"
+    }
+  }
+}

@@ -1,0 +1,573 @@
+---
+title: Authentication
+description: Authentication methods for HyperCLI platform and API
+---
+
+# Authentication
+
+HyperCLI supports three authentication methods depending on how you're accessing the platform:
+
+1. **Wallet Authentication** - For web users with Ethereum wallets
+2. **Turnkey Authentication** - For web users with email/passkey
+3. **API Key Authentication** - For SDK, CLI, and direct API access
+
+## Wallet Authentication
+
+Wallet authentication uses Ethereum wallet signatures to authenticate users on the web platform.
+
+### How It Works
+
+1. **Connect Wallet** - User connects their Ethereum wallet (MetaMask, WalletConnect, etc.)
+2. **Challenge Request** - Frontend requests a challenge from the backend
+3. **Sign Message** - User signs the challenge message with their wallet
+4. **Verification** - Backend verifies the signature and issues a JWT token
+
+### Implementation Flow
+
+```javascript
+// Step 1: Get challenge from backend
+const challengeRes = await fetch(`${API_BASE}/auth/wallet/challenge`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ wallet: walletAddress })
+});
+
+const { timestamp, message } = await challengeRes.json();
+
+// Step 2: Sign message with wallet
+const signature = await signMessageAsync({ message });
+
+// Step 3: Verify signature and get JWT
+const verifyRes = await fetch(`${API_BASE}/auth/wallet/login`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  credentials: 'include',
+  body: JSON.stringify({
+    wallet: walletAddress,
+    signature,
+    timestamp
+  })
+});
+
+const { token, expires_in, user_id } = await verifyRes.json();
+```
+
+### API Endpoints
+
+#### POST /auth/wallet/challenge
+
+Request a challenge message to sign.
+
+**Request:**
+```json
+{
+  "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+}
+```
+
+**Response:**
+```json
+{
+  "timestamp": 1732136789,
+  "message": "Sign in to HyperCLI\n\nTimestamp: 1732136789\nWallet: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+}
+```
+
+#### POST /auth/wallet/login
+
+Verify the signed message and get JWT token.
+
+**Request:**
+```json
+{
+  "wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "signature": "0xabc...",
+  "timestamp": 1732136789
+}
+```
+
+**Response:**
+```json
+{
+  "token": "eyJ...",
+  "expires_in": 2592000,
+  "user_id": "uuid",
+  "tier": "free"
+}
+```
+
+### Security Notes
+
+- Challenges expire after 60 seconds to prevent replay attacks
+- The backend recovers the signing address and verifies it matches the provided wallet
+- New users are automatically created with a FREE tier on first login
+- JWT tokens are valid for 30 days
+
+## Turnkey Authentication
+
+Turnkey authentication uses email/passkey login via [Turnkey](https://turnkey.com) for web users.
+
+### How It Works
+
+1. **Turnkey Login** - User logs in via Turnkey modal (email + passkey)
+2. **Session Token** - Turnkey SDK provides a session token
+3. **Token Exchange** - Frontend exchanges Turnkey token for HyperCLI JWT
+4. **Authentication** - User is authenticated with HyperCLI backend
+
+### Implementation Flow
+
+```javascript
+// Step 1: User logs in via Turnkey SDK
+const { user, session } = useTurnkey();
+await handleLogin({
+  logoLight: "/favicon.svg",
+  logoDark: "/favicon.svg",
+  title: "Welcome to HyperCLI",
+});
+
+// Step 2: Exchange Turnkey session token for HyperCLI JWT
+const loginRes = await fetch(`${AUTH_BACKEND}/auth/login`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ token: session.token }),
+});
+
+const { token, expires_in } = await loginRes.json();
+
+// Step 3: Store JWT in cookie
+cookieUtils.setWithMaxAge('auth_token', token, expires_in);
+```
+
+### API Endpoint
+
+#### POST /auth/login
+
+Exchange Turnkey session token for HyperCLI JWT.
+
+**Request:**
+```json
+{
+  "token": "eyJ..."
+}
+```
+
+**Response:**
+```json
+{
+  "token": "eyJ...",
+  "expires_in": 2592000
+}
+```
+
+### Environment Variables
+
+- `NEXT_PUBLIC_AUTH_BACKEND` - Backend URL for authentication (e.g., `https://api.hypercli.com`)
+- `NEXT_PUBLIC_API_BASE` - Alternative backend URL (some components use this)
+- `NEXT_PUBLIC_COOKIE_VALIDITY` - Cookie validity in days (default: 15)
+
+### Session Storage
+
+Turnkey stores session data in:
+- `localStorage['@turnkey/session/v3']` - Active session
+- `localStorage['@turnkey/active-session-key']` - Active session key
+- `localStorage['@turnkey/all-session-keys']` - All session keys
+- IndexedDB `turnkey` database
+
+## API Key Authentication
+
+API key authentication is used for SDK, CLI, and direct API access.
+
+### Tagged API Keys
+
+API keys now carry raw tag strings that define access.
+
+New keys are deny-by-default unless you attach tags explicitly.
+
+There are two kinds of tags:
+
+- family baseline tags such as `jobs:*` or `files:self`
+- selector tags such as `team=dev`, `customer=acme`, or `runtime=agent`
+
+Examples:
+
+- `*:*`
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `flows:*`
+- `renders:self`
+- `files:*`
+- `files:self`
+- `agents:*`
+- `agents:self`
+- `models:*`
+- `voice:*`
+- `user:self`
+- `api:self`
+- `team=dev`
+- `agent:<agent-uuid>`
+- `runtime=agent`
+
+Resources also carry tags. The contract is allowlist-oriented:
+
+- new keys have no access unless you attach tags
+- a selector tag only grants access when the resource carries the same tag
+- a family-wide baseline such as `jobs:*` grants broad access for that family
+- `family:none` means there is no baseline grant for that family; it does not erase matching selector tags
+
+For example:
+
+- key tags: `jobs:none`, `team=dev`
+- resource tags: `owner=<user>`, `job=<id>`, `team=dev`
+
+That key can still access the resource because the selector tag `team=dev` matches exactly.
+
+### Resource Families
+
+The current user-facing families are:
+
+- `api:* | api:self | api:none`
+- `user:* | user:self | user:none`
+- `jobs:* | jobs:self | jobs:none`
+- `renders:* | renders:self | renders:none`
+- `flows:* | flows:self | flows:none`
+- `files:* | files:self | files:none`
+- `agents:* | agents:self | agents:none`
+- `models:* | models:none`
+- `voice:* | voice:none`
+
+Typical meaning:
+
+- `api:*` lets a key manage API keys for the same account
+- `api:self` lets a key list, create, rename, or disable keys through `/api/keys`
+- `user:self` lets a key read or update the current account profile and call `GET /api/auth/me`
+- `jobs:*` grants broad job access
+- `renders:*` grants broad raw render access
+- `flows:*` grants broad curated flow access
+- `files:*` grants file upload/download/delete access
+- `agents:*` grants broad agent access
+- `models:*` grants model discovery and broad inference access
+- `voice:*` grants voice compatibility access
+
+### Exact Agent Keys
+
+Broad agent access uses the `agents:* | agents:self | agents:none` family tags.
+
+For the account-scoped deployment event stream, only `agents:*`, global `*:*`,
+or an exact selector below is sufficient. `agents:self` is intentionally not
+an account-stream grant and cannot subscribe.
+
+Exact agent binding is separate and uses the selector tag:
+
+- `agent:<agent-uuid>`
+
+So:
+
+- `agents:<uuid>` is not an exact-agent tag
+- `agent=<name>` is not supported
+- `:` is reserved for built-in scopes like `agent:<uuid>`; use `=` only for arbitrary metadata such as `customer=acme`
+- the stable exact selector is the agent UUID
+
+In practice, prefer minting exact-agent child keys through the agent API instead of hand-writing tags:
+
+```bash
+curl -X POST https://api.hypercli.com/agents/deployments/<agent-uuid>/keys \
+  -H "Authorization: Bearer $HYPER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"agent-client"}'
+```
+
+That endpoint issues the correctly scoped key for that one agent.
+
+### Inference And Voice Access
+
+For LLM access:
+
+- `GET /v1/models` requires only `models:*`
+- `POST /v1/completions`
+- `POST /v1/chat/completions`
+- `POST /v1/messages`
+- `POST /v1/embeddings`
+- `POST /v1/responses`
+
+The current public contract keeps voice simple:
+
+- use `voice:*` for subscription voice routes
+- do not rely on per-voice key tags in product code or docs
+
+Model access may be narrowed by the backend using model-scoped checks, but the stable public contract here is still:
+
+- `models:*` for model discovery and inference
+- exact selector tags for your own resource scoping, such as `customer=acme` or `team=dev`
+
+Subscription voice routes are:
+
+- `POST /agents/voice/tts`
+- `POST /agents/voice/clone`
+- `POST /agents/voice/design`
+
+Use `voice:*` for broad access. The current user-facing contract does not require narrower `voice=<name>` selectors in docs.
+
+### Global Access
+
+`*:*` is the global full-access baseline.
+
+It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer family tags that match the surface you are exposing, such as `flows:*` for curated subscription flows or `renders:*` for raw render access, plus selector tags like `team=dev`.
+
+One important distinction:
+
+- `flows:*` is enough for the public `/api/flow/*` surface
+- `flows:*` does not imply profile access
+- `client.user.auth_me()` and product `GET /api/auth/me` are part of the `user` family, so scoped keys generally need `user:self` if you expect that call to succeed
+
+### Getting Your API Key
+
+1. Visit the [console](https://console.hypercli.com)
+2. Navigate to the API Keys section
+3. Click "Generate New API Key"
+4. Copy and securely store your API key
+
+### Authentication Methods
+
+There are three ways to provide your API key:
+
+#### 1. Environment Variable (Recommended)
+
+Set the canonical `HYPER_API_KEY` environment variable:
+
+```bash
+export HYPER_API_KEY=your_api_key_here
+```
+
+Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist across sessions.
+
+#### 2. Configuration File
+
+Create a config file at `~/.hypercli/config`:
+
+```bash
+mkdir -p ~/.hypercli
+echo "HYPER_API_KEY=your_api_key_here" > ~/.hypercli/config
+chmod 600 ~/.hypercli/config
+```
+
+Or use the CLI configure command:
+
+```bash
+hyper configure
+```
+
+#### 3. Pass Directly (SDK Only)
+
+Pass the API key directly to the SDK constructor:
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI(api_key="your_api_key_here")
+```
+
+<Warning>
+Avoid hardcoding API keys in source code. Use environment variables or config files instead.
+</Warning>
+
+### Using API Keys
+
+#### SDK (Python)
+
+```python
+from hypercli import HyperCLI
+
+# API key from environment variable or config file
+hyper = HyperCLI()
+
+# Or pass directly
+hyper = HyperCLI(api_key="your_api_key_here")
+
+# Make authenticated requests
+jobs = client.jobs.list()
+```
+
+#### CLI
+
+```bash
+# Configure once
+hyper configure
+
+# Use CLI commands
+hyper jobs list
+hyper instances launch pytorch/pytorch:2.0.0 -g L40S
+```
+
+#### Direct API Requests
+
+Include your API key in the `X-API-KEY` header:
+
+```bash
+curl -X GET "https://api.hypercli.com/api/jobs" \
+  -H "X-API-KEY: your_api_key_here"
+```
+
+Or use Bearer token authentication:
+
+```bash
+curl -X GET "https://api.hypercli.com/api/jobs" \
+  -H "Authorization: Bearer your_api_key_here"
+```
+
+### Priority Order
+
+When multiple authentication methods are configured, the priority is:
+
+1. Explicit SDK `api_key=` parameter, where supported
+2. Environment `HYPER_API_KEY`
+3. `HYPER_API_KEY` in `~/.hypercli/config`
+4. Environment legacy `HYPERCLI_API_KEY`
+5. Legacy `HYPERCLI_API_KEY` in `~/.hypercli/config`
+
+Agent-scoped credentials have a separate order. See [CLI
+configuration](/cli/configuration#priority-rules) for
+`HYPER_AGENTS_API_KEY` precedence and command-specific exceptions.
+
+### Config File Format
+
+The config file uses a simple key-value format:
+
+```
+HYPER_API_KEY=your_api_key
+HYPER_API_BASE=https://api.hypercli.com
+```
+
+Supported configuration options:
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `HYPER_API_KEY` | Main product API key | (required) |
+| `HYPER_API_BASE` | Product API base URL | `https://api.hypercli.com` |
+| `HYPERCLI_API_KEY` | Legacy product-key alias | - |
+| `HYPERCLI_API_URL` | Legacy product-base alias | - |
+
+## Agent Route Authentication
+
+HyperCLI browser routes use a separate model from the normal app session JWT.
+
+### Agent Access Tokens
+
+For agent-specific routes and backend WebSocket flows, the backend mints short-lived ES256 agent access tokens that carry:
+
+- `agent_id`
+- `route_prefixes`
+- expiry
+
+These are used for:
+
+- `/ws/logs/{agent_id}`
+- `/ws/shell/{agent_id}`
+- protected browser route bootstrap
+
+### Protected Browser Routes
+
+Protected agent hosts do not expect the frontend to write cookies directly.
+
+Current flow:
+
+1. frontend requests `/deployments/{id}/token` relative to `AGENTS_API_BASE_URL`
+2. backend returns a short-lived agent access token
+3. browser opens `https://desktop-<agent-host>/_jwt_auth?jwt=...`
+4. the protected-route service verifies the token and current host
+5. the protected-route service sets the host cookie and redirects to `/`
+
+This is used for desktop and any other route marked `auth: true`.
+
+### OpenClaw Gateway Auth
+
+The root agent host is the OpenClaw gateway host.
+
+Gateway auth is application-level and separate from browser route bootstrap:
+
+- `OPENCLAW_GATEWAY_TOKEN` is the canonical shared/bootstrap credential. The
+  Agent SDK reads it through the exact-key Secret API only after the deployment
+  and its public route are ready, keeps it in memory, and never puts it in a
+  route URL, cookie, or browser storage.
+- the TypeScript browser client keeps one device keypair for the browser
+  storage origin in `localStorage` under `openclaw.device.auth.v1`
+- issued device tokens and pending pairing records in that store are scoped by
+  deployment and gateway role; they are not shared between Agents
+
+On a cold browser connection, OpenClaw can answer `PAIRING_REQUIRED` (also
+reported as not paired). With trusted deployment context and
+`autoApprovePairing`, the SDK approves that exact request through the
+token-authenticated Agent exec WebSocket, then reconnects the root WebSocket. A warm connection from the same
+browser origin to the same deployment and role reuses its device identity and
+issued device token and does not pair again.
+
+If a cached device token is rejected, repair clears only that deployment and
+role entry. It preserves the browser's global device identity and cached auth
+for other Agents.
+
+So:
+
+- `/_jwt_auth` is for protected browser routes
+- gateway clients should use the SDK / CLI gateway flows, not manual cookie setup
+- `RUNNING` is necessary but does not mean the public route, pairing, or
+  authenticated gateway hello is ready
+
+## Security Best Practices
+
+<Info>
+Your authentication credentials provide full access to your HyperCLI account. Keep them secure.
+</Info>
+
+### General Security
+
+- Never commit credentials to version control
+- Use environment variables in production
+- Rotate credentials periodically
+- Use separate credentials for different environments
+- Enable 2FA/passkeys when available (Turnkey)
+
+### API Key Security
+
+- Store API keys in secure environment variables or config files
+- Set appropriate file permissions (`chmod 600 ~/.hypercli/config`)
+- Delete unused API keys from the console
+- Monitor API key usage for suspicious activity
+
+### Web Authentication Security
+
+- Wallet authentication uses cryptographic signatures (no password required)
+- Turnkey passkeys provide phishing-resistant authentication
+- JWT tokens expire after 30 days
+- Tokens are stored in secure HTTP-only cookies (where possible)
+
+## Managing API Keys
+
+You can manage API keys through the [console](https://console.hypercli.com):
+
+- **Create** - Generate new API keys for different applications
+- **List** - View all active API keys and their creation dates
+- **Delete** - Revoke API keys that are no longer needed
+
+<Note>
+Deleting an API key immediately revokes access. Update your applications before deleting keys in use.
+</Note>
+
+## Troubleshooting
+
+### Wallet Authentication Issues
+
+- **Signature verification failed** - Ensure you're signing the exact message returned by `/auth/wallet/challenge`
+- **Challenge expired** - Request a new challenge (60 second timeout)
+- **Wallet mismatch** - Ensure the wallet address in the request matches the signing wallet
+
+### Turnkey Authentication Issues
+
+- **Session token expired** - Log in again via Turnkey
+- **Invalid token** - Ensure you're using the latest session token from Turnkey
+- **Cookie not set** - Check browser cookie settings and domain configuration
+
+### API Key Issues
+
+- **Invalid API key** - Verify the key is correct and hasn't been deleted
+- **API key not found** - Set the environment variable or config file correctly
+- **Permission denied** - Ensure the API key has the required permissions

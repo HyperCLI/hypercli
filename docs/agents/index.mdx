@@ -1,0 +1,155 @@
+---
+title: Agents Overview
+description: Managed runtime containers for desktops, coding agents, gateways, and custom workloads
+---
+
+## What Are Agents?
+
+Agents are fully managed runtime containers. Depending on the runtime family,
+an agent can provide:
+
+- **Desktop** — browser-accessible desktop on OpenClaw pro runtimes
+- **Shell access** — backend WebSocket PTY terminal
+- **File system** — read/write files on the container
+- **Gateway APIs** — OpenClaw WebSocket RPC or Hermes HTTP/SSE routes
+- **Coding agents** — Buzz Agent, OpenCode, Goose, Codex, Claude Code, and Kimi Code
+
+For launching Buzz coding agents, see [Buzz](/agents/buzz): the
+[HyperCLI menubar app](/agents/buzz#path-a-hypercli-menubar-app) is the fastest
+path (click to launch, live CPU/RAM in the menu bar, chat from stock Buzz),
+and the [Buzz Desktop provider](/agents/buzz#path-b-buzz-desktop--hypercli-provider)
+lets stock Buzz Desktop launch the same runtimes from its "Run on" menu.
+
+Agents are ideal for autonomous AI workflows, development environments,
+gateway-style services, or any task that needs a persistent Linux runtime with
+programmatic control.
+
+## Architecture
+
+```
+Client (CLI / SDK)
+    │
+    ▼
+HyperCLI Backend API (api.hypercli.com)
+    │  Auth, plan enforcement, authoritative REST state
+    ▼
+HyperCLI managed control plane
+    │  Scheduling, health monitoring, lifecycle updates
+    ▼
+Managed agent runtimes
+    ├── OpenClaw desktop and gateway
+    ├── Hermes API/SSE gateway
+    ├── Buzz coding-agent runtimes
+    └── Custom containers
+```
+
+The HyperCLI backend handles authentication, plan enforcement, and the public
+agent state. The managed control plane performs scheduling and lifecycle work;
+clients read snapshots from REST and use SDK deployment events as refresh
+signals.
+
+## Hostnames
+
+Each agent gets a root gateway host plus optional prefixed routes:
+
+| Service  | URL Pattern                              | Protocol   |
+|----------|------------------------------------------|------------|
+| Gateway  | `wss://{name}.hypercli.app`             | WebSocket  |
+| Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC ([remote desktop](/agents/remote-desktop)) |
+| Custom   | `https://{prefix}-{name}.hypercli.app`  | HTTPS/WSS  |
+
+Desktop is available on the OpenClaw pro image. The base OpenClaw image keeps the root gateway route only unless callers explicitly add more routes.
+
+Current auth split:
+
+- gateway uses application-level auth inside OpenClaw
+- protected browser routes use `/_jwt_auth?jwt=...` bootstrap
+- shell/log streaming uses backend `/ws/*` endpoints, not a dedicated shell host
+
+## Lifecycle
+
+Agents move through these states:
+
+```
+CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPPING → STOPPED → ARCHIVING → ARCHIVED
+```
+
+| State         | Description                                                |
+|---------------|------------------------------------------------------------|
+| `CREATING`    | Control plane is establishing the agent namespace          |
+| `PENDING`     | Runtime resources admitted and awaiting scheduling         |
+| `DOWNLOADING` | Runtime container image is being pulled                    |
+| `RESTORING`   | Durable agent data is being restored                       |
+| `SYNCING`     | Agent workspace is being synchronized                      |
+| `RUNNING`     | Runtime healthy and endpoints accessible                   |
+| `STOPPING`    | Runtime cleanup accepted but still in progress              |
+| `STOPPED`     | Cleanup confirmed, configuration preserved, slot freed      |
+| `ARCHIVING`   | Warm storage is being finalized into an exact cold archive  |
+| `ARCHIVED`    | Backend terminal projection; cold-restorable, zero Lagoon resources |
+| `DELETED`     | Terminal deletion tombstone, normally hidden from reads      |
+| `FAILED`      | Lifecycle operation failed with diagnostics                |
+
+Boot stages can branch based on whether the runtime is warm, needs an image
+pull, or has durable data to restore. Do not infer a strict sequence beyond
+the authoritative snapshots.
+
+Do not treat `STOPPING` as stopped: cleanup is still active and its deployment
+slot remains occupied. Stopped agents retain warm local storage and can be
+restarted. Archived agents retain a Backend projection; a later start is a
+fresh admission that restores into a new namespace and PVC from cold storage.
+Deleted agents are gone permanently.
+
+## Health Monitoring
+
+Agent health is monitored through the managed runtime connection rather than a
+public HTTP health endpoint. This approach:
+
+- Works through managed routing without exposing health endpoints
+- Detects application-level hangs (not just TCP connectivity)
+- Integrates with the existing log streaming infrastructure
+
+## Resources
+
+HyperCLI billing now has two additive ledgers:
+
+- **Inference** pools across all active entitlements
+- **Agents** are tracked as exact-tier slots (`small`, `medium`, `large`)
+
+Check your current slot inventory and pooled inference with:
+
+```bash
+hyper agents budget
+```
+
+### Size Presets
+
+| Size | Advertised CPU / memory |
+| --- | --- |
+| `small` | 0.5 CPU / 2 GiB |
+| `medium` | 1 CPU / 4 GiB |
+| `large` | 2 CPU / 8 GiB |
+
+These are the customer-facing machine shapes. Billing is enforced by tier
+count, not by summing CPU and RAM across the account. Placement requests and
+burst ceilings are private control-plane details.
+
+Examples:
+
+- `5x small` + `5x large` lets you run 10 agents total: 5 small and 5 large
+- `10x large` lets you run 10 large agents
+- buying another plan unit adds another entitlement window, its included
+  slots, and more pooled inference
+
+<Tip>
+Use `hyper agents budget` to see granted, used, and available slots by tier before creating or starting agents.
+</Tip>
+
+## Next Steps
+
+- [Quickstart](/agents/quickstart) — Create your first agent in 2 minutes
+- [Desktop App](/agents/desktop-app) — Local companion: chat, voice, routines
+- [Routines](/agents/routines) — Scheduled prompts, one-shot or recurring
+- [Supported runtime images](/agents/images) — Public image families and tag policy
+- [CLI Reference](/cli/commands/agents) — Full `hyper agents` command reference
+- [SDK Reference](/sdk/agents) — Python SDK for programmatic control
+- [Gateway Client](/sdk/gateway) — WebSocket RPC for OpenClaw Gateway

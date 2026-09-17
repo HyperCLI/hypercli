@@ -1,0 +1,91 @@
+---
+title: hyper keys
+description: Create, list, and disable HyperCLI API keys from the CLI.
+---
+
+## create
+
+Create a new API key.
+
+```bash
+hyper keys create
+hyper keys create --name ci-bot
+hyper keys create --name admin --all
+hyper keys create --name team-dev --tag jobs:self --tag team=dev
+```
+
+The full API key value is only shown once at creation time.
+
+Tags are the entire authorization model for API keys.
+
+New keys default to no access unless you attach tags.
+
+Use `--all` if you explicitly want a full-access key. It expands to `*:*`.
+
+Reserved system scopes use `:`. User-defined metadata selectors use `=`. For the full contract across agents, entitlements, jobs, and keys, see [Tags](/agents/tags).
+
+Common baseline tags:
+
+- `*:*`
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `flows:*`
+- `renders:self`
+- `files:*`
+- `files:self`
+- `agents:*`
+- `agents:self`
+- `models:*`
+- `voice:*`
+- `user:*`
+- `user:self`
+- `api:*`
+- `api:self`
+
+Common selector tags:
+
+- `team=dev`
+- `customer=acme`
+- `project=alpha`
+- `agent:<agent-uuid>`
+- `runtime=agent`
+
+Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `flows:*` and `files:*`, or `renders:*` only when you need raw render access.
+
+For one exact agent, mint a child key through the API or SDK. The reserved exact-agent selector is `agent:<agent-uuid>`. `:` is reserved for built-in resource scopes; use `=` for your own tags such as `customer=acme`. Do not use `agents:<uuid>` or `agent=<name>`.
+
+For HyperCLI routes:
+
+- `models:*` covers `GET /v1/models`
+- subscription voice requests use the `/agents/voice/*` surface and the `voice:*` family
+- exact selector tags stay allowlist-based, so a key only matches resources carrying the same selector tag
+
+## list
+
+List existing API keys.
+
+```bash
+hyper keys list
+```
+
+The table includes:
+
+- key ID
+- name
+- tags
+- preview
+- active status
+- created time
+- last used time
+
+## disable
+
+Disable an API key permanently.
+
+```bash
+hyper keys disable <key_id>
+hyper keys disable <key_id> --yes
+```
+
+Use `--yes` to skip the confirmation prompt.

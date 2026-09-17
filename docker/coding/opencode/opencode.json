@@ -1,0 +1,155 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "{env:HYPER_API_BASE}/v1",
+        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
+      },
+      "models": {
+        "default": {
+          "name": "default",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "default-anthropic": {
+          "name": "default-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "coding": {
+          "name": "coding",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "coding-anthropic": {
+          "name": "coding-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k3": {
+          "name": "kimi-k3",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k3-anthropic": {
+          "name": "kimi-k3-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k2.5": {
+          "name": "kimi-k2.5",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k2.5-anthropic": {
+          "name": "kimi-k2.5-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k2.6": {
+          "name": "kimi-k2.6",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "kimi-k2.6-anthropic": {
+          "name": "kimi-k2.6-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        }
+      }
+    }
+  },
+  "model": "hypercli/coding-anthropic",
+  "skills": {
+    "paths": ["/opt/hypercli/skills"]
+  },
+  "mcp": {
+    "hypercli": {
+      "type": "remote",
+      "url": "{env:HYPER_OPENCODE_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer {env:HYPER_MCP_API_KEY}",
+        "X-API-KEY": "{env:HYPER_MCP_API_KEY}"
+      },
+      "oauth": false,
+      "enabled": true,
+      "timeout": 30000
+    },
+    "hypercli-docs": {
+      "type": "remote",
+      "url": "https://docs.hypercli.com/mcp",
+      "oauth": false,
+      "enabled": true,
+      "timeout": 30000
+    }
+  },
+  "permission": {
+    "skill": {
+      "*": "allow"
+    },
+    "webfetch": "allow"
+  }
+}

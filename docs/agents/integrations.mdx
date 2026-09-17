@@ -1,0 +1,343 @@
+---
+title: Agent Integrations
+description: Configure your AI agent or coding tool to use HyperCLI as an LLM provider
+---
+
+HyperCLI exposes two chat surfaces:
+
+- **Primary recommended:** Anthropic Messages API at `https://api.hypercli.com`
+- **Compatibility option:** OpenAI-compatible API at `https://api.hypercli.com/v1`
+
+For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
+
+## Anthropic Messages API
+
+Use this when your tool or SDK supports Anthropic-compatible providers:
+
+```bash
+curl https://api.hypercli.com/v1/messages \
+  -H "x-api-key: hyper_api_YOUR_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "kimi-k2.6-anthropic",
+    "max_tokens": 512,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Hello!" }
+        ]
+      }
+    ]
+  }'
+```
+
+Use the OpenAI-compatible `/v1` endpoint below only when your integration requires it.
+
+## OpenCode
+
+Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "hypercli/coding-anthropic",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "https://api.hypercli.com/v1",
+        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
+      },
+      "models": {
+        "coding-anthropic": {
+          "name": "coding-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Then select the model with `hypercli/coding-anthropic` in OpenCode.
+OpenCode uses `{env:NAME}` for environment variable interpolation in provider
+options. `coding-anthropic` is a stable routing alias for the current coding
+model on the Anthropic Messages route (currently `kimi-k3-anthropic`), so
+hosted improvements do not require config changes; `default-anthropic` points
+at the same model for non-coding defaults. Pin `kimi-k3-anthropic` instead if
+you need an exact model revision. OpenCode defaults custom-provider models to
+text-only input; the `modalities` block is what enables pasting images into
+the TUI for vision-capable models like Kimi K3 (`input` includes `image`).
+
+## OpenClaw
+
+Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers`:
+
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hypercli": {
+        "baseUrl": "https://api.hypercli.com",
+        "apiKey": "hyper_api_YOUR_API_KEY",
+        "api": "anthropic-messages",
+        "authHeader": true,
+        "models": [
+          {
+            "id": "default-anthropic",
+            "name": "HyperCLI Default (Anthropic)",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "contextWindow": 262144
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "memorySearch": {
+        "provider": "openai",
+        "model": "qwen3-embedding-4b",
+        "remote": {
+          "baseUrl": "https://api.hypercli.com/v1",
+          "apiKey": "hyper_api_YOUR_API_KEY"
+        }
+      }
+    }
+  }
+}
+```
+
+For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
+For the branded HyperCLI setup, use `hypercli/default-anthropic` directly.
+
+If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
+
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hypercli": {
+        "baseUrl": "https://api.hypercli.com/v1",
+        "apiKey": "hyper_api_YOUR_API_KEY",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "default",
+            "name": "HyperCLI Default",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "contextWindow": 262144,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Then reference the model as `hypercli/default` in your agent config, or set it as primary:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "hypercli/default"
+      },
+      "models": {
+        "hypercli/default": {
+          "alias": "hyper"
+        }
+      }
+    }
+  }
+}
+```
+
+## Claude Code / Codex
+
+Use environment variables — no config file needed:
+
+```bash
+export OPENAI_API_KEY="hyper_api_YOUR_API_KEY"
+export OPENAI_BASE_URL="https://api.hypercli.com/v1"
+
+# Claude Code
+claude --model hypercli/default-anthropic
+
+# OpenAI Codex
+codex --model hypercli/default
+```
+
+## Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="hyper_api_YOUR_API_KEY",
+    base_url="https://api.hypercli.com/v1"
+)
+
+response = client.chat.completions.create(
+    model="default",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)
+```
+
+## TypeScript (OpenAI SDK)
+
+```typescript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: 'hyper_api_YOUR_API_KEY',
+  baseURL: 'https://api.hypercli.com/v1'
+});
+
+const response = await client.chat.completions.create({
+  model: 'default',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
+## cURL
+
+```bash
+curl https://api.hypercli.com/v1/chat/completions \
+  -H "Authorization: Bearer hyper_api_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "default",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+## LiteLLM
+
+Teams and organizations can request pooled inference if they want to put another
+LiteLLM layer in front of HyperCLI for custom agents, internal tools, or AI
+applications.
+
+In that setup:
+
+- your downstream LiteLLM does its own auth, aliases, and routing
+- HyperCLI remains the upstream inference provider
+- you use a normal HyperCLI API key as the upstream credential
+
+You do not need to inject a custom authorization header beyond the normal
+LiteLLM `api_key` field.
+
+### OpenAI-compatible upstream
+
+Use this when your downstream LiteLLM is routing through the OpenAI-compatible
+`/v1` surface:
+
+```yaml
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/default
+      api_base: https://api.hypercli.com/v1
+      api_key: hyper_api_YOUR_API_KEY
+
+```
+
+For embeddings, use the same OpenAI-compatible upstream pattern with
+`model: openai/qwen3-embedding-4b` against `https://api.hypercli.com/v1`.
+
+### Anthropic-style upstream
+
+Use this when you want the recommended Anthropic Messages route for chat and tool
+calling:
+
+```yaml
+model_list:
+  - model_name: default-anthropic
+    litellm_params:
+      model: anthropic/default-anthropic
+      api_base: https://api.hypercli.com
+      api_key: hyper_api_YOUR_API_KEY
+
+```
+
+### Mixed downstream config
+
+If you want to offer both surfaces from one downstream LiteLLM:
+
+```yaml
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/default
+      api_base: https://api.hypercli.com/v1
+      api_key: hyper_api_YOUR_API_KEY
+
+  - model_name: default-anthropic
+    litellm_params:
+      model: anthropic/default-anthropic
+      api_base: https://api.hypercli.com
+      api_key: hyper_api_YOUR_API_KEY
+```
+
+Use the Anthropic-style entries for chat-first agent workloads. Keep the
+OpenAI-compatible entries for SDKs, tools, embedding workloads, and frameworks
+that expect `/v1`.
+## Available Models
+
+| Model | Context | Description |
+|-------|---------|-------------|
+| `coding-anthropic` | 262K tokens | Stable alias for the coding model on the recommended Anthropic Messages route; currently `kimi-k3-anthropic` |
+| `default-anthropic` | 262K tokens | Stable alias for the default Anthropic-route model; currently `kimi-k3-anthropic` |
+| `coding` | 262K tokens | Stable alias for the coding model on the OpenAI-compatible route; currently `kimi-k3` |
+| `default` | 262K tokens | Stable alias for the default OpenAI-compatible route; currently `kimi-k3` |
+| `kimi-k3-anthropic` | 262K tokens | Kimi K3 on the Anthropic Messages route (pinned) |
+| `kimi-k3` | 262K tokens | Kimi K3 on the OpenAI-compatible route (pinned) |
+| `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the Anthropic Messages route (pinned) |
+| `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route (pinned) |
+| `kimi-k2.5-anthropic` | 262K tokens | Legacy compatibility alias for `kimi-k2.6-anthropic` |
+| `kimi-k2.5` | 262K tokens | Legacy compatibility alias for `kimi-k2.6` |
+
+For agent runtimes and tool-calling workloads, prefer the `-anthropic` model
+names. They use the Anthropic Messages route and are the expected surface for
+the best tool-calling behavior. The non-suffixed names are kept for
+OpenAI-compatible SDKs, simple chat clients, and framework integrations that
+expect `/v1`.
+
+Check available models at any time:
+
+```bash
+curl https://api.hypercli.com/v1/models \
+  -H "Authorization: Bearer hyper_api_YOUR_API_KEY"
+```
+
+## Base URLs
+
+| Purpose | URL |
+|---------|-----|
+| **Chat Inference** (Anthropic Messages, recommended) | `https://api.hypercli.com` |
+| **LLM Inference** (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| **Account/Billing API** | `https://api.hypercli.com/agents` |
+| **Dashboard** | `https://agents.hypercli.com` |
+| **Docs** | `https://docs.hypercli.com` |
+
+<Note>
+Use `api.hypercli.com` for direct access.
+</Note>

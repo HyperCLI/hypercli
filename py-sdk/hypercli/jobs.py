@@ -1,0 +1,680 @@
+from __future__ import annotations
+
+"""Jobs API"""
+import base64
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, AsyncIterator, Iterator
+from urllib.parse import quote
+
+if TYPE_CHECKING:
+    from .http import HTTPClient
+
+
+TERMINAL_JOB_STATES = {"succeeded", "failed", "terminated", "canceled", "cancelled"}
+
+
+def normalize_job_tags(tags: dict[str, str] | list[str] | None) -> dict[str, str]:
+    if tags is None:
+        return {}
+    if isinstance(tags, dict):
+        return {str(key): str(value) for key, value in tags.items()}
+    normalized: dict[str, str] = {}
+    for raw_tag in tags:
+        if not isinstance(raw_tag, str) or "=" not in raw_tag:
+            continue
+        key, value = raw_tag.split("=", 1)
+        normalized[str(key)] = str(value)
+    return normalized
+
+
+def get_job_tags(job: "Job | dict | object") -> dict[str, str]:
+    if isinstance(job, dict):
+        raw_tags = job.get("tags", job)
+    else:
+        raw_tags = getattr(job, "tags", None)
+    return normalize_job_tags(raw_tags if isinstance(raw_tags, (dict, list)) else None)
+
+
+def job_has_tags(
+    job: "Job | dict | object",
+    required_tags: dict[str, str] | list[str] | None,
+) -> bool:
+    if not required_tags:
+        return True
+    tags = get_job_tags(job)
+    required = normalize_job_tags(required_tags)
+    return all(tags.get(str(key)) == str(value) for key, value in required.items())
+
+
+def _parse_runtime_seconds(value: object) -> int | None:
+    try:
+        return max(int(float(value)), 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_runtime_fields(data: dict) -> tuple[int, int]:
+    runtime_seconds = _parse_runtime_seconds(data.get("runtime"))
+    if runtime_seconds is None:
+        return 0, 0
+
+    state = str(data.get("state", "")).strip().lower()
+    if state == "dry_run":
+        return 0, runtime_seconds
+
+    started_at = _parse_timestamp(data.get("started_at"))
+    created_at = _parse_timestamp(data.get("created_at"))
+    completed_at = _parse_timestamp(data.get("completed_at"))
+
+    anchor = started_at
+    if anchor is None and (state == "running" or completed_at is not None or state in TERMINAL_JOB_STATES):
+        anchor = created_at
+
+    if anchor is None:
+        return 0, runtime_seconds
+
+    end_time = completed_at or datetime.now(timezone.utc)
+    elapsed = max(int((end_time - anchor).total_seconds()), 0)
+    if completed_at is not None or state in TERMINAL_JOB_STATES:
+        return elapsed, 0
+    return elapsed, max(runtime_seconds - elapsed, 0)
+
+
+@dataclass
+class Job:
+    job_id: str
+    job_key: str
+    state: str
+    gpu_type: str
+    gpu_count: int
+    region: str
+    constraints: dict[str, str] | None
+    interruptible: bool
+    price_per_hour: float
+    price_per_second: float
+    docker_image: str
+    runtime: int
+    elapsed: int = 0
+    time_left: int = 0
+    command: str | None = None
+    env_vars: dict[str, str] | None = None
+    tags: list[str] | None = None
+    hostname: str | None = None
+    cold_boot: bool = True
+    created_at: float | None = None
+    started_at: float | None = None
+    completed_at: float | None = None
+
+    @property
+    def tag_map(self) -> dict[str, str]:
+        return get_job_tags(self)
+
+    def has_tags(self, required_tags: dict[str, str] | list[str] | None) -> bool:
+        return job_has_tags(self, required_tags)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Job":
+        command_b64 = data.get("command")
+        command = None
+        if isinstance(command_b64, str) and command_b64:
+            try:
+                command = base64.b64decode(command_b64).decode()
+            except Exception:
+                command = command_b64
+        elapsed, time_left = _derive_runtime_fields(data)
+        return cls(
+            job_id=data.get("job_id", ""),
+            job_key=data.get("job_key", ""),
+            state=data.get("state", ""),
+            gpu_type=data.get("gpu_type", ""),
+            gpu_count=data.get("gpu_count", 1),
+            region=data.get("region", ""),
+            constraints=data.get("constraints"),
+            interruptible=data.get("interruptible", True),
+            price_per_hour=data.get("price_per_hour", 0),
+            price_per_second=data.get("price_per_second", 0),
+            docker_image=data.get("docker_image", ""),
+            command=command,
+            env_vars=data.get("env_vars"),
+            tags=data.get("tags"),
+            runtime=data.get("runtime", 0),
+            elapsed=elapsed,
+            time_left=time_left,
+            hostname=data.get("hostname"),
+            cold_boot=data.get("cold_boot", True),
+            created_at=data.get("created_at"),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+        )
+
+
+@dataclass
+class GPUMetrics:
+    index: int
+    name: str
+    utilization: float
+    memory_used: float
+    memory_total: float
+    temperature: int
+    power_draw: float
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GPUMetrics":
+        return cls(
+            index=data.get("index", 0),
+            name=data.get("name", ""),
+            utilization=data.get("utilization_gpu_percent", 0),
+            memory_used=data.get("memory_used_mb", 0),
+            memory_total=data.get("memory_total_mb", 0),
+            temperature=data.get("temperature_c", 0),
+            power_draw=data.get("power_draw_w", 0),
+        )
+
+
+@dataclass
+class SystemMetrics:
+    cpu_percent: float
+    cpu_cores: float
+    cpu_unix_percent: float
+    memory_used: float
+    memory_limit: float
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SystemMetrics":
+        return cls(
+            cpu_percent=data.get("cpu_percent", 0),
+            cpu_cores=data.get("cpu_cores", 1),
+            cpu_unix_percent=data.get("cpu_unix_percent", data.get("cpu_percent", 0)),
+            memory_used=data.get("memory_used_mb", 0),
+            memory_limit=data.get("memory_limit_mb", 0),
+        )
+
+
+@dataclass
+class JobMetrics:
+    gpus: list[GPUMetrics] = field(default_factory=list)
+    system: SystemMetrics | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JobMetrics":
+        system_data = data.get("system")
+        return cls(
+            gpus=[GPUMetrics.from_dict(g) for g in data.get("gpus", [])],
+            system=SystemMetrics.from_dict(system_data) if system_data else None,
+        )
+
+
+@dataclass
+class ExecResult:
+    job_id: str
+    stdout: str
+    stderr: str
+    exit_code: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExecResult":
+        return cls(
+            job_id=data.get("job_id", ""),
+            stdout=data.get("stdout", ""),
+            stderr=data.get("stderr", ""),
+            exit_code=data.get("exit_code", -1),
+        )
+
+
+@dataclass
+class JobLifecycleEvent:
+    event: str
+    job_id: str = ""
+    state: str | None = None
+    reason: str | None = None
+    error: str | None = None
+    instance_id: str | None = None
+    runtime: int | None = None
+    payload: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JobLifecycleEvent":
+        runtime = data.get("runtime")
+        try:
+            runtime = int(runtime) if runtime is not None else None
+        except (TypeError, ValueError):
+            runtime = None
+        return cls(
+            event=str(data.get("event", "")),
+            job_id=str(data.get("job_id", "")),
+            state=data.get("state"),
+            reason=data.get("reason"),
+            error=data.get("error"),
+            instance_id=data.get("instance_id"),
+            runtime=runtime,
+            payload=dict(data),
+        )
+
+
+@dataclass
+class JobListPage:
+    jobs: list[Job] = field(default_factory=list)
+    total_count: int = 0
+    page: int = 1
+    page_size: int = 50
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JobListPage":
+        jobs = data.get("jobs", []) if isinstance(data, dict) else []
+        return cls(
+            jobs=[Job.from_dict(j) for j in jobs],
+            total_count=int(data.get("total_count", len(jobs))) if isinstance(data, dict) else len(jobs),
+            page=int(data.get("page", 1)) if isinstance(data, dict) else 1,
+            page_size=int(data.get("page_size", len(jobs) or 50)) if isinstance(data, dict) else (len(jobs) or 50),
+        )
+
+
+class Jobs:
+    """Jobs API wrapper"""
+
+    def __init__(self, http: "HTTPClient"):
+        self._http = http
+
+    @staticmethod
+    def _normalize_tags(tags: dict[str, str] | list[str] | None) -> list[str] | None:
+        if tags is None:
+            return None
+        if isinstance(tags, dict):
+            return [f"{key}={value}" for key, value in tags.items()]
+        return list(tags)
+
+    def _list_params(
+        self,
+        *,
+        state: str | None = None,
+        tags: dict[str, str] | list[str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> dict | None:
+        params = {}
+        if state:
+            params["state"] = state
+        normalized_tags = self._normalize_tags(tags)
+        if normalized_tags:
+            params["tag"] = normalized_tags
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["page_size"] = page_size
+        if not params:
+            return None
+        return params
+
+    def list_page(
+        self,
+        state: str = None,
+        tags: dict[str, str] | list[str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> JobListPage:
+        """List jobs with backend pagination metadata."""
+        data = self._http.get(
+            "/api/jobs",
+            params=self._list_params(state=state, tags=tags, page=page, page_size=page_size),
+        )
+        if isinstance(data, dict):
+            return JobListPage.from_dict(data)
+        jobs = [Job.from_dict(j) for j in data]
+        return JobListPage(jobs=jobs, total_count=len(jobs), page=page or 1, page_size=page_size or len(jobs) or 50)
+
+    def list(
+        self,
+        state: str = None,
+        tags: dict[str, str] | list[str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> list[Job]:
+        """List jobs. Use list_page() when you need total_count/page metadata."""
+        return self.list_page(state=state, tags=tags, page=page, page_size=page_size).jobs
+
+    def get(self, job_id: str) -> Job:
+        """Get job details"""
+        data = self._http.get(f"/api/jobs/{job_id}")
+        return Job.from_dict(data)
+
+    def create(
+        self,
+        image: str,
+        command: str = None,
+        gpu_type: str = "l40s",
+        gpu_count: int = 1,
+        region: str = None,
+        constraints: dict[str, str] = None,
+        runtime: int = None,
+        interruptible: bool = True,
+        env: dict[str, str] = None,
+        ports: dict[str, int] = None,
+        auth: bool = False,
+        registry_auth: dict[str, str] = None,
+        tags: dict[str, str] | list[str] = None,
+        dockerfile: str = None,
+        dry_run: bool = False,
+    ) -> Job:
+        """Create a new job.
+
+        Args:
+            image: Docker image to run
+            command: Command to execute (base64 encoded internally)
+            gpu_type: GPU type (e.g., "l40s", "a100")
+            gpu_count: Number of GPUs
+            region: Region to run in
+            constraints: Optional placement constraints (e.g., {"cpu_vendor": "intel"})
+            runtime: Max runtime in seconds
+            interruptible: Allow spot/preemptible instances
+            env: Environment variables
+            ports: Ports to expose. Use {"lb": port} for HTTPS load balancer
+            auth: Enable Bearer token auth on load balancer (use with ports={"lb": port})
+            registry_auth: Private registry credentials {"username": "...", "password": "..."}
+            dockerfile: Base64-encoded Dockerfile (overrides docker_image if provided)
+            dry_run: If True, validate everything but don't create job or reserve funds
+        """
+        payload = {
+            "docker_image": image,
+            "gpu_type": gpu_type,
+            "gpu_count": gpu_count,
+            "interruptible": interruptible,
+            "command": base64.b64encode((command or "").encode()).decode(),
+        }
+        if region:
+            payload["region"] = region
+        if constraints:
+            payload["constraints"] = constraints
+        if runtime:
+            payload["runtime"] = runtime
+        if env:
+            payload["env_vars"] = env
+        if ports:
+            payload["ports"] = ports
+        if auth:
+            payload["auth"] = auth
+        if registry_auth:
+            payload["registry_auth"] = registry_auth
+        normalized_tags = self._normalize_tags(tags)
+        if normalized_tags:
+            payload["tags"] = normalized_tags
+        if dockerfile:
+            payload["dockerfile"] = dockerfile
+        if dry_run:
+            payload["dry_run"] = dry_run
+
+        data = self._http.post("/api/jobs", json=payload)
+        return Job.from_dict(data)
+
+    def cancel(self, job_id: str) -> dict:
+        """Cancel a job"""
+        return self._http.delete(f"/api/jobs/{job_id}")
+
+    def extend(self, job_id: str, runtime: int) -> Job:
+        """Extend job runtime"""
+        data = self._http.patch(f"/api/jobs/{job_id}", json={"runtime": runtime})
+        return Job.from_dict(data)
+
+    def logs(self, job_id: str) -> str:
+        """Get job logs"""
+        data = self._http.get(f"/api/jobs/{job_id}/logs")
+        return data.get("logs", "")
+
+    async def metrics_stream(self, job_id: str, interval: float = 5.0) -> AsyncIterator[JobMetrics]:
+        """Stream job GPU metrics snapshots over WebSocket."""
+        import json
+
+        websocket = await self._connect_metrics_websocket(job_id, interval=interval)
+        async with websocket:
+            async for raw in websocket:
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                if data.get("event") == "metrics_error":
+                    raise RuntimeError(str(data.get("detail", "metrics stream failed")))
+                if data.get("event") == "metrics_snapshot":
+                    yield JobMetrics.from_dict(data.get("data") or {})
+
+    def metrics(self, job_id: str) -> JobMetrics:
+        """Get one job GPU metrics snapshot over WebSocket."""
+        return _run_async_blocking(self.metrics_snapshot(job_id))
+
+    async def metrics_snapshot(self, job_id: str) -> JobMetrics:
+        """Get one job GPU metrics snapshot over WebSocket from async code."""
+        async for metrics in self.metrics_stream(job_id, interval=60):
+            return metrics
+        raise RuntimeError("metrics stream closed before first snapshot")
+
+    def token(self, job_id: str) -> str:
+        """Get job auth token"""
+        data = self._http.get(f"/api/jobs/{job_id}/token")
+        return data.get("token", "")
+
+    def exec(self, job_id: str, command: list[str], timeout: int = 30) -> ExecResult:
+        """Execute a command non-interactively on a running job container.
+
+        Args:
+            job_id: Job UUID
+            command: Exact executable and argument vector to run.
+            timeout: Timeout in seconds (default: 30)
+
+        Returns:
+            ExecResult with stdout, stderr, and exit_code
+        """
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(argument, str) for argument in command)
+            or not command[0]
+            or any("\x00" in argument for argument in command)
+            or sum(len(argument.encode("utf-8")) for argument in command) > 65_536
+        ):
+            raise ValueError(
+                "command must be a nonempty argv list of strings with a nonempty "
+                "executable, at most 65536 UTF-8 bytes, and no NUL"
+            )
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 300:
+            raise ValueError("timeout must be an integer from 1 through 300")
+        data = self._http.post(
+            f"/api/jobs/{job_id}/exec",
+            json={"command": list(command), "timeout": timeout},
+        )
+        return ExecResult.from_dict(data)
+
+    async def shell_connect(self, job_id: str, shell: str = "/bin/bash"):
+        """Connect to job shell via director WebSocket proxy.
+
+        Opens a PTY shell on the job's running container via:
+        CLI → SDK → Director → Orchestrator → docker exec
+
+        Args:
+            job_id: Job UUID.
+            shell: Shell binary (default /bin/bash).
+
+        Returns:
+            WebSocket connection for bidirectional shell I/O.
+        """
+        import websockets
+
+        # Get job key for auth
+        job = self.get(job_id)
+        job_key = job.job_key
+
+        # Convert HTTP base to WebSocket base
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
+        # Strip /api suffix if present, shell endpoint is on /orchestra
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/shell/{job_id}?token={job_key}&shell={shell}"
+
+        return await websockets.connect(url, ping_interval=20, ping_timeout=20)
+
+    async def lifecycle_stream(self, job_id: str) -> AsyncIterator[JobLifecycleEvent]:
+        """Stream job-scoped lifecycle events from Director.
+
+        Events are low-latency notifications. Refresh via get(job_id) when a
+        caller needs the authoritative job snapshot.
+        """
+        import json
+        import websockets
+
+        job = self.get(job_id)
+        job_key = quote(job.job_key, safe="")
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/lifecycle/{job_key}"
+
+        async with websockets.connect(url, ping_interval=20, ping_timeout=20) as websocket:
+            async for raw in websocket:
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(data, dict):
+                    yield JobLifecycleEvent.from_dict(data)
+
+    async def _connect_metrics_websocket(self, job_id: str, interval: float):
+        import websockets
+
+        job = self.get(job_id)
+        job_key = quote(job.job_key, safe="")
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/metrics/jobs/{job_key}?interval={float(interval)}"
+        return await websockets.connect(url, ping_interval=20, ping_timeout=20)
+
+
+# Utility functions for finding jobs
+
+
+def is_uuid(s: str) -> bool:
+    """Check if string looks like a UUID (job ID)"""
+    return "-" in s and len(s) > 30
+
+
+def find_by_id(jobs: Jobs, job_id: str) -> Job | None:
+    """Find job by UUID via direct API call.
+
+    Args:
+        jobs: Jobs API instance
+        job_id: Full job UUID
+
+    Returns:
+        Job if found, None if not found or error
+    """
+    try:
+        return jobs.get(job_id)
+    except Exception:
+        return None
+
+
+def find_by_hostname(job_list: list[Job], hostname: str) -> Job | None:
+    """Find job by hostname (exact or prefix match).
+
+    Args:
+        job_list: List of Job objects to search
+        hostname: Hostname to match (can be partial prefix)
+
+    Returns:
+        First matching Job or None
+    """
+    for job in job_list:
+        if job.hostname and (job.hostname == hostname or job.hostname.startswith(hostname)):
+            return job
+    return None
+
+
+def find_by_ip(job_list: list[Job], ip: str) -> Job | None:
+    """Find job by IP address (extracted from hostname).
+
+    Args:
+        job_list: List of Job objects to search
+        ip: IP address to match
+
+    Returns:
+        First matching Job or None
+    """
+    import socket
+
+    for job in job_list:
+        if not job.hostname:
+            continue
+        try:
+            job_ip = socket.gethostbyname(job.hostname)
+            if job_ip == ip:
+                return job
+        except socket.gaierror:
+            continue
+    return None
+
+
+def find_job(jobs: Jobs, identifier: str, state: str = None) -> Job | None:
+    """Find a job by UUID, hostname, or IP address.
+
+    Args:
+        jobs: Jobs API instance
+        identifier: Job UUID, hostname (partial match), or IP address
+        state: Optional state filter for listing jobs
+
+    Returns:
+        Matching Job or None
+    """
+    # Try UUID first (direct API call)
+    if is_uuid(identifier):
+        return find_by_id(jobs, identifier)
+
+    # Get job list for hostname/IP search
+    job_list = jobs.list(state=state)
+
+    # Try hostname match
+    job = find_by_hostname(job_list, identifier)
+    if job:
+        return job
+
+    # Try IP match (slower, requires DNS lookup)
+    return find_by_ip(job_list, identifier)
+
+
+def _run_async_blocking(coro):
+    import asyncio
+    import threading
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = {}
+
+    def runner():
+        try:
+            result["value"] = asyncio.run(coro)
+        except BaseException as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]

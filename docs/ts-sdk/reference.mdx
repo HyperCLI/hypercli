@@ -1,0 +1,246 @@
+---
+title: Reference
+description: Detailed TypeScript SDK reference summary for the main client, agent types, deployment methods, and gateway helpers.
+---
+
+## Main Client
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({
+  apiKey: "hyper_...",
+  apiUrl: "https://api.hypercli.com",
+  agentApiKey: "hyper_api_...",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
+  timeout: 30_000,
+});
+```
+
+## Namespaces
+
+- `billing`
+- `jobs`
+- `instances`
+- `renders`
+- `files`
+- `keys`
+- `user`
+- `voice`
+- `agent`
+- `deployments`
+
+## `keys`
+
+Major methods:
+
+- `create(name, tags?)`
+- `list()`
+- `get(keyId)`
+- `rename(keyId, name)`
+- `disable(keyId)`
+
+## `renders`
+
+Major methods:
+
+- `create(...)`
+- `list(...)`
+- `get(renderId)`
+- `status(renderId)`
+- `wait(renderId, { pollIntervalMs?, timeoutMs? })`
+- high-level helpers such as `textToImage(...)`, `textToVideo(...)`, `imageToVideo(...)`, `audioToText(...)`, `textToSpeech(...)`
+
+## `user`
+
+Major methods:
+
+- `get()`
+- `authMe()`
+
+## `voice`
+
+Major methods:
+
+- `tts({ text, voice?, language?, responseFormat? })`
+- `clone({ text, refAudio, language?, xVectorOnly?, responseFormat? })`
+- `design({ text, description, language?, responseFormat? })`
+- `connect({ timeoutMs? })`
+- `ttsStream({ text, voice?, language?, responseFormat?, timeoutMs? })`
+- `cloneStream({ text, refAudio, language?, xVectorOnly?, responseFormat?, timeoutMs? })`
+- `designStream({ text, description, language?, responseFormat?, timeoutMs? })`
+
+Defaults are `voice: "serena"`, `language: "auto"`, and
+`responseFormat: "mp3"`. REST voice methods use SDK-relative `/voice/*` paths
+on the agents HTTP client, which resolve to `/agents/voice/*` at the product
+API host. Streaming methods connect to `/ws/voice` on the derived agents
+WebSocket base. Streaming audio is delivered as ordered `audio` JSON headers,
+each followed immediately by one binary payload frame.
+
+## `agent`
+
+Major methods:
+
+- `plans()`
+- `currentPlan()`
+- `subscriptions()`
+- `subscriptionSummary()`
+- `entitlements()`
+- `purchaseEntitlementFromBalance(planId, { duration, tags?, extendExisting? })`
+- `redeemGrantCode(code, { extendExisting? })`
+- `updateSubscription(subscriptionId, { planId, quantity })`
+- `cancelSubscription(subscriptionId)`
+- `createStripeTrialCheckout({ successUrl?, cancelUrl? })`
+- `models()`
+- `discoveryHealth()`
+- `discoveryConfig()`
+
+Important account types:
+
+- `HyperAgentSubscription`
+  recurring billing object with `cancelAtPeriodEnd`, `currentPeriodEnd`,
+  `planAgentTier`, `slotGrants`, and authoritative `trial` timing when present
+- `HyperAgentEntitlements`
+  effective account state with `slotInventory`, `pooledTpd`, `activeEntitlementCount`, and `billingResetAt`
+- `HyperAgentEntitlement`
+  concrete 1:1 entitlement instance, included in
+  `subscriptionSummary().entitlementItems`, with expiry, tags, features, and
+  related agent bindings
+- `HyperAgentSubscriptionSummary`
+  combined view with `entitlements`, `subscriptions`, `activeSubscriptions`, and `billingResetAt`
+- `HyperAgentSubscriptionMutationResult`
+  message wrapper returned by recurring subscription updates
+- `HyperAgentGrant`
+  unapplied or applied grant record with `type`, `planId`, `duration`, `code`, `tags`, and `appliedAt`
+- `HyperAgentGrantRedemptionResponse`
+  wrapper returned by balance purchases and grant-code redemption with both the `grant` and resulting `entitlement`
+
+## Agent Types
+
+### `Agent`
+
+Fields:
+
+- `id`
+- `userId`
+- `state`
+- `name`
+- `hostname`
+- `jwtToken`
+- `jwtExpiresAt`
+- `routes`
+- `command`
+- `entrypoint`
+
+Properties:
+
+- `publicUrl`
+- `desktopUrl`
+- `vncUrl`
+- `shellUrl`
+- `isRunning`
+
+Methods:
+
+- `routeUrl()`
+- `routeRequiresAuth()`
+- `refreshToken()`
+- `waitRunning()`
+- `env()`
+- `exec()`
+- `filesList()`
+- `fileReadBytes()`
+- `fileRead()`
+- `fileWriteBytes()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `shellConnect()`
+
+### `OpenClawAgent`
+
+Adds:
+
+- `gatewayUrl`
+- `gatewayToken`
+- `resolveGatewayToken()`
+- `gateway()`
+- `connect()`
+- `gatewayStatus()`
+- `waitReady()`
+- `configGet()`
+- `configSchema()`
+- `configPatch()`
+- `configApply()`
+- `modelsList()`
+- `sessionsList()`
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
+- `workspaceFiles()`
+- `fileGet()`
+- `fileSet()`
+- `chatHistory()`
+- `chatSendMessage()`
+- `providerUpsert()`
+- `providerRemove()`
+- `modelUpsert()`
+- `modelRemove()`
+- `setDefaultModel()`
+- `setMemorySearch()`
+- `channelUpsert()`
+- `channelPatch()`
+- `telegramUpsert()`
+- `slackUpsert()`
+- `discordUpsert()`
+- `cronList()`
+
+## `Deployments`
+
+Major methods:
+
+- `create()`
+- `budget()`
+- `metrics()`
+- `list()`
+- `get()`
+- `waitRunning()`
+- `start()`
+- `stop()`
+- `delete()`
+- `refreshToken()`
+- `logsToken()`
+- `env()`
+- `exec()`
+- `health()`
+- `filesList()`
+- `fileReadBytes()`
+- `fileRead()`
+- `fileWriteBytes()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `logsConnect()`
+- `shellToken()`
+- `shellConnect()`
+
+## Gateway
+
+`GatewayClient` major methods:
+
+- lifecycle: `connect()`, `close()`, `waitReady()`
+- events: `onEvent()`
+- config: `configGet()`, `configSchema()`, `configPatch()`, `configApply()`, `configSet()`
+- chat: `sendChat()`, `chatHistory()`, `chatAbort()`
+- sessions: `sessionsList()`, `sessionsPreview()`, `sessionsReset()`
+- files: `filesList()`, `fileGet()`, `fileSet()`
+- channels: `channelsStatus()`, `channelsLogout()`, `webLoginStart()`, `webLoginWait()`
+- models: `modelsList()`
+- cron: `cronList()`, `cronAdd()`, `cronRemove()`
+- approvals: `execApprove()`, `execDeny()`
+- nodes: `nodesList()`, `nodeDescribe()`, `nodePairList()`, `nodePairApprove()`, `nodePairReject()`, `nodePairRemove()`, `nodeRename()`, `nodeInvoke()`
+- status: `status()`

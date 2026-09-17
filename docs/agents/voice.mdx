@@ -1,0 +1,35 @@
+---
+title: Voice
+description: Give an agent a voice clip so the desktop app can read its replies aloud.
+---
+
+## Set A Voice
+
+In the desktop app, open the agent's **Settings** tab and use the voice row to
+choose an audio clip — or drop one onto the picker dialog. Accepted formats:
+
+- MP3
+- WAV
+- M4A
+- OGG
+- WebM
+- MP4
+
+Keep clips under 10 MB. The picker accepts files up to 15 MB, but the server
+enforces 10 MB, so clips between 10 and 15 MB upload and then fail there.
+Trim to fit. Use the same row to remove the voice.
+
+## What A Voice Enables
+
+An agent with a voice set unlocks the app's voice features:
+
+- the speaker button in the chat header ([read-aloud](/agents/chat#read-aloud)), and
+- the **Voice replies** switch on the agent's Settings tab, which persists per
+  agent across sessions.
+
+Both controls stay disabled until a clip is uploaded. If your deployment does
+not expose the voice API, the picker row shows the feature as unavailable
+instead of failing.
+
+For text-to-speech, cloning, and transcription from the terminal, see
+[`hyper voice`](/cli/commands/voice).

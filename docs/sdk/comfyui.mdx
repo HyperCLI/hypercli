@@ -1,0 +1,117 @@
+---
+title: ComfyUI
+description: Run ComfyUI workloads on GPU jobs and manipulate workflow graphs from Python.
+---
+
+## Install
+
+ComfyUI support requires the optional dependency set:
+
+```bash
+pip install "hypercli-sdk[comfyui]"
+```
+
+## Quick Start
+
+```python
+from hypercli import HyperCLI, ComfyUIJob
+
+client = HyperCLI()
+
+job = ComfyUIJob.create_for_template(
+    client,
+    "flux_schnell",
+    gpu_type="l40s",
+    lb=8188,
+)
+
+job.wait_ready()
+
+history = job.run_template(
+    "flux_schnell",
+    prompt="a beautiful sunset over mountains",
+    width=1024,
+    height=1024,
+    steps=4,
+)
+```
+
+## Core Helpers
+
+`ComfyUIJob` extends `BaseJob` and adds ComfyUI-specific helpers:
+
+- `create_for_template()`
+- `get_instance()`
+- `get_or_create_for_template()`
+- `job_token()`
+- `get_object_info()`
+- `convert_workflow()`
+- `load_template()`
+- `upload_image()`
+- `upload_audio()`
+- `queue_prompt()`
+- `wait_for_completion()`
+- `download_output()`
+- `run()`
+- `run_template()`
+- `get_output_images()`
+
+## Workflow Utilities
+
+The package exports graph helpers that work with the same templates used by the CLI:
+
+```python
+from hypercli import (
+    apply_params,
+    apply_graph_modes,
+    find_node,
+    find_nodes,
+    graph_to_api,
+    load_template,
+)
+```
+
+### Apply Common Parameters
+
+```python
+graph = load_template("flux_schnell")
+workflow = graph_to_api(graph)
+
+apply_params(
+    workflow,
+    prompt="a clean product render",
+    negative="blur, low quality",
+    seed=42,
+    steps=20,
+    cfg=7.5,
+    width=1024,
+    height=1024,
+)
+```
+
+### Enable Or Bypass Nodes
+
+```python
+graph = load_template("image_qwen_image_edit_2509")
+
+apply_graph_modes(graph, {
+    "106": {"enabled": True},
+    "108": {"mode": 4},
+})
+```
+
+## Existing Jobs
+
+```python
+wrapped = ComfyUIJob(client, client.jobs.get("job-id"))
+resolved = ComfyUIJob.get_by_instance(client, "job-id-or-hostname")
+```
+
+## Output Handling
+
+```python
+images = job.get_output_images(history)
+
+for image in images:
+    job.download_output(image, "output")
+```

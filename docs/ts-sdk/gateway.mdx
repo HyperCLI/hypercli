@@ -1,0 +1,268 @@
+---
+title: Gateway Client
+description: Low-level TypeScript gateway client for OpenClaw pairing, config, chat, files, channels, sessions, and cron.
+---
+
+`GatewayClient` is the low-level WebSocket client for the OpenClaw protocol.
+
+Use it when you want direct access to:
+
+- config RPC
+- raw events
+- chat/session control
+- workspace files
+- paired node command RPC
+- channel login/status flows
+- cron RPC
+
+## Create
+
+```ts
+import { GatewayClient } from "@hypercli.com/sdk";
+
+const gateway = new GatewayClient({
+  url: "wss://my-agent.hypercli.app",
+  gatewayToken: "...",
+  deploymentId: "agent-id",
+  apiKey: "hyper_api_...",
+  apiBase: "https://api.hypercli.com/agents",
+  autoApprovePairing: true,
+});
+```
+
+Important options:
+
+- `url`
+- `gatewayToken`
+- `deploymentId`
+- `apiKey`
+- `apiBase`
+- `autoApprovePairing`
+- `timeoutMs`
+- `chatTimeoutMs`
+- `clientId`
+- `clientMode`
+- `role`
+- `scopes`
+- `caps`
+
+Default handshake behavior for the TypeScript SDK:
+
+- `clientId="cli"`
+- `clientMode="cli"`
+- no `Origin` header unless you pass `origin` explicitly
+
+That matters because OpenClaw applies browser/control-ui origin checks to
+`webchat`/control-ui clients and to any connection carrying an `Origin` header.
+
+## Auth Model
+
+This client does not use browser `/_jwt_auth` semantics.
+
+It connects to the root Agent host and authenticates at the OpenClaw protocol
+layer. `OPENCLAW_GATEWAY_TOKEN` is the canonical shared/bootstrap credential.
+When an `OpenClawAgent` resolves it, the value is held on that live Agent
+instance only. Do not copy it to a URL, cookie, log, or browser storage.
+
+The browser device layer is separate:
+
+- one device keypair is stored for the browser storage origin
+- the store uses the `localStorage` key `openclaw.device.auth.v1`
+- device tokens and pending pairing records are keyed by deployment and role
+- a warm connection to the same deployment and role reuses the identity and
+  issued device token without pairing again
+
+On a cold connection, a `PAIRING_REQUIRED` / not-paired response moves the
+client into `pairing`. If `deploymentId`, `apiKey`, `apiBase`, and
+`autoApprovePairing` are present, the SDK approves the exact request through
+the token-authenticated Agent exec WebSocket and reconnects. Applications should render that as
+connection progress, not start a second client.
+
+An invalid cached device token clears only the current deployment-and-role
+entry before repair. Other Agent entries and the global browser device keypair
+remain intact.
+
+The connection states are fenced as follows:
+
+```text
+resolve exact Agent + active route
+  -> read OPENCLAW_GATEWAY_TOKEN once
+  -> confirm same RUNNING launch epoch + route
+  -> CONNECTING
+       -> warm device auth -------------------------------> CONNECTED
+       -> PAIRING_REQUIRED -> PAIRING -> trusted approval
+                              -> CONNECTING (new socket) --> CONNECTED
+
+terminal lifecycle / invalid route contract / auth failure -> ERROR
+caller timeout or abort                                    -> CANCELLED
+Agent or route changes during resolution                   -> retry or ERROR
+```
+
+`RUNNING`, active route/DNS, pairing approval, and an authenticated gateway
+hello are distinct readiness boundaries. Do not infer gateway readiness from
+the deployment state alone.
+
+## Lifecycle
+
+```ts
+const off = gateway.onEvent((event) => {
+  console.log(event);
+});
+
+await gateway.connect();
+...
+gateway.close();
+off();
+```
+
+Lifecycle methods:
+
+- `connect()`
+- `start()`
+- `close()`
+- `stop()`
+- `onEvent()`
+
+## Readiness
+
+```ts
+await gateway.waitReady(300_000);
+```
+
+This waits on the gateway after connection. For a managed Agent, first use the
+Agent-owned connection helper so lifecycle, route readiness, Secret resolution,
+pairing, and the authenticated hello are handled in order. A pod reaching
+`RUNNING` does not by itself prove any of those later boundaries.
+
+## Config
+
+```ts
+await gateway.configGet();
+await gateway.configSchema();
+await gateway.configPatch({
+  models: {
+    providers: {
+      openai: { apiKey: "hyper_api_..." },
+    },
+  },
+});
+```
+
+Methods:
+
+- `configGet()`
+- `configSchema()`
+- `configPatch()`
+- `configApply()`
+- `configSet()`
+- `status()`
+
+Managed HyperCLI Agents store OpenClaw runtime config at `/home/node/.openclaw/openclaw.json` inside the synced `/home/node` root. Update that config through `configPatch()` or `configApply()` on the running gateway; do not write the file directly from app code. The existing agent backup/restore path persists the synced state.
+
+Channel integration helpers such as `configureSlackSocket()`, `configureSlackRelay()`, `configureTelegram()`, and `configureWhatsapp()` are convenience wrappers over the same gateway config patch path.
+
+## Chat And Sessions
+
+Two patterns are useful:
+
+### Raw RPC + event listeners
+
+```ts
+gateway.onEvent((event) => console.log(event));
+await gateway.sendChat({ message: "Summarize this repository", sessionKey: "docs" });
+```
+
+### Higher-level history/session helpers
+
+- `chatHistory()`
+- `chatAbort()`
+- `sessionsList()`
+- `sessionsPreview()`
+- `sessionsReset()`
+
+## Files
+
+```ts
+await gateway.filesList("main");
+await gateway.fileGet("main", "README.md");
+await gateway.fileSet("main", "notes.txt", "hello");
+```
+
+## Channels
+
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
+
+## Models, Agents, Cron
+
+- `modelsList()`
+- `agentsList()`
+- `cronList()`
+- `cronAdd()`
+- `cronRemove()`
+
+## Approvals
+
+- `execApprove()`
+- `execDeny()`
+
+## Nodes
+
+Nodes are separate machines or processes connected to the same gateway with
+`role: "node"`. A node declares a command surface; an operator approves that
+surface and invokes commands through the gateway.
+
+Operator-side methods:
+
+- `nodesList()`
+- `nodeDescribe(nodeId)`
+- `nodePairList()`
+- `nodePairApprove(requestId)`
+- `nodePairReject(requestId)`
+- `nodePairRemove(nodeId)`
+- `nodeRename(nodeId, displayName)`
+- `nodeInvoke(nodeId, command, params?, timeoutMs?)`
+
+Node-side helper:
+
+```ts
+import { NodeServer } from "@hypercli.com/sdk";
+
+const node = new NodeServer(
+  {
+    "shell.run": async () => ({ stdout: "ok", exitCode: 0 }),
+  },
+  {
+    url: "wss://my-agent.hypercli.app",
+    gatewayToken: "...",
+    nodeId: "node-abc",
+  },
+);
+
+await node.start();
+```
+
+`NodeServer` connects with `role: "node"`, sends `commands` during the gateway
+handshake, listens for `node.invoke.request`, and replies with
+`node.invoke.result`. Success replies contain `payloadJSON`; handler failures
+return an error object.
+
+Pairing has two layers:
+
+- device pairing, approved with `device.pair.approve`
+- node command-surface pairing, approved with `nodePairApprove(requestId)`
+
+For custom commands such as `shell.run`, `fs.read`, or `fs.write`, the gateway
+policy must also allow the command names through `gateway.nodes.allowCommands`.
+If you patch that config in a containerized agent, restart the whole agent and
+reconnect clients before pairing or invoking nodes. A config patch alone can
+leave the running gateway on the old command policy.
+
+## Recommendation
+
+Most application code should not instantiate `GatewayClient` directly. Prefer:
+
+- `OpenClawAgent.gateway()`
+- `OpenClawAgent.connect()`

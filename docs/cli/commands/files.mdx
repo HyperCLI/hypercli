@@ -1,0 +1,45 @@
+---
+title: hyper files
+description: Upload local or remote media for flows, inspect processing state, and delete uploaded files.
+---
+
+`hyper files` manages product-scoped uploads used by media flows and renders.
+
+## Commands
+
+```bash
+hyper files upload ./source.png
+hyper files upload-url https://example.invalid/source.png
+hyper files get <file_id>
+hyper files delete <file_id>
+```
+
+`upload` performs a multipart upload. `upload-url` asks the backend to fetch the
+URL asynchronously. Both wait for a `processing` upload by default; use
+`--no-wait` to return immediately and poll with `get`.
+
+The printed file `URL` is an internal storage reference for HyperCLI renders. It
+is not a public download URL and should not be treated as a shareable asset.
+
+## Flow Inputs
+
+Flow commands upload readable local paths automatically. Upload explicitly when
+the same input will be reused:
+
+```bash
+hyper files upload ./source.png
+hyper flow image-to-video "slow camera push" --file-id <file_id> --output json
+```
+
+Uploads use the product credential resolved from `HYPER_API_KEY` or the shared
+config file. `--x402` on the later flow submission does not change the identity
+used for a local upload.
+
+## Deletion
+
+`delete` prompts for confirmation. `--yes` skips the prompt and permanently
+removes the uploaded file record:
+
+```bash
+hyper files delete <file_id> --yes
+```

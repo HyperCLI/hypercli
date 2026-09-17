@@ -1,0 +1,121 @@
+---
+title: Embedding Models
+description: Run text embedding models on GPU via vLLM for semantic search, RAG, and clustering.
+---
+
+# Embedding Models on GPU
+
+vLLM supports running embedding models with an OpenAI-compatible `/v1/embeddings` endpoint. This is perfect for semantic search, RAG pipelines, and clustering workloads that need GPU-accelerated throughput.
+
+## Qwen3 Embedding 4B
+
+[Qwen3-Embedding-4B](https://huggingface.co/Qwen/Qwen3-Embedding-4B) is a 4 billion parameter text embedding model supporting 89 languages and 32K context. Excellent balance of quality and speed.
+
+### Quick Launch
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve Qwen/Qwen3-Embedding-4B \
+    --host 0.0.0.0 --port 8000 \
+    --served-model-name qwen3-embedding-4b \
+    --trust-remote-code \
+    --task embed'
+```
+
+### Usage
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1"
+)
+
+response = client.embeddings.create(
+    model="qwen3-embedding-4b",
+    input=["What is GPU cloud computing?", "Semantic search with embeddings"]
+)
+
+for i, emb in enumerate(response.data):
+    print(f"Text {i}: {len(emb.embedding)} dimensions")
+```
+
+```bash
+curl -X POST https://YOUR-HOSTNAME-gpu.hypercli.com/v1/embeddings \
+  -H "Authorization: Bearer YOUR_JOB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen3-embedding-4b", "input": ["Hello world", "GPU cloud"]}'
+```
+
+## Other Embedding Models
+
+Any HuggingFace embedding model supported by vLLM works. Just change the model name:
+
+### BGE Large (English)
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve BAAI/bge-large-en-v1.5 \
+    --host 0.0.0.0 --port 8000 \
+    --served-model-name bge-large \
+    --task embed'
+```
+
+### E5 Mistral 7B (Instruction-tuned)
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve intfloat/e5-mistral-7b-instruct \
+    --host 0.0.0.0 --port 8000 \
+    --served-model-name e5-mistral \
+    --task embed \
+    --max-model-len 4096'
+```
+
+## vLLM Parameters
+
+| Parameter | Value | Description |
+|---|---|---|
+| `--task embed` | — | **Required.** Run in embedding mode instead of generation |
+| `--trust-remote-code` | — | Required for some models (Qwen3, GTE, etc.) |
+| `--max-model-len` | varies | Limit context length to save memory |
+
+## Performance
+
+On a single L40S with Qwen3-Embedding-4B:
+- **Throughput:** ~2,000 embeddings/sec (short texts)
+- **Dimensions:** 2,048
+- **Boot time:** ~3 minutes (image pull + model download)
+
+## Spot Pricing
+
+| GPU | Spot $/hr |
+|---|---|
+| 🇸🇪 L40S Stockholm | ~$0.70 |
+| 🇺🇸 L40S Ohio | ~$0.80 |
+| 🇺🇸 L40S Oregon | ~$0.90 |
