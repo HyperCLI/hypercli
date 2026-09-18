@@ -1177,6 +1177,27 @@ export interface UpdateAgentOptions {
   error?: string | null;
 }
 
+export interface ResetRuntimeDefaultsOptions {
+  runtime: ManagedAgentRuntime;
+}
+
+export interface ResetRuntimeDefaultsResult {
+  agent: Agent;
+  droppedLaunchKeys: string[];
+}
+
+function droppedLaunchConfigKeys(data: { warnings?: unknown }): string[] {
+  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+  return warnings
+    .filter((warning): warning is { code?: unknown; dropped_keys?: unknown } => (
+      Boolean(warning) && typeof warning === 'object'
+    ))
+    .filter((warning) => warning.code === 'unsupported_launch_config_keys_dropped')
+    .flatMap((warning) => (
+      Array.isArray(warning.dropped_keys) ? warning.dropped_keys.map(String) : []
+    ));
+}
+
 export interface OpenClawSlackOptions {
   /**
    * Hosted Slack relay base URL. Resolved from `HYPER_SLACK_RELAY_BASE_URL`,
@@ -3044,6 +3065,10 @@ export class Agent {
 
   async update(options: UpdateAgentOptions): Promise<Agent> {
     return this.requireDeployments().update(this.id, options);
+  }
+
+  async resetRuntimeDefaults(options: ResetRuntimeDefaultsOptions): Promise<ResetRuntimeDefaultsResult> {
+    return this.requireDeployments().resetRuntimeDefaults(this.id, options);
   }
 
   async resize(options: Pick<UpdateAgentOptions, 'size'>): Promise<Agent> {
@@ -5896,6 +5921,40 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
+  }
+
+  /**
+   * Reset a deployment back to this runtime's platform defaults.
+   *
+   * The empty launch_config is intentional: Backend treats `{}` as "clear every
+   * mutable launch setting" while preserving protected launch identity and
+   * retained-storage fields. Runtime-specific files are deleted best-effort so
+   * the image can reseed its own config on the next boot.
+   */
+  async resetRuntimeDefaults(
+    agentIdOrName: string,
+    options: ResetRuntimeDefaultsOptions,
+  ): Promise<ResetRuntimeDefaultsResult> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const resetData = await this.agentHttp.patch<AgentHydrationData & { warnings?: unknown }>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}`,
+      {
+        runtime: options.runtime,
+        reset_image: true,
+        launch_config: {},
+      },
+    );
+    const droppedLaunchKeys = droppedLaunchConfigKeys(resetData);
+    if (options.runtime === 'openclaw' || options.runtime === 'openclaw-pro') {
+      await this.setRoute(agentId, 'openclaw', buildOpenClawRoutes({}).openclaw);
+      await this.setEnv(agentId, 'OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
+      await this.fileDelete(agentId, '.openclaw/openclaw.json').catch(() => undefined);
+    } else if (options.runtime === 'hermes-agent') {
+      await this.setRoute(agentId, 'hermes', buildHermesAgentRoutes({}).hermes);
+      await this.fileDelete(agentId, '.hermes/config.yaml').catch(() => undefined);
+      await this.fileDelete(agentId, '.hermes/mem0.json').catch(() => undefined);
+    }
+    return { agent: await this.get(agentId), droppedLaunchKeys };
   }
 
   async uploadProfileImage(
