@@ -423,7 +423,7 @@ describe("GatewayClient", () => {
       });
       const connectPromise = client.connect();
       const rejected = expect(connectPromise).rejects.toThrow(/initial connect timed out/);
-      await vi.advanceTimersByTimeAsync(45_000);
+      await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
       client.close();
     } finally {
