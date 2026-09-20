@@ -104,7 +104,7 @@ sdk/
 
 #### `sdk/authentication.mdx`
 - Three ways to authenticate:
-  1. Environment variable: `HYPERCLI_API_KEY`
+  1. Environment variable: `HYPER_API_KEY`
   2. Config file: `~/.hypercli/config`
   3. Pass to constructor: `HyperCLI(api_key="xxx")`
 - Config file format
@@ -229,7 +229,7 @@ hyper llm chat deepseek-v3.1 "Hello!"
 #### `cli/configuration.mdx`
 - `hyper configure` interactive setup
 - Config file location: `~/.hypercli/config`
-- Environment variables: `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`
+- Environment variables: `HYPER_API_KEY`, `HYPERCLI_API_URL`
 - Priority: env > config
 
 #### `cli/commands/billing.mdx`

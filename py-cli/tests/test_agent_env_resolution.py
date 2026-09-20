@@ -15,7 +15,6 @@ def test_agents_cli_prefers_product_key_env(monkeypatch):
 
 def test_agents_cli_uses_config_without_legacy_agent_key(monkeypatch, tmp_path):
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
     monkeypatch.delenv("HYPER_AGENTS_API_KEY", raising=False)
 
     config_path = tmp_path / "config"
@@ -32,9 +31,28 @@ def test_agents_cli_uses_config_without_legacy_agent_key(monkeypatch, tmp_path):
     assert agents._get_agent_api_key() == "hyper_api_config"
 
 
+def test_py_cli_uses_hyper_home_as_data_dir(monkeypatch, tmp_path):
+    hyper_home = tmp_path / "hyper-data"
+    hyper_home.mkdir()
+    monkeypatch.setenv("HYPER_HOME", str(hyper_home))
+
+    import hypercli_cli.agent as agent
+    import hypercli_cli.agents as agents
+    import hypercli_cli.wallet as wallet
+
+    importlib.reload(agent)
+    importlib.reload(agents)
+    importlib.reload(wallet)
+
+    assert agent.HYPERCLI_DIR == hyper_home
+    assert agent.AGENT_KEY_PATH == hyper_home / "agent-key.json"
+    assert agents.STATE_DIR == hyper_home
+    assert agents.AGENTS_STATE == hyper_home / "agents.json"
+    assert wallet.WALLET_PATH == hyper_home / "wallet.json"
+
+
 def test_agent_activate_uses_config_without_legacy_agent_key(monkeypatch, tmp_path):
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
     monkeypatch.delenv("HYPER_AGENTS_API_KEY", raising=False)
 
     config_path = tmp_path / "config"
@@ -95,7 +113,6 @@ def test_voice_cli_prefers_product_envs(monkeypatch):
 
 def test_voice_cli_uses_config_before_expired_agent_key(monkeypatch, tmp_path):
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
     monkeypatch.delenv("HYPER_AGENTS_API_KEY", raising=False)
 
     config_path = tmp_path / "config"

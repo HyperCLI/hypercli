@@ -14,10 +14,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .paths import hyper_home
+
 console = Console()
 
 # Paths
-HYPERCLI_DIR = Path.home() / ".hypercli"
+HYPERCLI_DIR = hyper_home()
 ONBOARD_DIR = HYPERCLI_DIR / "onboard"
 STATE_PATH = ONBOARD_DIR / "state.json"
 QR_PATH = ONBOARD_DIR / "wallet_qr.png"

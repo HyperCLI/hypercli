@@ -8,7 +8,6 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from hypercli import HyperCLI, APIError, configure
-from hypercli.config import CONFIG_FILE
 
 from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, memory, user, voice, wallet, workspaces
 from .output import output, spinner
@@ -220,7 +219,7 @@ def status_cmd(
 def configure_cmd():
     """Configure HyperCLI with your API key and API URL"""
     import getpass
-    from hypercli.config import get_api_key, get_api_url, DEFAULT_API_URL
+    from hypercli.config import config_file, get_api_key, get_api_url, DEFAULT_API_URL
 
     console.print("\n[bold cyan]HyperCLI Configuration[/bold cyan]\n")
 
@@ -256,7 +255,7 @@ def configure_cmd():
 
     configure(final_key, final_url)
 
-    console.print(f"\n[green]✓[/green] Config saved to {CONFIG_FILE}")
+    console.print(f"\n[green]✓[/green] Config saved to {config_file()}")
     if api_key:
         preview = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
         console.print(f"  API key: {preview}")

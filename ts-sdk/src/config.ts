@@ -5,6 +5,12 @@
 type NodeRequireFn = ((id: string) => any) | null;
 
 function getNodeRequire(): NodeRequireFn {
+  const getBuiltinModule = (
+    globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }
+  ).process?.getBuiltinModule;
+  if (getBuiltinModule) {
+    return getBuiltinModule as (id: string) => any;
+  }
   try {
     return (0, eval)('require') as (id: string) => any;
   } catch {
@@ -18,7 +24,8 @@ function getNodeConfigPaths(): { configDir: string; configFile: string } | null 
   try {
     const { homedir } = req('os') as typeof import('os');
     const { join } = req('path') as typeof import('path');
-    const configDir = join(homedir(), '.hypercli');
+    const hyperHome = readEnvValue('HYPER_HOME')?.trim();
+    const configDir = hyperHome || join(homedir(), '.hypercli');
     return {
       configDir,
       configFile: join(configDir, 'config'),
@@ -28,7 +35,17 @@ function getNodeConfigPaths(): { configDir: string; configFile: string } | null 
   }
 }
 
+export function configDir(): string {
+  return getNodeConfigPaths()?.configDir || '.hypercli';
+}
+
+export function configFile(): string {
+  return getNodeConfigPaths()?.configFile || '.hypercli/config';
+}
+
+/** @deprecated Use configDir() so HYPER_HOME is read at call time. */
 export const CONFIG_DIR = getNodeConfigPaths()?.configDir || '.hypercli';
+/** @deprecated Use configFile() so HYPER_HOME is read at call time. */
 export const CONFIG_FILE = getNodeConfigPaths()?.configFile || '.hypercli/config';
 
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
@@ -94,7 +111,7 @@ function defaultAgentsWsUrl(apiBase: string): string {
 }
 
 /**
- * Load config from ~/.hypercli/config
+ * Load config from the active HyperCLI data directory.
  */
 function loadConfigFile(): Record<string, string> {
   const config: Record<string, string> = {};
@@ -105,12 +122,16 @@ function loadConfigFile(): Record<string, string> {
   }
 
   try {
+    const paths = getNodeConfigPaths();
+    if (!paths) {
+      return config;
+    }
     const { existsSync, readFileSync } = req('fs') as typeof import('fs');
-    if (!existsSync(CONFIG_FILE)) {
+    if (!existsSync(paths.configFile)) {
       return config;
     }
 
-    const content = readFileSync(CONFIG_FILE, 'utf-8');
+    const content = readFileSync(paths.configFile, 'utf-8');
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
@@ -156,14 +177,20 @@ export function getConfigValue(key: string, defaultValue?: string): string | und
  * Get API key from env or config file
  */
 export function getApiKey(): string | undefined {
-  return getConfigValue('HYPER_API_KEY') || getConfigValue('HYPERCLI_API_KEY');
+  const envKey = readEnvValue('HYPER_API_KEY')?.trim();
+  if (envKey) {
+    return envKey;
+  }
+  const config = loadConfigFile();
+  return config.HYPER_API_KEY || undefined;
 }
 
 /**
  * Get the user-selected key, falling back to the managed runtime token.
  */
 export function getAgentApiKey(): string | undefined {
-  return getApiKey() || getConfigValue('HYPER_AGENTS_API_KEY');
+  const agentEnvKey = readEnvValue('HYPER_AGENTS_API_KEY')?.trim();
+  return getApiKey() || agentEnvKey || undefined;
 }
 
 /**
@@ -238,11 +265,15 @@ export function configure(
   if (!req) {
     throw new Error('configure() is only available in Node.js environments');
   }
+  const paths = getNodeConfigPaths();
+  if (!paths) {
+    throw new Error('configure() is only available in Node.js environments');
+  }
   const { existsSync, writeFileSync, mkdirSync, chmodSync } = req('fs') as typeof import('fs');
 
   // Create directory if it doesn't exist
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
+  if (!existsSync(paths.configDir)) {
+    mkdirSync(paths.configDir, { recursive: true });
   }
 
   // Load existing config
@@ -262,11 +293,11 @@ export function configure(
 
   // Write config file
   const lines = Object.entries(config).map(([k, v]) => `${k}=${v}`);
-  writeFileSync(CONFIG_FILE, lines.join('\n') + '\n', 'utf-8');
+  writeFileSync(paths.configFile, lines.join('\n') + '\n', 'utf-8');
 
   // Set permissions to 0600 (owner read/write only)
   try {
-    chmodSync(CONFIG_FILE, 0o600);
+    chmodSync(paths.configFile, 0o600);
   } catch {
     // Ignore permission errors (Windows doesn't support chmod)
   }

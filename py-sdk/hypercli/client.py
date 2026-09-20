@@ -74,7 +74,7 @@ class HyperCLI:
         self._api_key = resolved_product_api_key or resolved_agent_api_key
         if not self._api_key:
             raise ValueError(
-                "API key required. Set HYPER_API_KEY/HYPERCLI_API_KEY or "
+                "API key required. Set HYPER_API_KEY or "
                 "HYPER_AGENTS_API_KEY, create ~/.hypercli/config, or pass api_key parameter."
             )
 

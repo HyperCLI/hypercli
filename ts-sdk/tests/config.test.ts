@@ -1,4 +1,7 @@
 import { beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   getApiKey,
   getAgentApiKey,
@@ -15,31 +18,29 @@ import {
 
 describe('Config', () => {
   const originalHyperApiKey = process.env.HYPER_API_KEY;
-  const originalApiKey = process.env.HYPERCLI_API_KEY;
   const originalHyperApiBase = process.env.HYPER_API_BASE;
   const originalApiUrl = process.env.HYPERCLI_API_URL;
   const originalAgentsApiKey = process.env.HYPER_AGENTS_API_KEY;
   const originalWsUrl = process.env.HYPERCLI_WS_URL;
   const originalAgentsApiBaseUrl = process.env.AGENTS_API_BASE_URL;
   const originalAgentsWsUrl = process.env.AGENTS_WS_URL;
+  const originalHyperHome = process.env.HYPER_HOME;
+  const tempDirs: string[] = [];
 
   beforeEach(() => {
     process.env.HYPER_API_KEY = 'hyper_api_test_key';
-    delete process.env.HYPERCLI_API_KEY;
     delete process.env.HYPER_API_BASE;
     delete process.env.HYPERCLI_API_URL;
     delete process.env.HYPER_AGENTS_API_KEY;
     delete process.env.HYPERCLI_WS_URL;
     delete process.env.AGENTS_API_BASE_URL;
     delete process.env.AGENTS_WS_URL;
+    delete process.env.HYPER_HOME;
   });
 
   afterEach(() => {
     if (originalHyperApiKey === undefined) delete process.env.HYPER_API_KEY;
     else process.env.HYPER_API_KEY = originalHyperApiKey;
-
-    if (originalApiKey === undefined) delete process.env.HYPERCLI_API_KEY;
-    else process.env.HYPERCLI_API_KEY = originalApiKey;
 
     if (originalHyperApiBase === undefined) delete process.env.HYPER_API_BASE;
     else process.env.HYPER_API_BASE = originalHyperApiBase;
@@ -58,7 +59,20 @@ describe('Config', () => {
 
     if (originalAgentsWsUrl === undefined) delete process.env.AGENTS_WS_URL;
     else process.env.AGENTS_WS_URL = originalAgentsWsUrl;
+
+    if (originalHyperHome === undefined) delete process.env.HYPER_HOME;
+    else process.env.HYPER_HOME = originalHyperHome;
+
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
+
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'hypercli-config-'));
+    tempDirs.push(dir);
+    return dir;
+  }
 
   it('should return API key from env', () => {
     const key = getApiKey();
@@ -77,6 +91,42 @@ describe('Config', () => {
     delete process.env.HYPER_API_KEY;
     process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
     expect(getAgentApiKey()).toBe('hyper_api_agent');
+  });
+
+  it('uses HYPER_HOME as the data directory for config', () => {
+    delete process.env.HYPER_API_KEY;
+    const hyperHome = tempDir();
+    writeFileSync(join(hyperHome, 'config'), 'HYPER_API_KEY=hyper_api_home\n');
+    process.env.HYPER_HOME = hyperHome;
+
+    expect(getApiKey()).toBe('hyper_api_home');
+  });
+
+  it('does not read default home config when HYPER_HOME is set and missing config', () => {
+    delete process.env.HYPER_API_KEY;
+    const fakeHome = tempDir();
+    const hyperHome = tempDir();
+    mkdirSync(join(fakeHome, '.hypercli'));
+    writeFileSync(join(fakeHome, '.hypercli', 'config'), 'HYPER_API_KEY=hyper_api_default_home\n');
+    const originalHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    process.env.HYPER_HOME = hyperHome;
+    try {
+      expect(getApiKey()).toBeUndefined();
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    }
+  });
+
+  it('prefers configured product key before managed agent env fallback', () => {
+    delete process.env.HYPER_API_KEY;
+    const hyperHome = tempDir();
+    writeFileSync(join(hyperHome, 'config'), 'HYPER_API_KEY=hyper_api_config\n');
+    process.env.HYPER_HOME = hyperHome;
+    process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
+
+    expect(getAgentApiKey()).toBe('hyper_api_config');
   });
 
   it('should return default API URL', () => {

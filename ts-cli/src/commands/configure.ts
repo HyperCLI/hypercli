@@ -5,12 +5,10 @@
  * Interactive:      prompts with readline; empty input keeps current value.
  */
 
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { getApiKey, getApiUrl } from '@hypercli.com/sdk';
 import { parseCommandArgs } from '../core/argv.js';
-import { saveCliConfig } from '../core/config-file.js';
+import { cliConfigFile, saveCliConfig } from '../core/config-file.js';
 import { UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
@@ -61,7 +59,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   if (!finalKey) throw new UsageError('no API key provided');
   saveCliConfig(finalKey, apiUrl || undefined);
 
-  const configFile = join(homedir(), '.hypercli', 'config');
+  const configFile = cliConfigFile();
   ctx.output.result(
     { configured: true, config_file: configFile, api_key: apiKey ? maskKey(finalKey) : undefined, api_url: apiUrl || undefined },
     `Config saved to ${configFile}\n  API key: ${apiKey ? maskKey(finalKey) : '(unchanged)'}\n  API URL: ${apiUrl || currentUrl}`,

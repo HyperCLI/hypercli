@@ -18,6 +18,7 @@ from hypercli.http import HTTPClient
 
 from .onboard import onboard as _onboard_fn
 from .output import output
+from .paths import hyper_home
 from .voice import app as voice_app
 from .embed import app as embed_app
 from .agents import _save_agent_state
@@ -44,7 +45,7 @@ try:
 except ImportError:
     X402_AVAILABLE = False
 
-HYPERCLI_DIR = Path.home() / ".hypercli"
+HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEV_API_BASE = "https://api.dev.hypercli.com"
 PROD_API_BASE = "https://api.hypercli.com"

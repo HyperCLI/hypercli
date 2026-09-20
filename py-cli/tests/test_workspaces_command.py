@@ -17,7 +17,6 @@ def _configure_product_key_and_managed_fallback(monkeypatch, tmp_path: Path) -> 
     config_path.write_text("HYPER_API_KEY=hyper_api_stale_restored\n")
     monkeypatch.setattr(config_mod, "CONFIG_FILE", config_path)
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_fresh_runtime")
 
 
@@ -64,7 +63,6 @@ def test_workspaces_without_runtime_key_retains_product_config(monkeypatch, tmp_
     monkeypatch.setattr(config_mod, "CONFIG_FILE", config_path)
     monkeypatch.delenv("HYPER_AGENTS_API_KEY", raising=False)
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
 
     assert workspaces_mod._workspace_api_key() == "hyper_api_product_config"
 

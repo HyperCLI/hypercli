@@ -27,6 +27,8 @@ from hypercli.config import get_agent_api_key as get_config_agent_api_key
 from rich.console import Console
 from rich.table import Table
 
+from .paths import hyper_home
+
 app = typer.Typer(help="Manage agent deployments")
 routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
 app.add_typer(routes_app, name="routes")
@@ -37,8 +39,8 @@ _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
 
 # Config — uses HyperCLI API key (hyper_api_...) for backend auth
-AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
-STATE_DIR = Path.home() / ".hypercli"
+STATE_DIR = hyper_home()
+AGENT_KEY_PATH = STATE_DIR / "agent-key.json"
 AGENTS_STATE = STATE_DIR / "agents.json"
 LAUNCH_FIELD_KEYS = {
     "command",

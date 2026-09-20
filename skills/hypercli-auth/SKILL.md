@@ -3,9 +3,9 @@ name: hypercli-auth
 description: >
   Diagnose and configure HyperCLI credentials, API bases, and inactive keys,
   and authenticate hosted Buzz coding-runtime harnesses. Use when choosing
-  between HYPER_API_KEY, HYPERCLI_API_KEY, and HYPER_AGENTS_API_KEY, running
-  hyper me safely, applying hyper configure, or signing OpenCode, Goose,
-  Claude Code, Codex, or Kimi Code into a hosted runtime.
+  between HYPER_API_KEY and HYPER_AGENTS_API_KEY, running hyper me safely,
+  applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex,
+  or Kimi Code into a hosted runtime.
 ---
 
 # HyperCLI Authentication
@@ -30,8 +30,7 @@ Never invent a credential bridge between these authorities.
 The product credential resolves in this order:
 
 1. Environment `HYPER_API_KEY`.
-2. Environment legacy `HYPERCLI_API_KEY`.
-3. The key saved by `hyper configure` in `~/.hypercli/config`.
+2. The key saved by `hyper configure` in `~/.hypercli/config`.
 
 Agent APIs try that same product chain first, then fall back to an
 environment `HYPER_AGENTS_API_KEY`. Precedence is grouped by source: a
@@ -58,7 +57,6 @@ Print source names, never values:
 
 ```bash
 test -n "${HYPER_API_KEY:-}" && echo HYPER_API_KEY present || echo HYPER_API_KEY missing
-test -n "${HYPERCLI_API_KEY:-}" && echo HYPERCLI_API_KEY present || echo HYPERCLI_API_KEY missing
 test -n "${HYPER_AGENTS_API_KEY:-}" && echo HYPER_AGENTS_API_KEY present || echo HYPER_AGENTS_API_KEY missing
 test -s ~/.hypercli/config && echo config present || echo config missing
 ```

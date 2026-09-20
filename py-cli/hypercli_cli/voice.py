@@ -11,12 +11,13 @@ import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
 from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base, get_api_key
+from .paths import hyper_home
 from .stt import transcribe as _stt_transcribe
 
 app = typer.Typer(help="Voice commands — text-to-speech, voice cloning, voice design, and local transcription")
 console = Console()
 
-HYPERCLI_DIR = Path.home() / ".hypercli"
+HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEFAULT_API_BASE = "https://api.hypercli.com"
 MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024

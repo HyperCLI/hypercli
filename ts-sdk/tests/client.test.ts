@@ -4,7 +4,6 @@ import { HyperCLI } from '../src/client.js';
 
 describe('HyperCLI Client', () => {
   const originalHyperApiKey = process.env.HYPER_API_KEY;
-  const originalApiKey = process.env.HYPERCLI_API_KEY;
   const originalAgentApiKey = process.env.HYPER_AGENTS_API_KEY;
   const originalAgentsApiBaseUrl = process.env.AGENTS_API_BASE_URL;
   const originalAgentsWsUrl = process.env.AGENTS_WS_URL;
@@ -14,7 +13,6 @@ describe('HyperCLI Client', () => {
 
   beforeEach(() => {
     process.env.HYPER_API_KEY = 'hyper_api_test_key';
-    delete process.env.HYPERCLI_API_KEY;
     delete process.env.HYPER_AGENTS_API_KEY;
     delete process.env.AGENTS_API_BASE_URL;
     delete process.env.AGENTS_WS_URL;
@@ -25,9 +23,6 @@ describe('HyperCLI Client', () => {
   afterEach(() => {
     if (originalHyperApiKey === undefined) delete process.env.HYPER_API_KEY;
     else process.env.HYPER_API_KEY = originalHyperApiKey;
-
-    if (originalApiKey === undefined) delete process.env.HYPERCLI_API_KEY;
-    else process.env.HYPERCLI_API_KEY = originalApiKey;
 
     if (originalAgentApiKey === undefined) delete process.env.HYPER_AGENTS_API_KEY;
     else process.env.HYPER_AGENTS_API_KEY = originalAgentApiKey;

@@ -41,11 +41,10 @@ hyper configure
 ```
 
 `hyper configure` writes the product API key to `~/.hypercli/config` so it
-persists across sessions. Environment keys (`HYPER_API_KEY`, then
-`HYPERCLI_API_KEY`) still override the saved value, and
-`HYPER_AGENTS_API_KEY` remains the final agent fallback; see `hypercli-auth`
-for the exact chain. After configuring, verify once with `hyper me` and
-report the resulting identity, never the key.
+persists across sessions. `HYPER_API_KEY` still overrides the saved value,
+and `HYPER_AGENTS_API_KEY` remains the final agent fallback; see
+`hypercli-auth` for the exact chain. After configuring, verify once with
+`hyper me` and report the resulting identity, never the key.
 
 ## Failure and completion rules
 
