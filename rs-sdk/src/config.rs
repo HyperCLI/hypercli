@@ -167,11 +167,21 @@ pub fn discover_client_config_from(
 /// the caller's configured backend.
 pub fn discover_agents_api_base() -> Result<Url, ConfigError> {
     let env: BTreeMap<String, String> = std::env::vars().collect();
-    let file_config = match dirs::home_dir() {
+    discover_agents_api_base_from(&env, dirs::home_dir().as_deref())
+}
+
+/// Path-parameterized variant of [`discover_agents_api_base`] — the same
+/// env-then-file precedence without consulting the process home, for callers
+/// (e.g. sandboxed mobile apps) that keep their config outside `~`.
+pub fn discover_agents_api_base_from(
+    env: &BTreeMap<String, String>,
+    home: Option<&Path>,
+) -> Result<Url, ConfigError> {
+    let file_config = match home {
         Some(home) => load_kv_file(&home.join(".hypercli").join("config"))?,
         None => BTreeMap::new(),
     };
-    discover_api_base(&env, &file_config)
+    discover_api_base(env, &file_config)
 }
 
 fn discover_api_base(
@@ -367,6 +377,28 @@ mod tests {
             config.trace_file,
             Some(PathBuf::from("/tmp/hypercli-trace.jsonl"))
         );
+    }
+
+    #[test]
+    fn discovers_agents_api_base_from_config_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config"), "AGENTS_API_BASE_URL=http://file.test\n").unwrap();
+
+        let base = discover_agents_api_base_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(base.as_str(), "http://file.test/agents");
+    }
+
+    #[test]
+    fn discovers_agents_api_base_from_env_without_home() {
+        let env = BTreeMap::from([(
+            "AGENTS_API_BASE_URL".to_owned(),
+            "http://env.test/base".to_owned(),
+        )]);
+
+        let base = discover_agents_api_base_from(&env, None).unwrap();
+        assert_eq!(base.as_str(), "http://env.test/base/agents");
     }
 
     #[test]

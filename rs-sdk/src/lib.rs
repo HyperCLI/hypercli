@@ -32,9 +32,9 @@ pub use client::{
     DEFAULT_REQUEST_TIMEOUT,
 };
 pub use config::{
-    discover_agents_api_base, discover_client_config, discover_client_config_from,
-    normalize_agents_api_base, remove_config_api_keys, save_api_key, write_config_values,
-    ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
+    discover_agents_api_base, discover_agents_api_base_from, discover_client_config,
+    discover_client_config_from, normalize_agents_api_base, remove_config_api_keys, save_api_key,
+    write_config_values, ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
 };
 pub use files::{File, FilesClient};
 pub use hermes::{
