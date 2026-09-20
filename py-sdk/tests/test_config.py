@@ -51,7 +51,6 @@ def test_agent_key_prefers_product_config_before_managed_agent_env(
     config_path = tmp_path / "config"
     config_path.write_text("HYPER_API_KEY=hyper_api_configured\n")
     monkeypatch.delenv("HYPER_API_KEY", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
 
     import hypercli.config as config
@@ -59,6 +58,38 @@ def test_agent_key_prefers_product_config_before_managed_agent_env(
     monkeypatch.setattr(config, "CONFIG_FILE", config_path)
 
     assert config.get_agent_api_key() == "hyper_api_configured"
+
+
+def test_hyper_home_is_data_dir(monkeypatch, tmp_path):
+    hyper_home = tmp_path / "hyper-data"
+    hyper_home.mkdir()
+    (hyper_home / "config").write_text("HYPER_API_KEY=hyper_api_home\n")
+    monkeypatch.delenv("HYPER_API_KEY", raising=False)
+    monkeypatch.setenv("HYPER_HOME", str(hyper_home))
+
+    import hypercli.config as config
+
+    importlib.reload(config)
+
+    assert config.get_api_key() == "hyper_api_home"
+
+
+def test_hyper_home_missing_config_does_not_read_default_home(monkeypatch, tmp_path):
+    fake_home = tmp_path / "home"
+    default_dir = fake_home / ".hypercli"
+    hyper_home = tmp_path / "custom-data"
+    default_dir.mkdir(parents=True)
+    hyper_home.mkdir()
+    (default_dir / "config").write_text("HYPER_API_KEY=hyper_api_default\n")
+    monkeypatch.delenv("HYPER_API_KEY", raising=False)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("HYPER_HOME", str(hyper_home))
+
+    import hypercli.config as config
+
+    importlib.reload(config)
+
+    assert config.get_api_key() is None
 
 
 def test_agents_base_prefers_direct_agents_base(monkeypatch):

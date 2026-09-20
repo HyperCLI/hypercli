@@ -38,8 +38,8 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { cliConfigDir } from './config-file.js';
 
 /** ts-sdk/src/openclaw/gateway.ts:1455 — the only storage key the gateway uses. */
 const SDK_STORAGE_KEY = 'openclaw.device.auth.v1';
@@ -81,7 +81,7 @@ interface SdkDeviceAuthStore {
 }
 
 export function authStorePath(): string {
-  return join(homedir(), '.hypercli', 'auth.json');
+  return join(cliConfigDir(), 'auth.json');
 }
 
 /**

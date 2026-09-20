@@ -8,10 +8,12 @@ from rich.console import Console
 
 from hypercli.config import get_agent_api_key
 
+from .paths import hyper_home
+
 app = typer.Typer(help="Text embeddings via HyperCLI API (qwen3-embedding-4b)")
 console = Console()
 
-HYPERCLI_DIR = Path.home() / ".hypercli"
+HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"

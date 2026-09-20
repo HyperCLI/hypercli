@@ -4,8 +4,25 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-CONFIG_DIR = Path.home() / ".hypercli"
+def _hyper_home() -> Path:
+    configured = os.getenv("HYPER_HOME", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".hypercli"
+
+
+CONFIG_DIR = _hyper_home()
 CONFIG_FILE = CONFIG_DIR / "config"
+_DEFAULT_CONFIG_FILE = CONFIG_FILE
+
+
+def _config_file() -> Path:
+    if CONFIG_FILE != _DEFAULT_CONFIG_FILE:
+        return CONFIG_FILE
+    return _hyper_home() / "config"
+
+
+def config_file() -> Path:
+    """Return the active HyperCLI config file path."""
+    return _config_file()
 
 DEFAULT_API_URL = "https://api.hypercli.com"
 DEFAULT_WS_URL = "wss://api.hypercli.com"
@@ -21,15 +38,18 @@ COMFYUI_IMAGE = f"{GHCR_IMAGES}/comfyui"
 
 
 def _load_config_file() -> dict:
-    """Load config from ~/.hypercli/config"""
+    """Load config from the HyperCLI data directory."""
     config = {}
-    if CONFIG_FILE.exists():
-        for line in CONFIG_FILE.read_text().splitlines():
+    config_file = _config_file()
+    if config_file.exists():
+        for line in config_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 config[key.strip()] = value.strip()
     return config
+
+
 def get_config_value(key: str, default: str = None) -> Optional[str]:
     """Get config value: env var > config file > default"""
     env_val = os.getenv(key)
@@ -41,18 +61,17 @@ def get_config_value(key: str, default: str = None) -> Optional[str]:
 
 def get_api_key() -> Optional[str]:
     """Get product API key from env or config file."""
-    return (
-        get_config_value("HYPER_API_KEY")
-        or get_config_value("HYPERCLI_API_KEY")
-    )
+    env_key = os.getenv("HYPER_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    config = _load_config_file()
+    return config.get("HYPER_API_KEY")
 
 
 def get_agent_api_key() -> Optional[str]:
     """Get the user-selected key, falling back to the managed runtime key."""
-    return (
-        get_api_key()
-        or get_config_value("HYPER_AGENTS_API_KEY")
-    )
+    agent_env_key = os.getenv("HYPER_AGENTS_API_KEY", "").strip()
+    return get_api_key() or agent_env_key or None
 
 
 def get_api_url() -> str:
@@ -161,7 +180,8 @@ def configure(
     agents_ws_url: str = None,
 ):
     """Save configuration to ~/.hypercli/config"""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    config_file = _config_file()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
 
     config = _load_config_file()
     config["HYPER_API_KEY"] = api_key
@@ -173,5 +193,5 @@ def configure(
         config["AGENTS_WS_URL"] = agents_ws_url
 
     lines = [f"{k}={v}" for k, v in config.items()]
-    CONFIG_FILE.write_text("\n".join(lines) + "\n")
-    CONFIG_FILE.chmod(0o600)
+    config_file.write_text("\n".join(lines) + "\n")
+    config_file.chmod(0o600)

@@ -24,6 +24,7 @@ from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 import httpx
 import websockets
+from hypercli.config import _hyper_home
 from nacl.signing import SigningKey
 from websockets.asyncio.client import ClientConnection
 
@@ -125,7 +126,7 @@ def _storage_path(override: str | None = None) -> Path:
     env_override = os.environ.get("HYPERCLI_GATEWAY_STORE_PATH", "").strip()
     if env_override:
         return Path(env_override).expanduser()
-    return Path.home() / ".hypercli" / "openclaw-device-auth.json"
+    return _hyper_home() / "openclaw-device-auth.json"
 
 
 def _storage_scope_key(scope: str, role: str) -> str:

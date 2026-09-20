@@ -2,8 +2,8 @@
  * The one place that builds the SDK client.
  *
  * Construction honors the SDK config precedence exactly:
- *   product key:  HYPER_API_KEY > HYPERCLI_API_KEY > ~/.hypercli/config
- *   agents key:   user key first, then HYPER_AGENTS_API_KEY fallback
+ *   product key:  HYPER_API_KEY > $HYPER_HOME/config or ~/.hypercli/config
+ *   agents key:   product key first, then HYPER_AGENTS_API_KEY fallback
  *   apiUrl:       HYPER_API_BASE / HYPERCLI_API_URL / config / default
  *   agents base:  AGENTS_API_BASE_URL, else dev base when --dev is set
  *

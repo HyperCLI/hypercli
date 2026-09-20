@@ -2,8 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'n
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export const CLI_CONFIG_DIR = join(homedir(), '.hypercli');
-export const CLI_CONFIG_FILE = join(CLI_CONFIG_DIR, 'config');
+export function cliConfigDir(): string {
+  const hyperHome = process.env.HYPER_HOME?.trim();
+  return hyperHome || join(homedir(), '.hypercli');
+}
+
+export function cliConfigFile(): string {
+  return join(cliConfigDir(), 'config');
+}
 
 function parseConfigValue(value: string): string {
   const trimmed = value.trim();
@@ -18,9 +24,10 @@ function parseConfigValue(value: string): string {
 
 export function loadCliConfigFile(): Record<string, string> {
   const config: Record<string, string> = {};
-  if (!existsSync(CLI_CONFIG_FILE)) return config;
+  const path = cliConfigFile();
+  if (!existsSync(path)) return config;
 
-  for (const line of readFileSync(CLI_CONFIG_FILE, 'utf8').split('\n')) {
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
     const normalized = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
@@ -53,10 +60,12 @@ export function saveCliConfig(apiKey: string, apiBase?: string): void {
     delete config.HYPER_API_BASE;
   }
 
-  mkdirSync(CLI_CONFIG_DIR, { recursive: true });
-  writeFileSync(CLI_CONFIG_FILE, Object.entries(config).map(([key, value]) => `${key}=${value}`).join('\n') + '\n');
+  const dir = cliConfigDir();
+  const path = cliConfigFile();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, Object.entries(config).map(([key, value]) => `${key}=${value}`).join('\n') + '\n');
   try {
-    chmodSync(CLI_CONFIG_FILE, 0o600);
+    chmodSync(path, 0o600);
   } catch {
     // Some platforms do not support POSIX permissions.
   }

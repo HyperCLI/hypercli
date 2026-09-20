@@ -35,11 +35,11 @@ mutations accept `--dry-run` for preflight validation. Do not select
 
 ## Authentication
 
-`HYPER_API_KEY` authenticates product APIs, with legacy `HYPERCLI_API_KEY`
-next and the key saved by `hyper configure` in `~/.hypercli/config` last.
-Environment values override the saved key. Agent APIs try that same chain
-first and then fall back to `HYPER_AGENTS_API_KEY`. Load `hypercli-auth`
-before changing any of these sources.
+`HYPER_API_KEY` authenticates product APIs, with the key saved by
+`hyper configure` in `~/.hypercli/config` next. Environment values override
+the saved key. Agent APIs try that same chain first and then fall back to
+`HYPER_AGENTS_API_KEY`. Load `hypercli-auth` before changing any of these
+sources.
 
 Never print, paste, or send a credential. Before a costly or mutating
 operation, validate the intended identity:

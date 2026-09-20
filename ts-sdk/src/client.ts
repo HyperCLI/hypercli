@@ -118,7 +118,7 @@ export class HyperCLI {
 
     if (!this._apiKey) {
       throw new Error(
-        'API key required. Set HYPER_API_KEY/HYPERCLI_API_KEY or HYPER_AGENTS_API_KEY, ' +
+        'API key required. Set HYPER_API_KEY or HYPER_AGENTS_API_KEY, ' +
         'create ~/.hypercli/config, or pass apiKey parameter.'
       );
     }

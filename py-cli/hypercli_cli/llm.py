@@ -13,10 +13,12 @@ import typer
 from rich.console import Console
 from hypercli.config import get_api_key, get_api_url
 
+from .paths import hyper_home
+
 app = typer.Typer(help="Basic LLM chat commands via /v1/chat/completions")
 console = Console()
 
-HYPERCLI_DIR = Path.home() / ".hypercli"
+HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEFAULT_API_BASE = "https://api.hypercli.com"
 MODEL_PREFERENCE = ("kimi-k2.5", "kimi-k2-5")

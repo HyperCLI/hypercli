@@ -7,6 +7,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from .paths import hyper_home
+
 app = typer.Typer(help="Wallet management commands")
 console = Console()
 
@@ -21,7 +23,7 @@ try:
 except ImportError:
     WALLET_AVAILABLE = False
 
-WALLET_DIR = Path.home() / ".hypercli"
+WALLET_DIR = hyper_home()
 WALLET_PATH = WALLET_DIR / "wallet.json"
 WALLET_PASSPHRASE_PATH = WALLET_DIR / "wallet.passphrase"
 BASE_RPC = "https://mainnet.base.org"

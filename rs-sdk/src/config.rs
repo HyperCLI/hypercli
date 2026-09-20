@@ -11,8 +11,8 @@ pub const DEFAULT_AGENTS_API_BASE: &str = "https://api.hypercli.com/agents";
 const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1024;
 
 /// Key names accepted for the API credential, in precedence order.
-pub const API_KEY_CONFIG_KEYS: [&str; 3] =
-    ["HYPER_AGENTS_API_KEY", "HYPER_API_KEY", "HYPERCLI_API_KEY"];
+pub const API_KEY_CONFIG_KEYS: [&str; 2] = ["HYPER_API_KEY", "HYPER_AGENTS_API_KEY"];
+const REMOVED_API_KEY_CONFIG_KEYS: [&str; 1] = ["HYPERCLI_API_KEY"];
 
 pub struct ClientConfig {
     pub api_base: Url,
@@ -28,8 +28,8 @@ pub struct ClientConfig {
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error(
-        "no HyperCLI credential found; set HYPER_AGENTS_API_KEY or HYPER_API_KEY, \
-         run `hyper configure`, or run `hyper agent login`"
+        "no HyperCLI credential found; set HYPER_API_KEY, run `hyper configure`, \
+         set HYPER_AGENTS_API_KEY, or run `hyper agent login`"
     )]
     MissingCredential,
     #[error("invalid HyperCLI agents API URL")]
@@ -44,15 +44,23 @@ pub enum ConfigError {
     ConfigWrite,
 }
 
-/// Upsert KEY=VALUE lines in `<home>/.hypercli/config` (created 0600 on
-/// Unix), preserving unrelated lines.
+/// Upsert KEY=VALUE lines in `<home>/.hypercli/config` (created 0600 on Unix),
+/// preserving unrelated lines.
 pub fn write_config_values(
     home: &Path,
     values: &BTreeMap<String, String>,
 ) -> Result<(), ConfigError> {
-    let dir = home.join(".hypercli");
-    fs::create_dir_all(&dir).map_err(|_| ConfigError::ConfigWrite)?;
-    let path = dir.join("config");
+    write_config_values_in_data_dir(&home.join(".hypercli"), values)
+}
+
+/// Upsert KEY=VALUE lines in `<data_dir>/config` (created 0600 on Unix),
+/// preserving unrelated lines.
+pub fn write_config_values_in_data_dir(
+    data_dir: &Path,
+    values: &BTreeMap<String, String>,
+) -> Result<(), ConfigError> {
+    fs::create_dir_all(data_dir).map_err(|_| ConfigError::ConfigWrite)?;
+    let path = data_dir.join("config");
     let existing = fs::read_to_string(&path).unwrap_or_default();
     let mut lines: Vec<String> = existing
         .lines()
@@ -79,22 +87,36 @@ pub fn write_config_values(
 
 /// Persist an API key as `HYPER_API_KEY` in `<home>/.hypercli/config`.
 pub fn save_api_key(home: &Path, api_key: &str) -> Result<(), ConfigError> {
+    save_api_key_in_data_dir(&home.join(".hypercli"), api_key)
+}
+
+/// Persist an API key as `HYPER_API_KEY` in `<data_dir>/config`.
+pub fn save_api_key_in_data_dir(data_dir: &Path, api_key: &str) -> Result<(), ConfigError> {
     let mut values = BTreeMap::new();
     values.insert("HYPER_API_KEY".to_owned(), api_key.trim().to_owned());
-    write_config_values(home, &values)
+    write_config_values_in_data_dir(data_dir, &values)
 }
 
 /// Remove every API-key entry from `<home>/.hypercli/config`, preserving
 /// other lines, and delete the legacy `agent-key.json` credential so a
 /// logout is complete.
 pub fn remove_config_api_keys(home: &Path) -> Result<(), ConfigError> {
-    let dir = home.join(".hypercli");
-    let path = dir.join("config");
+    remove_config_api_keys_in_data_dir(&home.join(".hypercli"))
+}
+
+/// Remove every API-key entry from `<data_dir>/config`, preserving
+/// other lines, and delete the legacy `agent-key.json` credential so a
+/// logout is complete.
+pub fn remove_config_api_keys_in_data_dir(data_dir: &Path) -> Result<(), ConfigError> {
+    let path = data_dir.join("config");
     if let Ok(existing) = fs::read_to_string(&path) {
         let remaining: Vec<&str> = existing
             .lines()
             .filter(|line| match line.trim().split_once('=') {
-                Some((key, _)) => !API_KEY_CONFIG_KEYS.contains(&key.trim()),
+                Some((key, _)) => {
+                    !API_KEY_CONFIG_KEYS.contains(&key.trim())
+                        && !REMOVED_API_KEY_CONFIG_KEYS.contains(&key.trim())
+                }
                 None => true,
             })
             .collect();
@@ -104,44 +126,49 @@ pub fn remove_config_api_keys(home: &Path) -> Result<(), ConfigError> {
         }
         fs::write(&path, content).map_err(|_| ConfigError::ConfigWrite)?;
     }
-    let _ = fs::remove_file(dir.join("agent-key.json"));
+    let _ = fs::remove_file(data_dir.join("agent-key.json"));
     Ok(())
 }
 
 pub fn discover_client_config() -> Result<ClientConfig, ConfigError> {
     let env: BTreeMap<String, String> = std::env::vars().collect();
-    let home = dirs::home_dir();
-    discover_client_config_from(&env, home.as_deref())
+    discover_client_config_from(&env, dirs::home_dir().as_deref())
 }
 
 /// Deterministic credential discovery seam used by the provider and tests.
 ///
-/// Precedence matches the Python CLI: agent env, product env, canonical
-/// `~/.hypercli/config`, then the legacy `agent-key.json`.
+/// Precedence: HYPER_API_KEY env, config from HYPER_HOME or
+/// `<home>/.hypercli`, HYPER_AGENTS_API_KEY env, then the legacy
+/// `agent-key.json`.
 pub fn discover_client_config_from(
     env: &BTreeMap<String, String>,
     home: Option<&Path>,
 ) -> Result<ClientConfig, ConfigError> {
-    let file_config = match home {
-        Some(home) => load_kv_file(&home.join(".hypercli").join("config"))?,
+    let config_dir = config_dir_from_home(env, home);
+    discover_client_config_from_config_dir(env, config_dir.as_deref())
+}
+
+/// Deterministic credential discovery using a HyperCLI data directory directly.
+pub fn discover_client_config_from_config_dir(
+    env: &BTreeMap<String, String>,
+    config_dir: Option<&Path>,
+) -> Result<ClientConfig, ConfigError> {
+    let config_dir = config_dir_from_data_dir(env, config_dir);
+    let file_config = match config_dir.as_deref() {
+        Some(dir) => load_kv_file(&dir.join("config"))?,
         None => BTreeMap::new(),
     };
 
-    // Per-key env-then-file precedence, matching the Python CLI's
-    // get_config_value semantics.
     let configured_key = first_nonempty([
-        env.get("HYPER_AGENTS_API_KEY"),
-        file_config.get("HYPER_AGENTS_API_KEY"),
         env.get("HYPER_API_KEY"),
         file_config.get("HYPER_API_KEY"),
-        env.get("HYPERCLI_API_KEY"),
-        file_config.get("HYPERCLI_API_KEY"),
+        env.get("HYPER_AGENTS_API_KEY"),
     ])
     .map(ToOwned::to_owned);
     let api_key = match configured_key {
         Some(key) => key,
-        None => match home {
-            Some(home) => load_legacy_agent_key(&home.join(".hypercli/agent-key.json"))?
+        None => match config_dir.as_deref() {
+            Some(dir) => load_legacy_agent_key(&dir.join("agent-key.json"))?
                 .ok_or(ConfigError::MissingCredential)?,
             None => return Err(ConfigError::MissingCredential),
         },
@@ -161,7 +188,7 @@ pub fn discover_client_config_from(
     })
 }
 
-/// Resolve the agents API base URL from env and `<home>/.hypercli/config`
+/// Resolve the agents API base URL from env and HyperCLI data-dir config
 /// without requiring a credential — for flows that authenticate with a
 /// short-lived token (e.g. the desktop app's key mint) but must still honor
 /// the caller's configured backend.
@@ -171,17 +198,42 @@ pub fn discover_agents_api_base() -> Result<Url, ConfigError> {
 }
 
 /// Path-parameterized variant of [`discover_agents_api_base`] — the same
-/// env-then-file precedence without consulting the process home, for callers
-/// (e.g. sandboxed mobile apps) that keep their config outside `~`.
+/// env-then-file precedence. HYPER_HOME in `env` overrides `home`; callers
+/// that must keep sandboxed storage should remove HYPER_HOME from `env` first.
 pub fn discover_agents_api_base_from(
     env: &BTreeMap<String, String>,
     home: Option<&Path>,
 ) -> Result<Url, ConfigError> {
-    let file_config = match home {
-        Some(home) => load_kv_file(&home.join(".hypercli").join("config"))?,
+    let config_dir = config_dir_from_home(env, home);
+    discover_agents_api_base_from_config_dir(env, config_dir.as_deref())
+}
+
+/// Resolve the agents API base URL using a HyperCLI data directory directly.
+pub fn discover_agents_api_base_from_config_dir(
+    env: &BTreeMap<String, String>,
+    config_dir: Option<&Path>,
+) -> Result<Url, ConfigError> {
+    let config_dir = config_dir_from_data_dir(env, config_dir);
+    let file_config = match config_dir.as_deref() {
+        Some(dir) => load_kv_file(&dir.join("config"))?,
         None => BTreeMap::new(),
     };
     discover_api_base(env, &file_config)
+}
+
+fn config_dir_from_home(env: &BTreeMap<String, String>, home: Option<&Path>) -> Option<PathBuf> {
+    first_nonempty([env.get("HYPER_HOME")])
+        .map(PathBuf::from)
+        .or_else(|| home.map(|home| home.join(".hypercli")))
+}
+
+fn config_dir_from_data_dir(
+    env: &BTreeMap<String, String>,
+    data_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    first_nonempty([env.get("HYPER_HOME")])
+        .map(PathBuf::from)
+        .or_else(|| data_dir.map(Path::to_path_buf))
 }
 
 fn discover_api_base(
@@ -326,7 +378,7 @@ mod tests {
     use secrecy::ExposeSecret;
 
     #[test]
-    fn environment_precedes_files_and_legacy_key() {
+    fn product_env_precedes_files_and_legacy_key() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join(".hypercli");
         fs::create_dir_all(&dir).unwrap();
@@ -337,7 +389,7 @@ mod tests {
         .unwrap();
         fs::write(dir.join("agent-key.json"), r#"{"key":"legacy-key"}"#).unwrap();
         let env = BTreeMap::from([
-            ("HYPER_AGENTS_API_KEY".to_owned(), "env-key".to_owned()),
+            ("HYPER_API_KEY".to_owned(), "env-key".to_owned()),
             (
                 "AGENTS_API_BASE_URL".to_owned(),
                 "http://env.test/base".to_owned(),
@@ -399,6 +451,62 @@ mod tests {
 
         let base = discover_agents_api_base_from(&env, None).unwrap();
         assert_eq!(base.as_str(), "http://env.test/base/agents");
+    }
+
+    #[test]
+    fn hyper_home_is_data_dir_and_suppresses_default_home_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let real_home = temp.path().join("home");
+        let hyper_home = temp.path().join("custom-data");
+        fs::create_dir_all(real_home.join(".hypercli")).unwrap();
+        fs::create_dir_all(&hyper_home).unwrap();
+        fs::write(real_home.join(".hypercli/config"), "HYPER_API_KEY=home-key\n").unwrap();
+        fs::write(
+            hyper_home.join("config"),
+            "HYPER_API_KEY=hyper-home-key\n",
+        )
+        .unwrap();
+        let env = BTreeMap::from([(
+            "HYPER_HOME".to_owned(),
+            hyper_home.to_string_lossy().to_string(),
+        )]);
+
+        let config = discover_client_config_from(&env, Some(real_home.as_path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "hyper-home-key");
+    }
+
+    #[test]
+    fn missing_hyper_home_config_does_not_read_default_home_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let real_home = temp.path().join("home");
+        let hyper_home = temp.path().join("custom-data");
+        fs::create_dir_all(real_home.join(".hypercli")).unwrap();
+        fs::create_dir_all(&hyper_home).unwrap();
+        fs::write(real_home.join(".hypercli/config"), "HYPER_API_KEY=home-key\n").unwrap();
+        let env = BTreeMap::from([(
+            "HYPER_HOME".to_owned(),
+            hyper_home.to_string_lossy().to_string(),
+        )]);
+
+        assert!(matches!(
+            discover_client_config_from(&env, Some(real_home.as_path())),
+            Err(ConfigError::MissingCredential)
+        ));
+    }
+
+    #[test]
+    fn managed_agent_env_is_final_fallback_after_file_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config"), "HYPER_API_KEY=file-key\n").unwrap();
+        let env = BTreeMap::from([(
+            "HYPER_AGENTS_API_KEY".to_owned(),
+            "agent-env-key".to_owned(),
+        )]);
+
+        let config = discover_client_config_from(&env, Some(temp.path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "file-key");
     }
 
     #[test]
