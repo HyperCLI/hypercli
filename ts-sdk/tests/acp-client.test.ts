@@ -9,6 +9,7 @@ import {
   CodingAgentAcpConnectionError,
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
+  type CodingAgentAcpReplayEvent,
 } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
 
@@ -79,6 +80,8 @@ class FakeAcpPeer {
       case 'session/load':
         if (this.server.failLoad) {
           this.error(frame, -32000, 'session is gone');
+        } else if (this.server.loadHook) {
+          this.server.loadHook(this, frame);
         } else {
           this.result(frame, {});
         }
@@ -146,6 +149,8 @@ class FakeAcpBridge {
   public capabilities: Record<string, unknown>;
   public failLoad = false;
   public promptHook: PromptHook = (peer, frame) => peer.finishPrompt(frame, 'end_turn');
+  /** Overrides the default empty session/load reply; the hook streams any replayed history, then answers. */
+  public loadHook: PromptHook | null = null;
   public onClientResponse: ((peer: FakeAcpPeer, frame: WireFrame) => void) | null = null;
   public onClientNotification: ((peer: FakeAcpPeer, frame: WireFrame) => void) | null = null;
   private wss: WebSocketServer | null = null;
@@ -552,6 +557,130 @@ describe('CodingAgentAcpClient.addUpdateListener', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+});
+
+describe('CodingAgentAcpClient replay epoch tracking', () => {
+  it('brackets loadSession: replayed updates observe a live epoch, which ends when the load resolves', async () => {
+    const bridge = await startBridge();
+    bridge.loadHook = (peer, frame) => {
+      peer.update('session-1', 'history one');
+      peer.update('session-1', 'history two');
+      peer.result(frame, {});
+    };
+    const epochsAtUpdate: number[] = [];
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect({
+      onUpdate: () => epochsAtUpdate.push(client.replayEpoch('session-1')),
+    }));
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    expect(client.replayEpoch('session-1')).toBe(0);
+    await client.loadSession('session-1');
+
+    expect(epochsAtUpdate.length).toBeGreaterThan(0);
+    expect(epochsAtUpdate.every((epoch) => epoch === 1)).toBe(true);
+    expect(client.replayEpoch('session-1')).toBe(0);
+    expect(events).toEqual([
+      { sessionId: 'session-1', phase: 'start', epoch: 1 },
+      { sessionId: 'session-1', phase: 'end', epoch: 1, ok: true },
+    ]);
+  });
+
+  it('ends the epoch on a rejected load (ok: false), leaving no replay state behind', async () => {
+    const bridge = await startBridge();
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    bridge.failLoad = true;
+    await expect(client.loadSession('session-1')).rejects.toThrow();
+
+    expect(client.replayEpoch('session-1')).toBe(0);
+    expect(events).toEqual([
+      { sessionId: 'session-1', phase: 'start', epoch: 1 },
+      { sessionId: 'session-1', phase: 'end', epoch: 1, ok: false },
+    ]);
+  });
+
+  it('isolates epochs per session — a load on one never tags another', async () => {
+    const bridge = await startBridge();
+    bridge.loadHook = (peer, frame) => {
+      peer.update('session-1', 'history');
+      peer.update('session-2', 'foreign live traffic');
+      peer.result(frame, {});
+    };
+    const epochsAtUpdate: Array<{ sessionId: string; epoch: number }> = [];
+    const client = track(await acpAgent(bridge).acpConnect({
+      onUpdate: (notification) => epochsAtUpdate.push({
+        sessionId: notification.sessionId,
+        epoch: client.replayEpoch(notification.sessionId),
+      }),
+    }));
+    await client.newSession();
+    await client.newSession();
+
+    await client.loadSession('session-1');
+
+    expect(epochsAtUpdate).toEqual([
+      { sessionId: 'session-1', epoch: 1 },
+      { sessionId: 'session-2', epoch: 0 },
+    ]);
+  });
+
+  it('overlapping loads for one session increment the epoch — latest wins, stale ends do not clear it', async () => {
+    const bridge = await startBridge();
+    const pendingLoads: WireFrame[] = [];
+    bridge.loadHook = (_peer, frame) => {
+      pendingLoads.push(frame);
+    };
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    const first = client.loadSession('session-1');
+    const second = client.loadSession('session-1');
+    await waitFor(() => pendingLoads.length === 2);
+    expect(client.replayEpoch('session-1')).toBe(2);
+
+    bridge.currentPeer.result(pendingLoads[0], {});
+    await first;
+    expect(client.replayEpoch('session-1')).toBe(2);
+
+    bridge.currentPeer.result(pendingLoads[1], {});
+    await second;
+    expect(client.replayEpoch('session-1')).toBe(0);
+    expect(events).toEqual([
+      { sessionId: 'session-1', phase: 'start', epoch: 1 },
+      { sessionId: 'session-1', phase: 'start', epoch: 2 },
+      { sessionId: 'session-1', phase: 'end', epoch: 1, ok: true },
+      { sessionId: 'session-1', phase: 'end', epoch: 2, ok: true },
+    ]);
+  });
+
+  it('the internal reconnect replay fires the same boundary events', async () => {
+    const bridge = await startBridge();
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    bridge.loadHook = (peer, frame) => {
+      peer.update('session-1', 'replayed after reconnect');
+      peer.result(frame, {});
+    };
+    bridge.currentPeer.drop();
+    await client.waitConnected();
+    await waitFor(() => events.some((event) => event.phase === 'end'));
+
+    expect(events).toEqual([
+      { sessionId: 'session-1', phase: 'start', epoch: 1 },
+      { sessionId: 'session-1', phase: 'end', epoch: 1, ok: true },
+    ]);
+    expect(client.replayEpoch('session-1')).toBe(0);
   });
 });
 

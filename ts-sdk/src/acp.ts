@@ -66,6 +66,26 @@ export class CodingAgentAcpConnectionError extends Error {
  * `loadSession`). The connection stays alive; the session is dropped from
  * the replay set and its pre-reconnect state may be lost.
  */
+/**
+ * Replay-boundary signal for `session/load` history replays. ACP v1 streams
+ * the session's entire history as ordinary `session/update` notifications
+ * before the load response resolves, with no replay marker on the wire — a
+ * consumer folding updates into an existing transcript cannot otherwise tell
+ * replayed history from live traffic and duplicates it. `start` fires before
+ * the load request is sent (so it precedes every replayed notification of
+ * that load); `end` fires after the load response settles, which per the
+ * protocol is after the full history has been streamed. Overlapping loads
+ * for one session increment `epoch` — the newest load owns the transcript
+ * ("latest wins"); a stale `end` is identifiable by its older epoch.
+ */
+export interface CodingAgentAcpReplayEvent {
+  sessionId: string;
+  phase: 'start' | 'end';
+  epoch: number;
+  /** `end` only: whether the load resolved. */
+  ok?: boolean;
+}
+
 export class CodingAgentAcpReplayGapError extends Error {
   public readonly sessionId: string;
   constructor(sessionId: string, detail: string, options: { cause?: unknown } = {}) {
@@ -164,6 +184,9 @@ export class CodingAgentAcpClient {
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
+  private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
+  /** In-memory only: sessionId → latest epoch + in-flight load count. */
+  private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
@@ -230,6 +253,29 @@ export class CodingAgentAcpClient {
     return () => {
       this.updateListeners.delete(listener);
     };
+  }
+
+  /**
+   * Register a listener for replay-boundary events (see
+   * {@link CodingAgentAcpReplayEvent}). Fires for both explicit `loadSession`
+   * calls and the internal reconnect replay. Returns an unsubscribe function;
+   * a throwing listener is logged and does not break the others. `close()`
+   * clears all listeners.
+   */
+  addReplayListener(listener: (event: CodingAgentAcpReplayEvent) => void): () => void {
+    this.replayListeners.add(listener);
+    return () => {
+      this.replayListeners.delete(listener);
+    };
+  }
+
+  /**
+   * The current replay epoch for a session: 0 when no `session/load` is in
+   * flight for it, otherwise the epoch of the newest in-flight load.
+   */
+  replayEpoch(sessionId: string): number {
+    const state = this.replayEpochs.get(sessionId);
+    return state && state.inFlight > 0 ? state.epoch : 0;
   }
 
   /**
@@ -308,11 +354,7 @@ export class CodingAgentAcpClient {
     const previous = this.sessions.get(sessionId);
     const cwd = previous?.cwd ?? this.cwd;
     const mcpServers = previous?.mcpServers ?? this.mcpServers;
-    const response = await context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
-      sessionId,
-      cwd,
-      mcpServers,
-    });
+    const response = await this.performLoad(context, sessionId, cwd, mcpServers);
     this.sessions.set(sessionId, {
       cwd,
       mcpServers,
@@ -492,6 +534,7 @@ export class CodingAgentAcpClient {
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
+    this.replayListeners.clear();
     this.closeListeners.clear();
     this.permissionHandler = null;
     this.generation += 1;
@@ -714,11 +757,7 @@ export class CodingAgentAcpClient {
         continue;
       }
       try {
-        const response = await connection.agent.request(acp.methods.agent.session.load, {
-          sessionId,
-          cwd: tracked.cwd,
-          mcpServers: tracked.mcpServers,
-        });
+        const response = await this.performLoad(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
         tracked.modes = response?.modes ?? null;
         tracked.configOptions = response?.configOptions ?? null;
       } catch (error) {
@@ -742,6 +781,61 @@ export class CodingAgentAcpClient {
         listener({ code, reason });
       } catch (listenerError) {
         console.error('ACP close listener threw', listenerError);
+      }
+    }
+  }
+
+  /**
+   * One `session/load` round-trip bracketed by a replay epoch: `start` fires
+   * before the request goes on the wire (ahead of every replayed history
+   * notification), `end` fires once the response settles (after the full
+   * history has streamed, per the protocol's load contract).
+   */
+  private async performLoad(
+    context: acp.ClientContext,
+    sessionId: string,
+    cwd: string,
+    mcpServers: acp.McpServer[],
+  ): Promise<acp.LoadSessionResponse> {
+    const epoch = this.beginReplay(sessionId);
+    try {
+      const response = await context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
+        sessionId,
+        cwd,
+        mcpServers,
+      });
+      this.endReplay(sessionId, epoch, true);
+      return response;
+    } catch (error) {
+      this.endReplay(sessionId, epoch, false);
+      throw error;
+    }
+  }
+
+  private beginReplay(sessionId: string): number {
+    const state = this.replayEpochs.get(sessionId) ?? { epoch: 0, inFlight: 0 };
+    state.epoch += 1;
+    state.inFlight += 1;
+    this.replayEpochs.set(sessionId, state);
+    this.emitReplay({ sessionId, phase: 'start', epoch: state.epoch });
+    return state.epoch;
+  }
+
+  private endReplay(sessionId: string, epoch: number, ok: boolean): void {
+    const state = this.replayEpochs.get(sessionId);
+    if (state) {
+      state.inFlight -= 1;
+      if (state.inFlight <= 0) this.replayEpochs.delete(sessionId);
+    }
+    this.emitReplay({ sessionId, phase: 'end', epoch, ok });
+  }
+
+  private emitReplay(event: CodingAgentAcpReplayEvent): void {
+    for (const listener of [...this.replayListeners]) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('ACP replay listener threw', error);
       }
     }
   }

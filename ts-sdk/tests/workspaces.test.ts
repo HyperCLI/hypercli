@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { deriveWorkspacesApiBase, WorkspacesAPI } from '../src/workspaces.js';
+import { deriveWorkspacesApiBase, parseWorkspaceTomd, WorkspacesAPI } from '../src/workspaces.js';
 import type {
   WorkspaceAccessEntry,
   WorkspaceAccessSnapshot,
@@ -485,6 +485,79 @@ describe('Workspaces SDK', () => {
       created: false,
     });
     expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['GET', 'POST', 'GET']);
+  });
+
+  it('accepts a workspace invite by grant id and maps the grant response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'grant-1',
+          workspace_id: 'workspace-1',
+          subject_type: 'user',
+          subject_id: 'user-1',
+          role: 'contributor',
+          display_name: null,
+          display_slug: null,
+          is_owner: false,
+          expires_at: null,
+          revoked_at: null,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const grant = await api.acceptInvite('grant/#1');
+
+    expect(grant).toMatchObject({
+      id: 'grant-1',
+      workspaceId: 'workspace-1',
+      subjectType: 'user',
+      subjectId: 'user-1',
+      role: 'contributor',
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/invites/accept/grant%2F%231');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
+    });
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces invite acceptance failures as API errors', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Workspace grant not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Workspace invite has expired' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Workspace invite already accepted' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.acceptInvite('missing-grant')).rejects.toMatchObject({
+      statusCode: 404,
+      detail: 'Workspace grant not found',
+    });
+    await expect(api.acceptInvite('expired-grant')).rejects.toMatchObject({
+      statusCode: 409,
+      detail: 'Workspace invite has expired',
+    });
+    await expect(api.acceptInvite('accepted-grant')).rejects.toMatchObject({
+      statusCode: 409,
+      detail: 'Workspace invite already accepted',
+    });
+    vi.unstubAllGlobals();
   });
 
   it('preserves plain-text and structured API error details', async () => {
@@ -1013,6 +1086,195 @@ describe('Workspaces SDK', () => {
     expect(result.path).toBe('docs/source.md');
     expect(result.name).toBe('source.md');
     expect(Array.from(result.content)).toEqual([35, 32, 83, 111, 117, 114, 99, 101]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('parseWorkspaceTomd', () => {
+  const tomdDocument = [
+    '---',
+    'file_id: "file-123"',
+    'path: "docs/report.pdf"',
+    'version: 2',
+    'part_count: 1',
+    'state: "processed"',
+    'keywords: ["pricing","handoff"]',
+    'summary: "Quarterly pricing handoff."',
+    'size_bytes: 48213',
+    'content_type: "application/pdf"',
+    'etag: "\\"etag-test\\""',
+    'last_modified: "2026-07-09T12:34:56+00:00"',
+    'created_at: "2026-07-01T09:00:00+00:00"',
+    'updated_at: "2026-07-09T12:35:00+00:00"',
+    'download_command: "hyper workspaces download demo/docs/report.pdf --raw"',
+    'detected_type: "pdf"',
+    'doc_type: "report"',
+    'enriched: true',
+    'language: "en"',
+    'long_summary: "A longer generated summary."',
+    'page_count: 12',
+    'title: "Q3 Pricing Report"',
+    'section_summaries: [{"heading":"Intro","summary":"Overview."}]',
+    'warnings: []',
+    'future_backend_key: "preserved"',
+    '---',
+    '',
+    '## Keywords',
+    '',
+    '- pricing',
+    '- handoff',
+    '',
+    '## Summary',
+    '',
+    'Quarterly pricing handoff.',
+    '',
+    '## Long Summary',
+    '',
+    'A longer generated summary.',
+    '',
+    '## Section Summaries',
+    '',
+    '### Intro',
+    '',
+    'Overview.',
+    '',
+    '## Full Text',
+    '',
+    '# Report',
+    '',
+    'The full extracted text.',
+    '',
+  ].join('\n');
+
+  it('parses a real-shaped document into typed frontmatter and body', () => {
+    const { frontmatter, body } = parseWorkspaceTomd(tomdDocument);
+    expect(frontmatter.fileId).toBe('file-123');
+    expect(frontmatter.path).toBe('docs/report.pdf');
+    expect(frontmatter.version).toBe(2);
+    expect(frontmatter.partCount).toBe(1);
+    expect(frontmatter.state).toBe('processed');
+    expect(frontmatter.keywords).toEqual(['pricing', 'handoff']);
+    expect(frontmatter.summary).toBe('Quarterly pricing handoff.');
+    expect(frontmatter.sizeBytes).toBe(48213);
+    expect(frontmatter.contentType).toBe('application/pdf');
+    expect(frontmatter.etag).toBe('"etag-test"');
+    expect(frontmatter.createdAt).toBe('2026-07-01T09:00:00+00:00');
+    expect(frontmatter.updatedAt).toBe('2026-07-09T12:35:00+00:00');
+    expect(frontmatter.downloadCommand).toBe('hyper workspaces download demo/docs/report.pdf --raw');
+    expect(frontmatter.enriched).toBe(true);
+    expect(frontmatter.pageCount).toBe(12);
+    expect(frontmatter.title).toBe('Q3 Pricing Report');
+    expect(frontmatter.language).toBe('en');
+    expect(frontmatter.longSummary).toBe('A longer generated summary.');
+    expect(frontmatter.extra.section_summaries).toEqual([{ heading: 'Intro', summary: 'Overview.' }]);
+    expect(frontmatter.extra.warnings).toEqual([]);
+    expect(body).toContain('## Full Text');
+    expect(body).not.toContain('file_id');
+  });
+
+  it('passes unknown keys through verbatim', () => {
+    const { frontmatter } = parseWorkspaceTomd(tomdDocument);
+    expect(frontmatter.extra.future_backend_key).toBe('preserved');
+  });
+
+  it('strips the generated sections from contentBody but keeps Full Text', () => {
+    const { body, contentBody } = parseWorkspaceTomd(tomdDocument);
+    expect(body).toContain('## Keywords');
+    expect(contentBody).not.toContain('## Keywords');
+    expect(contentBody).not.toContain('## Summary');
+    expect(contentBody).not.toContain('## Long Summary');
+    expect(contentBody).not.toContain('## Section Summaries');
+    expect(contentBody).not.toContain('Overview.');
+    expect(contentBody).toContain('## Full Text');
+    expect(contentBody).toContain('The full extracted text.');
+  });
+
+  it('treats plain markdown as body with empty frontmatter', () => {
+    const { frontmatter, body, contentBody } = parseWorkspaceTomd('# Hello\n\nSome text.\n');
+    expect(frontmatter.extra).toEqual({});
+    expect(frontmatter.title).toBeUndefined();
+    expect(body).toBe('# Hello\n\nSome text.\n');
+    expect(contentBody).toBe('# Hello\n\nSome text.');
+  });
+
+  it('treats an unterminated fence as body without throwing', () => {
+    const markdown = '---\ntitle: "Draft"\n# Never closed\n';
+    const { frontmatter, body } = parseWorkspaceTomd(markdown);
+    expect(frontmatter.extra).toEqual({});
+    expect(body).toBe(markdown);
+  });
+
+  it('leaves generated-looking headings inside code fences alone', () => {
+    const markdown = '---\ntitle: "T"\n---\n\n```md\n## Summary\nnot a section\n```\n\n## Full Text\n\nBody.\n';
+    const { contentBody } = parseWorkspaceTomd(markdown);
+    expect(contentBody).toContain('## Summary');
+    expect(contentBody).toContain('## Full Text');
+  });
+});
+
+describe('WorkspacesAPI.tomdDocument', () => {
+  it('returns the manifest entry plus the parsed tomd document', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspace_id: 'workspace-1',
+            workspace_name: 'Demo Workspace',
+            workspace_slug: 'demo',
+            snapshot_id: 'snapshot-1',
+            base_path: '/home/node/shared/demo',
+            markdown_files: [
+              {
+                file_id: 'file-1',
+                path: 'docs/source.md',
+                version: 1,
+                part_count: 1,
+                keywords: ['handoff'],
+                summary: 'Launch handoff notes.',
+                state: 'processed',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          [
+            '---',
+            'path: "docs/source.md"',
+            'version: 1',
+            'keywords: ["handoff"]',
+            'summary: "Launch handoff notes."',
+            'enriched: false',
+            '---',
+            '',
+            '## Summary',
+            '',
+            'Launch handoff notes.',
+            '',
+            '## Full Text',
+            '',
+            '# Source',
+            '',
+          ].join('\n'),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const result = await api.tomdDocument('demo', 'docs/source.md', { agentId: 'agent-1' });
+
+    expect(result.markdownFile.path).toBe('docs/source.md');
+    expect(result.markdown).toContain('path: "docs/source.md"');
+    expect(result.frontmatter.path).toBe('docs/source.md');
+    expect(result.frontmatter.version).toBe(1);
+    expect(result.frontmatter.keywords).toEqual(['handoff']);
+    expect(result.frontmatter.enriched).toBe(false);
+    expect(result.body).toContain('## Full Text');
+    expect(result.contentBody).not.toContain('## Summary');
+    expect(result.contentBody).toContain('# Source');
     vi.unstubAllGlobals();
   });
 });

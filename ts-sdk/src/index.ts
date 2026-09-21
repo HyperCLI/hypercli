@@ -147,6 +147,10 @@ export {
 export {
   WorkspacesAPI,
   deriveWorkspacesApiBase,
+  parseWorkspaceTomd,
+  stripWorkspaceTomdGeneratedSections,
+  type WorkspaceTomdDocument,
+  type WorkspaceTomdFrontmatter,
   type Workspace,
   type WorkspaceAccessEntry,
   type WorkspaceAccessSnapshot,
