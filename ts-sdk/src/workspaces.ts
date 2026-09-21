@@ -4,6 +4,10 @@
 import { requestWithRetry } from './http.js';
 import { APIError } from './errors.js';
 import { getAgentsApiBaseUrl } from './config.js';
+import { parseWorkspaceTomd, type WorkspaceTomdDocument } from './workspace-tomd.js';
+
+export { parseWorkspaceTomd, stripWorkspaceTomdGeneratedSections } from './workspace-tomd.js';
+export type { WorkspaceTomdDocument, WorkspaceTomdFrontmatter } from './workspace-tomd.js';
 
 // Node-only builtins are loaded through an opaque specifier so browser bundles
 // (console, desktop webview) never try to resolve them; the sync helpers below
@@ -591,6 +595,18 @@ export class WorkspacesAPI {
     return grantFromDict(data);
   }
 
+  /**
+   * Accept a workspace invite addressed to the signed-in user's email
+   * (`POST /invites/accept/{grant_id}`). The grant id arrives out-of-band via
+   * the invite email link; there is no pending-invites listing endpoint.
+   * Errors surface as APIError: 404 unknown grant, 403 wrong email or non-user
+   * caller, 409 revoked/expired/already-accepted.
+   */
+  async acceptInvite(grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant> {
+    const data = await this.request('POST', `/invites/accept/${encodeRef(grantId)}`, subject);
+    return grantFromDict(data);
+  }
+
   async revokeGrant(workspaceRef: string, grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
     await this.request('DELETE', `/${encodeRef(workspaceRef)}/grants/${encodeRef(grantId)}`, subject);
   }
@@ -854,6 +870,21 @@ export class WorkspacesAPI {
     });
     const bytes = await handleBytesResponse(response);
     return { markdownFile, markdown: new TextDecoder().decode(bytes) };
+  }
+
+  /**
+   * `markdownFile` with the `/tomd` document parsed: typed frontmatter plus
+   * the body (and `contentBody`, the body minus the sections the pipeline
+   * generates from the frontmatter). `markdownFile()` stays the raw-string
+   * variant.
+   */
+  async tomdDocument(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<{ markdownFile: Record<string, any>; markdown: string } & WorkspaceTomdDocument> {
+    const { markdownFile, markdown } = await this.markdownFile(workspaceRef, fileRef, subject);
+    return { markdownFile, markdown, ...parseWorkspaceTomd(markdown) };
   }
 }
 
