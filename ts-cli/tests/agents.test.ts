@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APIError,
-  DEFAULT_OPENCLAW_IMAGE,
   type Agent,
   type AgentLaunchConfig,
   type Deployments,
@@ -433,90 +432,70 @@ describe('hyper agents wait', () => {
 // ---------- set runtime ----------
 
 describe('hyper agents set runtime', () => {
-  it('PATCHes the runtime label and reports it', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })]);
+  it('PATCHes the runtime label and reports the launch-image reset', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'STOPPED' })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw']);
 
     expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw' });
+    expect(stdout()).toContain('launch image reset to the openclaw default');
     expect(stderr()).not.toContain(GW_TOKEN);
   });
 
-  it('--reset-image forwards resetImage to the update call', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })]);
+  it('--reset-image is rejected: the flag was removed (the backend auto-resets)', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'STOPPED' })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
 
-    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw', resetImage: true });
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('--reset-image');
+    expect(d.update).not.toHaveBeenCalled();
   });
 
-  it('warns loudly when the stored launch image no longer matches the new runtime', async () => {
-    const updated = agentFixture({ runtime: 'claude-code', launchConfig: { image: 'ghcr.io/hypercli/hypercli-opencode:latest' } });
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'opencode' })], {
-      update: vi.fn(async () => updated),
-    });
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['set', 'runtime', ID_A, 'claude-code']);
-
-    const warning = stderr();
-    expect(warning).toContain('warning: runtime changed to claude-code but launch image is still ghcr.io/hypercli/hypercli-opencode:latest');
-    expect(warning).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} claude-code --reset-image`);
-    expect(warning).toContain('agent must be stopped first');
-  });
-
-  it('stays quiet when the stored image already matches the new runtime default', async () => {
-    const updated = agentFixture({ runtime: 'openclaw', launchConfig: { image: DEFAULT_OPENCLAW_IMAGE } });
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
-      update: vi.fn(async () => updated),
-    });
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw']);
-
-    expect(stderr()).not.toContain('launch image is still');
-  });
-
-  it('--reset-image emits no stale-image warning', async () => {
-    const updated = agentFixture({ runtime: 'openclaw', launchConfig: { image: 'img' } });
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
-      update: vi.fn(async () => updated),
-    });
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
-
-    expect(stderr()).not.toContain('launch image is still');
-  });
-
-  it('skips the warning for generic (no platform default image)', async () => {
-    const updated = agentFixture({ runtime: 'generic', launchConfig: { image: 'img' } });
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw' })], {
+  it('omits the reset note for generic (no platform default image)', async () => {
+    const updated = agentFixture({ runtime: 'generic', state: 'STOPPED', launchConfig: { image: 'img' } });
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw', state: 'STOPPED' })], {
       update: vi.fn(async () => updated),
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['set', 'runtime', ID_A, 'generic']);
 
-    expect(stderr()).not.toContain('launch image is still');
+    expect(stdout()).not.toContain('launch image reset');
   });
 
-  it('a 409 reset-image-on-running failure re-throws the stop/set/start sequence', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
+  it('refuses a running agent client-side without calling update', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'RUNNING' })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw']);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('cannot change the runtime of a running agent');
+    expect((err as Error).message).toContain(`hyper agents stop ${ID_A.slice(0, 12)}`);
+    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw`);
+    expect((err as Error).message).not.toContain('--reset-image');
+    expect((err as Error).message).toContain(`hyper agents start ${ID_A.slice(0, 12)}`);
+    expect(d.update).not.toHaveBeenCalled();
+  });
+
+  it('a 409 running-agent failure re-throws the stop/set/start sequence', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'STOPPED' })], {
       update: vi.fn(async () => {
-        throw new APIError(409, 'Cannot reset the launch image for a running agent. Stop it first.');
+        throw new APIError(409, 'Cannot change the runtime of a running agent. Stop it first.');
       }),
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw']);
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as Error).message).toContain('409');
     expect((err as Error).message).toContain(`hyper agents stop ${ID_A.slice(0, 12)}`);
-    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw --reset-image`);
+    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw`);
+    expect((err as Error).message).not.toContain('--reset-image');
     expect((err as Error).message).toContain(`hyper agents start ${ID_A.slice(0, 12)}`);
   });
 

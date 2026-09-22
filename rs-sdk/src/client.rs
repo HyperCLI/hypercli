@@ -3892,7 +3892,6 @@ mod tests {
                 serde_json::json!({
                     "runtime": "opencode",
                     "size": "small",
-                    "command": ["/usr/local/bin/acp"],
                     "secrets": {"BUZZ_PRIVATE_KEY": "nsec-secret"},
                     "sync_root": "/home/node"
                 })
@@ -3912,11 +3911,6 @@ mod tests {
             .create();
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         request.size = Some(AgentSize::Small);
-        request.command = vec![
-            "/usr/local/bin/acp".to_owned(),
-            "plugin".to_owned(),
-            "buzz".to_owned(),
-        ];
         request
             .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), "nsec-secret".to_owned());
@@ -5027,7 +5021,7 @@ mod tests {
                     "name": "Maverick",
                     "size": "large",
                     "launch_config": {
-                        "command": ["/usr/local/bin/acp"],
+                        "command": ["/example/bin/run"],
                         "env": {
                             "BUZZ_PRIVATE_KEY": "nsec-preserved",
                             "EDITOR": "nvim"
@@ -5046,7 +5040,7 @@ mod tests {
                     "state": "stopped",
                     "requested_size": "large",
                     "launch_config": {
-                        "command": ["/usr/local/bin/acp"],
+                        "command": ["/example/bin/run"],
                         "env": {
                             "BUZZ_PRIVATE_KEY": "nsec-preserved",
                             "EDITOR": "nvim"
@@ -5063,7 +5057,7 @@ mod tests {
             launch_config: Some(crate::DeploymentLaunchConfig::from_map(BTreeMap::from([
                 (
                     "command".to_owned(),
-                    serde_json::json!(["/usr/local/bin/acp"]),
+                    serde_json::json!(["/example/bin/run"]),
                 ),
                 (
                     "env".to_owned(),

@@ -282,14 +282,14 @@ def test_coding_agent_rejects_empty_sync_include():
         deployments.create_codex(sync_include=[])
 
 
-def test_plain_coding_agent_launch_command_defaults_to_acp():
+def test_plain_coding_agent_launch_omits_command():
     deployments = Deployments(_HTTP())
     posted: dict = {}
     deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("opencode")
 
     deployments.create_opencode()
 
-    assert posted["command"] == ["/usr/local/bin/acp"]
+    assert "command" not in posted
 
 
 def test_plain_coding_agent_explicit_command_wins():
@@ -354,7 +354,7 @@ def test_buzz_coding_agent_uses_runtime_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == DEFAULT_CODING_AGENT_IMAGES[runtime]
-    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
+    assert "command" not in posted
 
 
 @pytest.mark.parametrize(
@@ -387,6 +387,7 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     expected_runtime = _BUZZ_GOLDEN["runtimes"][runtime]
     for key, value in _BUZZ_GOLDEN["common"].items():
         assert posted[key] == value
+    assert "command" not in posted
     assert posted["runtime"] == runtime
     assert posted["runtime_scopes"] == _BUZZ_GOLDEN["runtime_scopes"]
     assert posted["image"] == expected_runtime["image"]
@@ -469,7 +470,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
+    assert "command" not in posted
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
@@ -532,7 +533,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
+    assert "command" not in posted
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"

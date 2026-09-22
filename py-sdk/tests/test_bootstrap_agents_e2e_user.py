@@ -14,6 +14,8 @@ SCRIPT_PATH = (
     / "scripts"
     / "bootstrap_agents_e2e_user.py"
 )
+if not SCRIPT_PATH.exists():
+    pytest.skip(f"{SCRIPT_PATH.name} not present in this checkout", allow_module_level=True)
 SPEC = importlib.util.spec_from_file_location("bootstrap_agents_e2e_user", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

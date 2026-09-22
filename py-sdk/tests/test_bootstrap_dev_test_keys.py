@@ -31,6 +31,8 @@ sys.modules.setdefault("requests", _requests)
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "bootstrap_dev_test_keys.py"
+if not SCRIPT_PATH.exists():
+    pytest.skip(f"{SCRIPT_PATH.name} not present in this checkout", allow_module_level=True)
 SPEC = importlib.util.spec_from_file_location("bootstrap_dev_test_keys", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

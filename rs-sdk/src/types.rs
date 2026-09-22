@@ -1197,11 +1197,9 @@ impl BuzzLaunchConfig {
         // slot without baking a stale tier into a client-side contract.
         request.size = None;
         request.mark_buzz_deployment(None);
-        request.command = vec![
-            "/usr/local/bin/acp".to_owned(),
-            "plugin".to_owned(),
-            "buzz".to_owned(),
-        ];
+        // Buzz launches must not override the pod entrypoint: the coding
+        // image CMD (/usr/local/bin/hyper-acp) is the single source of truth.
+        request.command.clear();
         if request.image.is_none() {
             request.image = request.runtime.default_buzz_image().map(str::to_owned);
         }
@@ -1409,6 +1407,7 @@ pub struct CompleteDeploymentLaunchConfig {
     pub env: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
     pub routes: BTreeMap<String, RouteConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<String>,
     pub entrypoint: Vec<String>,
     pub restart: bool,
@@ -2476,10 +2475,7 @@ mod tests {
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
-        assert_eq!(
-            request.command,
-            vec!["/usr/local/bin/acp", "plugin", "buzz"]
-        );
+        assert!(request.command.is_empty());
         assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
@@ -2788,7 +2784,7 @@ mod tests {
             "env": {"SAFE": "visible"},
             "registry_auth": {"password": "registry-secret"},
             "secrets": {"API_TOKEN": "must-not-hydrate"},
-            "command": ["/usr/local/bin/acp", "plugin", "buzz"]
+            "command": ["/example/bin/run", "serve"]
         }))
         .unwrap();
 
@@ -2845,6 +2841,8 @@ mod tests {
                     assert!(!request.env.contains_key(key));
                 }
             }
+            let wire = serde_json::to_value(&request).unwrap();
+            assert!(wire.get("command").is_none());
             if contract.get("sync_include").is_some() {
                 assert_eq!(
                     serde_json::to_value(&request.sync_include).unwrap(),
@@ -2996,7 +2994,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_launch_runs_hyper_acp_buzz_plugin_by_default() {
+    fn buzz_launch_uses_the_image_entrypoint_by_default() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut request, None)
@@ -3006,10 +3004,9 @@ mod tests {
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
-        assert_eq!(
-            request.command,
-            vec!["/usr/local/bin/acp", "plugin", "buzz"]
-        );
+        assert!(request.command.is_empty());
+        let wire = serde_json::to_value(&request).unwrap();
+        assert!(wire.get("command").is_none());
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(
             request
