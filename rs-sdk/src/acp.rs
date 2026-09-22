@@ -1,6 +1,6 @@
 //! Async ACP (Agent Client Protocol) client for coding agents.
 //!
-//! Every hosted coding-agent pod runs an `acp` bridge that proxies a pod-side
+//! Every hosted coding-agent pod runs a `hyper-acp` bridge that proxies a pod-side
 //! ACP child (`opencode acp`, `claude-code acp`, ...) onto a WebSocket
 //! endpoint at `/ws`. This module dials that bridge as the client side
 //! (`?agent_id=<uuid>&token=<api key>`), runs the ACP `initialize` handshake,

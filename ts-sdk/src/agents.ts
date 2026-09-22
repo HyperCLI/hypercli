@@ -211,17 +211,17 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
     mcpCommand: '/usr/local/bin/buzz-dev-mcp',
   },
   opencode: {
-    command: '/usr/local/bin/opencode',
+    command: '/opt/hypercli/bin/opencode',
     args: ['acp'],
     mcpCommand: '',
   },
   codex: {
-    command: '/usr/local/bin/codex-acp',
+    command: '/opt/hypercli/bin/codex-acp',
     args: [],
-    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
+    mcpCommand: '/usr/local/lib/acp/buzz/sprig',
   },
   'claude-code': {
-    command: '/usr/local/bin/claude-agent-acp',
+    command: '/opt/hypercli/bin/claude-agent-acp',
     args: [],
     mcpCommand: '',
   },
@@ -231,7 +231,7 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
     mcpCommand: '',
   },
   'kimi-code': {
-    command: '/usr/local/bin/kimi',
+    command: '/opt/hypercli/bin/kimi',
     args: ['acp'],
     mcpCommand: '',
   },
@@ -1407,7 +1407,7 @@ function buildBuzzLaunchEnv(
     BUZZ_ACP_DEDUP: 'queue',
   };
   if (runtime === 'claude-code') {
-    env.CLAUDE_CODE_EXECUTABLE = '/usr/local/bin/claude';
+    env.CLAUDE_CODE_EXECUTABLE = '/opt/hypercli/bin/claude';
   }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
@@ -3548,7 +3548,7 @@ export class CodingAgent extends Agent {
   /**
    * Connect to this agent's ACP child through the backend bridge.
    *
-   * Every coding-agent pod runs `acp`, which pipes the pod-side ACP
+   * Every coding-agent pod runs `hyper-acp`, which pipes the pod-side ACP
    * child (`opencode acp`, `claude-code acp`, ...) onto an outbound WebSocket
    * to the backend `/ws` bridge. This dials the client side of that bridge
    * (`?agent_id=<id>&token=<api key>` — the same base URL/auth as every other
@@ -5234,11 +5234,9 @@ export class Deployments {
       routes: buzzLaunch ? {} : options.routes ?? {},
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/acp', 'plugin', 'buzz']
-        // Plain ACP launches run the image's `acp` binary; without an
-        // explicit command the container falls back to `sleep infinity` and
-        // no runtime ever dials the backend /ws bridge.
-        : options.command ?? ['/usr/local/bin/acp'],
+        ? ['/usr/local/bin/hyper-acp', 'plugin', 'buzz']
+        // Plain ACP launches use the image's hyper-acp binary.
+        : options.command ?? ['/usr/local/bin/hyper-acp'],
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
       syncExclude,
