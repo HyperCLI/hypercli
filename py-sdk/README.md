@@ -300,8 +300,9 @@ agent = client.deployments.create_opencode(
 The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
 runtime. Do not copy an account API key into the launch environment.
 
-The SDK selects `/usr/local/bin/acp`, the runtime-specific child ACP
-command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
+The SDK defers to the image's `CMD` for the pod entrypoint (each provider
+image chains to `/usr/local/bin/hyper-acp`) and selects the runtime-specific
+child ACP command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
 observation, and persistent `/home/node` settings. `/home/node/shared`
 remains reserved for Workspace projections; the specialized image reconciles
 the Buzz nest after the home mount and runs the harness from

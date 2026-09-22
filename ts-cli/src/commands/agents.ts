@@ -24,10 +24,6 @@ import { createInterface } from 'node:readline/promises';
 import {
   AGENT_EXEC_STDIN_MAX_BYTES,
   APIError,
-  DEFAULT_CODING_AGENT_IMAGES,
-  DEFAULT_HERMES_AGENT_IMAGE,
-  DEFAULT_OPENCLAW_IMAGE,
-  DEFAULT_OPENCLAW_PRO_IMAGE,
   type Agent,
   type AgentLaunchConfig,
   type AgentRouteConfig,
@@ -60,7 +56,7 @@ export const usage = [
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
   'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--dry-run]',
   'hyper agents start <id>',
-  'hyper agents set runtime <id> <runtime> [--reset-image]',
+  'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
@@ -594,42 +590,19 @@ async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Platform default launch image per runtime (parity with the backend
- * launch_contract.py DEFAULT_RUNTIME_IMAGES). 'generic' is intentionally
- * absent: it has no platform default, so no mismatch can be computed.
+ * Mirror of the backend's lifecycle_admission.py ACTIVE_OPERATION_STATES: a
+ * runtime change is only safe while the agent is fully at rest.
  */
-const DEFAULT_RUNTIME_IMAGES: Readonly<Record<string, string>> = {
-  openclaw: DEFAULT_OPENCLAW_IMAGE,
-  'openclaw-pro': DEFAULT_OPENCLAW_PRO_IMAGE,
-  'hermes-agent': DEFAULT_HERMES_AGENT_IMAGE,
-  ...DEFAULT_CODING_AGENT_IMAGES,
-};
+const ACTIVE_OPERATION_STATES: ReadonlySet<string> = new Set([
+  'CREATING', 'STARTING', 'RUNNING', 'STOPPING', 'RESTORING', 'UPGRADING',
+]);
 
-/**
- * A runtime PATCH without --reset-image leaves the stored launch image
- * untouched: on next start the pod still boots the image baked at create.
- * When that image is not the platform default for the NEW runtime, warn
- * loudly so the stale image is never a silent surprise.
- */
-async function warnOnStaleLaunchImage(
-  ctx: CommandContext,
-  d: Deployments,
-  updated: Agent,
-  runtime: string,
-): Promise<void> {
-  const expected = DEFAULT_RUNTIME_IMAGES[runtime];
-  if (expected === undefined) return;
-  // cmdConfig's path: launchConfig rides the Agent record (launch_config).
-  let agent = updated;
-  if (!agent.launchConfig || typeof agent.launchConfig !== 'object') {
-    agent = await api('get agent', () => d.get(agent.id));
-  }
-  const stored = (agent.launchConfig as Record<string, unknown> | null)?.image;
-  if (typeof stored !== 'string' || !stored || stored === expected) return;
-  ctx.output.info(
-    `warning: runtime changed to ${runtime} but launch image is still ${stored} — `
-    + `run 'hyper agents set runtime ${shortId(agent.id)} ${runtime} --reset-image' (agent must be stopped first)`,
-  );
+/** The actionable stop/set/start recovery sequence for a running-agent refusal. */
+function runtimeChangeRecovery(id: string, runtime: string): string {
+  return 'run:\n'
+    + `  hyper agents stop ${shortId(id)}\n`
+    + `  hyper agents set runtime ${shortId(id)} ${runtime}\n`
+    + `  hyper agents start ${shortId(id)}`;
 }
 
 async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
@@ -638,9 +611,7 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
   if (field !== 'runtime') {
     throw new UsageError(`unknown agents set field '${field}' (expected: runtime)`);
   }
-  const parsed = parseCommandArgs(rest, {
-    'reset-image': { type: 'boolean', default: false },
-  });
+  const parsed = parseCommandArgs(rest, {});
   if (parsed.help) return printHelp();
   if (parsed.positionals.length < 2) throw new UsageError('missing agent id or runtime');
   if (parsed.positionals.length > 2) {
@@ -652,37 +623,39 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
       `unknown runtime '${runtime}' (expected one of: ${[...MANAGED_RUNTIMES].join(', ')})`,
     );
   }
-  const resetImage = parsed.values['reset-image'] === true;
   const { d } = await adopt(ctx);
   const id = await resolveAgentRef(d, ref);
+  // The backend 409s a runtime PATCH against an active agent; refuse early with
+  // the same recovery sequence instead of paying for the failing round-trip.
+  const agent = await api('get agent', () => d.get(id));
+  if (ACTIVE_OPERATION_STATES.has(agent.state.toUpperCase())) {
+    throw new CliError(
+      `cannot change the runtime of a running agent (state=${agent.state})\n${runtimeChangeRecovery(id, runtime)}`,
+    );
+  }
   let updated: Agent;
   try {
-    updated = await d.update(id, {
-      runtime: runtime as ManagedAgentRuntime,
-      ...(resetImage ? { resetImage: true } : {}),
-    });
+    // The backend resets the launch image to the new runtime's platform
+    // default on a runtime change; resetImage is ignored server-side.
+    updated = await d.update(id, { runtime: runtime as ManagedAgentRuntime });
   } catch (err) {
-    // The backend 409s a --reset-image PATCH against a running agent; surface
-    // the exact recovery sequence instead of the bare "stop it first" text.
+    // Backstop for races: the agent may have started between the get and the PATCH.
     if (
       err instanceof APIError
       && err.statusCode === 409
-      && /launch image/i.test(err.detail)
+      && /runtime/i.test(err.detail)
       && /stop/i.test(err.detail)
     ) {
       throw new CliError(
-        `update agent failed: HTTP 409: ${err.detail}\nrun:\n`
-        + `  hyper agents stop ${shortId(id)}\n`
-        + `  hyper agents set runtime ${shortId(id)} ${runtime} --reset-image\n`
-        + `  hyper agents start ${shortId(id)}`,
+        `update agent failed: HTTP 409: ${err.detail}\n${runtimeChangeRecovery(id, runtime)}`,
       );
     }
     throw new CliError(`update agent failed: ${describeFailure(err)}`);
   }
-  if (!resetImage) await warnOnStaleLaunchImage(ctx, d, updated, runtime);
   ctx.output.result(
     recordJsonRecord(updated, `${dashboardBase(ctx)}/agents/${updated.id}`),
-    `updated ${shortId(id)} runtime=${updated.runtime}${resetImage ? ' (image reset to default; applies on next start)' : ''}`,
+    `updated ${shortId(id)} runtime=${updated.runtime}`
+      + (runtime === 'generic' ? '' : ` (launch image reset to the ${runtime} default)`),
   );
 }
 

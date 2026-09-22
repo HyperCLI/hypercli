@@ -3988,14 +3988,7 @@ class Deployments:
             env=effective_env,
             secrets=effective_secrets,
             routes={} if buzz_launch or routes is None else routes,
-            command=(
-                ["/usr/local/bin/acp", "plugin", "buzz"]
-                if buzz_enabled or buzz is not None
-                # Plain ACP launches run the image's `acp` binary; without an
-                # explicit command the container falls back to `sleep infinity`
-                # and no runtime ever dials the backend /ws bridge.
-                else (command if command is not None else ["/usr/local/bin/acp"])
-            ),
+            command=command,
             entrypoint=entrypoint,
             image=image
             or DEFAULT_CODING_AGENT_IMAGES[runtime],
