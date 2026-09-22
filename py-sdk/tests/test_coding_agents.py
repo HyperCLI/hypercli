@@ -168,6 +168,7 @@ def test_create_coding_agent_contract(
     assert posted["runtime"] == runtime
     assert "size" not in posted
     assert posted["image"] == image
+    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
     assert "sync_enabled" not in posted
@@ -282,24 +283,25 @@ def test_coding_agent_rejects_empty_sync_include():
         deployments.create_codex(sync_include=[])
 
 
-def test_plain_coding_agent_launch_omits_command():
+def test_plain_coding_agent_launch_defaults_to_hyper_acp():
     deployments = Deployments(_HTTP())
     posted: dict = {}
     deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("opencode")
 
     deployments.create_opencode()
 
-    assert "command" not in posted
+    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
 
 
-def test_plain_coding_agent_explicit_command_wins():
+@pytest.mark.parametrize("command", [["/bin/sh", "-c", "sleep infinity"], []])
+def test_plain_coding_agent_explicit_command_wins(command):
     deployments = Deployments(_HTTP())
     posted: dict = {}
     deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("opencode")
 
-    deployments.create_opencode(command=["/bin/sh", "-c", "sleep infinity"])
+    deployments.create_opencode(command=command)
 
-    assert posted["command"] == ["/bin/sh", "-c", "sleep infinity"]
+    assert posted["command"] == command
 
 
 def test_coding_agent_create_reads_the_runtime_subclass_sync_default(monkeypatch):
@@ -354,7 +356,7 @@ def test_buzz_coding_agent_uses_runtime_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == DEFAULT_CODING_AGENT_IMAGES[runtime]
-    assert "command" not in posted
+    assert posted["command"] == _BUZZ_GOLDEN["common"]["command"]
 
 
 @pytest.mark.parametrize(
@@ -387,7 +389,6 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     expected_runtime = _BUZZ_GOLDEN["runtimes"][runtime]
     for key, value in _BUZZ_GOLDEN["common"].items():
         assert posted[key] == value
-    assert "command" not in posted
     assert posted["runtime"] == runtime
     assert posted["runtime_scopes"] == _BUZZ_GOLDEN["runtime_scopes"]
     assert posted["image"] == expected_runtime["image"]
@@ -470,7 +471,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert "command" not in posted
+    assert posted["command"] == _BUZZ_GOLDEN["common"]["command"]
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
@@ -487,12 +488,19 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert "OPENCLAW_GATEWAY_TOKEN" not in posted["env"]
 
 
-def test_coding_agent_buzz_mode_rejects_ambiguous_command_override():
+@pytest.mark.parametrize(
+    "buzz_options",
+    [
+        {"buzz_enabled": True},
+        {"buzz": BuzzLaunchConfig(private_key_nsec="nsec1test", relay_url="wss://buzz.example.test")},
+    ],
+)
+def test_coding_agent_buzz_mode_rejects_ambiguous_command_override(buzz_options):
     deployments = Deployments(_HTTP())
 
     with pytest.raises(ValueError, match="Buzz launch"):
         deployments.create_codex(
-            buzz_enabled=True,
+            **buzz_options,
             command=["sleep", "infinity"],
         )
 
@@ -533,10 +541,10 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert "command" not in posted
+    assert posted["command"] == _BUZZ_GOLDEN["common"]["command"]
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
-    assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
+    assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/opt/hypercli/bin/opencode"
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == "acp"
     assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == ""
     assert posted["env"]["BUZZ_ACP_SESSION_TITLE"] == "Fizz4"

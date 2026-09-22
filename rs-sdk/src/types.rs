@@ -1180,15 +1180,15 @@ impl BuzzLaunchConfig {
                 "",
                 "/usr/local/bin/buzz-dev-mcp",
             ),
-            ManagedRuntime::Opencode => ("/usr/local/bin/opencode", "acp", ""),
+            ManagedRuntime::Opencode => ("/opt/hypercli/bin/opencode", "acp", ""),
             ManagedRuntime::Codex => (
-                "/usr/local/bin/codex-acp",
+                "/opt/hypercli/bin/codex-acp",
                 "",
-                "/usr/local/bin/buzz-dev-mcp",
+                "/usr/local/lib/acp/buzz/sprig",
             ),
-            ManagedRuntime::ClaudeCode => ("/usr/local/bin/claude-agent-acp", "", ""),
+            ManagedRuntime::ClaudeCode => ("/opt/hypercli/bin/claude-agent-acp", "", ""),
             ManagedRuntime::Goose => ("/usr/local/bin/goose", "acp", ""),
-            ManagedRuntime::KimiCode => ("/usr/local/bin/kimi", "acp", ""),
+            ManagedRuntime::KimiCode => ("/opt/hypercli/bin/kimi", "acp", ""),
             _ => return Err(BuzzLaunchError::UnsupportedRuntime),
         };
 
@@ -1197,9 +1197,12 @@ impl BuzzLaunchConfig {
         // slot without baking a stale tier into a client-side contract.
         request.size = None;
         request.mark_buzz_deployment(None);
-        // Buzz launches must not override the pod entrypoint: the coding
-        // image CMD (/usr/local/bin/hyper-acp) is the single source of truth.
-        request.command.clear();
+        // Select the Buzz plugin explicitly while preserving the image entrypoint.
+        request.command = vec![
+            "/usr/local/bin/hyper-acp".to_owned(),
+            "plugin".to_owned(),
+            "buzz".to_owned(),
+        ];
         if request.image.is_none() {
             request.image = request.runtime.default_buzz_image().map(str::to_owned);
         }
@@ -1250,7 +1253,7 @@ impl BuzzLaunchConfig {
         if request.runtime == ManagedRuntime::ClaudeCode {
             request.env.insert(
                 "CLAUDE_CODE_EXECUTABLE".to_owned(),
-                "/usr/local/bin/claude".to_owned(),
+                "/opt/hypercli/bin/claude".to_owned(),
             );
         }
         request
@@ -2428,6 +2431,7 @@ mod tests {
     #[test]
     fn buzz_launch_owns_reserved_env_and_uses_opencode_defaults() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.command = vec!["sleep".to_owned(), "infinity".to_owned()];
         request.env.insert(
             "BUZZ_RELAY_URL".to_owned(),
             "wss://attacker.invalid".to_owned(),
@@ -2475,7 +2479,7 @@ mod tests {
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
-        assert!(request.command.is_empty());
+        assert_eq!(request.command, ["/usr/local/bin/hyper-acp", "plugin", "buzz"]);
         assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
@@ -2491,7 +2495,7 @@ mod tests {
                 .env
                 .get("BUZZ_ACP_AGENT_COMMAND")
                 .map(String::as_str),
-            Some("/usr/local/bin/opencode")
+            Some("/opt/hypercli/bin/opencode")
         );
         assert_eq!(
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
@@ -2842,7 +2846,7 @@ mod tests {
                 }
             }
             let wire = serde_json::to_value(&request).unwrap();
-            assert!(wire.get("command").is_none());
+            assert_eq!(wire["command"], golden["common"]["command"]);
             if contract.get("sync_include").is_some() {
                 assert_eq!(
                     serde_json::to_value(&request.sync_include).unwrap(),
@@ -2989,12 +2993,12 @@ mod tests {
 
         assert_eq!(
             request.env["CLAUDE_CODE_EXECUTABLE"],
-            "/usr/local/bin/claude"
+            "/opt/hypercli/bin/claude"
         );
     }
 
     #[test]
-    fn buzz_launch_uses_the_image_entrypoint_by_default() {
+    fn buzz_launch_selects_plugin_and_preserves_image_entrypoint() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut request, None)
@@ -3004,9 +3008,13 @@ mod tests {
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
-        assert!(request.command.is_empty());
+        assert_eq!(request.command, ["/usr/local/bin/hyper-acp", "plugin", "buzz"]);
+        assert!(request.entrypoint.is_empty());
         let wire = serde_json::to_value(&request).unwrap();
-        assert!(wire.get("command").is_none());
+        assert_eq!(
+            wire["command"],
+            serde_json::json!(["/usr/local/bin/hyper-acp", "plugin", "buzz"])
+        );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(
             request

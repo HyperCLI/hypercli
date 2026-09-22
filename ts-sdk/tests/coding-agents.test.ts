@@ -347,7 +347,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_CODEX_IMAGE,
-      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
@@ -383,7 +383,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
     });
   });
 
@@ -504,11 +504,11 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
-        BUZZ_ACP_AGENT_COMMAND: '/usr/local/bin/opencode',
+        BUZZ_ACP_AGENT_COMMAND: '/opt/hypercli/bin/opencode',
         BUZZ_ACP_AGENT_ARGS: 'acp',
         BUZZ_ACP_MCP_COMMAND: '',
         BUZZ_ACP_SESSION_TITLE: 'Fizz4',
@@ -837,14 +837,14 @@ describe('buzz acp raw outbound launch', () => {
     return { post, deployments };
   }
 
-  it('runs acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
+  it('runs hyper-acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
     const agent = await deployments.createBuzzAgent({
       routes: { custom: { port: 9000, auth: true } },
       buzzEnabled: true,
     });
     const payload = post.mock.calls[0][1];
-    expect(payload.command).toEqual(['/usr/local/bin/acp', 'plugin', 'buzz']);
+    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
     expect(payload.routes).toEqual({});
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
@@ -893,7 +893,7 @@ describe('buzz acp raw outbound launch', () => {
     const { post, deployments } = provisionDeployments('codex');
     const agent = await deployments.createCodex();
     const payload = post.mock.calls[0][1];
-    expect(payload.command).toEqual(['/usr/local/bin/acp']);
+    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp']);
     expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');

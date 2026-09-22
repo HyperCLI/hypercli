@@ -295,17 +295,17 @@ _BUZZ_RUNTIME_SPECS: dict[CodingAgentRuntime, _BuzzRuntimeLaunchSpec] = {
         "/usr/local/bin/buzz-agent",
         mcp_command="/usr/local/bin/buzz-dev-mcp",
     ),
-    "opencode": _BuzzRuntimeLaunchSpec("/usr/local/bin/opencode", ("acp",)),
+    "opencode": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/opencode", ("acp",)),
     "codex": _BuzzRuntimeLaunchSpec(
-        "/usr/local/bin/codex-acp",
-        mcp_command="/usr/local/bin/buzz-dev-mcp",
+        "/opt/hypercli/bin/codex-acp",
+        mcp_command="/usr/local/lib/acp/buzz/sprig",
     ),
     "claude-code": _BuzzRuntimeLaunchSpec(
-        "/usr/local/bin/claude-agent-acp",
-        claude_code_executable="/usr/local/bin/claude",
+        "/opt/hypercli/bin/claude-agent-acp",
+        claude_code_executable="/opt/hypercli/bin/claude",
     ),
     "goose": _BuzzRuntimeLaunchSpec("/usr/local/bin/goose", ("acp",)),
-    "kimi-code": _BuzzRuntimeLaunchSpec("/usr/local/bin/kimi", ("acp",)),
+    "kimi-code": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/kimi", ("acp",)),
 }
 DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
@@ -3988,7 +3988,11 @@ class Deployments:
             env=effective_env,
             secrets=effective_secrets,
             routes={} if buzz_launch or routes is None else routes,
-            command=command,
+            command=(
+                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+                if buzz_launch
+                else command if command is not None else ["/usr/local/bin/hyper-acp"]
+            ),
             entrypoint=entrypoint,
             image=image
             or DEFAULT_CODING_AGENT_IMAGES[runtime],

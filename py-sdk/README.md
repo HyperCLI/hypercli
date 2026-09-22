@@ -321,7 +321,7 @@ continues to override either default.
 
 Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
 not duplicate the stock Desktop provider's validation; invalid combinations
-are rejected later by `acp`. The Desktop provider also maps structured
+are rejected later by `hyper-acp`. The Desktop provider also maps structured
 Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
 SDK callers must set any Goose-specific environment themselves.
 Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;
