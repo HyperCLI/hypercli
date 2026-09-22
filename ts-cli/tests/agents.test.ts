@@ -7,9 +7,13 @@
  * so nothing here touches the network.
  */
 
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APIError,
+  DEFAULT_OPENCLAW_IMAGE,
   type Agent,
   type AgentLaunchConfig,
   type Deployments,
@@ -195,6 +199,9 @@ function createMockDeploymentsApi(
     createHermesAgent: vi.fn(async () => stateful('new-hermes', 'STOPPED')),
     createGoose: vi.fn(async () => stateful('new-goose', 'STOPPED')),
     createOpenCode: vi.fn(async () => stateful('new-opencode', 'STOPPED')),
+    createCodex: vi.fn(async () => stateful('new-codex', 'STOPPED')),
+    createClaudeCode: vi.fn(async () => stateful('new-claude', 'STOPPED')),
+    createKimiCode: vi.fn(async () => stateful('new-kimi', 'STOPPED')),
     createBuzzAgent: vi.fn(async () => stateful('new-buzz', 'STOPPED')),
     update: vi.fn(async (id: string) => byId(id)),
   };
@@ -445,6 +452,74 @@ describe('hyper agents set runtime', () => {
     expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw', resetImage: true });
   });
 
+  it('warns loudly when the stored launch image no longer matches the new runtime', async () => {
+    const updated = agentFixture({ runtime: 'claude-code', launchConfig: { image: 'ghcr.io/hypercli/hypercli-opencode:latest' } });
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'opencode' })], {
+      update: vi.fn(async () => updated),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'claude-code']);
+
+    const warning = stderr();
+    expect(warning).toContain('warning: runtime changed to claude-code but launch image is still ghcr.io/hypercli/hypercli-opencode:latest');
+    expect(warning).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} claude-code --reset-image`);
+    expect(warning).toContain('agent must be stopped first');
+  });
+
+  it('stays quiet when the stored image already matches the new runtime default', async () => {
+    const updated = agentFixture({ runtime: 'openclaw', launchConfig: { image: DEFAULT_OPENCLAW_IMAGE } });
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
+      update: vi.fn(async () => updated),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw']);
+
+    expect(stderr()).not.toContain('launch image is still');
+  });
+
+  it('--reset-image emits no stale-image warning', async () => {
+    const updated = agentFixture({ runtime: 'openclaw', launchConfig: { image: 'img' } });
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
+      update: vi.fn(async () => updated),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
+
+    expect(stderr()).not.toContain('launch image is still');
+  });
+
+  it('skips the warning for generic (no platform default image)', async () => {
+    const updated = agentFixture({ runtime: 'generic', launchConfig: { image: 'img' } });
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw' })], {
+      update: vi.fn(async () => updated),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, 'generic']);
+
+    expect(stderr()).not.toContain('launch image is still');
+  });
+
+  it('a 409 reset-image-on-running failure re-throws the stop/set/start sequence', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic' })], {
+      update: vi.fn(async () => {
+        throw new APIError(409, 'Cannot reset the launch image for a running agent. Stop it first.');
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw', '--reset-image']);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('409');
+    expect((err as Error).message).toContain(`hyper agents stop ${ID_A.slice(0, 12)}`);
+    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw --reset-image`);
+    expect((err as Error).message).toContain(`hyper agents start ${ID_A.slice(0, 12)}`);
+  });
+
   it('rejects an unknown runtime before touching the API', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
@@ -496,14 +571,14 @@ describe('hyper agents create', () => {
     }
   });
 
-  it('unknown runtime -> UsageError listing the 5 runtimes', async () => {
+  it('unknown runtime -> UsageError listing the 8 runtimes', async () => {
     const { ctx } = makeCtx(fakeClient(), 'table');
 
     const err = await runErr(ctx, ['create', 'demo', '--runtime', 'nope']);
 
     expect(err).toBeInstanceOf(UsageError);
     expect(exitCodeFor(err)).toBe(2);
-    for (const runtime of ['openclaw', 'hermes', 'goose', 'opencode', 'buzz']) {
+    for (const runtime of ['openclaw', 'hermes', 'goose', 'opencode', 'codex', 'claude-code', 'kimi-code', 'buzz']) {
       expect((err as Error).message).toContain(runtime);
     }
   });
@@ -522,6 +597,28 @@ describe('hyper agents create', () => {
     expect(d.createBuzzAgent).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'b1', dryRun: false }),
     );
+  });
+
+  it('dispatches the coding runtimes: codex, claude-code, kimi-code', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['create', 'cx', '--runtime', 'codex']);
+    expect(d.createCodex).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'cx', dryRun: false }),
+    );
+
+    await agents.run(ctx, ['create', 'cc', '--runtime', 'claude-code']);
+    expect(d.createClaudeCode).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'cc', dryRun: false }),
+    );
+
+    await agents.run(ctx, ['create', 'kc', '--runtime', 'kimi-code']);
+    expect(d.createKimiCode).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'kc', dryRun: false }),
+    );
+    expect(d.createOpenClaw).not.toHaveBeenCalled();
+    expect(d.createHermesAgent).not.toHaveBeenCalled();
   });
 
   it('--model on openclaw is a usage error (no silent drop of the config bag)', async () => {
@@ -648,6 +745,16 @@ describe('hyper agents stop/delete', () => {
 // ---------- exec ----------
 
 describe('hyper agents exec', () => {
+  // Deterministic default: the suite runs with a non-TTY stdin; stub the
+  // collector to TTY behavior (no stdin attachment) unless a test overrides it.
+  const ttyNoStdin = async () => undefined;
+  beforeEach(() => {
+    agents.execStdin.collect = ttyNoStdin;
+  });
+  afterEach(() => {
+    agents.execStdin.collect = ttyNoStdin;
+  });
+
   it('forwards the argv after --, prints stdout/stderr, propagates the exit code', async () => {
     const d = createMockDeploymentsApi([agentFixture()], {
       exec: vi.fn(async () => ({ exitCode: 3, stdout: 'hi there\n', stderr: 'uh oh\n' })),
@@ -660,6 +767,24 @@ describe('hyper agents exec', () => {
     expect(d.exec).toHaveBeenCalledWith(ID_A, ['echo', 'hi', '-n'], { timeout: 30 });
     expect(stdout()).toContain('hi there');
     expect(stderr()).toContain('uh oh');
+  });
+
+  it('forwards piped stdin bytes into the pod', async () => {
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async () => ({ exitCode: 0, stdout: '5\n', stderr: '' })),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    agents.execStdin.collect = async () => new TextEncoder().encode('hello');
+
+    const code = await agents.run(ctx, ['exec', ID_A, '--', 'sh', '-c', 'cat | wc -c']);
+
+    expect(code).toBe(0);
+    const [, argv, options] = d.exec.mock.calls[0];
+    expect(argv).toEqual(['sh', '-c', 'cat | wc -c']);
+    expect(options.timeout).toBe(30);
+    expect(options.stdin).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(options.stdin as Uint8Array).toString('utf8')).toBe('hello');
+    expect(stdout()).toContain('5');
   });
 
   it('no command -> UsageError', async () => {
@@ -686,13 +811,13 @@ describe('hyper agents cp', () => {
     expect(bothLocal).toBeInstanceOf(UsageError);
   });
 
-  it('upload: resolves the remote side and cpTo\'s the agent', async () => {
+  it('upload: resolves the remote side and cpTo\'s the agent a sync-root-relative path', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    await agents.run(ctx, ['cp', 'local.txt', 'aa:/remote.txt']);
+    await agents.run(ctx, ['cp', 'local.txt', 'aa:remote.txt']);
 
-    expect(d.cpTo).toHaveBeenCalledWith(ID_A, 'local.txt', '/remote.txt');
+    expect(d.cpTo).toHaveBeenCalledWith(ID_A, 'local.txt', 'remote.txt');
     expect(stdout()).toContain('copied local.txt');
   });
 
@@ -702,9 +827,9 @@ describe('hyper agents cp', () => {
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    await agents.run(ctx, ['cp', 'aa:/remote.txt', 'out.txt']);
+    await agents.run(ctx, ['cp', 'aa:remote.txt', 'out.txt']);
 
-    expect(d.cpFrom).toHaveBeenCalledWith(ID_A, '/remote.txt', 'out.txt');
+    expect(d.cpFrom).toHaveBeenCalledWith(ID_A, 'remote.txt', 'out.txt');
     expect(stdout()).toContain('copied');
     expect(stdout()).toContain('out.txt');
   });
@@ -713,9 +838,121 @@ describe('hyper agents cp', () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    await agents.run(ctx, ['cp', 'C:\\temp\\f.txt', 'aa:/remote/f.txt']);
+    await agents.run(ctx, ['cp', 'C:\\temp\\f.txt', 'aa:remote/f.txt']);
 
-    expect(d.cpTo).toHaveBeenCalledWith(ID_A, 'C:\\temp\\f.txt', '/remote/f.txt');
+    expect(d.cpTo).toHaveBeenCalledWith(ID_A, 'C:\\temp\\f.txt', 'remote/f.txt');
+  });
+
+  it('upload to a pod-side absolute path rides exec: mkdir, chunked base64, chmod', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const local = join(tmp, 'credentials.json');
+    const body = Buffer.from('{"token":"abc123"}\n');
+    writeFileSync(local, body);
+    chmodSync(local, 0o640);
+    const execCalls: string[][] = [];
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async (_id: string, argv: string[]) => {
+        execCalls.push(argv);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    try {
+      await agents.run(ctx, ['cp', local, `aa:/home/node/.claude/.credentials.json`]);
+
+      expect(d.cpTo).not.toHaveBeenCalled();
+      expect(execCalls[0]).toEqual(['mkdir', '-p', '/home/node/.claude']);
+      const writer = execCalls[1];
+      expect(writer[0]).toBe('sh');
+      expect(writer[1]).toBe('-c');
+      expect(writer[2]).toContain(`printf %s '${body.toString('base64')}'`);
+      expect(writer[2]).toContain(`base64 -d > '/home/node/.claude/.credentials.json'`);
+      expect(execCalls[2]).toEqual(['chmod', '640', '/home/node/.claude/.credentials.json']);
+      expect(stdout()).toContain('copied');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('upload to ~ expands to /home/node on the pod', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const local = join(tmp, 'f.txt');
+    writeFileSync(local, 'hi');
+    const execCalls: string[][] = [];
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async (_id: string, argv: string[]) => {
+        execCalls.push(argv);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    try {
+      await agents.run(ctx, ['cp', local, 'aa:~/.claude/x.json']);
+
+      expect(d.cpTo).not.toHaveBeenCalled();
+      expect(execCalls[0]).toEqual(['mkdir', '-p', '/home/node/.claude']);
+      expect(execCalls[1][2]).toContain(`base64 -d > '/home/node/.claude/x.json'`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('a failed exec upload is a CliError naming the exit code and stderr', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const local = join(tmp, 'f.txt');
+    writeFileSync(local, 'hi');
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async () => ({ exitCode: 1, stdout: '', stderr: 'mkdir: cannot create directory' })),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    try {
+      const err = await runErr(ctx, ['cp', local, 'aa:/abs/f.txt']);
+
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as Error).message).toContain('exit 1');
+      expect((err as Error).message).toContain('mkdir: cannot create directory');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('download of a pod-side absolute path rides exec base64 and round-trips bytes', async () => {
+    const payload = Buffer.from([0, 1, 2, 250, 251, 252, 65, 66, 10]);
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async (_id: string, argv: string[]) => {
+        expect(argv).toEqual(['sh', '-c', `base64 < '/home/node/.claude/.credentials.json'`]);
+        return { exitCode: 0, stdout: `${payload.toString('base64')}\n`, stderr: '' };
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const dest = join(tmp, 'out', 'credentials.json');
+    try {
+      await agents.run(ctx, ['cp', 'aa:/home/node/.claude/.credentials.json', dest]);
+
+      expect(d.cpFrom).not.toHaveBeenCalled();
+      expect(readFileSync(dest)).toEqual(payload);
+      expect(stdout()).toContain('copied');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('a failed exec download is a CliError and writes no local file', async () => {
+    const d = createMockDeploymentsApi([agentFixture()], {
+      exec: vi.fn(async () => ({ exitCode: 1, stdout: '', stderr: 'base64: /abs/x: No such file or directory' })),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const dest = join(tmp, 'x');
+    try {
+      const err = await runErr(ctx, ['cp', 'aa:/abs/x', dest]);
+
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as Error).message).toContain('No such file or directory');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

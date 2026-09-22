@@ -18,10 +18,16 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import {
+  AGENT_EXEC_STDIN_MAX_BYTES,
   APIError,
+  DEFAULT_CODING_AGENT_IMAGES,
+  DEFAULT_HERMES_AGENT_IMAGE,
+  DEFAULT_OPENCLAW_IMAGE,
+  DEFAULT_OPENCLAW_PRO_IMAGE,
   type Agent,
   type AgentLaunchConfig,
   type AgentRouteConfig,
@@ -52,7 +58,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime R [--model M] [--plan P] [--size S] [--param k=v ...] [--dry-run]',
+  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--dry-run]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime> [--reset-image]',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
@@ -62,7 +68,7 @@ export const usage = [
   'hyper agents login <id> [--flow F] [--provider X] [--session SECS] [--key-stdin] [--from-host-creds]',
   'hyper agents shell <id>',
   'hyper agents logs <id> [-f|--follow] [-n LINES]',
-  'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>)',
+  'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>; remote path may be sync-root-relative, /absolute, or ~/…)',
   'hyper agents activate <code> [--extend-existing]',
   'hyper agents routines list [--agent ID]',
   'hyper agents routines create (--cron EXPR | --run-at ISO) --prompt TEXT [--agent ID] [--name N] [--session ID] [--disabled]',
@@ -77,6 +83,9 @@ const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['hermes', 'createHermesAgent'],
   ['goose', 'createGoose'],
   ['opencode', 'createOpenCode'],
+  ['codex', 'createCodex'],
+  ['claude-code', 'createClaudeCode'],
+  ['kimi-code', 'createKimiCode'],
   ['buzz', 'createBuzzAgent'],
 ]);
 
@@ -584,6 +593,45 @@ async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
 // set — mutate one field on an existing agent
 // ---------------------------------------------------------------------------
 
+/**
+ * Platform default launch image per runtime (parity with the backend
+ * launch_contract.py DEFAULT_RUNTIME_IMAGES). 'generic' is intentionally
+ * absent: it has no platform default, so no mismatch can be computed.
+ */
+const DEFAULT_RUNTIME_IMAGES: Readonly<Record<string, string>> = {
+  openclaw: DEFAULT_OPENCLAW_IMAGE,
+  'openclaw-pro': DEFAULT_OPENCLAW_PRO_IMAGE,
+  'hermes-agent': DEFAULT_HERMES_AGENT_IMAGE,
+  ...DEFAULT_CODING_AGENT_IMAGES,
+};
+
+/**
+ * A runtime PATCH without --reset-image leaves the stored launch image
+ * untouched: on next start the pod still boots the image baked at create.
+ * When that image is not the platform default for the NEW runtime, warn
+ * loudly so the stale image is never a silent surprise.
+ */
+async function warnOnStaleLaunchImage(
+  ctx: CommandContext,
+  d: Deployments,
+  updated: Agent,
+  runtime: string,
+): Promise<void> {
+  const expected = DEFAULT_RUNTIME_IMAGES[runtime];
+  if (expected === undefined) return;
+  // cmdConfig's path: launchConfig rides the Agent record (launch_config).
+  let agent = updated;
+  if (!agent.launchConfig || typeof agent.launchConfig !== 'object') {
+    agent = await api('get agent', () => d.get(agent.id));
+  }
+  const stored = (agent.launchConfig as Record<string, unknown> | null)?.image;
+  if (typeof stored !== 'string' || !stored || stored === expected) return;
+  ctx.output.info(
+    `warning: runtime changed to ${runtime} but launch image is still ${stored} — `
+    + `run 'hyper agents set runtime ${shortId(agent.id)} ${runtime} --reset-image' (agent must be stopped first)`,
+  );
+}
+
 async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
   const [field, ...rest] = args;
   if (!field || field === '--help' || field === '-h') return printHelp();
@@ -607,8 +655,31 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
   const resetImage = parsed.values['reset-image'] === true;
   const { d } = await adopt(ctx);
   const id = await resolveAgentRef(d, ref);
-  const updated = await api('update agent', () =>
-    d.update(id, { runtime: runtime as ManagedAgentRuntime, ...(resetImage ? { resetImage: true } : {}) }));
+  let updated: Agent;
+  try {
+    updated = await d.update(id, {
+      runtime: runtime as ManagedAgentRuntime,
+      ...(resetImage ? { resetImage: true } : {}),
+    });
+  } catch (err) {
+    // The backend 409s a --reset-image PATCH against a running agent; surface
+    // the exact recovery sequence instead of the bare "stop it first" text.
+    if (
+      err instanceof APIError
+      && err.statusCode === 409
+      && /launch image/i.test(err.detail)
+      && /stop/i.test(err.detail)
+    ) {
+      throw new CliError(
+        `update agent failed: HTTP 409: ${err.detail}\nrun:\n`
+        + `  hyper agents stop ${shortId(id)}\n`
+        + `  hyper agents set runtime ${shortId(id)} ${runtime} --reset-image\n`
+        + `  hyper agents start ${shortId(id)}`,
+      );
+    }
+    throw new CliError(`update agent failed: ${describeFailure(err)}`);
+  }
+  if (!resetImage) await warnOnStaleLaunchImage(ctx, d, updated, runtime);
   ctx.output.result(
     recordJsonRecord(updated, `${dashboardBase(ctx)}/agents/${updated.id}`),
     `updated ${shortId(id)} runtime=${updated.runtime}${resetImage ? ' (image reset to default; applies on next start)' : ''}`,
@@ -677,6 +748,31 @@ async function cmdArchiveRestore(
 // exec
 // ---------------------------------------------------------------------------
 
+/**
+ * Piped stdin collector for cmdExec. A TTY keeps exec strictly one-shot:
+ * stdin stays untouched and the pod command sees no stdin attachment at all.
+ * A pipe is drained to EOF and forwarded; an unbounded pipe is a caller error,
+ * exactly like `kubectl exec -i` on a never-closing stream.
+ */
+async function readPipedExecStdin(): Promise<Uint8Array | undefined> {
+  const stdin = process.stdin;
+  if (stdin.isTTY === true) return undefined;
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of stdin) {
+    const data = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : (chunk as Buffer);
+    total += data.byteLength;
+    if (total > AGENT_EXEC_STDIN_MAX_BYTES) {
+      throw new CliError(`agents exec stdin exceeds the ${AGENT_EXEC_STDIN_MAX_BYTES}-byte limit`);
+    }
+    chunks.push(data);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** Test seam: tests replace `collect` instead of piping process.stdin. */
+export const execStdin = { collect: readPipedExecStdin };
+
 async function cmdExec(ctx: CommandContext, args: string[]): Promise<number> {
   const parsed = parseCommandArgs(args, { timeout: { type: 'string' } });
   if (parsed.help) {
@@ -699,7 +795,9 @@ async function cmdExec(ctx: CommandContext, args: string[]): Promise<number> {
 
   const { d } = await adopt(ctx);
   const id = await resolveAgentRef(d, ref);
-  const result = await api('exec', () => d.exec(id, command, { timeout }));
+  const stdin = await execStdin.collect();
+  const result = await api('exec', () =>
+    d.exec(id, command, { timeout, ...(stdin !== undefined ? { stdin } : {}) }));
 
   if (ctx.format === 'json') {
     ctx.output.result(result);
@@ -888,6 +986,91 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+// Debug note: the Reef file API behind Deployments.cpTo/cpFrom only accepts
+// paths relative to the agent's sync root (ts-sdk resolveSyncRootFilePath
+// rejects a leading '/'). Pod-side absolute paths and '~' therefore ride the
+// exec channel instead: base64 piped through sh, chunked well under exec's
+// 65_536-byte argv cap, with the local mode re-applied via chmod.
+
+/** '~' on the pod expands to the conventional coding/openclaw home. */
+const CP_POD_HOME = '/home/node';
+/** Raw bytes per exec chunk: 24 KiB -> 32_768 base64 chars, far under the argv cap. */
+const CP_EXEC_CHUNK_BYTES = 24 * 1024;
+/** File transfers may outlive the interactive 30s exec default; use the exec max. */
+const CP_EXEC_TIMEOUT = 300;
+
+/** Pod-side paths the sync-root-relative Reef file API cannot serve. */
+function needsExecTransfer(podPath: string): boolean {
+  return podPath.startsWith('/') || podPath === '~' || podPath.startsWith('~/');
+}
+
+function expandPodPath(podPath: string): string {
+  if (podPath === '~') return CP_POD_HOME;
+  if (podPath.startsWith('~/')) return `${CP_POD_HOME}/${podPath.slice(2)}`;
+  return podPath;
+}
+
+/** POSIX-shell single-quote of one argument. */
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function podDirname(path: string): string {
+  const index = path.lastIndexOf('/');
+  return index <= 0 ? '/' : path.slice(0, index);
+}
+
+async function execOrThrow(d: Deployments, id: string, argv: string[], what: string): Promise<void> {
+  const result = await api(what, () => d.exec(id, argv, { timeout: CP_EXEC_TIMEOUT }));
+  if (result.exitCode !== 0) {
+    const detail = (result.stderr || result.stdout).trim();
+    throw new CliError(`${what} failed on the agent (exit ${result.exitCode})${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+/** Upload via exec: mkdir -p, chunked base64 decode appends, chmod preserved. */
+async function cpUpViaExec(d: Deployments, id: string, localPath: string, podPath: string): Promise<void> {
+  const remote = expandPodPath(podPath);
+  const content = readFileSync(localPath);
+  let mode: number | undefined;
+  try {
+    mode = statSync(localPath).mode & 0o777;
+  } catch {
+    mode = undefined;
+  }
+  await execOrThrow(d, id, ['mkdir', '-p', podDirname(remote)], 'mkdir on agent');
+  for (let offset = 0, first = true; first || offset < content.length; first = false) {
+    const chunk = content.subarray(offset, offset + CP_EXEC_CHUNK_BYTES);
+    offset += chunk.length;
+    const redirect = first ? '>' : '>>';
+    await execOrThrow(
+      d,
+      id,
+      ['sh', '-c', `printf %s ${shQuote(chunk.toString('base64'))} | base64 -d ${redirect} ${shQuote(remote)}`],
+      'copy up',
+    );
+  }
+  if (mode !== undefined) {
+    await execOrThrow(d, id, ['chmod', mode.toString(8), remote], 'chmod on agent');
+  }
+}
+
+/** Download via exec: base64 the pod file into exec stdout, decode locally. */
+async function cpDownViaExec(d: Deployments, id: string, podPath: string, localPath: string): Promise<string> {
+  const remote = expandPodPath(podPath);
+  const result = await api('copy down', () =>
+    d.exec(id, ['sh', '-c', `base64 < ${shQuote(remote)}`], { timeout: CP_EXEC_TIMEOUT }));
+  if (result.exitCode !== 0) {
+    const detail = (result.stderr || result.stdout).trim();
+    throw new CliError(`copy down failed on the agent (exit ${result.exitCode})${detail ? `: ${detail}` : ''}`);
+  }
+  const content = Buffer.from(result.stdout.replace(/\s+/g, ''), 'base64');
+  const parent = dirname(localPath);
+  if (parent && parent !== '.') mkdirSync(parent, { recursive: true });
+  writeFileSync(localPath, content);
+  return localPath;
+}
+
 async function cmdCp(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args);
   if (parsed.help) return printHelp();
@@ -903,7 +1086,11 @@ async function cmdCp(ctx: CommandContext, args: string[]): Promise<void> {
   const { d } = await adopt(ctx);
   if (dst.agentRef) {
     const id = await resolveAgentRef(d, dst.agentRef);
-    await api('copy up', () => d.cpTo(id, src.path, dst.path));
+    if (needsExecTransfer(dst.path)) {
+      await cpUpViaExec(d, id, src.path, dst.path);
+    } else {
+      await api('copy up', () => d.cpTo(id, src.path, dst.path));
+    }
     let bytes = 0;
     try {
       bytes = statSync(src.path).size;
@@ -919,7 +1106,9 @@ async function cmdCp(ctx: CommandContext, args: string[]): Promise<void> {
   }
 
   const id = await resolveAgentRef(d, src.agentRef as string);
-  const destination = await api('copy down', () => d.cpFrom(id, src.path, dst.path));
+  const destination = needsExecTransfer(src.path)
+    ? await cpDownViaExec(d, id, src.path, dst.path)
+    : await api('copy down', () => d.cpFrom(id, src.path, dst.path));
   let bytes = 0;
   try {
     bytes = statSync(destination).size;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AGENT_EXEC_STDIN_MAX_BYTES,
   AGENT_FILE_MAX_BYTES,
   AGENT_FILE_WRITE_MAX_BYTES,
   AGENT_FILE_OPERATION_TIMEOUT_MS,
@@ -1020,6 +1021,84 @@ describe('HyperClaw agents SDK', () => {
     expect(result.exitCode).toBe(7);
     expect(result.stdout).toBe('preview\n');
     expect(result.stderr).toBe('warning\n');
+  });
+
+  it('exec forwards buffered stdin as base64 and preserves the result', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_exec_result',
+        ok: true,
+        exit_code: 0,
+        stdout: '5\n',
+        stderr: '',
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    const result = await agents.exec('agent-1', ['sh', '-c', 'cat | wc -c'], { stdin: 'hello' });
+
+    expect(JSON.parse(sockets[0]?.sent[0] ?? '')).toEqual({
+      command: ['sh', '-c', 'cat | wc -c'],
+      timeout: 30,
+      dry_run: false,
+      stdin: 'aGVsbG8=',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('5\n');
+  });
+
+  it('exec accepts Uint8Array stdin unchanged', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_exec_result',
+        ok: true,
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await agents.exec('agent-1', ['tee'], { stdin: new Uint8Array([0, 1, 254, 255]) });
+
+    // Standard (padded) base64 keeps binary bytes intact across the JSON frame.
+    expect(JSON.parse(sockets[0]?.sent[0] ?? '').stdin).toBe(
+      Buffer.from([0, 1, 254, 255]).toString('base64'),
+    );
+  });
+
+  it('exec rejects oversized stdin before token mint', async () => {
+    const post = vi.fn();
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(
+      agents.exec('agent-1', ['cat'], { stdin: new Uint8Array(AGENT_EXEC_STDIN_MAX_BYTES + 1) }),
+    ).rejects.toThrow(`${AGENT_EXEC_STDIN_MAX_BYTES}`);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('exec omits the stdin key when no stdin is given', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_exec_result',
+        ok: true,
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await agents.exec('agent-1', ['true']);
+
+    expect(JSON.parse(sockets[0]?.sent[0] ?? '')).toEqual({
+      command: ['true'],
+      timeout: 30,
+      dry_run: false,
+    });
   });
 
   it('exec wraps one-shot websocket connection failures', async () => {

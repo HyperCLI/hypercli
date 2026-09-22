@@ -348,6 +348,9 @@ export interface AgentExecResult {
   stderr: string;
 }
 
+/** Buffered exec stdin cap, mirrored by the backend exec protocol. */
+export const AGENT_EXEC_STDIN_MAX_BYTES = 262_144;
+
 export interface AgentMetricsResult {
   event: 'agent_metrics_result';
   ok: true;
@@ -1476,6 +1479,12 @@ export interface RuntimeAuthLoginOptions {
 export interface AgentExecOptions {
   timeout?: number;
   dryRun?: boolean;
+  /**
+   * Optional buffered stdin delivered to the command, then closed (stdin EOF).
+   * Omit on interactive callers; the pod command sees stdin attached only
+   * when this is set.
+   */
+  stdin?: string | Uint8Array;
 }
 
 export interface AgentFileEntry {
@@ -2062,6 +2071,19 @@ function decodeUtf8(content: Uint8Array): string {
 
 function encodeUtf8(content: string): Uint8Array {
   return new TextEncoder().encode(content);
+}
+
+function encodeBase64(data: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(data).toString('base64');
+  }
+  // Browser fallback: btoa over chunked binary string (avoids arg-limit blowups)
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    binary += String.fromCharCode(...data.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 function fileReadLimitError(path: string, maxBytes: number): Error {
@@ -6311,11 +6333,22 @@ export class Deployments {
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 300) {
       throw new Error('timeout must be an integer from 1 through 300');
     }
+    let stdin: string | undefined;
+    if (options.stdin !== undefined) {
+      const bytes = typeof options.stdin === 'string'
+        ? encodeUtf8(options.stdin)
+        : options.stdin;
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength > AGENT_EXEC_STDIN_MAX_BYTES) {
+        throw new Error(`stdin must be a string or Uint8Array of at most ${AGENT_EXEC_STDIN_MAX_BYTES} bytes`);
+      }
+      stdin = encodeBase64(bytes);
+    }
     const agentId = await this.agentIdFor(target);
     const payload: Record<string, unknown> = {
       command,
       timeout,
       dry_run: options.dryRun ?? false,
+      ...(stdin !== undefined ? { stdin } : {}),
     };
     return validateAgentExecResult(
       await this.oneShotAgentWebSocket(agentId, 'exec', payload, (timeout + 10) * 1_000),
