@@ -33,7 +33,7 @@
       ]
     },
     "agents": {
-      "tests": ["agents", "agents.chat"],
+      "tests": ["agents", "agents.chat", "agent-login"],
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
@@ -48,6 +48,7 @@
         { "argv": ["stop", "--help"] },
         { "argv": ["delete", "--help"] },
         { "argv": ["exec", "--help"] },
+        { "argv": ["login", "--help"] },
         { "argv": ["shell", "--help"] },
         { "argv": ["logs", "--help"] },
         { "argv": ["cp", "--help"] },

@@ -41,6 +41,7 @@ import {
 } from '@hypercli.com/sdk';
 import { parseCommandArgs, type ParsedCommand } from '../core/argv.js';
 import { installOpenClawAuthBridge } from '../core/auth-store.js';
+import { cmdAgentsLogin } from './agent-login.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
@@ -58,6 +59,7 @@ export const usage = [
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
   'hyper agents exec <id> [--] CMD [ARGS...]',
+  'hyper agents login <id> [--flow F] [--provider X] [--session SECS] [--key-stdin] [--from-host-creds]',
   'hyper agents shell <id>',
   'hyper agents logs <id> [-f|--follow] [-n LINES]',
   'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>)',
@@ -89,7 +91,7 @@ const ACP_RUNTIMES: ReadonlySet<string> = ACP_SET;
 
 const KNOWN_COMMANDS = new Set([
   'ls', 'list', 'status', 'wait', 'create', 'start', 'chat', 'stop', 'delete', 'exec',
-  'shell', 'logs', 'cp', 'activate', 'routines', 'set', ...HIDDEN,
+  'shell', 'logs', 'cp', 'activate', 'routines', 'set', 'login', ...HIDDEN,
 ]);
 
 const MANAGED_RUNTIMES: ReadonlySet<ManagedAgentRuntime> = new Set([
@@ -1669,6 +1671,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdArchiveRestore(ctx, rest, 'restore');
     case 'exec':
       return cmdExec(ctx, rest);
+    case 'login':
+      return cmdAgentsLogin(ctx, rest);
     case 'shell':
       return cmdShell(ctx, rest);
     case 'logs':
