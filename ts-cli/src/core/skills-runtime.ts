@@ -29,9 +29,16 @@ export interface BundledSkill extends SkillIndexEntry {
   markdown: string;
 }
 
-/** <pkg>/skills — works from both dist/core/ and src/core/ (tsx dev). */
+// The single-file image bundle lives in bin/ rather than dist/core/.
+// esbuild replaces this constant; normal package/dev builds use ../../skills/.
+declare const HYPERCLI_SKILLS_RELATIVE_PATH: string;
+
+/** Resolve the generated catalog relative to the installed CLI artifact. */
 export function skillsDir(): string {
-  return fileURLToPath(new URL('../../skills/', import.meta.url));
+  const relativePath = typeof HYPERCLI_SKILLS_RELATIVE_PATH === 'undefined'
+    ? '../../skills/'
+    : HYPERCLI_SKILLS_RELATIVE_PATH;
+  return fileURLToPath(new URL(relativePath, import.meta.url));
 }
 
 function isIndexEntry(value: unknown): value is SkillIndexEntry {

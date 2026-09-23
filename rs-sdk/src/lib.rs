@@ -29,7 +29,7 @@ pub use billing::{Balance, BillingClient, Transaction};
 pub use client::{
     DeploymentLogsSubscribeOptions, FileApiReadyOptions, HyperCliClient, HyperCliError,
     AGENT_FILE_READ_MAX_BYTES, AGENT_FILE_WRITE_MAX_BYTES, DEFAULT_HOSTNAME_SETTLE_DELAY,
-    DEFAULT_REQUEST_TIMEOUT,
+    DEFAULT_REQUEST_TIMEOUT, RUNNER_FILE_MAX_BYTES,
 };
 pub use config::{
     discover_agents_api_base, discover_agents_api_base_from,

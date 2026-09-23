@@ -6,8 +6,8 @@ FROM ${HYPER_ACP_BASE_IMAGE}
 ARG KIMI_CODE_VERSION=0.31.0
 
 USER root
-COPY --chown=node:node kimi-code/tui.toml /opt/hypercli-coding/kimi-tui.toml
-COPY --chmod=0755 kimi-code/entrypoint.sh /usr/local/bin/hypercli-coding-kimi-entrypoint
+COPY --chown=node:node kimi-code/tui.toml /opt/hypercli/share/runtime/kimi-tui.toml
+COPY --chmod=0755 kimi-code/entrypoint.sh /opt/hypercli/bin/kimi-entrypoint
 COPY --chmod=0755 kimi-code/runtime-auth.sh /usr/local/bin/hypercli-kimi-auth
 RUN export HOME=/root && \
     npm install --global --no-audit --no-fund \
@@ -15,7 +15,7 @@ RUN export HOME=/root && \
     ln -s hypercli-kimi-auth /usr/local/bin/hypercli-runtime-auth && \
     kimi --version && \
     kimi acp --help >/dev/null && \
-    printf '%s\n' kimi-code > /opt/hypercli-coding/runtime
+    printf '%s\n' kimi-code > /opt/hypercli/share/runtime/runtime
 
 LABEL org.opencontainers.image.title="HyperCLI Kimi Code Agent" \
       org.hypercli.coding_workspace="/home/node" \
@@ -28,5 +28,5 @@ ENV KIMI_CODE_HOME=/home/node/.kimi-code \
     HYPER_ACP_AGENT_ARGS=acp
 
 USER node
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hypercli-coding-kimi-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/kimi-entrypoint"]
 CMD ["sleep", "infinity"]

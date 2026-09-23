@@ -37,13 +37,13 @@ ARG GOOSE_VERSION=1.45.0
 
 USER root
 COPY --from=goose-fetch /out/goose /usr/local/bin/goose
-COPY --chown=node:node goose/config.yaml /opt/hypercli-coding/goose-config.yaml
-COPY --chown=node:node goose/provider.json /opt/hypercli-coding/goose-provider.json
-COPY --chmod=0755 goose/entrypoint.sh /usr/local/bin/hypercli-coding-goose-entrypoint
+COPY --chown=node:node goose/config.yaml /opt/hypercli/share/runtime/goose-config.yaml
+COPY --chown=node:node goose/provider.json /opt/hypercli/share/runtime/goose-provider.json
+COPY --chmod=0755 goose/entrypoint.sh /opt/hypercli/bin/goose-entrypoint
 RUN export HOME=/root && \
     goose --version && \
     goose acp --help >/dev/null && \
-    printf '%s\n' goose > /opt/hypercli-coding/runtime
+    printf '%s\n' goose > /opt/hypercli/share/runtime/runtime
 
 LABEL org.opencontainers.image.title="HyperCLI Goose Agent" \
       org.hypercli.coding_workspace="/home/node" \
@@ -57,5 +57,5 @@ ENV GOOSE_PATH_ROOT=/home/node/.goose \
     HYPER_ACP_AGENT_ARGS=acp
 
 USER node
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hypercli-coding-goose-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/goose-entrypoint"]
 CMD ["sleep", "infinity"]

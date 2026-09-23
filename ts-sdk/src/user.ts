@@ -13,6 +13,22 @@ export interface User {
   updatedAt?: string;
   userType?: string | null;
   meta?: string | null;
+  ui: UserUi;
+}
+
+/** Account-owned markdown projected to USER.md only by an explicit client action. */
+export interface UserUi {
+  profile?: string | null;
+}
+
+function userUi(meta: unknown): UserUi {
+  try {
+    const value = typeof meta === 'string' ? JSON.parse(meta) : meta;
+    const profile = value?.ui?.profile;
+    return typeof profile === 'string' || profile === null ? { profile } : {};
+  } catch {
+    return {};
+  }
 }
 
 export interface AuthMe {
@@ -42,6 +58,7 @@ export interface RuntimeIdentity {
 export interface UpdateUserOptions {
   name?: string;
   email?: string;
+  ui?: UserUi;
 }
 
 export interface UserProfileImage {
@@ -78,6 +95,7 @@ function userFromDict(data: any): User {
     updatedAt: data.updated_at || '',
     userType: data.user_type ?? null,
     meta: data.meta ?? null,
+    ui: userUi(data.meta),
   };
 }
 
@@ -154,6 +172,11 @@ export class UserAPI {
   async update(options: UpdateUserOptions): Promise<User> {
     const data = await this.http.patch('/api/user', options);
     return userFromDict(data);
+  }
+
+  /** Omitted profile is untouched; null explicitly clears it. Maximum 32768 characters. */
+  async updateProfile(profile: string | null): Promise<User> {
+    return this.update({ ui: { profile } });
   }
 
   async getProfileImage(): Promise<UserProfileImage> {

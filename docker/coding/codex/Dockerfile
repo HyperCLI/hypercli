@@ -7,7 +7,7 @@ ARG CODEX_VERSION=0.146.0
 ARG CODEX_ACP_VERSION=1.1.7
 
 USER root
-COPY --chmod=0755 codex/entrypoint.sh /usr/local/bin/hypercli-coding-codex-entrypoint
+COPY --chmod=0755 codex/entrypoint.sh /opt/hypercli/bin/codex-entrypoint
 COPY --chmod=0755 codex/runtime-auth.sh /usr/local/bin/hypercli-codex-auth
 RUN export HOME=/root && \
     npm install --global --no-audit --no-fund \
@@ -16,7 +16,7 @@ RUN export HOME=/root && \
     ln -s hypercli-codex-auth /usr/local/bin/hypercli-runtime-auth && \
     codex --version && \
     codex-acp --version && \
-    printf '%s\n' codex > /opt/hypercli-coding/runtime
+    printf '%s\n' codex > /opt/hypercli/share/runtime/runtime
 
 LABEL org.opencontainers.image.title="HyperCLI Codex Agent" \
       org.hypercli.coding_workspace="/home/node" \
@@ -29,5 +29,5 @@ ENV NO_BROWSER=1 \
     HYPER_ACP_AGENT_ARGS=
 
 USER node
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hypercli-coding-codex-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/codex-entrypoint"]
 CMD ["sleep", "infinity"]

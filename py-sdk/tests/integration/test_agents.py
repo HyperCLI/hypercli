@@ -11,6 +11,7 @@ from hypercli import (
     GooseAgent,
     HyperCLI,
     KimiCodeAgent,
+    PiAgent,
     OpenCodeAgent,
 )
 from hypercli.agents import (
@@ -19,6 +20,7 @@ from hypercli.agents import (
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
+    DEFAULT_PI_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
 )
 from hypercli.http import APIError
@@ -95,6 +97,7 @@ def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
             ClaudeCodeAgent,
         ),
         ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent),
+        ("create_pi", "pi", DEFAULT_PI_IMAGE, PiAgent),
         (
             "create_kimi_code",
             "kimi-code",

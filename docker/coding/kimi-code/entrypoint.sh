@@ -6,7 +6,7 @@ config=${config_dir}/tui.toml
 
 mkdir -p "${config_dir}"
 if [ ! -e "${config}" ] && [ ! -L "${config}" ]; then
-  cp /opt/hypercli-coding/kimi-tui.toml "${config}"
+  cp /opt/hypercli/share/runtime/kimi-tui.toml "${config}"
 fi
 
-exec /usr/local/bin/hypercli-coding-entrypoint "$@"
+exec /opt/hypercli/bin/entrypoint "$@"

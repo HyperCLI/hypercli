@@ -1,0 +1,21 @@
+{
+  "paths": [
+    {"input": "./notes//./a.txt", "normalized": "notes/a.txt"},
+    {"input": "notes\\a.txt", "normalized": "notes/a.txt"},
+    {"input": "././.hypercli/USER.md", "normalized": ".hypercli/USER.md"},
+    {"input": "notes/a.txt/", "normalized": "notes/a.txt"},
+    {"input": "résumé/🌍 #?.txt", "normalized": "résumé/🌍 #?.txt"},
+    {"input": "a%2Fb", "normalized": "a%2Fb"},
+    {"input": "%2e%2e/x", "normalized": "%2e%2e/x"},
+    {"input": "%252F", "normalized": "%252F"}
+  ],
+  "invalid_paths": ["/etc/file", "\\etc\\file", "C:/file", "C:file", "../file", "a/../file", "a\\..\\file", "a\u0000b"],
+  "bytes_hex": ["", "00ff80", "48656c6c6f20f09f8c8d"],
+  "text": [
+    {"hex": "efbbbf78", "decoded": "\ufeffx"},
+    {"hex": "ff78", "decoded": "\ufffdx"},
+    {"hex": "e282", "decoded": "\ufffd"}
+  ],
+  "error_statuses": [400, 404, 409, 413, 429, 501, 502, 503, 504],
+  "directory_shaped_json": "{\"type\":\"directory\",\"directories\":[],\"files\":[]}"
+}

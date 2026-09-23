@@ -2557,8 +2557,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
             "avatar_url": "https://cdn.example.test/prod/user-456/agent-123.png",
             "s3_key": "prod/user-456/agent-123.png",
         }
-        with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
-            agents_client.file_read(agent, ".openclaw")
+        assert agents_client.file_read(agent, ".openclaw") == '{"type":"directory","directories":[],"files":[]}'
         with pytest.raises(ValueError, match="sync root"):
             agents_client.files_list(agent, "/")
         with pytest.raises(ValueError, match="sync root"):

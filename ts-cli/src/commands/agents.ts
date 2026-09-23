@@ -54,7 +54,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--dry-run]',
+  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--dry-run]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
@@ -82,6 +82,7 @@ const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['codex', 'createCodex'],
   ['claude-code', 'createClaudeCode'],
   ['kimi-code', 'createKimiCode'],
+  ['pi', 'createPi'],
   ['buzz', 'createBuzzAgent'],
 ]);
 
@@ -89,7 +90,7 @@ const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
 const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro']);
 const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent']);
 /** CodingAgent family: chat rides the pod-side ACP bridge, never a gateway. */
-const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'buzz-agent']);
+const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz-agent']);
 const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
 const HERMES_RUNTIMES: ReadonlySet<string> = HERMES_SET;
 const ACP_RUNTIMES: ReadonlySet<string> = ACP_SET;

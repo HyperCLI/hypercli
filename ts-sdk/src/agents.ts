@@ -143,6 +143,7 @@ export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
 export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude:latest';
 export const DEFAULT_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-goose:latest';
 export const DEFAULT_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-kimi-code:latest';
+export const DEFAULT_PI_IMAGE = 'ghcr.io/hypercli/hypercli-pi:latest';
 export const DEFAULT_BUZZ_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-agent:latest';
 export const DEFAULT_BUZZ_OPENCODE_IMAGE = DEFAULT_OPENCODE_IMAGE;
 export const DEFAULT_BUZZ_CODEX_IMAGE = DEFAULT_CODEX_IMAGE;
@@ -159,6 +160,9 @@ export const DEFAULT_AGENT_RUNTIME_SCOPES = Object.freeze([
   'workspaces:*',
 ]) as readonly string[];
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
+export const DEFAULT_PI_ENV = Object.freeze({
+  HYPER_RUNTIME_HOME: `${DEFAULT_CODING_AGENT_SYNC_ROOT}/.pi/agent`,
+});
 export type ManagedAgentRuntime =
   | 'generic'
   | 'openclaw'
@@ -169,8 +173,9 @@ export type ManagedAgentRuntime =
   | 'codex'
   | 'claude-code'
   | 'goose'
-  | 'kimi-code';
-export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
+  | 'kimi-code'
+  | 'pi';
+export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' | 'pi'>;
 export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_OPENCODE_IMAGE,
@@ -178,19 +183,23 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
   'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
   goose: DEFAULT_GOOSE_IMAGE,
   'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
+  pi: DEFAULT_PI_IMAGE,
 };
 export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[] | null>> = {
   'buzz-agent': null,
   opencode: [
+    '.hypercli/USER.md', '.hypercli/SOUL.md',
     '.config/opencode',
     '.local/share/opencode',
     '.local/state/opencode',
     '.cache/opencode',
   ],
-  codex: ['.codex'],
-  'claude-code': ['.claude', '.claude.json'],
-  goose: ['.goose'],
-  'kimi-code': ['.kimi-code'],
+  codex: ['.codex', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  'claude-code': ['.claude', '.claude.json', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  goose: ['.goose', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  'kimi-code': ['.kimi-code', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  // Native agent state and pi-acp metadata (~/.pi/pi-acp).
+  pi: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
 };
 export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
@@ -199,6 +208,7 @@ export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntim
   'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
   goose: DEFAULT_BUZZ_GOOSE_IMAGE,
   'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+  pi: DEFAULT_PI_IMAGE,
 };
 const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   command: string;
@@ -233,6 +243,11 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   'kimi-code': {
     command: '/opt/hypercli/bin/kimi',
     args: ['acp'],
+    mcpCommand: '',
+  },
+  pi: {
+    command: '/opt/hypercli/bin/pi-acp',
+    args: [],
     mcpCommand: '',
   },
 };
@@ -1060,6 +1075,7 @@ export interface AgentUiAvatarMeta {
 }
 
 export interface AgentUiMeta {
+  description?: string | null;
   avatar?: AgentUiAvatarMeta | null;
 }
 
@@ -1177,6 +1193,7 @@ export interface LifecycleActionOptions {
 }
 
 export interface UpdateAgentOptions {
+  ui?: Pick<AgentUiMeta, 'description'>;
   name?: string;
   handle?: string | null;
   size?: string;
@@ -1550,6 +1567,18 @@ export interface AgentFileTokenResponse {
   expires_at: string;
 }
 
+type AgentFileAccess = { url: string; token: string } | { transport: 'runner' };
+/** Native control frames are deliberately bounded for prompt/markdown files. */
+export const RUNNER_FILE_MAX_BYTES = 262_144;
+
+function nativeFilePath(path: string): string {
+  if (!path || encodeUtf8(path).byteLength > 4096 || /[\\:\0]/.test(path)
+    || path.split('/').some((part) => !part || part === '.' || part === '..' || /[ .]$/.test(part))) {
+    throw new Error('Runner file paths must be portable paths relative to the assignment root');
+  }
+  return path;
+}
+
 /** Public file access is Reef-backed and scoped to the agent's configured sync root. */
 export const OPENCLAW_SYNC_ROOT = '/home/node';
 /** Convenience path for callers that explicitly want the conventional OpenClaw workspace. */
@@ -1557,23 +1586,18 @@ export const OPENCLAW_WORKSPACE_PREFIX = '.openclaw/workspace';
 
 function resolveSyncRootFilePath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
-  if (normalized.startsWith('/')) {
+  if (normalized.startsWith('/') || /^[a-z]:/i.test(normalized) || normalized.includes('\0')) {
     throw new Error('agent file paths must be relative to the sync root');
   }
-  const rel = stripRelPrefix(normalized);
-  if (rel.split('/').includes('..')) {
+  const parts = normalized.split('/');
+  if (parts.includes('..')) {
     throw new Error('agent file paths must stay within the sync root');
   }
-  return rel === '.' ? '' : rel;
+  return parts.filter((part) => part && part !== '.').join('/');
 }
 
 function normalizeWritableBackendFilePath(path: string): string {
   return resolveSyncRootFilePath(path);
-}
-
-/** Strip leading `./` segments and slashes without eating a dotfile's dot. */
-function stripRelPrefix(path: string): string {
-  return path.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
 }
 
 function isUuidRef(value: string): boolean {
@@ -1617,7 +1641,7 @@ function agentAccessIdentityFromData(
   };
 }
 
-/** Reef-backed file access scoped to an agent's configured sync root. */
+/** Backend-discovered file access scoped to an agent's retained storage root. */
 export class AgentFiles {
   constructor(
     private readonly agent: Agent,
@@ -3272,6 +3296,12 @@ const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
     logoutCommand: null,
     nativeMethods: [],
   },
+  pi: {
+    agentCommand: ['pi-acp'],
+    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'pi-acp', '--json'],
+    logoutCommand: null,
+    nativeMethods: [],
+  },
 };
 
 function shellQuote(value: string): string {
@@ -3638,6 +3668,14 @@ export class KimiCodeAgent extends CodingAgent {
   }
 }
 
+export class PiAgent extends CodingAgent {
+  declare public readonly runtime: 'pi';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi;
+  static override fromDict(data: AgentHydrationData): PiAgent {
+    return new PiAgent(agentStateFromDict(data));
+  }
+}
+
 const CODING_AGENT_CLASSES = {
   'buzz-agent': BuzzAgent,
   opencode: OpenCodeAgent,
@@ -3645,6 +3683,7 @@ const CODING_AGENT_CLASSES = {
   'claude-code': ClaudeCodeAgent,
   goose: GooseAgent,
   'kimi-code': KimiCodeAgent,
+  pi: PiAgent,
 } as const;
 
 export class HermesAgent extends Agent {
@@ -4803,6 +4842,8 @@ export class Deployments {
       agent = GooseAgent.fromDict(data);
     } else if (data.runtime === 'kimi-code') {
       agent = KimiCodeAgent.fromDict(data);
+    } else if (data.runtime === 'pi') {
+      agent = PiAgent.fromDict(data);
     } else if (data.runtime === 'openclaw-pro' || isOpenClawProHydrationData(data)) {
       agent = OpenClawProAgent.fromDict(data);
     } else if (isOpenClawHydrationData(data)) {
@@ -4911,10 +4952,25 @@ export class Deployments {
     return response;
   }
 
-  private async reefFileAccess(agentId: string): Promise<{ url: string; token: string }> {
-    const payload = await this.agentHttp.post<AgentFileTokenResponse>(
+  private async fileAccess(agentId: string): Promise<AgentFileAccess> {
+    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: 'process'; max_bytes: number }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
+      undefined,
+      { redirect: 'error' },
     );
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('Backend returned an invalid Agent file token response');
+    }
+    const fields = 'transport' in payload ? ['transport', 'executor', 'max_bytes'] : ['url', 'token', 'expires_at'];
+    if (Object.keys(payload).length !== fields.length || fields.some((key) => !(key in payload))) {
+      throw new Error('Backend returned an invalid Agent file token response');
+    }
+    if ('transport' in payload) {
+      if (payload.transport !== 'runner' || payload.executor !== 'process' || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
+        throw new Error('Backend returned an invalid runner file transport');
+      }
+      return { transport: 'runner' };
+    }
     const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
     const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
     let url: URL;
@@ -4940,10 +4996,11 @@ export class Deployments {
   }
 
   private async fetchReef(
-    access: { url: string; token: string },
+    access: AgentFileAccess,
     path: string,
     init: RequestInit = {},
   ): Promise<Response> {
+    if ('transport' in access) throw new APIError(501, 'Runner file listing and deletion are not supported');
     const headers = new Headers(init.headers ?? {});
     headers.set('Authorization', `Bearer ${access.token}`);
     const response = await fetch(`${access.url}${path}`, {
@@ -5301,6 +5358,13 @@ export class Deployments {
 
   async createKimiCode(options: CodingAgentCreateOptions = {}): Promise<KimiCodeAgent> {
     return await this.createCodingAgent('kimi-code', options) as KimiCodeAgent;
+  }
+
+  async createPi(options: CodingAgentCreateOptions = {}): Promise<PiAgent> {
+    return await this.createCodingAgent('pi', {
+      ...options,
+      env: { ...DEFAULT_PI_ENV, ...(options.env ?? {}) },
+    }) as PiAgent;
   }
 
   async budget(): Promise<Record<string, any>> {
@@ -5966,6 +6030,7 @@ export class Deployments {
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
     if (options.runtime !== undefined) body.runtime = options.runtime;
     if (options.resetImage !== undefined) body.reset_image = options.resetImage;
+    if (options.ui !== undefined) body.ui = options.ui;
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
@@ -6382,7 +6447,8 @@ export class Deployments {
   }
 
   /**
-   * Wait until an Agent's Reef file API is actually serving.
+   * Wait until the Agent file API is serving. Native assignments use a bounded
+   * file read; hosted assignments use the Reef readiness checks below.
    *
    * Probing the Agent hostname alone cannot answer this. The Agent domain is a
    * wildcard, so a host with no route still resolves and the edge answers a
@@ -6417,10 +6483,22 @@ export class Deployments {
         );
       }
       try {
-        await this.filesList(agentId, '');
+        try {
+          await this.filesList(agentId, '');
+        } catch (error) {
+          if (!(error instanceof APIError) || error.statusCode !== 501
+            || error.detail !== 'Runner file listing and deletion are not supported') throw error;
+          // Discovery, not the Agent projection, established a native transport.
+          try {
+            await this.fileReadBytes(agentId, '.hypercli/USER.md');
+          } catch (readError) {
+            if (!(readError instanceof APIError) || readError.statusCode !== 404 || readError.detail !== 'Runner file not_found') throw readError;
+          }
+        }
         streak += 1;
         if (streak >= consecutive) return;
       } catch (error) {
+        if (error instanceof APIError && error.statusCode === 501) throw error;
         lastError = error;
         streak = 0;
       }
@@ -6437,7 +6515,7 @@ export class Deployments {
   async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
     const resolvedPath = resolveSyncRootFilePath(path);
     const agentId = await this.agentIdFor(target);
-    const access = await this.reefFileAccess(agentId);
+    const access = await this.fileAccess(agentId);
     const suffix = resolvedPath ? `/${encodeFilePath(resolvedPath)}` : '';
     const response = await this.fetchReef(access, `/directories${suffix}`);
     const payload = (await response.json()) as AgentDirectoryListing;
@@ -6455,7 +6533,28 @@ export class Deployments {
     const resolvedPath = resolveSyncRootFilePath(path);
     if (!resolvedPath) throw new Error('agent file path is required');
     const agentId = await this.agentIdFor(target);
-    const access = await this.reefFileAccess(agentId);
+    const access = await this.fileAccess(agentId);
+    if ('transport' in access) {
+      const maxBytes = Math.min(options?.maxBytes ?? RUNNER_FILE_MAX_BYTES, RUNNER_FILE_MAX_BYTES);
+      if (!Number.isInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a nonnegative integer');
+      const payload = await this.agentHttp.post<{ content_base64: string }>(
+        `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/read`,
+        { path: nativeFilePath(resolvedPath), max_bytes: maxBytes },
+        { signal: options?.signal, redirect: 'error' },
+      );
+      if (typeof payload?.content_base64 !== 'string' || payload.content_base64.length > Math.ceil(maxBytes / 3) * 4
+        || payload.content_base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload.content_base64)) {
+        throw new Error('Invalid runner file response');
+      }
+      let content: Uint8Array;
+      try {
+        content = Uint8Array.from(atob(payload.content_base64), (character) => character.charCodeAt(0));
+      } catch {
+        throw new Error('Invalid runner file response');
+      }
+      if (content.byteLength > maxBytes) throw fileReadLimitError(path, maxBytes);
+      return { content };
+    }
     const response = await this.fetchReef(access, `/files/${encodeFilePath(resolvedPath)}`, {
       signal: options?.signal,
     });
@@ -6464,18 +6563,6 @@ export class Deployments {
       : Math.min(options.maxBytes, AGENT_FILE_MAX_BYTES);
     const bytes = await readResponseBytes(response, path, maxBytes);
     const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      try {
-        const payload = JSON.parse(decodeUtf8(bytes));
-        if (isDirectoryListingPayload(payload)) {
-          throw new Error(`Path is a directory: ${path}. Use filesList(path) instead.`);
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('Path is a directory:')) {
-          throw error;
-        }
-      }
-    }
     return { content: bytes, mimeType: contentType || undefined };
   }
 
@@ -6492,15 +6579,17 @@ export class Deployments {
     path: string,
     options?: AgentFileReadOptions,
   ): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(target, path, options));
+    // ignoreBOM means treat the BOM as content, matching Python/Rust UTF-8 readers.
+    return new TextDecoder('utf-8', { ignoreBOM: true }).decode(await this.fileReadBytes(target, path, options));
   }
 
   /**
-   * Write bytes directly to a sync-root-relative path through Reef.
+   * Write bytes to a relative path through Reef or the native runner transport.
    *
    * Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`,
    * the Cloudflare edge request-body cap on the agent hostname). Larger data
    * should be split across files or synced via the agent's own tooling.
+   * Native runner files are limited to 256 KiB under the retained assignment root.
    */
   async fileWriteBytes(
     target: Agent | string,
@@ -6519,7 +6608,15 @@ export class Deployments {
       );
     }
     const agentId = await this.agentIdFor(target);
-    const access = await this.reefFileAccess(agentId);
+    const access = await this.fileAccess(agentId);
+    if ('transport' in access) {
+      if (bytes.byteLength > RUNNER_FILE_MAX_BYTES) throw new Error(`Runner files are limited to ${RUNNER_FILE_MAX_BYTES} bytes`);
+      const receipt = await this.agentHttp.post<{ ok: boolean }>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/write`, {
+        path: nativeFilePath(path), content_base64: encodeBase64(bytes),
+      }, { retries: 1, redirect: 'error' }); // Neither retry nor redirect may replay file content.
+      if (receipt?.ok !== true) throw new Error('Invalid runner file receipt');
+      return receipt;
+    }
     const response = await this.fetchReef(access, `/files/${encodedPath}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
@@ -6549,7 +6646,7 @@ export class Deployments {
     if (options.recursive) params.set('recursive', 'true');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const agentId = await this.agentIdFor(target);
-    const access = await this.reefFileAccess(agentId);
+    const access = await this.fileAccess(agentId);
     const response = await this.fetchReef(
       access,
       `/files/${encodedPath}${suffix}`,

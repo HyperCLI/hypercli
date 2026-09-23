@@ -366,7 +366,7 @@ const agent = await client.deployments.createOpenClaw({
 
 ## Hosted Coding Agents
 
-The SDK has typed launch helpers for six non-OpenClaw runtimes:
+The SDK has typed launch helpers for seven hosted coding runtimes:
 
 | Runtime value | TypeScript helper | Generic default image |
 | --- | --- | --- |
@@ -376,6 +376,7 @@ The SDK has typed launch helpers for six non-OpenClaw runtimes:
 | `claude-code` | `createClaudeCode()` | `ghcr.io/hypercli/hypercli-claude:latest` |
 | `goose` | `createGoose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
 | `kimi-code` | `createKimiCode()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+| `pi` | `createPi()` | `ghcr.io/hypercli/hypercli-pi:latest` |
 
 These runtimes have no OpenClaw gateway and no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
