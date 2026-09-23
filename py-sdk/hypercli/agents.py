@@ -577,6 +577,28 @@ def _route_config_body(route: dict) -> dict:
     return body
 
 
+def _build_runner_target(runner: dict) -> dict:
+    """Normalize self-hosted runner placement for POST /deployments.
+
+    Shape: ``{"tags": [...], "runner_id": "..."}`` — tags match runner tags
+    for the same owner; ``runner_id`` pins one runner (docs/future/RUNNER.md).
+    """
+
+    if not isinstance(runner, dict):
+        raise TypeError("runner must be a dict like {'tags': [...], 'runner_id': '...'}")
+    unknown = sorted(set(runner) - {"tags", "runner_id"})
+    if unknown:
+        raise ValueError("runner supports only tags and runner_id: " + ", ".join(unknown))
+    tags = runner.get("tags")
+    runner_id = runner.get("runner_id")
+    body: dict[str, Any] = {}
+    if tags is not None:
+        body["tags"] = [str(tag) for tag in tags]
+    if runner_id is not None:
+        body["runner_id"] = str(runner_id)
+    return body
+
+
 def _routes_config_body(routes: dict | None) -> dict:
     return {str(name): _route_config_body(dict(route)) for name, route in (routes or {}).items()}
 
@@ -1386,6 +1408,9 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "disconnected_at": _parse_dt(data.get("disconnected_at")),
         "agent_slot_id": data.get("agent_slot_id"),
         "cluster_id": data.get("cluster_id"),
+        "runner": copy.deepcopy(data.get("runner"))
+        if isinstance(data.get("runner"), dict)
+        else None,
         "launch_epoch": int(data.get("launch_epoch", 0) or 0),
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
@@ -2137,6 +2162,7 @@ class Agent:
     disconnected_at: Optional[datetime] = None
     agent_slot_id: Optional[str] = None
     cluster_id: Optional[str] = None
+    runner: Optional[dict] = None
     launch_epoch: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -3593,6 +3619,7 @@ class Deployments:
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
         meta_ui: dict = None,
+        runner: dict = None,
         dry_run: bool = False,
     ) -> Agent:
         """Submit provisioning for a new agent and return its admission snapshot.
@@ -3652,6 +3679,8 @@ class Deployments:
             body["meta"] = {"ui": copy.deepcopy(meta_ui)}
         if tags:
             body["tags"] = list(tags)
+        if runner is not None:
+            body["runner"] = _build_runner_target(runner)
         data = self._post(AGENTS_API_PREFIX, json=body)
         agent = self._hydrate_agent(data)
         agent.__dict__["_submitted_launch_config"] = complete_launch
@@ -3922,6 +3951,7 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
         buzz_enabled: bool = False,
         buzz: BuzzLaunchConfig | None = None,
+        runner: dict | None = None,
     ) -> Agent:
         """Create a coding runtime with its runtime-specific include default.
 
@@ -4008,6 +4038,7 @@ class Deployments:
                 list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
             ),
             meta_ui=meta_ui,
+            runner=runner,
             dry_run=dry_run,
         )
 

@@ -1137,6 +1137,16 @@ export type OpenClawModelProviderPatch =
   & Partial<Omit<OpenClawModelProviderConfig, 'baseUrl'>>
   & Pick<OpenClawModelProviderConfig, 'baseUrl'>;
 
+/**
+ * Self-hosted runner placement for POST /deployments
+ * (docs/future/RUNNER.md). Tags match runner tags for the same owner;
+ * runnerId pins one runner when tags are ambiguous.
+ */
+export interface RunnerTargetOptions {
+  tags?: string[];
+  runnerId?: string | null;
+}
+
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   handle?: string | null;
@@ -1144,6 +1154,7 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
   config?: Record<string, any>;
   meta?: AgentMeta | null;
   tags?: string[];
+  runner?: RunnerTargetOptions | null;
   dryRun?: boolean;
   runtime?: ManagedAgentRuntime;
 }
@@ -1772,6 +1783,8 @@ export interface AgentStateFields {
   disconnectedAt?: Date | null;
   agentSlotId?: string | null;
   clusterId?: string | null;
+  /** Pinned self-hosted runner placement, when the Agent deployment is runner-bound. */
+  runner?: { tags: string[]; runnerId: string | null } | null;
   launchEpoch?: number;
   createdAt?: Date | null;
   updatedAt?: Date | null;
@@ -1813,6 +1826,7 @@ export interface AgentHydrationData {
   disconnected_at?: string | null;
   agent_slot_id?: string | null;
   cluster_id?: string | null;
+  runner?: { tags?: string[]; runner_id?: string | null } | null;
   launch_epoch?: number;
   created_at?: string | null;
   updated_at?: string | null;
@@ -2319,6 +2333,12 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     disconnectedAt: parseDate(data.disconnected_at),
     agentSlotId: typeof data.agent_slot_id === 'string' ? data.agent_slot_id : null,
     clusterId: data.cluster_id ?? null,
+    runner: isPlainRecord(data.runner)
+      ? {
+          tags: Array.isArray(data.runner.tags) ? data.runner.tags.map(String) : [],
+          runnerId: typeof data.runner.runner_id === 'string' ? data.runner.runner_id : null,
+        }
+      : null,
     launchEpoch: data.launch_epoch ?? 0,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
@@ -2936,6 +2956,7 @@ export class Agent {
   public readonly disconnectedAt: Date | null;
   public readonly agentSlotId: string | null;
   public readonly clusterId: string | null;
+  public readonly runner: { tags: string[]; runnerId: string | null } | null;
   public readonly launchEpoch: number;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
@@ -2977,6 +2998,7 @@ export class Agent {
     this.disconnectedAt = fields.disconnectedAt ?? null;
     this.agentSlotId = fields.agentSlotId ?? null;
     this.clusterId = fields.clusterId ?? null;
+    this.runner = fields.runner ?? null;
     this.launchEpoch = fields.launchEpoch ?? 0;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
@@ -4952,6 +4974,12 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
+    if (options.runner) {
+      body.runner = {
+        ...(options.runner.tags ? { tags: [...options.runner.tags] } : {}),
+        ...(options.runner.runnerId ? { runner_id: options.runner.runnerId } : {}),
+      };
+    }
     if (options.runtime) body.runtime = options.runtime;
 
     const data = await this.agentHttp.post<AgentHydrationData>(

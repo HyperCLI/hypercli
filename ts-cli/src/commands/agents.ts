@@ -54,7 +54,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--dry-run]',
+  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--dry-run]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
@@ -463,6 +463,8 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     size: { type: 'string' },
     env: { type: 'string', multiple: true },
     param: { type: 'string', multiple: true },
+    'runner-tags': { type: 'string' },
+    'runner-id': { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
   });
   if (parsed.help) return printHelp();
@@ -500,12 +502,27 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   // The SDK create contract has no plan field; --plan rides as a visible tag.
   const tags = plan ? [`plan:${plan}`] : undefined;
 
+  // Self-hosted runner placement (docs/future/RUNNER.md): --runner-tags is a
+  // comma list; --runner-id pins one runner when tags are ambiguous.
+  const runnerTagsRaw = str(parsed, 'runner-tags');
+  const runnerId = str(parsed, 'runner-id') || undefined;
+  const runnerTags = runnerTagsRaw
+    ? runnerTagsRaw.split(',').map((tag) => tag.trim()).filter(Boolean)
+    : [];
+  if (runnerTagsRaw && runnerTags.length === 0) {
+    throw new UsageError('--runner-tags must name at least one tag when given');
+  }
+  const runner = (runnerTags.length > 0 || runnerId)
+    ? { ...(runnerTags.length > 0 ? { tags: runnerTags } : {}), ...(runnerId ? { runnerId } : {}) }
+    : undefined;
+
   const mergedEnv = { ...env, ...(runtime === 'openclaw' ? params : {}) };
   const configBag = runtime === 'openclaw' ? {} : { ...(model ? { model } : {}), ...params };
   const payload: Record<string, unknown> = {
     name: agentName,
     ...(size ? { size } : {}),
     ...(tags ? { tags } : {}),
+    ...(runner ? { runner } : {}),
     ...(Object.keys(mergedEnv).length > 0 ? { env: mergedEnv } : {}),
     ...(Object.keys(configBag).length > 0 ? { config: configBag } : {}),
     dryRun,
@@ -530,7 +547,9 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
       ['state', created.state],
     ]),
   );
-  ctx.output.info(`start it with: hyper agents start ${shortId(created.id)}`);
+  ctx.output.info(runner
+    ? 'runner launch requested'
+    : `start it with: hyper agents start ${shortId(created.id)}`);
 }
 
 // ---------------------------------------------------------------------------
