@@ -1455,6 +1455,16 @@ impl Default for CompleteDeploymentLaunchConfig {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RunnerTargetSpec {
+    /// Runner tags that must match (superset) for the same owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Pins one runner when tags are ambiguous.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_id: Option<String>,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CreateDeploymentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1466,6 +1476,9 @@ pub struct CreateDeploymentRequest {
     pub size: Option<AgentSize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Self-hosted runner placement (docs/future/RUNNER.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<RunnerTargetSpec>,
     #[serde(flatten)]
     pub launch_config: CompleteDeploymentLaunchConfig,
     #[serde(default)]
@@ -1491,6 +1504,7 @@ impl CreateDeploymentRequest {
             runtime,
             size: None,
             tags: Vec::new(),
+            runner: None,
             launch_config: CompleteDeploymentLaunchConfig::default(),
             dry_run: false,
         };
@@ -1847,6 +1861,9 @@ pub struct Deployment {
     pub disconnected_at: Option<String>,
     #[serde(default)]
     pub agent_slot_id: Option<String>,
+    /// Pinned self-hosted runner placement, when the Agent deployment is runner-bound.
+    #[serde(default)]
+    pub runner: Option<RunnerTargetSpec>,
     #[serde(default)]
     pub secret_names: Vec<String>,
     #[serde(default)]

@@ -97,7 +97,7 @@ pub use types::{
     HyperAgentSubscriptionTrial, HyperAgentSubscriptionUser, HyperAgentTokenMetrics,
     HyperAgentTypeCatalog, HyperAgentTypePlan, HyperAgentTypePreset, HyperAgentUsageHistory,
     HyperAgentUsageHistoryEntry, HyperAgentUsageSummary, HyperAgentX402CheckoutResponse,
-    JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig,
+    JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig, RunnerTargetSpec,
     RuntimeIdentity, SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
     BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
