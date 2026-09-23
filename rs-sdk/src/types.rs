@@ -18,6 +18,7 @@ pub enum ManagedRuntime {
     ClaudeCode,
     Goose,
     KimiCode,
+    Pi,
 }
 
 impl ManagedRuntime {
@@ -30,6 +31,7 @@ impl ManagedRuntime {
             Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-claude:latest"),
             Self::Goose => Some("ghcr.io/hypercli/hypercli-goose:latest"),
             Self::KimiCode => Some("ghcr.io/hypercli/hypercli-kimi-code:latest"),
+            Self::Pi => Some("ghcr.io/hypercli/hypercli-pi:latest"),
             Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
         }
     }
@@ -51,6 +53,7 @@ impl ManagedRuntime {
             Self::ClaudeCode => Some(&[".claude", ".claude.json"]),
             Self::Goose => Some(&[".goose"]),
             Self::KimiCode => Some(&[".kimi-code"]),
+            Self::Pi => Some(&[".pi"]),
             Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
         }
     }
@@ -1189,6 +1192,7 @@ impl BuzzLaunchConfig {
             ManagedRuntime::ClaudeCode => ("/opt/hypercli/bin/claude-agent-acp", "", ""),
             ManagedRuntime::Goose => ("/usr/local/bin/goose", "acp", ""),
             ManagedRuntime::KimiCode => ("/opt/hypercli/bin/kimi", "acp", ""),
+            ManagedRuntime::Pi => ("/opt/hypercli/bin/pi-acp", "", ""),
             _ => return Err(BuzzLaunchError::UnsupportedRuntime),
         };
 
@@ -2832,6 +2836,7 @@ mod tests {
             ("claude-code", ManagedRuntime::ClaudeCode),
             ("goose", ManagedRuntime::Goose),
             ("kimi-code", ManagedRuntime::KimiCode),
+            ("pi", ManagedRuntime::Pi),
         ] {
             let contract = &golden["runtimes"][runtime_name];
             let mut request = CreateDeploymentRequest::new(runtime);
@@ -2904,6 +2909,7 @@ mod tests {
             (ManagedRuntime::ClaudeCode, vec![".claude", ".claude.json"]),
             (ManagedRuntime::Goose, vec![".goose"]),
             (ManagedRuntime::KimiCode, vec![".kimi-code"]),
+            (ManagedRuntime::Pi, vec![".pi"]),
         ] {
             let mut request = CreateDeploymentRequest::new(runtime);
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")

@@ -129,6 +129,7 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "JobListPage",
         "JobMetrics",
         "KimiCodeAgent",
+        "PiAgent",
         "KeysAPI",
         "LogStream",
         "Model",

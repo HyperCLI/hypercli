@@ -9,19 +9,15 @@ linked below remain the detailed CLI reference.
 
 ## Managed-image discovery
 
-Managed coding-agent images install a pinned HyperCLI checkout at
-`/opt/hypercli`. The canonical skill bodies are available at
+Managed coding-agent images install the canonical skill bodies at
 `/opt/hypercli/skills/<name>/SKILL.md`.
 
-The image exposes those skills to supported harnesses through symlinks:
-
-- `$HOME/.buzz/.agents/skills/<name>` for agent skill discovery
-- `$HOME/.buzz/.claude/skills/<name>` as Claude compatibility aliases
-
-`$HOME/SKILLS.md` is a human-readable index, symlinked from
-`/opt/hypercli-buzz/SKILLS.md`. It helps agents and operators find the
-installed guides, but runtimes do not automatically load it as instructions.
+OpenCode reads this directory through its generated config. Images do not
+create workspace skill symlinks or a static Markdown skill index.
 Open the relevant `SKILL.md` before using that command family.
+
+`hyper skills list` and `hyper skills export <dir>` use the generated JSON
+catalog installed alongside these skill directories and work offline.
 
 ## Canonical catalog
 
@@ -42,6 +38,5 @@ Use the current harness for ordinary reasoning and `hypercli-flows` for managed
 image and video generation. Lower-level inference and workflow surfaces are
 outside the shipped skill set.
 
-The repository paths above are canonical. Image symlinks are discovery aids;
-do not maintain separate copies of a skill body in a runtime-specific
-directory.
+The repository paths above are canonical. Do not maintain separate copies of
+a skill body in a runtime-specific directory.

@@ -7,7 +7,7 @@ ARG CLAUDE_CODE_VERSION=2.1.207
 ARG CLAUDE_ACP_VERSION=0.59.0
 
 USER root
-COPY --chmod=0755 claude/entrypoint.sh /usr/local/bin/hypercli-coding-claude-entrypoint
+COPY --chmod=0755 claude/entrypoint.sh /opt/hypercli/bin/claude-entrypoint
 COPY --chmod=0755 claude/runtime-auth.sh /usr/local/bin/hypercli-claude-auth
 RUN export HOME=/root && \
     npm install --global --no-audit --no-fund \
@@ -16,7 +16,7 @@ RUN export HOME=/root && \
     ln -s hypercli-claude-auth /usr/local/bin/hypercli-runtime-auth && \
     claude --version && \
     claude-agent-acp --version && \
-    printf '%s\n' claude-code > /opt/hypercli-coding/runtime
+    printf '%s\n' claude-code > /opt/hypercli/share/runtime/runtime
 
 LABEL org.opencontainers.image.title="HyperCLI Claude Code Agent" \
       org.hypercli.coding_workspace="/home/node" \
@@ -28,5 +28,5 @@ ENV HYPER_ACP_AGENT_COMMAND=/usr/local/bin/claude-agent-acp \
     HYPER_ACP_AGENT_ARGS=
 
 USER node
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/hypercli-coding-claude-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/claude-entrypoint"]
 CMD ["sleep", "infinity"]

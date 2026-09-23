@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::blocking::{Client as HttpClient, RequestBuilder};
 use reqwest::Client as AsyncHttpClient;
@@ -143,6 +144,30 @@ struct FileToken {
     expires_at: String,
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum FileAccess {
+    Reef(FileToken),
+    Runner(RunnerFileToken),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunnerFileToken {
+    transport: String,
+    executor: String,
+    max_bytes: usize,
+}
+
+impl FileAccess {
+    fn reef(self) -> Result<FileToken, HyperCliError> {
+        match self {
+            Self::Reef(token) => Ok(token),
+            Self::Runner(_) => Err(HyperCliError::Status(StatusCode::NOT_IMPLEMENTED)),
+        }
+    }
+}
+
 pub struct HyperCliClient {
     pub(crate) api_base: Url,
     pub(crate) api_key: secrecy::SecretString,
@@ -158,6 +183,12 @@ pub enum HyperCliError {
     Transport(String),
     #[error("HyperCLI returned HTTP {0}")]
     Status(StatusCode),
+    /// A fixed runner-file error code. Arbitrary upstream detail is never echoed.
+    #[error("HyperCLI file operation returned HTTP {status}: {code}")]
+    FileStatus {
+        status: StatusCode,
+        code: &'static str,
+    },
     #[error("HyperCLI returned an invalid response: {0}")]
     InvalidResponse(String),
 }
@@ -166,6 +197,7 @@ impl HyperCliError {
     pub fn status(&self) -> Option<StatusCode> {
         match self {
             Self::Status(status) => Some(*status),
+            Self::FileStatus { status, .. } => Some(*status),
             _ => None,
         }
     }
@@ -344,7 +376,9 @@ fn encode_path_key(key: &str) -> String {
 /// bodies above 100 MB. Enforced client-side so oversized writes fail fast
 /// with a clear error instead of an opaque edge `413 Payload Too Large`.
 pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
-pub const AGENT_FILE_READ_MAX_BYTES: usize = 20 * 1024 * 1024;
+pub const AGENT_FILE_READ_MAX_BYTES: usize = 250 * 1024 * 1024;
+/// Decoded byte cap for the existing native-runner control transport.
+pub const RUNNER_FILE_MAX_BYTES: usize = 262_144;
 
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
@@ -376,20 +410,101 @@ fn reef_base_url(token: &FileToken) -> Result<Url, HyperCliError> {
 /// root itself with an empty path. File operations always name a file.
 fn reef_relative_path(path: &str, allow_root: bool) -> Result<String, HyperCliError> {
     let path = path.replace('\\', "/");
-    let rejected = if path.is_empty() {
-        !allow_root
-    } else {
-        path.starts_with('/')
-            || path
-                .split('/')
-                .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-    };
-    if rejected {
+    let drive = path.as_bytes().get(1) == Some(&b':')
+        && path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic);
+    if path.starts_with('/') || drive || path.contains('\0') || path.split('/').any(|s| s == "..") {
         return Err(HyperCliError::InvalidResponse(
             "file path must be sync-root relative".into(),
         ));
     }
+    let path = path
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    if path.is_empty() && !allow_root {
+        return Err(HyperCliError::InvalidResponse(
+            "agent file path is required".into(),
+        ));
+    }
     Ok(path)
+}
+
+fn native_file_path(path: &str) -> Result<(), HyperCliError> {
+    if path.is_empty()
+        || path.len() > 4096
+        || path.contains(['\\', ':', '\0'])
+        || path
+            .split('/')
+            .any(|s| s.is_empty() || s == "." || s == ".." || s.ends_with([' ', '.']))
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "Runner file paths must be portable paths relative to the assignment root".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn bounded_file_body(
+    response: reqwest::blocking::Response,
+    limit: usize,
+) -> Result<Vec<u8>, HyperCliError> {
+    if !response.status().is_success() {
+        let status = response.status();
+        let mut body = Vec::new();
+        // Only fixed native codes are exposed, never token/content-bearing error bodies.
+        if response.take(4097).read_to_end(&mut body).is_ok() && body.len() <= 4096 {
+            let payload: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+            let code = match payload["detail"].as_str() {
+                Some("Runner file not_found") => Some("not_found"),
+                Some("Runner file invalid_path") => Some("invalid_path"),
+                Some("Runner file not_supported") => Some("not_supported"),
+                Some("Runner file unavailable") => Some("unavailable"),
+                Some("Runner file too_large") => Some("too_large"),
+                Some("Runner file io_error") => Some("io_error"),
+                _ => None,
+            };
+            if let Some(code) = code {
+                return Err(HyperCliError::FileStatus { status, code });
+            }
+        }
+        return Err(HyperCliError::Status(status));
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > limit as u64)
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "File response exceeds byte limit".into(),
+        ));
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| {
+            HyperCliError::Transport(
+                "File response interrupted; write outcome may be unknown".into(),
+            )
+        })?;
+    if bytes.len() > limit {
+        return Err(HyperCliError::InvalidResponse(
+            "File response exceeds byte limit".into(),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// File operations never replay requests or include content/credentials in traces/errors.
+fn file_json<T: DeserializeOwned>(
+    builder: RequestBuilder,
+    limit: usize,
+) -> Result<T, HyperCliError> {
+    let response = builder.send().map_err(|_| {
+        HyperCliError::Transport("File request failed; write outcome may be unknown".into())
+    })?;
+    serde_json::from_slice(&bounded_file_body(response, limit)?)
+        .map_err(|_| HyperCliError::InvalidResponse("Invalid file response".into()))
 }
 
 fn encode_reef_path(path: &str) -> String {
@@ -2027,19 +2142,30 @@ impl HyperCliClient {
         self.send_json("update_deployment", "PATCH", &url, request_trace, builder)
     }
 
-    /// Mint one short-lived Reef credential for an agent's retained file
-    /// volume. The token is single-purpose and never surfaced to callers.
-    fn deployment_file_token(&self, deployment_id: &str) -> Result<FileToken, HyperCliError> {
+    /// Resolve the authoritative file transport. Credentials stay internal.
+    fn deployment_file_token(&self, deployment_id: &str) -> Result<FileAccess, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/files/token"));
-        self.send_json(
-            "deployment_file_token",
-            "POST",
-            &url,
-            None,
+        let access: FileAccess = file_json(
             self.http
                 .post(&url)
                 .bearer_auth(self.api_key.expose_secret()),
-        )
+            16_384,
+        )?;
+        match &access {
+            FileAccess::Reef(token) => {
+                reef_base_url(token)?;
+            }
+            FileAccess::Runner(token)
+                if token.transport == "runner"
+                    && token.executor == "process"
+                    && token.max_bytes == RUNNER_FILE_MAX_BYTES => {}
+            FileAccess::Runner(_) => {
+                return Err(HyperCliError::InvalidResponse(
+                    "Invalid runner file transport".into(),
+                ))
+            }
+        }
+        Ok(access)
     }
 
     /// List one sync-root-relative directory through the agent's retained Reef
@@ -2052,8 +2178,9 @@ impl HyperCliClient {
         deployment_id: &str,
         path: &str,
     ) -> Result<Vec<AgentFileEntry>, HyperCliError> {
-        let token = self.deployment_file_token(deployment_id)?;
-        let (url, path) = reef_directory_url(&token, path)?;
+        let path = reef_relative_path(path, true)?;
+        let token = self.deployment_file_token(deployment_id)?.reef()?;
+        let (url, path) = reef_directory_url(&token, &path)?;
         let listing: AgentDirectoryListing = self.send_json(
             "list_deployment_files",
             "GET",
@@ -2075,29 +2202,61 @@ impl HyperCliClient {
         path: &str,
         max_bytes: usize,
     ) -> Result<Vec<u8>, HyperCliError> {
-        let token = self.deployment_file_token(deployment_id)?;
-        let (url, _path) = reef_file_url(&token, path)?;
+        let path = reef_relative_path(path, false)?;
+        let access = self.deployment_file_token(deployment_id)?;
+        if matches!(access, FileAccess::Runner(_)) {
+            native_file_path(&path)?;
+            let limit = max_bytes.min(RUNNER_FILE_MAX_BYTES);
+            #[derive(Deserialize)]
+            struct Content {
+                content_base64: String,
+            }
+            let payload: Content = file_json(
+                self.http
+                    .post(self.endpoint(&format!("deployments/{deployment_id}/files/read")))
+                    .bearer_auth(self.api_key.expose_secret())
+                    .json(&json!({"path":path, "max_bytes":limit})),
+                4 * RUNNER_FILE_MAX_BYTES.div_ceil(3) + 1024,
+            )?;
+            if payload.content_base64.len() > 4 * limit.div_ceil(3) {
+                return Err(HyperCliError::InvalidResponse(
+                    "Invalid runner file response".into(),
+                ));
+            }
+            let bytes = STANDARD.decode(payload.content_base64).map_err(|_| {
+                HyperCliError::InvalidResponse("Invalid runner file response".into())
+            })?;
+            if bytes.len() > limit {
+                return Err(HyperCliError::InvalidResponse(
+                    "Invalid runner file response".into(),
+                ));
+            }
+            return Ok(bytes);
+        }
+        let token = access.reef()?;
+        let (url, _path) = reef_file_url(&token, &path)?;
         let response = self
             .http
             .get(url.as_str())
             .bearer_auth(token.token)
             .send()
-            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(HyperCliError::Status(status));
-        }
-        let bytes = response
-            .bytes()
-            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
-        let limit = max_bytes.min(AGENT_FILE_READ_MAX_BYTES);
-        if bytes.len() > limit {
-            return Err(HyperCliError::InvalidResponse(format!(
-                "agent file reads are limited to {} MiB",
-                limit / 1024 / 1024
-            )));
-        }
-        Ok(bytes.to_vec())
+            .map_err(|_| HyperCliError::Transport("File read request failed".into()))?;
+        bounded_file_body(response, max_bytes.min(AGENT_FILE_READ_MAX_BYTES))
+    }
+
+    /// Read UTF-8 text through the same discovery/byte path, replacing invalid UTF-8.
+    pub fn read_deployment_file(
+        &self,
+        deployment_id: &str,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<String, HyperCliError> {
+        Ok(String::from_utf8_lossy(&self.read_deployment_file_bytes(
+            deployment_id,
+            path,
+            max_bytes,
+        )?)
+        .into_owned())
     }
 
     /// Wait until an agent's Reef file API is actually serving.
@@ -2125,7 +2284,24 @@ impl HyperCliClient {
         options: FileApiReadyOptions,
     ) -> Result<(), HyperCliError> {
         self.wait_file_api_ready_with(deployment_id, options, || {
-            self.list_deployment_files(deployment_id, "").map(|_| ())
+            match self.list_deployment_files(deployment_id, "") {
+                Err(HyperCliError::Status(StatusCode::NOT_IMPLEMENTED)) => {
+                    // Native transport has no list operation. Do not infer placement.
+                    match self.read_deployment_file_bytes(
+                        deployment_id,
+                        ".hypercli/USER.md",
+                        RUNNER_FILE_MAX_BYTES,
+                    ) {
+                        Ok(_)
+                        | Err(HyperCliError::FileStatus {
+                            status: StatusCode::NOT_FOUND,
+                            code: "not_found",
+                        }) => Ok(()),
+                        Err(error) => Err(error),
+                    }
+                }
+                result => result.map(|_| ()),
+            }
         })
     }
 
@@ -2160,6 +2336,9 @@ impl HyperCliClient {
                     }
                 }
                 Err(error) => {
+                    if error.status() == Some(StatusCode::NOT_IMPLEMENTED) {
+                        return Err(error);
+                    }
                     last_error = Some(error);
                     streak = 0;
                 }
@@ -2178,14 +2357,13 @@ impl HyperCliClient {
         }
     }
 
-    /// Write a file through the managed agent file API without placing its
-    /// content in argv, query strings, or HTTP traces. Paths are deliberately
-    /// restricted to simple workspace-relative segments and always use Reef.
+    /// Write bytes through the backend-selected Reef or native runner transport.
+    /// Content is never placed in argv, query strings, or HTTP traces.
     ///
     /// Per-file writes are limited to 100 MiB
     /// ([`AGENT_FILE_WRITE_MAX_BYTES`], the Cloudflare edge request-body cap
-    /// on the agent hostname). Larger data should be split across files or
-    /// synced via the agent's own tooling.
+    /// on the agent hostname). Native runner writes are limited to 256 KiB.
+    /// Requests are never automatically replayed after an uncertain outcome.
     pub fn put_deployment_file(
         &self,
         deployment_id: &str,
@@ -2198,19 +2376,58 @@ impl HyperCliClient {
                 AGENT_FILE_WRITE_MAX_BYTES / 1024 / 1024
             )));
         }
-        let token = self.deployment_file_token(deployment_id)?;
-        let (url, path) = reef_file_url(&token, path)?;
-        self.send_json(
-            "put_deployment_file",
-            "PUT",
-            url.as_str(),
-            Some(json!({"path":path,"size":content.len(),"content":"<omitted>"})),
+        let path = reef_relative_path(path, false)?;
+        let access = self.deployment_file_token(deployment_id)?;
+        if matches!(access, FileAccess::Runner(_)) {
+            native_file_path(&path)?;
+            if content.len() > RUNNER_FILE_MAX_BYTES {
+                return Err(HyperCliError::InvalidResponse(
+                    "Runner files are limited to 262144 bytes".into(),
+                ));
+            }
+            #[derive(Deserialize)]
+            struct Receipt {
+                ok: bool,
+            }
+            let receipt: Receipt = file_json(
+                self.http
+                    .post(self.endpoint(&format!("deployments/{deployment_id}/files/write")))
+                    .bearer_auth(self.api_key.expose_secret())
+                    .json(&json!({"path":path, "content_base64":STANDARD.encode(content)})),
+                4096,
+            )?;
+            if !receipt.ok {
+                return Err(HyperCliError::InvalidResponse(
+                    "Invalid runner file receipt".into(),
+                ));
+            }
+            return Ok(DeploymentFileWriteResponse {
+                status: "ok".into(),
+                path,
+                size: content.len() as u64,
+                target: String::new(),
+            });
+        }
+        let token = access.reef()?;
+        let (url, _path) = reef_file_url(&token, &path)?;
+        file_json(
             self.http
                 .put(url.as_str())
                 .bearer_auth(token.token)
                 .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
                 .body(content.to_vec()),
+            16_384,
         )
+    }
+
+    /// Write UTF-8 text using the same transport as `put_deployment_file`.
+    pub fn put_deployment_file_text(
+        &self,
+        deployment_id: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
+        self.put_deployment_file(deployment_id, path, content.as_bytes())
     }
 
     /// Upload raw image bytes to a deployment's durable public profile-image
@@ -2965,7 +3182,7 @@ impl HyperCliError {
     fn outcome(&self) -> &'static str {
         match self {
             Self::Transport(_) => "transport_error",
-            Self::Status(_) => "http_error",
+            Self::Status(_) | Self::FileStatus { .. } => "http_error",
             Self::InvalidResponse(_) => "decode_error",
         }
     }
@@ -3108,6 +3325,10 @@ fn append_trace(path: &Path, event: &impl Serialize) {
         let _ = file.write_all(b"\n");
     }
 }
+
+#[cfg(test)]
+#[path = "file_transport_tests.rs"]
+mod file_transport_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1639,7 +1639,7 @@ describe('HyperClaw agents SDK', () => {
     expect(content).toBe('hello');
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
-    await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
+    expect(JSON.parse(await agents.fileRead('agent-1', '.openclaw')).type).toBe('directory');
     await expect(
       agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_WRITE_MAX_BYTES + 1)),
     ).rejects.toThrow('100 MiB');
@@ -1647,7 +1647,7 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked')).rejects.toThrow('sync root');
     await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
     expect(post).toHaveBeenCalledTimes(7);
-    expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token');
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token', undefined, { redirect: 'error' });
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('/deployments/'))).toBe(true);
   });
 

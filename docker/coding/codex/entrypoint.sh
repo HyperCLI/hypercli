@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 
-exec /usr/local/bin/hypercli-coding-entrypoint "$@"
+exec /opt/hypercli/bin/entrypoint "$@"

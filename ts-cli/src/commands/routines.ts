@@ -50,6 +50,7 @@ const ACP_RUNTIMES: ReadonlySet<string> = new Set([
   'claude-code',
   'goose',
   'kimi-code',
+  'pi',
 ]);
 
 function printHelp(): void {

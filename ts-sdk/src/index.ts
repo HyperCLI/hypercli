@@ -117,6 +117,8 @@ export {
 } from './voice-transcription-session.js';
 
 // User API
+export { projectManagedContext, MANAGED_CONTEXT_PATHS, type ManagedContext, type ManagedContextFileResult } from './managed-context.js';
+export type { UserUi, UpdateUserOptions } from './user.js';
 export {
   UserAPI,
   isRuntimeAgent,
@@ -250,6 +252,8 @@ export {
   DEFAULT_CLAUDE_CODE_IMAGE,
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
+  DEFAULT_PI_IMAGE,
+  DEFAULT_PI_ENV,
   DEFAULT_BUZZ_OPENCODE_IMAGE,
   DEFAULT_BUZZ_CODEX_IMAGE,
   DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -273,6 +277,7 @@ export {
   ClaudeCodeAgent,
   GooseAgent,
   KimiCodeAgent,
+  PiAgent,
   HermesAgent,
   RuntimeAuthClient,
   RuntimeLoginSession,

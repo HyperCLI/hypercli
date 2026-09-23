@@ -73,7 +73,7 @@ const DESCRIPTION_MIN = 16;
  *   goose: coding/init.sh:74-83 mirrors skills into .goose/skills and
  *     coding/goose/test.py:61,92 asserts that link
  *   codex, claude-code: coding/init.sh:74-83 mirrors .codex/.claude skills
- * kimi-code and generic have no verified default: they require --dir.
+ * kimi-code, pi and generic have no verified default: they require --dir.
  */
 const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
   openclaw: '.openclaw/skills',
@@ -102,6 +102,7 @@ const SYNC_ROOT_BY_RUNTIME: Readonly<Record<string, string>> = {
   'claude-code': '/home/node',
   goose: '/home/node',
   'kimi-code': '/home/node',
+  pi: '/home/node',
 };
 
 function truncate(text: string, max: number): string {

@@ -4,6 +4,7 @@ import {
   BuzzAgent,
   ClaudeCodeAgent,
   CodexAgent,
+  CodingAgent,
   DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_BUZZ_AGENT_IMAGE,
   DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -18,12 +19,15 @@ import {
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
+  DEFAULT_PI_IMAGE,
+  DEFAULT_PI_ENV,
   DEFAULT_BUZZ_RUST_LOG,
   buildPermissionsJson,
   Deployments,
   GooseAgent,
   KimiCodeAgent,
   OpenCodeAgent,
+  PiAgent,
 } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 
@@ -56,7 +60,7 @@ const buzzGolden = JSON.parse(readFileSync(
   }>;
 };
 
-function response(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code') {
+function response(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' | 'pi') {
   return {
     id: `${runtime}-1`,
     user_id: 'user-1',
@@ -74,6 +78,7 @@ describe('coding agents', () => {
       'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
       goose: DEFAULT_GOOSE_IMAGE,
       'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
+      pi: DEFAULT_PI_IMAGE,
     });
     expect(DEFAULT_BUZZ_CODING_AGENT_IMAGES).toEqual({
       'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
@@ -82,6 +87,7 @@ describe('coding agents', () => {
       'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
       goose: DEFAULT_BUZZ_GOOSE_IMAGE,
       'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+      pi: DEFAULT_PI_IMAGE,
     });
     expect(DEFAULT_BUZZ_CODING_AGENT_IMAGES).toEqual(DEFAULT_CODING_AGENT_IMAGES);
   });
@@ -89,15 +95,17 @@ describe('coding agents', () => {
   it.each([
     ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, undefined, []],
     ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent, [
+      '.hypercli/USER.md', '.hypercli/SOUL.md',
       '.config/opencode',
       '.local/share/opencode',
       '.local/state/opencode',
       '.cache/opencode',
     ], undefined],
-    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent, ['.codex'], undefined],
-    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent, ['.claude', '.claude.json'], undefined],
-    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent, ['.goose'], undefined],
-    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent, ['.kimi-code'], undefined],
+    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent, ['.codex', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
+    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent, ['.claude', '.claude.json', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
+    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent, ['.goose', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
+    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent, ['.kimi-code', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
+    ['createPi', 'pi', DEFAULT_PI_IMAGE, PiAgent, ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
   ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass, syncInclude, syncExclude) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
@@ -119,6 +127,7 @@ describe('coding agents', () => {
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
     }), { retries: 1 });
     const expectedEnv: Record<string, string> = {
+      ...(runtime === 'pi' ? DEFAULT_PI_ENV : {}),
       HYPER_WORKSPACES_BOOT_SYNC: '1',
       HYPER_WORKSPACES_DIR: '/home/node/shared',
       HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -664,6 +673,76 @@ describe('coding agents', () => {
     });
 
     expect(post.mock.calls[0][1].size).toBe('medium');
+  });
+
+  it('hydrates Pi through fromDict, create, get, and list', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const data = { ...response('pi'), id: agentId };
+    const get = vi.fn().mockResolvedValueOnce(data).mockResolvedValueOnce({ items: [data] });
+    const post = vi.fn().mockResolvedValue(data);
+    const deployments = new Deployments(
+      { get, post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const agents = [
+      PiAgent.fromDict(data),
+      await deployments.create({ runtime: 'pi', image: DEFAULT_PI_IMAGE }),
+      await deployments.get(agentId),
+      ...(await deployments.list()),
+    ];
+    for (const agent of agents) {
+      expect(agent).toBeInstanceOf(PiAgent);
+      expect(agent).toBeInstanceOf(CodingAgent);
+      expect(agent.runtime).toBe('pi');
+    }
+    expect(get.mock.calls.map(([path]) => path)).toEqual([
+      `/deployments/${agentId}`, '/deployments',
+    ]);
+  });
+
+  it('preserves Pi image, command, and native persistence overrides', async () => {
+    const post = vi.fn().mockResolvedValue(response('pi'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createPi();
+    expect(post.mock.calls[0][1]).toMatchObject({
+      image: 'ghcr.io/hypercli/hypercli-pi:latest',
+      command: ['/usr/local/bin/hyper-acp'],
+      env: { HYPER_RUNTIME_HOME: '/home/node/.pi/agent' },
+      sync_root: '/home/node',
+      sync_include: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+    });
+    expect(PiAgent.defaultSyncInclude).toEqual(['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md']);
+    await deployments.createPi({
+      image: 'registry.example.test/pi:custom',
+      command: ['/custom/hyper-acp'],
+      env: { PI_CODING_AGENT_DIR: '/home/node/custom-pi' },
+      syncInclude: ['custom-pi', 'AGENTS.md'],
+    });
+    expect(post.mock.calls[1][1]).toMatchObject({
+      runtime: 'pi',
+      image: 'registry.example.test/pi:custom',
+      command: ['/custom/hyper-acp'],
+      env: { PI_CODING_AGENT_DIR: '/home/node/custom-pi' },
+      sync_include: ['custom-pi', 'AGENTS.md'],
+    });
+  });
+
+  it('uses ordinary pi-acp for inherited runtime auth', async () => {
+    const agent = PiAgent.fromDict(response('pi'));
+    const exec = vi.spyOn(agent, 'exec').mockResolvedValue({
+      exitCode: 0, stdout: '{}', stderr: '',
+    });
+    await agent.auth.status();
+    expect(exec.mock.calls[0][0]).toEqual([
+      'hyper-acp', 'plugin', 'models', '--agent-command', 'pi-acp', '--json',
+    ]);
   });
 
   it('hydrates coding runtimes returned by get', async () => {

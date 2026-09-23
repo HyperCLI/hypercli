@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import asyncio
+import base64
+import binascii
 import copy
 import inspect
 import json
@@ -63,12 +65,15 @@ DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude:latest"
 DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
 DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
+DEFAULT_PI_IMAGE = "ghcr.io/hypercli/hypercli-pi:latest"
+DEFAULT_PI_ENV = {"HYPER_RUNTIME_HOME": "/home/node/.pi/agent"}
 DEFAULT_BUZZ_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-buzz-agent:latest"
 DEFAULT_BUZZ_OPENCODE_IMAGE = DEFAULT_OPENCODE_IMAGE
 DEFAULT_BUZZ_CODEX_IMAGE = DEFAULT_CODEX_IMAGE
 DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = DEFAULT_CLAUDE_CODE_IMAGE
 DEFAULT_BUZZ_GOOSE_IMAGE = DEFAULT_GOOSE_IMAGE
 DEFAULT_BUZZ_KIMI_CODE_IMAGE = DEFAULT_KIMI_CODE_IMAGE
+DEFAULT_BUZZ_PI_IMAGE = DEFAULT_PI_IMAGE
 
 
 def _new_application_secret() -> str:
@@ -148,6 +153,7 @@ DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 DEFAULT_HERMES_AGENT_SYNC_ROOT = "/home/hermes"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
+RUNNER_FILE_MAX_BYTES = 262_144
 # Reef file writes traverse the Cloudflare-proxied agent hostname
 # (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
 # above 100 MB. Enforced client-side so oversized writes fail fast with a
@@ -229,6 +235,7 @@ ManagedAgentRuntime = Literal[
     "claude-code",
     "goose",
     "kimi-code",
+    "pi",
 ]
 AgentSize = Literal["small", "medium", "large"]
 _AGENT_SIZES = frozenset({"small", "medium", "large"})
@@ -240,7 +247,7 @@ def _parse_agent_size(value: object, *, field_name: str) -> AgentSize:
     return cast(AgentSize, value)
 
 
-CodingAgentRuntime = Literal["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code"]
+CodingAgentRuntime = Literal["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code", "pi"]
 
 DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
@@ -249,19 +256,22 @@ DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
     "goose": DEFAULT_GOOSE_IMAGE,
     "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
+    "pi": DEFAULT_PI_IMAGE,
 }
 DEFAULT_CODING_AGENT_SYNC_INCLUDES: dict[CodingAgentRuntime, tuple[str, ...] | None] = {
     "buzz-agent": None,
     "opencode": (
+        ".hypercli/USER.md", ".hypercli/SOUL.md",
         ".config/opencode",
         ".local/share/opencode",
         ".local/state/opencode",
         ".cache/opencode",
     ),
-    "codex": (".codex",),
-    "claude-code": (".claude", ".claude.json"),
-    "goose": (".goose",),
-    "kimi-code": (".kimi-code",),
+    "codex": (".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"),
+    "claude-code": (".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"),
+    "goose": (".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"),
+    "kimi-code": (".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"),
+    "pi": (".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"),
 }
 DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
@@ -270,6 +280,7 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
     "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
     "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+    "pi": DEFAULT_BUZZ_PI_IMAGE,
 }
 
 
@@ -306,6 +317,7 @@ _BUZZ_RUNTIME_SPECS: dict[CodingAgentRuntime, _BuzzRuntimeLaunchSpec] = {
     ),
     "goose": _BuzzRuntimeLaunchSpec("/usr/local/bin/goose", ("acp",)),
     "kimi-code": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/kimi", ("acp",)),
+    "pi": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/pi-acp"),
 }
 DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
@@ -448,7 +460,7 @@ class BuzzLaunchConfig:
         return secrets
 
 
-# Public file access is one Reef-backed, sync-root-relative API. S3 is reserved
+# Public file access uses backend discovery for Reef or native runner transport. S3 is reserved
 # for archive/restore internals and gateway RPCs remain available through the
 # explicit gateway client instead of being multiplexed into these methods.
 OPENCLAW_SYNC_ROOT = "/home/node"
@@ -457,20 +469,15 @@ OPENCLAW_SYNC_ROOT = "/home/node"
 OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace"
 
 
-def strip_rel_prefix(path: str) -> str:
-    """Strip leading `./` segments and slashes without eating a dotfile's dot."""
-    return re.sub(r"^/+", "", re.sub(r"^(?:\./)+", "", path))
-
-
 def resolve_sync_root_file_path(path: str) -> str:
     """Normalize one path relative to the Agent's configured Reef sync root."""
     normalized = path.replace("\\", "/")
-    if normalized.startswith("/"):
+    if normalized.startswith("/") or re.match(r"^[a-zA-Z]:", normalized) or "\0" in normalized:
         raise ValueError("agent file paths must be relative to the sync root")
-    rel = strip_rel_prefix(normalized)
-    if ".." in rel.replace("\\", "/").split("/"):
+    parts = normalized.split("/")
+    if ".." in parts:
         raise ValueError("agent file paths must stay within the sync root")
-    return "" if rel == "." else rel
+    return "/".join(part for part in parts if part not in {"", "."})
 
 
 def normalize_writable_backend_file_path(path: str) -> str:
@@ -478,8 +485,17 @@ def normalize_writable_backend_file_path(path: str) -> str:
     return resolve_sync_root_file_path(path)
 
 
+def _native_file_path(path: str) -> str:
+    if (not path or len(path.encode("utf-8")) > 4096
+            or any(c in path for c in ("\\", ":", "\0"))
+            or any(part in {"", ".", ".."} or part.endswith((" ", "."))
+                   for part in path.split("/"))):
+        raise ValueError("Runner file paths must be portable paths relative to the assignment root")
+    return path
+
+
 class AgentFiles:
-    """Reef-backed file access scoped to an agent's configured sync root."""
+    """Backend-discovered file access scoped to an agent's retained storage root."""
 
     def __init__(
         self,
@@ -1742,6 +1758,13 @@ class RuntimeAuthClient:
             ),
             "logout": None,
         },
+        "pi": {
+            "agent": ("pi-acp",),
+            "status": (
+                "hyper-acp", "plugin", "models", "--agent-command", "pi-acp", "--json",
+            ),
+            "logout": None,
+        },
     }
 
     def __init__(self, agent: "CodingAgent"):
@@ -2463,6 +2486,13 @@ class KimiCodeAgent(CodingAgent):
     default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["kimi-code"]
 
 
+@dataclass
+class PiAgent(CodingAgent):
+    """Pi runtime hosted behind the ordinary Pi ACP adapter."""
+
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["pi"]
+
+
 _CODING_AGENT_CLASSES: dict[CodingAgentRuntime, type[CodingAgent]] = {
     "buzz-agent": BuzzAgent,
     "opencode": OpenCodeAgent,
@@ -2470,6 +2500,7 @@ _CODING_AGENT_CLASSES: dict[CodingAgentRuntime, type[CodingAgent]] = {
     "claude-code": ClaudeCodeAgent,
     "goose": GooseAgent,
     "kimi-code": KimiCodeAgent,
+    "pi": PiAgent,
 }
 
 
@@ -3264,6 +3295,8 @@ class Deployments:
             agent = GooseAgent.from_dict(data)
         elif runtime == "kimi-code":
             agent = KimiCodeAgent.from_dict(data)
+        elif runtime == "pi":
+            agent = PiAgent.from_dict(data)
         elif runtime == "hermes-agent" or _is_hermes_agent_data(data):
             agent = HermesAgent.from_dict(data)
         elif runtime == "openclaw-pro" or _is_openclaw_pro_agent_data(data):
@@ -3467,7 +3500,21 @@ class Deployments:
                     "not serve. Waiting longer cannot help."
                 )
             try:
-                self.files_list(agent_id, "")
+                try:
+                    self.files_list(agent_id, "")
+                except APIError as exc:
+                    if exc.status_code != 501 or exc.detail != "Runner file listing and deletion are not supported":
+                        raise
+                    try:
+                        self.file_read_bytes(agent_id, ".hypercli/USER.md")
+                    except APIError as read_error:
+                        if read_error.status_code != 404 or read_error.detail != "Runner file not_found":
+                            raise
+            except APIError as exc:
+                if exc.status_code == 501:
+                    raise
+                last_error = exc
+                streak = 0
             except Exception as exc:  # noqa: BLE001 - any read failure resets the streak
                 last_error = exc
                 streak = 0
@@ -3484,10 +3531,21 @@ class Deployments:
                 )
             time.sleep(poll_seconds)
 
-    def _reef_file_access(self, agent_id: str) -> tuple[str, str]:
-        """Mint one fresh file credential and validate its direct Reef locator."""
+    def _file_access(self, agent_id: str) -> tuple[str, str] | Literal["runner"]:
+        """Resolve the authoritative transport; never infer it from placement or DNS."""
         payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/token")
         if not isinstance(payload, dict):
+            raise ValueError("Backend returned an invalid Agent file token response")
+        fields = {"transport", "executor", "max_bytes"} if "transport" in payload else {"url", "token", "expires_at"}
+        if set(payload) != fields:
+            raise ValueError("Backend returned an invalid Agent file token response")
+        if "transport" in payload:
+            if (payload.get("transport") != "runner" or payload.get("executor") != "process"
+                    or type(payload.get("max_bytes")) is not int
+                    or payload["max_bytes"] != RUNNER_FILE_MAX_BYTES):
+                raise ValueError("Backend returned an invalid runner file transport")
+            return "runner"
+        if any(not isinstance(payload.get(key), str) for key in ("url", "token", "expires_at")):
             raise ValueError("Backend returned an invalid Agent file token response")
         url = str(payload.get("url") or "").rstrip("/")
         token = str(payload.get("token") or "").strip()
@@ -3506,6 +3564,12 @@ class Deployments:
         ):
             raise ValueError("Backend returned an invalid Agent file token response")
         return url, token
+
+    def _reef_file_access(self, agent_id: str) -> tuple[str, str]:
+        access = self._file_access(agent_id)
+        if access == "runner":
+            raise APIError(501, "Runner file listing and deletion are not supported")
+        return access
 
     @staticmethod
     def _reef_headers(token: str, *, content_type: str | None = None) -> dict[str, str]:
@@ -4081,6 +4145,14 @@ class Deployments:
         """Create a hosted Kimi Code ACP runtime using Moonshot upstream."""
         return self._create_coding_agent(
             runtime="kimi-code",
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_pi(self, **kwargs: Any) -> PiAgent:
+        """Create a hosted Pi ACP runtime with persisted native and adapter state."""
+        kwargs["env"] = {**DEFAULT_PI_ENV, **(kwargs.get("env") or {})}
+        return self._create_coding_agent(
+            runtime="pi",
             **kwargs,
         )  # type: ignore[return-value]
 
@@ -5128,12 +5200,27 @@ class Deployments:
         ]
 
     def file_read_bytes_with_metadata(self, pod: Agent | str, path: str) -> dict[str, Any]:
-        """Read a sync-root-relative file directly from Reef."""
+        """Read a root-relative file through the backend-selected transport."""
         agent_id = self._agent_id_for_target(pod)
         resolved_path = resolve_sync_root_file_path(path)
         if not resolved_path:
             raise ValueError("agent file path is required")
-        reef_url, token = self._reef_file_access(agent_id)
+        access = self._file_access(agent_id)
+        if access == "runner":
+            payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/read", json={
+                "path": _native_file_path(resolved_path), "max_bytes": RUNNER_FILE_MAX_BYTES,
+            })
+            encoded = payload.get("content_base64") if isinstance(payload, dict) else None
+            if not isinstance(encoded, str) or len(encoded) > 4 * ((RUNNER_FILE_MAX_BYTES + 2) // 3):
+                raise ValueError("Invalid runner file response")
+            try:
+                content_bytes = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                raise ValueError("Invalid runner file response") from None
+            if len(content_bytes) > RUNNER_FILE_MAX_BYTES:
+                raise ValueError("Invalid runner file response")
+            return {"content": content_bytes, "mime_type": None}
+        reef_url, token = access
         content = bytearray()
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             with client.stream(
@@ -5155,17 +5242,10 @@ class Deployments:
                             f"{AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB"
                         )
         content_bytes = bytes(content)
-        if "application/json" in content_type.lower():
-            try:
-                payload = json.loads(content_bytes.decode(errors="replace"))
-            except Exception:
-                payload = None
-            if _is_directory_listing_payload(payload):
-                raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
         return {"content": content_bytes, "mime_type": content_type or None}
 
     def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
-        """Read a sync-root-relative file through the Reef file API."""
+        """Read exact bytes through the backend-selected retained-storage transport."""
         return self.file_read_bytes_with_metadata(pod, path).get("content", b"")
 
     def file_read(self, pod: Agent | str, path: str) -> str:
@@ -5173,12 +5253,12 @@ class Deployments:
         return self.file_read_bytes(pod, path).decode(errors="replace")
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
-        """Write bytes directly to a sync-root-relative path through Reef.
+        """Write bytes to a root-relative path through the discovered transport.
 
         Per-file writes are limited to 100 MiB (``AGENT_FILE_WRITE_MAX_BYTES``,
         the Cloudflare edge request-body cap on the agent hostname). Larger
         data should be split across files or synced via the agent's own
-        tooling.
+        tooling. Native runner writes are limited to 256 KiB.
         """
         path = normalize_writable_backend_file_path(path)
         if not path:
@@ -5191,7 +5271,18 @@ class Deployments:
                 "split larger data or sync it via the agent's own tooling"
             )
         agent_id = self._agent_id_for_target(pod)
-        reef_url, token = self._reef_file_access(agent_id)
+        access = self._file_access(agent_id)
+        if access == "runner":
+            if len(content) > RUNNER_FILE_MAX_BYTES:
+                raise ValueError(f"Runner files are limited to {RUNNER_FILE_MAX_BYTES} bytes")
+            # _post performs exactly one HTTP attempt; an uncertain write is never replayed.
+            receipt = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/write", json={
+                "path": _native_file_path(path), "content_base64": base64.b64encode(content).decode("ascii"),
+            })
+            if not isinstance(receipt, dict) or receipt.get("ok") is not True:
+                raise ValueError("Invalid runner file receipt")
+            return receipt
+        reef_url, token = access
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.put(
                 f"{reef_url}/files/{self._encode_file_path(path)}",

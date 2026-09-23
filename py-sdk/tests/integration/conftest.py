@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
 from hypercli import HyperCLI
 
-
 EXPECTED_TEST_EMAIL = os.getenv("EXPECTED_TEST_EMAIL", "agent@hypercli.com").strip()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Keep every test in this live-service directory behind the integration marker."""
+    root = Path(__file__).resolve().parent
+    for item in items:
+        if item.path.resolve().is_relative_to(root):
+            item.add_marker(pytest.mark.integration)
 
 
 def _env(name: str, default: str = "") -> str:

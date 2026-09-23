@@ -33,4 +33,4 @@ if [ -z "${OPENAI_COMPAT_API_KEY+x}" ] && [ -n "${HYPER_AGENTS_API_KEY:-}" ]; th
   export OPENAI_COMPAT_API_KEY="${HYPER_AGENTS_API_KEY}"
 fi
 
-exec /usr/local/bin/hypercli-coding-entrypoint "$@"
+exec /opt/hypercli/bin/entrypoint "$@"

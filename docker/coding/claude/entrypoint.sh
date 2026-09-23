@@ -93,4 +93,4 @@ case "${inference_mode}" in
     ;;
 esac
 
-exec /usr/local/bin/hypercli-coding-entrypoint "$@"
+exec /opt/hypercli/bin/entrypoint "$@"

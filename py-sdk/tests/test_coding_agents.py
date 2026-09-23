@@ -18,6 +18,7 @@ from hypercli import (
     DEFAULT_CODING_AGENT_IMAGES as ExportedImageCatalog,
     GooseAgent as ExportedGooseAgent,
     KimiCodeAgent as ExportedKimiCodeAgent,
+    PiAgent as ExportedPiAgent,
     OpenCodeAgent as ExportedOpenCodeAgent,
 )
 from hypercli.agents import (
@@ -37,11 +38,13 @@ from hypercli.agents import (
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
+    DEFAULT_PI_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
     Deployments,
     ExecResult,
     GooseAgent,
     KimiCodeAgent,
+    PiAgent,
     OpenCodeAgent,
     RuntimeAuthClient,
     RuntimeAuthMethod,
@@ -77,6 +80,7 @@ def test_coding_agent_types_are_exported_from_sdk_root():
     assert ExportedClaudeCodeAgent is ClaudeCodeAgent
     assert ExportedGooseAgent is GooseAgent
     assert ExportedKimiCodeAgent is KimiCodeAgent
+    assert ExportedPiAgent is PiAgent
     assert ExportedImageCatalog is DEFAULT_CODING_AGENT_IMAGES
     assert ExportedBuzzImageCatalog is DEFAULT_BUZZ_CODING_AGENT_IMAGES
     assert ExportedRuntimeScopes is DEFAULT_AGENT_RUNTIME_SCOPES
@@ -90,6 +94,7 @@ def test_generic_and_buzz_image_catalogs_are_explicit():
         "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
         "goose": DEFAULT_GOOSE_IMAGE,
         "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
+        "pi": DEFAULT_PI_IMAGE,
     }
     assert DEFAULT_BUZZ_CODING_AGENT_IMAGES == {
         "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
@@ -98,6 +103,7 @@ def test_generic_and_buzz_image_catalogs_are_explicit():
         "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
         "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
         "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+        "pi": DEFAULT_PI_IMAGE,
     }
     assert DEFAULT_BUZZ_CODING_AGENT_IMAGES == DEFAULT_CODING_AGENT_IMAGES
 
@@ -115,12 +121,14 @@ def _agent_payload(runtime: str) -> dict:
     ("method_name", "runtime", "image", "agent_type", "sync_include", "sync_exclude"),
     [
         ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, None, []),
+        ("create_pi", "pi", DEFAULT_PI_IMAGE, PiAgent, [".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"], None),
         (
             "create_opencode",
             "opencode",
             DEFAULT_OPENCODE_IMAGE,
             OpenCodeAgent,
             [
+                ".hypercli/USER.md", ".hypercli/SOUL.md",
                 ".config/opencode",
                 ".local/share/opencode",
                 ".local/state/opencode",
@@ -128,22 +136,22 @@ def _agent_payload(runtime: str) -> dict:
             ],
             None,
         ),
-        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent, [".codex"], None),
+        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent, [".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"], None),
         (
             "create_claude_code",
             "claude-code",
             DEFAULT_CLAUDE_CODE_IMAGE,
             ClaudeCodeAgent,
-            [".claude", ".claude.json"],
+            [".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"],
             None,
         ),
-        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent, [".goose"], None),
+        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent, [".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"], None),
         (
             "create_kimi_code",
             "kimi-code",
             DEFAULT_KIMI_CODE_IMAGE,
             KimiCodeAgent,
-            [".kimi-code"],
+            [".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"],
             None,
         ),
     ],
@@ -184,6 +192,7 @@ def test_create_coding_agent_contract(
     assert posted["sync_gid"] == 1000
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
     assert posted["env"] == {
+        **({"HYPER_RUNTIME_HOME": "/home/node/.pi/agent"} if runtime == "pi" else {}),
         "HYPER_WORKSPACES_BOOT_SYNC": "1",
         "HYPER_WORKSPACES_DIR": "/home/node/shared",
         "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
@@ -338,6 +347,7 @@ def test_coding_agent_include_takes_precedence():
         ),
         ("create_goose", "goose", DEFAULT_BUZZ_GOOSE_IMAGE),
         ("create_kimi_code", "kimi-code", DEFAULT_BUZZ_KIMI_CODE_IMAGE),
+        ("create_pi", "pi", DEFAULT_PI_IMAGE),
     ],
 )
 def test_buzz_coding_agent_uses_runtime_default_image(
@@ -368,6 +378,7 @@ def test_buzz_coding_agent_uses_runtime_default_image(
         ("create_claude_code", "claude-code"),
         ("create_goose", "goose"),
         ("create_kimi_code", "kimi-code"),
+        ("create_pi", "pi"),
     ],
 )
 def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, runtime):
@@ -433,6 +444,24 @@ def test_typed_buzz_launch_honors_explicit_image_override():
     assert posted["image"] == "registry.example.test/custom-buzz-opencode:immutable"
 
 
+@pytest.mark.parametrize("env, expected", [
+    (None, "/home/node/.pi/agent"),
+    ({"PI_CODING_AGENT_DIR": "/home/node/custom-pi"}, "/home/node/custom-pi"),
+])
+def test_pi_agent_directory_default_preserves_caller_override(env, expected):
+    deployments = Deployments(_HTTP())
+    posted = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("pi")
+
+    deployments._post = fake_post
+    deployments.create_pi(env=env)
+    assert posted["env"].get("PI_CODING_AGENT_DIR", posted["env"]["HYPER_RUNTIME_HOME"]) == expected
+    assert posted["sync_include"] == [".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"]
+
+
 def test_runtime_hydration_uses_explicit_backend_discriminator():
     deployments = Deployments(_HTTP())
 
@@ -444,6 +473,7 @@ def test_runtime_hydration_uses_explicit_backend_discriminator():
         ClaudeCodeAgent,
     )
     assert isinstance(deployments._hydrate_agent(_agent_payload("goose")), GooseAgent)
+    assert isinstance(deployments._hydrate_agent(_agent_payload("pi")), PiAgent)
     assert isinstance(
         deployments._hydrate_agent(_agent_payload("kimi-code")),
         KimiCodeAgent,
@@ -702,6 +732,29 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
         "--agent-command",
         "codex-acp",
         "--json",
+    ]
+
+
+def test_pi_auth_methods_use_the_native_adapter_terminal_login():
+    agent = PiAgent.from_dict(_agent_payload("pi"))
+    agent._deployments = Mock()
+    agent._deployments.exec.return_value = ExecResult(
+        exit_code=0,
+        stdout=json.dumps({"methods": [{
+            "id": "pi_terminal_login",
+            "name": "Launch pi in the terminal",
+            "type": "terminal",
+            "_meta": {"terminal-auth": {
+                "command": "pi-acp", "args": ["--terminal-login"],
+            }},
+        }]}),
+        stderr="",
+    )
+    methods = agent.auth.methods()
+    assert len(methods) == 1
+    assert methods[0].command == ("pi-acp", "--terminal-login")
+    assert agent._deployments.exec.call_args.args[1] == [
+        "hyper-acp", "plugin", "auth-methods", "--agent-command", "pi-acp", "--json",
     ]
 
 

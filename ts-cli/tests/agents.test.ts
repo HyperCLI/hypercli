@@ -201,6 +201,7 @@ function createMockDeploymentsApi(
     createCodex: vi.fn(async () => stateful('new-codex', 'STOPPED')),
     createClaudeCode: vi.fn(async () => stateful('new-claude', 'STOPPED')),
     createKimiCode: vi.fn(async () => stateful('new-kimi', 'STOPPED')),
+    createPi: vi.fn(async () => stateful('new-pi', 'STOPPED')),
     createBuzzAgent: vi.fn(async () => stateful('new-buzz', 'STOPPED')),
     update: vi.fn(async (id: string) => byId(id)),
   };
@@ -557,7 +558,7 @@ describe('hyper agents create', () => {
 
     expect(err).toBeInstanceOf(UsageError);
     expect(exitCodeFor(err)).toBe(2);
-    for (const runtime of ['openclaw', 'hermes', 'goose', 'opencode', 'codex', 'claude-code', 'kimi-code', 'buzz']) {
+    for (const runtime of ['openclaw', 'hermes', 'goose', 'opencode', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz']) {
       expect((err as Error).message).toContain(runtime);
     }
   });

@@ -15,9 +15,11 @@ export interface RequestOptions {
   signal?: AbortSignal;
   retryStatuses?: readonly number[];
   rawBody?: boolean;
+  /** Optional fetch redirect policy; omitted preserves the existing fetch default. */
+  redirect?: RequestInit['redirect'];
 }
 
-export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses'>;
+export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses' | 'redirect'>;
 
 const TRANSPORT_TIMEOUT_CODES = new Set([
   'ETIMEDOUT',
@@ -79,6 +81,7 @@ async function requestWithRetryHandled<T>(
     signal,
     retryStatuses = [],
     rawBody = false,
+    redirect,
   } = options;
 
   // Build URL with query params
@@ -131,6 +134,7 @@ async function requestWithRetryHandled<T>(
         headers,
         body: body === undefined ? undefined : rawBody ? body : JSON.stringify(body),
         signal: controller.signal,
+        ...(redirect === undefined ? {} : { redirect }),
       });
       responseReceived = true;
       if (retryStatuses.includes(response.status) && attempt < retries - 1) {
@@ -281,6 +285,7 @@ export class HTTPClient {
       backoff: options.backoff,
       signal: options.signal,
       retryStatuses: options.retryStatuses,
+      redirect: options.redirect,
     }, handleResponse<T>);
   }
 
@@ -309,6 +314,7 @@ export class HTTPClient {
       backoff: options.backoff,
       signal: options.signal,
       retryStatuses: options.retryStatuses,
+      redirect: options.redirect,
     }, handleResponse<T>);
   }
 
@@ -323,6 +329,7 @@ export class HTTPClient {
       backoff: options.backoff,
       signal: options.signal,
       retryStatuses: options.retryStatuses,
+      redirect: options.redirect,
     }, handleBytesResponse);
   }
 
@@ -346,6 +353,7 @@ export class HTTPClient {
       backoff: options.backoff,
       signal: options.signal,
       retryStatuses: options.retryStatuses,
+      redirect: options.redirect,
     }, handleResponse<T>);
   }
 
