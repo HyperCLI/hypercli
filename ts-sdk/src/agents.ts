@@ -466,6 +466,7 @@ const OPENCLAW_GATEWAY_TERMINAL_STATES = new Set([
   'ARCHIVING',
   'ARCHIVED',
   'FAILED',
+  'NO_NAMESPACE',
   'DELETED',
 ]);
 
@@ -1696,6 +1697,7 @@ export type AgentState =
   | 'ARCHIVING'
   | 'ARCHIVED'
   | 'FAILED'
+  | 'NO_NAMESPACE'
   | 'DELETED'
   | (string & {});
 
@@ -1710,6 +1712,7 @@ export const CANONICAL_AGENT_STATES = [
   'ARCHIVING',
   'ARCHIVED',
   'FAILED',
+  'NO_NAMESPACE',
   'DELETED',
 ] as const satisfies readonly AgentState[];
 
@@ -1726,6 +1729,7 @@ export const AGENT_RUNTIME_INACTIVE_STATES: ReadonlySet<AgentState> = new Set([
   'ARCHIVING',
   'ARCHIVED',
   'FAILED',
+  'NO_NAMESPACE',
   'DELETED',
 ]);
 
@@ -5137,7 +5141,7 @@ export class Deployments {
         agent.id,
         ['STOPPED'],
         AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS,
-        ['FAILED', 'DELETED'],
+        ['FAILED', 'NO_NAMESPACE', 'DELETED'],
         agent.launchEpoch > 0 ? agent.launchEpoch : undefined,
       );
     const gatewayId = ready.gatewayId?.trim()
@@ -5788,7 +5792,7 @@ export class Deployments {
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
-      ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'],
+      ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED', 'NO_NAMESPACE'],
       minimumLaunchEpoch,
       pollIntervalMs,
     );
@@ -6477,7 +6481,7 @@ export class Deployments {
     for (;;) {
       const agent = await this.get(agentId);
       lastState = String(agent.state ?? '').toUpperCase();
-      if (lastState === 'DELETED' || lastState === 'FAILED') {
+      if (lastState === 'DELETED' || lastState === 'FAILED' || lastState === 'NO_NAMESPACE') {
         throw new Error(
           `Agent ${agentId} is ${lastState}; its Reef file API will not serve. Waiting longer cannot help.`,
         );

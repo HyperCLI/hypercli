@@ -1735,6 +1735,7 @@ describe('Agents SDK', () => {
       'ARCHIVING',
       'ARCHIVED',
       'FAILED',
+      'NO_NAMESPACE',
       'DELETED',
     ]);
     expect([...AGENT_TRANSITIONAL_STATES]).toEqual([
@@ -1749,10 +1750,12 @@ describe('Agents SDK', () => {
       'ARCHIVING',
       'ARCHIVED',
       'FAILED',
+      'NO_NAMESPACE',
       'DELETED',
     ]);
     expect(isAgentTransitionalState('archiving')).toBe(true);
     expect(isAgentRuntimeInactiveState('archived')).toBe(true);
+    expect(isAgentRuntimeInactiveState('no_namespace')).toBe(true);
     expect(isAgentTransitionalState('FUTURE_SERVER_STATE')).toBe(false);
   });
 
