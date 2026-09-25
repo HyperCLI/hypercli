@@ -174,6 +174,15 @@ export {
   type RoutineUpdateOptions,
 } from './routines.js';
 
+export {
+  RunnersAPI,
+  deriveRunnersApiBase,
+  type Runner,
+  type RunnerMeta,
+  type RunnerUiMeta,
+  type RunnerUpdateOptions,
+} from './runners.js';
+
 // Logs
 export {
   LogStream,
