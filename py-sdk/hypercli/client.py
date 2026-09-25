@@ -22,6 +22,7 @@ from .keys import KeysAPI
 from .models import ModelsAPI
 from .workspaces import WorkspacesAPI
 from .routines import RoutinesAPI
+from .runners import RunnersAPI
 
 
 def _derive_agents_api_base(api_url: str, agent_dev: bool) -> str:
@@ -114,6 +115,10 @@ class HyperCLI:
             agents_api_base=resolved_agents_api_base,
         )
         self.routines = RoutinesAPI(
+            self._api_key,
+            agents_api_base=resolved_agents_api_base,
+        )
+        self.runners = RunnersAPI(
             self._api_key,
             agents_api_base=resolved_agents_api_base,
         )

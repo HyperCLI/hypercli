@@ -57,6 +57,7 @@ from .workspaces import (
     WorkspacesAPI,
 )
 from .routines import Routine, RoutinesAPI
+from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
 from .user import AuthMe, RuntimeIdentity, User, UserAPI
@@ -248,6 +249,11 @@ __all__ = [
     # Routines API
     "Routine",
     "RoutinesAPI",
+    # Runners API
+    "Runner",
+    "RunnerMeta",
+    "RunnerUiMeta",
+    "RunnersAPI",
     # x402 API
     "X402Client",
     "X402JobLaunch",
