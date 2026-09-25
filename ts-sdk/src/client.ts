@@ -24,6 +24,7 @@ import { Deployments } from './agents.js';
 import { ModelsAPI } from './models.js';
 import { WorkspacesAPI } from './workspaces.js';
 import { RoutinesAPI } from './routines.js';
+import { RunnersAPI } from './runners.js';
 
 function deriveAgentsApiBase(apiUrl: string, agentDev: boolean): string {
   return agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl);
@@ -103,6 +104,7 @@ export class HyperCLI {
   public readonly models: ModelsAPI;
   public readonly workspaces: WorkspacesAPI;
   public readonly routines: RoutinesAPI;
+  public readonly runners: RunnersAPI;
   public readonly agent: HyperAgent;
   public readonly deployments: Deployments;
 
@@ -147,6 +149,10 @@ export class HyperCLI {
       timeout: options.timeout,
     });
     this.routines = new RoutinesAPI(this._apiKey, {
+      agentsApiBase: resolvedAgentsApiBase,
+      timeout: options.timeout,
+    });
+    this.runners = new RunnersAPI(this._apiKey, {
       agentsApiBase: resolvedAgentsApiBase,
       timeout: options.timeout,
     });
