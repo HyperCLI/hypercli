@@ -97,6 +97,9 @@
     }
   },
   "tools": {
+    "loopDetection": {
+      "enabled": true
+    },
     "web": {
       "search": {
         "enabled": true,

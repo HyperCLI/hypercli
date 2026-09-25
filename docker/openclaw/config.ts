@@ -135,6 +135,16 @@ if (memorySearchEnvs.some((value) => value !== undefined)) {
   if (intervalMinutes !== undefined) sync.intervalMinutes = intervalMinutes
 }
 
+// tools.loopDetection.enabled is a guardrail, not a preference: retained
+// configs predate the template carrying it, and with the detector off an
+// unattended agent can repeat an identical tool call until an external
+// timeout. Force it on every boot so existing state dirs pick it up.
+{
+  const tools = (config.tools ||= {}) as ConfigObject
+  const loopDetection = (tools.loopDetection ||= {}) as ConfigObject
+  loopDetection.enabled = true
+}
+
 applyModelEnv(config, env)
 
 const cronEnabled = parseBoolean("OPENCLAW_CRON_ENABLED")

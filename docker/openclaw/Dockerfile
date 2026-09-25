@@ -8,14 +8,8 @@ FROM ${OPENCLAW_BASE_IMAGE} AS upstream-openclaw
 
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
-ARG HYPERCLI_REF
-ARG HYPERCLI_SHA
-ARG HYPERCLI_REPO
 ARG HYPERCLI_AGENT_BASE_IMAGE
 ARG OPENCLAW_BASE_IMAGE
-
-ENV HYPERCLI_REF=${HYPERCLI_REF}
-ENV HYPERCLI_SHA=${HYPERCLI_SHA}
 
 USER root
 COPY --from=upstream-openclaw /app /app
@@ -54,6 +48,12 @@ COPY slack.ts /opt/hypercli-openclaw/slack.ts
 RUN chmod +x /opt/hypercli-openclaw/entrypoint.sh /opt/hypercli-openclaw/init.sh && \
     chown -R node:node /opt/hypercli-openclaw && \
     openclaw --version
+
+ARG HYPERCLI_REF
+ARG HYPERCLI_SHA
+ARG HYPERCLI_REPO
+ENV HYPERCLI_REF=${HYPERCLI_REF}
+ENV HYPERCLI_SHA=${HYPERCLI_SHA}
 
 ENV OPENCLAW_PORT=18789
 ENV OPENCLAW_GATEWAY_BIND=lan
