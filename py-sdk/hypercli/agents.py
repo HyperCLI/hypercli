@@ -3535,16 +3535,7 @@ class Deployments:
                     "not serve. Waiting longer cannot help."
                 )
             try:
-                try:
-                    self.files_list(agent_id, "")
-                except APIError as exc:
-                    if exc.status_code != 501 or exc.detail != "Runner file listing and deletion are not supported":
-                        raise
-                    try:
-                        self.file_read_bytes(agent_id, ".hypercli/USER.md")
-                    except APIError as read_error:
-                        if read_error.status_code != 404 or read_error.detail != "Runner file not_found":
-                            raise
+                self.files_list(agent_id, "")
             except APIError as exc:
                 if exc.status_code == 501:
                     raise
@@ -3599,12 +3590,6 @@ class Deployments:
         ):
             raise ValueError("Backend returned an invalid Agent file token response")
         return url, token
-
-    def _reef_file_access(self, agent_id: str) -> tuple[str, str]:
-        access = self._file_access(agent_id)
-        if access == "runner":
-            raise APIError(501, "Runner file listing and deletion are not supported")
-        return access
 
     @staticmethod
     def _reef_headers(token: str, *, content_type: str | None = None) -> dict[str, str]:
@@ -5217,20 +5202,27 @@ class Deployments:
         return _validate_exec_result(result)
 
     def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
-        """List a path directly through the Agent's retained Reef server."""
+        """List one directory level through the backend-discovered file transport."""
         agent_id = self._agent_id_for_target(pod)
         resolved_path = resolve_sync_root_file_path(path)
-        reef_url, token = self._reef_file_access(agent_id)
-        suffix = f"/{self._encode_file_path(resolved_path)}" if resolved_path else ""
-        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(
-                f"{reef_url}/directories{suffix}",
-                headers=self._reef_headers(token),
-                follow_redirects=False,
-            )
-        if not 200 <= resp.status_code < 300:
-            self._raise_reef_error(resp)
-        payload = resp.json()
+        access = self._file_access(agent_id)
+        if access == "runner":
+            payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/list", json={
+                # The empty path names the assignment root itself.
+                "path": _native_file_path(resolved_path) if resolved_path else "",
+            })
+        else:
+            reef_url, token = access
+            suffix = f"/{self._encode_file_path(resolved_path)}" if resolved_path else ""
+            with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+                resp = client.get(
+                    f"{reef_url}/directories{suffix}",
+                    headers=self._reef_headers(token),
+                    follow_redirects=False,
+                )
+            if not 200 <= resp.status_code < 300:
+                self._raise_reef_error(resp)
+            payload = resp.json()
         if not _is_directory_listing_payload(payload):
             raise ValueError("Reef returned an invalid directory listing")
         return [
@@ -5346,12 +5338,27 @@ class Deployments:
         path: str,
         recursive: bool = False,
     ) -> dict:
-        """Delete a sync-root-relative file or directory directly through Reef."""
+        """Delete a sync-root-relative file or directory.
+
+        Hosted agents delete directly through their retained Reef server;
+        native runner assignments delete regular files through the backend.
+        """
         path = normalize_writable_backend_file_path(path)
         if not path:
             raise ValueError("agent file path is required")
         agent_id = self._agent_id_for_target(pod)
-        reef_url, token = self._reef_file_access(agent_id)
+        access = self._file_access(agent_id)
+        if access == "runner":
+            if recursive:
+                raise ValueError("Runner file deletion is never recursive")
+            # _post performs exactly one HTTP attempt; an uncertain delete is never replayed.
+            payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/delete", json={
+                "path": _native_file_path(path),
+            })
+            if not isinstance(payload, dict) or payload.get("status") != "deleted" or payload.get("path") != path:
+                raise ValueError("Invalid runner file receipt")
+            return payload
+        reef_url, token = access
         with httpx.Client(timeout=10) as client:
             resp = client.delete(
                 f"{reef_url}/files/{self._encode_file_path(path)}",

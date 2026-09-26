@@ -17,6 +17,23 @@ function setup() {
       files.set(body.path, body.content_base64);
       return { ok: true };
     }
+    if (url.endsWith('/files/list')) {
+      const prefix = body.path ? `${body.path}/` : '';
+      if (body.path && ![...files.keys()].some((key) => key.startsWith(prefix))) throw new APIError(404, 'Runner file not_found');
+      const dirs = [...new Set([...files.keys()].filter((key) => key.startsWith(prefix) && key.slice(prefix.length).includes('/'))
+        .map((key) => key.slice(prefix.length).split('/')[0]))].sort();
+      const names = [...files.keys()].filter((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+        .map((key) => key.slice(prefix.length)).sort();
+      return {
+        type: 'directory', prefix, requested_path: body.path, truncated: false,
+        directories: dirs.map((d) => ({ name: d, path: `${prefix}${d}/`, type: 'directory' })),
+        files: names.map((n) => ({ name: n, path: `${prefix}${n}`, type: 'file', size: n.length })),
+      };
+    }
+    if (url.endsWith('/files/delete')) {
+      if (!files.delete(body.path)) throw new APIError(404, 'Runner file not_found');
+      return { status: 'deleted', path: body.path };
+    }
     throw new Error(`Unexpected request ${url}`);
   });
   const get = vi.fn().mockResolvedValue({ id, user_id: 'owner', state: 'STOPPED', runner: { runner_id: 'runner-id', tags: [] } });
@@ -71,15 +88,21 @@ describe('native assignment file transport', () => {
     expect(post.mock.calls.every(([url]) => url.endsWith('/token'))).toBe(true);
   });
 
-  it('caps writes and read results, forwards abort signals, and refuses unsupported operations', async () => {
+  it('caps writes and read results, forwards abort signals, and round-trips listing and deletion', async () => {
     const { deployments, post, files } = setup();
     await expect(deployments.fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
     files.set('x', btoa('1234'));
     const signal = new AbortController().signal;
     await expect(deployments.fileRead(id, 'x', { maxBytes: 1, signal })).rejects.toThrow('Invalid runner file response');
     expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path: 'x', max_bytes: 1 }, { signal, redirect: 'error' });
-    await expect(deployments.filesList(id)).rejects.toMatchObject({ statusCode: 501 });
-    await expect(deployments.fileDelete(id, 'x')).rejects.toMatchObject({ statusCode: 501 });
+    files.set('.hypercli/USER.md', btoa('profile'));
+    const root = await deployments.filesList(id);
+    expect(root).toEqual([{ name: '.hypercli', path: '.hypercli/', type: 'directory' }, { name: 'x', path: 'x', type: 'file', size: 1 }]);
+    expect((await deployments.filesList(id, '.hypercli')).map((entry) => entry.name)).toEqual(['USER.md']);
+    await expect(deployments.fileDelete(id, 'x')).resolves.toEqual({ status: 'deleted', path: 'x' });
+    expect(files.has('x')).toBe(false);
+    await expect(deployments.fileDelete(id, 'x')).rejects.toMatchObject({ statusCode: 404 });
+    await expect(deployments.fileDelete(id, '.hypercli', { recursive: true })).rejects.toThrow('never recursive');
   });
 
   it('projects native context without directory listing, refreshes managed markers and preserves edits', async () => {
@@ -94,7 +117,7 @@ describe('native assignment file transport', () => {
     files.set('.hypercli/SOUL.md', btoa('User edits'));
     expect((await run()).map((r) => r.status)).toEqual(['written', 'preserved']);
     expect(atob(files.get('.hypercli/SOUL.md')!)).toBe('User edits');
-    // The SDK discovers unsupported native listing locally, then probes a file.
+    // Readiness probes the native root listing; projection reads each file directly.
     expect(list).toHaveBeenCalled();
   });
 
