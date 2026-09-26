@@ -54,7 +54,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--dry-run]',
+  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--dry-run]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
@@ -466,6 +466,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     param: { type: 'string', multiple: true },
     'runner-tags': { type: 'string' },
     'runner-id': { type: 'string' },
+    executor: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
   });
   if (parsed.help) return printHelp();
@@ -517,6 +518,13 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     ? { ...(runnerTags.length > 0 ? { tags: runnerTags } : {}), ...(runnerId ? { runnerId } : {}) }
     : undefined;
 
+  // Runner executor choice (rulings: required at create for runner placements,
+  // forbidden for hosted agents; the Backend owns both rejections).
+  const executor = str(parsed, 'executor')?.toLowerCase();
+  if (executor && executor !== 'process' && executor !== 'docker') {
+    throw new UsageError("--executor must be 'process' or 'docker'");
+  }
+
   const mergedEnv = { ...env, ...(runtime === 'openclaw' ? params : {}) };
   const configBag = runtime === 'openclaw' ? {} : { ...(model ? { model } : {}), ...params };
   const payload: Record<string, unknown> = {
@@ -524,6 +532,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     ...(size ? { size } : {}),
     ...(tags ? { tags } : {}),
     ...(runner ? { runner } : {}),
+    ...(executor ? { executor } : {}),
     ...(Object.keys(mergedEnv).length > 0 ? { env: mergedEnv } : {}),
     ...(Object.keys(configBag).length > 0 ? { config: configBag } : {}),
     dryRun,
