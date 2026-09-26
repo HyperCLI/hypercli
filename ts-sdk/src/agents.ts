@@ -160,6 +160,9 @@ export const DEFAULT_AGENT_RUNTIME_SCOPES = Object.freeze([
   'workspaces:*',
 ]) as readonly string[];
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
+// Runner-docker bind-mount cap; matches the Backend wire model
+// (AssignmentDockerOptions.volumes max_length).
+export const MAX_DOCKER_VOLUMES = 64;
 export const DEFAULT_PI_ENV = Object.freeze({
   HYPER_RUNTIME_HOME: `${DEFAULT_CODING_AGENT_SYNC_ROOT}/.pi/agent`,
 });
@@ -2397,14 +2400,21 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   };
 }
 
-function normalizeDockerOptions(docker: AgentDockerOptions | null | undefined): AgentDockerOptions | undefined {
-  if (docker === undefined || docker === null) return undefined;
+function normalizeDockerOptions(docker: AgentDockerOptions | null | undefined): AgentDockerOptions | null | undefined {
+  // undefined leaves stored runner docker options alone; null (or an empty
+  // volumes list) clears them, because the Backend treats provided-but-empty
+  // docker as absent on a replacement write.
+  if (docker === undefined) return undefined;
+  if (docker === null) return null;
   if (!isPlainRecord(docker)) throw new Error('docker accepts only a volumes list');
   const extra = Object.keys(docker).filter((key) => key !== 'volumes');
   if (extra.length > 0) throw new Error(`Unsupported docker settings: ${extra.sort().join(', ')}`);
   const volumes = docker.volumes ?? [];
   if (!Array.isArray(volumes) || volumes.some((volume) => typeof volume !== 'string')) {
     throw new Error('docker volumes must be a list of strings');
+  }
+  if (volumes.length > MAX_DOCKER_VOLUMES) {
+    throw new Error(`docker volumes accept at most ${MAX_DOCKER_VOLUMES} entries`);
   }
   for (const volume of volumes) {
     const segments = volume.split(':');
@@ -2422,8 +2432,7 @@ function normalizeDockerOptions(docker: AgentDockerOptions | null | undefined): 
       throw new Error(`docker volume mode must be ro or omitted: ${volume}`);
     }
   }
-  // An empty volumes list declares no extra mounts: send as absent.
-  if (volumes.length === 0) return undefined;
+  if (volumes.length === 0) return null;
   return { volumes: [...volumes] };
 }
 

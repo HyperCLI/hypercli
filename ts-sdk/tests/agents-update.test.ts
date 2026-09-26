@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Agent, Deployments } from '../src/agents.js';
+import { Agent, Deployments, buildAgentConfig } from '../src/agents.js';
 import { projectManagedContext, MANAGED_CONTEXT_PATHS } from '../src/index.js';
 import type { HTTPClient } from '../src/http.js';
 
@@ -20,6 +20,23 @@ describe('Deployments.update', () => {
     expect(patch).toHaveBeenCalledWith(`/deployments/${id}`, { ui: { description: null } });
     expect(agent.meta?.ui).toEqual({ description: null, avatar: { icon_index: 2 } });
   });
+  it('sends docker null through the update payload to clear stored runner docker options', async () => {
+    const agentId = 'c75a1d4f-9f1e-4b2e-8d3a-2f0e1a9a0001';
+    const patch = vi.fn().mockResolvedValue({ id: agentId, state: 'STOPPED' });
+    const deployments = new Deployments(
+      { patch } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const { config: launchConfig } = buildAgentConfig({}, { docker: null });
+    expect(launchConfig.docker).toBeNull();
+
+    await deployments.update(agentId, { launchConfig });
+
+    const [, body] = patch.mock.calls[0] as [string, Record<string, Record<string, unknown>>];
+    expect(body.launch_config.docker).toBeNull();
+  });
+
   it('PATCHes the agents deployments endpoint with only supported fields', async () => {
     const patch = vi.fn().mockResolvedValue({ id: 'c75a1d4f-9f1e-4b2e-8d3a-2f0e1a9a0001', state: 'RUNNING' });
     const deployments = new Deployments(
