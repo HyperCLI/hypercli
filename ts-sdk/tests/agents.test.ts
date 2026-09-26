@@ -140,14 +140,25 @@ describe('Agents SDK', () => {
     expect(disabled.restart).toBe(false);
   });
 
-  it('carries compose-shaped docker volumes and omits empty options', () => {
+  it('carries compose-shaped docker volumes and omits unset options', () => {
     const { config } = buildAgentConfig({}, {
       docker: { volumes: ['/data/datasets:/mnt/datasets:ro', '/srv/cache:/cache'] },
     });
     expect(config.docker).toEqual({ volumes: ['/data/datasets:/mnt/datasets:ro', '/srv/cache:/cache'] });
     expect(buildAgentConfig().config).not.toHaveProperty('docker');
-    expect(buildAgentConfig({}, { docker: { volumes: [] } }).config).not.toHaveProperty('docker');
-    expect(buildAgentConfig({}, { docker: null }).config).not.toHaveProperty('docker');
+  });
+
+  it('maps explicit null and empty docker to a clearing null in the replacement contract', () => {
+    // The complete config re-sent on update: null clears stored runner docker
+    // options (the Backend treats provided-but-empty docker as absent).
+    expect(buildAgentConfig({}, { docker: null }).config.docker).toBeNull();
+    expect(buildAgentConfig({}, { docker: { volumes: [] } }).config.docker).toBeNull();
+  });
+
+  it('caps docker volumes like the backend wire model', () => {
+    const volumes = Array.from({ length: 64 }, (_, index) => `/srv/${index}:/mnt/${index}`);
+    expect(buildAgentConfig({}, { docker: { volumes } }).config.docker).toEqual({ volumes });
+    expect(() => buildAgentConfig({}, { docker: { volumes: [...volumes, '/srv/extra:/mnt/extra'] } })).toThrow(/docker/);
   });
 
   it('rejects malformed docker volume entries', () => {
@@ -157,6 +168,8 @@ describe('Agents SDK', () => {
       { volumes: ['/a:/b:rw'] },
       { volumes: ['/a:/b:ro:extra'] },
       { volumes: ['/a'] },
+      { volumes: [''] },
+      { volumes: ['/a\0b:/c'] },
       { volumes: 'not-a-list' },
       { volumes: [], bridges: [] },
     ] as any[]) {

@@ -163,6 +163,9 @@ AGENT_FILE_WRITE_MAX_BYTES = 100 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
 AGENT_EXEC_OUTPUT_MAX_BYTES = 1_048_576
+# Runner-docker bind-mount cap; matches the Backend wire model
+# (AssignmentDockerOptions.volumes max_length).
+MAX_DOCKER_VOLUMES = 64
 # Every valid raw output byte can become a six-byte ``\u00xx`` JSON escape.
 AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES = (6 * AGENT_EXEC_OUTPUT_MAX_BYTES) + 4096
 _UNSET = object()
@@ -1034,6 +1037,8 @@ def _normalize_docker_launch(docker: dict | None) -> dict | None:
     volumes = docker.get("volumes") or []
     if not isinstance(volumes, list) or not all(isinstance(volume, str) for volume in volumes):
         raise ValueError("docker volumes must be a list of strings")
+    if len(volumes) > MAX_DOCKER_VOLUMES:
+        raise ValueError(f"docker volumes accept at most {MAX_DOCKER_VOLUMES} entries")
     for volume in volumes:
         segments = volume.split(":")
         if len(segments) not in (2, 3):
@@ -1045,7 +1050,8 @@ def _normalize_docker_launch(docker: dict | None) -> dict | None:
             raise ValueError(f"docker volume source and target must be absolute: {volume!r}")
         if len(segments) == 3 and segments[2] != "ro":
             raise ValueError(f"docker volume mode must be ro or omitted: {volume!r}")
-    # An empty volumes list declares no extra mounts: send as absent.
+    # An empty volumes list declares no extra mounts: normalization to None
+    # clears stored options in a replacement contract (_build_agent_launch).
     if not volumes:
         return None
     return {"volumes": list(volumes)}
@@ -1070,7 +1076,7 @@ def _build_agent_launch(
     registry_auth: dict | None = None,
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
-    docker: dict | None = None,
+    docker: dict | None | object = _UNSET,
     _complete: bool = False,
 ) -> dict:
     prepared_config = copy.deepcopy(config or {})
@@ -1116,9 +1122,14 @@ def _build_agent_launch(
         complete_launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
     if cors is not _UNSET:
         complete_launch["cors"] = None if cors is None else copy.deepcopy(dict(cors))
-    normalized_docker = _normalize_docker_launch(docker)
+    normalized_docker = None if docker is _UNSET else _normalize_docker_launch(docker)
     if normalized_docker is not None:
         complete_launch["docker"] = copy.deepcopy(normalized_docker)
+    elif docker is not _UNSET:
+        # Explicit None (or an empty volumes list) clears stored runner docker
+        # options in a replacement contract: the Backend treats provided-but-
+        # empty docker as absent.
+        complete_launch["docker"] = None
     if _complete:
         return complete_launch
 
@@ -1173,7 +1184,7 @@ def build_agent_config(
     registry_auth: dict | None = None,
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
-    docker: dict | None = None,
+    docker: dict | None | object = _UNSET,
 ) -> dict:
     """Build an agent launch config payload (mirrors ts-sdk buildAgentConfig).
 
@@ -3702,7 +3713,7 @@ class Deployments:
         registry_auth: dict = None,
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
-        docker: dict = None,
+        docker: dict | None | object = _UNSET,
         meta_ui: dict = None,
         runner: dict = None,
         dry_run: bool = False,
@@ -4032,7 +4043,7 @@ class Deployments:
         registry_auth: dict | None = None,
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
-        docker: dict | None = None,
+        docker: dict | None | object = _UNSET,
         meta_ui: dict | None = None,
         dry_run: bool = False,
         workspaces_sync: dict | bool | None = None,

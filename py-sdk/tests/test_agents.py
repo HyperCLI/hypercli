@@ -3156,8 +3156,11 @@ def test_build_agent_config_carries_compose_shaped_docker_volumes():
         "volumes": ["/data/datasets:/mnt/datasets:ro", "/srv/cache:/cache"]
     }
     assert "docker" not in build_agent_config()
-    # An empty volumes list declares no extra mounts: normalized to absent.
-    assert "docker" not in build_agent_config(docker={"volumes": []})
+    # Explicit null (or an empty volumes list) declares no extra mounts: the
+    # complete replacement contract carries docker: null, which clears stored
+    # runner docker options on update.
+    assert build_agent_config(docker={"volumes": []})["docker"] is None
+    assert build_agent_config(docker=None)["docker"] is None
 
 
 def test_build_agent_launch_rejects_invalid_docker_volumes():
@@ -3167,6 +3170,8 @@ def test_build_agent_launch_rejects_invalid_docker_volumes():
         {"volumes": ["/a:/b:rw"]},
         {"volumes": ["/a:/b:ro:extra"]},
         {"volumes": ["/a"]},
+        {"volumes": [""]},
+        {"volumes": ["/a\0b:/c"]},
         {"volumes": "not-a-list"},
         {"volumes": [], "bridges": []},
         {"volumes": [1]},
@@ -3202,6 +3207,54 @@ def test_agents_create_sends_docker_options(agents_client):
     agents_client.create(runtime="codex")
     assert "docker" not in posted
     assert "docker" not in agents_client.create(runtime="codex")._submitted_launch_config
+
+
+def test_build_agent_launch_caps_docker_volumes_like_the_backend():
+    volumes = [f"/srv/{index}:/mnt/{index}" for index in range(64)]
+    launch = build_agent_config(docker={"volumes": volumes})
+    assert launch["docker"] == {"volumes": volumes}
+    with pytest.raises(ValueError, match="docker"):
+        build_agent_config(docker={"volumes": [*volumes, "/srv/extra:/mnt/extra"]})
+
+
+def test_docker_null_clears_through_the_replacement_contract():
+    # Update re-sends a complete launch_config verbatim; an explicit null (or
+    # empty volumes list) is how the Backend clears stored runner docker options.
+    assert _build_agent_launch(docker=None, _complete=True)["docker"] is None
+    assert _build_agent_launch(docker={"volumes": []}, _complete=True)["docker"] is None
+    # Omitted docker stays absent so stored options survive a replacement write.
+    assert "docker" not in _build_agent_launch(_complete=True)
+    assert "docker" not in _build_agent_launch(docker=None)
+
+
+def test_agents_update_sends_docker_null_clear(agents_client):
+    def fake_post(_path, json=None):
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "CREATING",
+        }
+
+    patched: dict = {}
+
+    def fake_patch(_path, json=None):
+        patched.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STOPPED",
+        }
+
+    agents_client._post = fake_post
+    agents_client._patch = fake_patch
+    launch_config = agents_client.create(
+        runtime="codex", runner={"tags": ["linux"]}, docker=None
+    )._submitted_launch_config
+    assert launch_config["docker"] is None
+    agents_client.update(
+        "11111111-1111-4111-8111-111111111111", launch_config=launch_config
+    )
+    assert patched["launch_config"]["docker"] is None
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():
