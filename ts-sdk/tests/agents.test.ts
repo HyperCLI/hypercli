@@ -140,6 +140,30 @@ describe('Agents SDK', () => {
     expect(disabled.restart).toBe(false);
   });
 
+  it('carries compose-shaped docker volumes and omits empty options', () => {
+    const { config } = buildAgentConfig({}, {
+      docker: { volumes: ['/data/datasets:/mnt/datasets:ro', '/srv/cache:/cache'] },
+    });
+    expect(config.docker).toEqual({ volumes: ['/data/datasets:/mnt/datasets:ro', '/srv/cache:/cache'] });
+    expect(buildAgentConfig().config).not.toHaveProperty('docker');
+    expect(buildAgentConfig({}, { docker: { volumes: [] } }).config).not.toHaveProperty('docker');
+    expect(buildAgentConfig({}, { docker: null }).config).not.toHaveProperty('docker');
+  });
+
+  it('rejects malformed docker volume entries', () => {
+    for (const docker of [
+      { volumes: ['relative:/cache'] },
+      { volumes: ['/a:relative'] },
+      { volumes: ['/a:/b:rw'] },
+      { volumes: ['/a:/b:ro:extra'] },
+      { volumes: ['/a'] },
+      { volumes: 'not-a-list' },
+      { volumes: [], bridges: [] },
+    ] as any[]) {
+      expect(() => buildAgentConfig({}, { docker })).toThrow(/docker/);
+    }
+  });
+
   it('preserves sync root and mutually exclusive sync policy fields', () => {
     const omitted = buildAgentConfig().config;
     const includeAll = buildAgentConfig({}, {

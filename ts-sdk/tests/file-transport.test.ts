@@ -129,7 +129,7 @@ it('does not replay a committed native write after the response is lost', async 
   expect(content).toBe('intervening user edit');
 });
 
-it.each([null, [], {}, { ...native, executor: 'docker' }, { ...native, max_bytes: 1 }, { ...native, transport: 'other' }, { ...native, extra: true }, { ...reef, extra: true }].map((value) => [value]))('rejects malformed discovery without fallback: %j', async (value) => {
+it.each([null, [], {}, { ...native, executor: 'kubernetes' }, { ...native, max_bytes: 1 }, { ...native, transport: 'other' }, { ...native, extra: true }, { ...reef, extra: true }].map((value) => [value]))('rejects malformed discovery without fallback: %j', async (value) => {
   const fetch = vi.fn().mockImplementation(async () => json(value));
   vi.stubGlobal('fetch', fetch);
   await expect(client().fileRead(id, 'x')).rejects.toThrow();
