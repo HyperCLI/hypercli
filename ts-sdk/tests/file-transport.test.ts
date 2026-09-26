@@ -143,10 +143,12 @@ it.each(vectors.error_statuses)('preserves backend HTTP status %i without fallba
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+const emptyListing = { type: 'directory', prefix: '', requested_path: '', truncated: false, directories: [], files: [] };
+
 it('native readiness uses discovery even when the Agent projection has no runner field', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/files/token')) return json(native);
-    if (url.endsWith('/files/read')) return json({ detail: 'Runner file not_found' }, 404);
+    if (url.endsWith('/files/list')) return json(emptyListing);
     return json({ id, state: 'STOPPED' });
   }));
   await expect(client().waitForFileApiReady(id, { consecutive: 1 })).resolves.toBeUndefined();
@@ -154,20 +156,20 @@ it('native readiness uses discovery even when the Agent projection has no runner
 
 it('native readiness resets its requested streak on transient read failure and polls between attempts', async () => {
   vi.useFakeTimers();
-  const outcomes = [200, 503, 200, 200, 404];
+  const outcomes = [200, 503, 200, 200, 404, 200, 200, 200];
   let reads = 0;
   let settled = false;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/files/token')) return json(native);
-    if (url.endsWith('/files/read')) {
+    if (url.endsWith('/files/list')) {
       const status = outcomes[reads++];
       if (status === undefined) throw new Error('Unexpected extra readiness probe');
-      return status === 200 ? json({ content_base64: '' })
+      return status === 200 ? json(emptyListing)
         : json({ detail: status === 404 ? 'Runner file not_found' : 'Runner is offline' }, status);
     }
     return json({ id, state: 'STOPPED' });
   }));
-  const waiting = client().waitForFileApiReady(id, { consecutive: 3, pollMs: 100, timeoutMs: 1000 });
+  const waiting = client().waitForFileApiReady(id, { consecutive: 3, pollMs: 100, timeoutMs: 2000 });
   const finished = waiting.then(() => { settled = true; });
   await vi.advanceTimersByTimeAsync(0);
   expect(reads).toBe(1);
@@ -175,9 +177,9 @@ it('native readiness resets its requested streak on transient read failure and p
   await vi.advanceTimersByTimeAsync(399);
   expect(reads).toBe(4);
   expect(settled).toBe(false);
-  await vi.advanceTimersByTimeAsync(1);
+  await vi.advanceTimersByTimeAsync(301);
   await finished;
-  expect(reads).toBe(5);
+  expect(reads).toBe(8);
 });
 
 it('native readiness times out under persistent read failure without tight spinning', async () => {
@@ -185,7 +187,7 @@ it('native readiness times out under persistent read failure without tight spinn
   let reads = 0;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/files/token')) return json(native);
-    if (url.endsWith('/files/read')) { reads++; return json({ detail: 'Runner is offline' }, 503); }
+    if (url.endsWith('/files/list')) { reads++; return json({ detail: 'Runner is offline' }, 503); }
     return json({ id, state: 'STOPPED' });
   }));
   const waiting = expect(client().waitForFileApiReady(id, { consecutive: 3, pollMs: 100, timeoutMs: 250 }))
@@ -285,24 +287,42 @@ it('unrelated HTTPClient POST retains its existing redirect default', async () =
   }
 });
 
-it('native metadata, maximum bytes and unsupported operations retain the public contract', async () => {
+it('native metadata, maximum bytes, listing and deletion retain the public contract', async () => {
   const bytes = new Uint8Array(RUNNER_FILE_MAX_BYTES).fill(255);
   let writes = 0;
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+  const files = new Map<string, Uint8Array>();
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     if (url.endsWith('/files/token')) return json(native);
+    const body = init.body ? JSON.parse(init.body as string) : {};
     if (url.endsWith('/files/write')) {
       writes++;
-      expect(Buffer.from(JSON.parse(init.body as string).content_base64, 'base64').length).toBe(RUNNER_FILE_MAX_BYTES);
+      const content = Uint8Array.from(Buffer.from(body.content_base64, 'base64'));
+      expect(content.length).toBe(RUNNER_FILE_MAX_BYTES);
+      files.set(body.path, content);
       return json({ ok: true });
     }
-    return json({ content_base64: Buffer.from(bytes).toString('base64') });
+    if (url.endsWith('/files/list')) {
+      const prefix = body.path ? `${body.path}/` : '';
+      const names = [...files.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
+      return json({
+        type: 'directory', prefix, requested_path: body.path, truncated: false, directories: [],
+        files: names.map((name) => ({ name, path: `${prefix}${name}`, size: files.get(`${prefix}${name}`)!.length, size_formatted: '262144 B', last_modified: null, type: 'file' })),
+      });
+    }
+    if (url.endsWith('/files/delete')) {
+      if (!files.delete(body.path)) return json({ detail: 'Runner file not_found' }, 404);
+      return json({ status: 'deleted', path: body.path });
+    }
+    return json({ content_base64: Buffer.from(files.get(body.path)!).toString('base64') });
   }));
   const deployments = client();
   await expect(deployments.fileWriteBytes(id, 'max', bytes)).resolves.toEqual({ ok: true });
   await expect(deployments.fileReadBytesWithMetadata(id, 'max')).resolves.toEqual({ content: bytes });
   await expect(deployments.fileWriteBytes(id, 'max', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
   expect(writes).toBe(1);
-  for (const operation of [() => deployments.filesList(id), () => deployments.fileDelete(id, 'max')]) {
-    await expect(operation()).rejects.toMatchObject({ statusCode: 501, detail: 'Runner file listing and deletion are not supported' });
-  }
+  await expect(deployments.filesList(id)).resolves.toEqual([
+    { name: 'max', path: 'max', size: RUNNER_FILE_MAX_BYTES, size_formatted: '262144 B', last_modified: null, type: 'file' },
+  ]);
+  await expect(deployments.fileDelete(id, 'max')).resolves.toEqual({ status: 'deleted', path: 'max' });
+  await expect(deployments.fileDelete(id, 'max')).rejects.toMatchObject({ statusCode: 404 });
 });

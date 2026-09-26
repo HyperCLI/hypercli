@@ -143,19 +143,49 @@ def test_status_preserved_without_fallback(monkeypatch, status):
     assert error.value.status_code == status
 
 
-def test_native_limits_unsupported_and_malformed_bytes(monkeypatch):
-    calls = []
+def test_native_list_and_delete_roundtrip_and_malformed_bytes(monkeypatch):
+    files = {}
     def handle(request):
-        calls.append(request.url.path)
-        return httpx.Response(200, json=NATIVE if request.url.path.endswith("/files/token") else {"content_base64": "?"})
+        if request.url.path.endswith("/files/token"):
+            return httpx.Response(200, json=NATIVE)
+        body = json.loads(request.content)
+        if request.url.path.endswith("/files/list"):
+            prefix = f"{body['path']}/" if body["path"] else ""
+            if body["path"] and not any(key.startswith(prefix) for key in files):
+                return httpx.Response(404, json={"detail": "Runner file not_found"})
+            dirs = sorted({key[len(prefix):].split("/", 1)[0] for key in files
+                           if key.startswith(prefix) and "/" in key[len(prefix):]})
+            names = sorted(key[len(prefix):] for key in files
+                           if key.startswith(prefix) and "/" not in key[len(prefix):])
+            return httpx.Response(200, json={
+                "type": "directory", "prefix": prefix, "requested_path": body["path"], "truncated": False,
+                "directories": [{"name": d, "path": f"{prefix}{d}/", "type": "directory"} for d in dirs],
+                "files": [{"name": n, "path": f"{prefix}{n}", "size": len(files[prefix + n]),
+                           "size_formatted": f"{len(files[prefix + n])} B", "last_modified": None, "type": "file"} for n in names],
+            })
+        if request.url.path.endswith("/files/delete"):
+            if files.pop(body["path"], None) is None:
+                return httpx.Response(404, json={"detail": "Runner file not_found"})
+            return httpx.Response(200, json={"status": "deleted", "path": body["path"]})
+        if request.url.path.endswith("/files/read"):
+            return httpx.Response(200, json={"content_base64": "?"})
+        pytest.fail("Unexpected request")
     deployments = setup(monkeypatch, handle)
-    for operation in [lambda: deployments.files_list("agent-contract"), lambda: deployments.file_delete("agent-contract", "x")]:
-        with pytest.raises(APIError) as error:
-            operation()
-        assert error.value.status_code == 501
+    files[".hypercli/USER.md"] = b"profile"
+    assert deployments.files_list("agent-contract") == [
+        {"name": ".hypercli", "path": ".hypercli/", "type": "directory"},
+    ]
+    listing = deployments.files_list("agent-contract", ".hypercli")
+    assert [entry["name"] for entry in listing] == ["USER.md"]
+    assert deployments.file_delete("agent-contract", ".hypercli/USER.md") == {"status": "deleted", "path": ".hypercli/USER.md"}
+    assert files == {}
+    with pytest.raises(APIError) as error:
+        deployments.file_delete("agent-contract", ".hypercli/USER.md")
+    assert error.value.status_code == 404
+    with pytest.raises(ValueError, match="never recursive"):
+        deployments.file_delete("agent-contract", ".hypercli", recursive=True)
     with pytest.raises(ValueError, match="limited"):
         deployments.file_write_bytes("agent-contract", "x", b"x" * (RUNNER_FILE_MAX_BYTES + 1))
-    assert all(path.endswith("/files/token") for path in calls)
     with pytest.raises(ValueError, match="Invalid runner file response"):
         deployments.file_read("agent-contract", "x")
 
@@ -164,8 +194,8 @@ def test_native_readiness_uses_discovery_without_placement_field(monkeypatch):
     def handle(request):
         if request.url.path.endswith("/files/token"):
             return httpx.Response(200, json=NATIVE)
-        if request.url.path.endswith("/files/read"):
-            return httpx.Response(404, json={"detail": "Runner file not_found"})
+        if request.url.path.endswith("/files/list"):
+            return httpx.Response(200, json={"type": "directory", "prefix": "", "requested_path": "", "truncated": False, "directories": [], "files": []})
         return httpx.Response(200, json={"id": "agent-contract", "state": "STOPPED"})
     setup(monkeypatch, handle).wait_for_file_api_ready("agent-contract", timeout=0, consecutive=1)
 
@@ -173,7 +203,7 @@ def test_native_readiness_uses_discovery_without_placement_field(monkeypatch):
 @pytest.mark.parametrize("persistent", [False, True])
 def test_native_readiness_streak_and_polling_after_transient_read_errors(monkeypatch, persistent):
     clock, sleeps, reads = [0.0], [], []
-    outcomes = [200, 503, 200, 200, 404]
+    outcomes = [200, 503, 200, 200, 404, 200, 200, 200]
 
     def sleep(seconds):
         sleeps.append(seconds)
@@ -185,11 +215,11 @@ def test_native_readiness_streak_and_polling_after_transient_read_errors(monkeyp
     def handle(request):
         if request.url.path.endswith("/files/token"):
             return httpx.Response(200, json=NATIVE)
-        if request.url.path.endswith("/files/read"):
+        if request.url.path.endswith("/files/list"):
             status = 503 if persistent else outcomes[len(reads)]
             reads.append(status)
             if status == 200:
-                return httpx.Response(200, json={"content_base64": ""})
+                return httpx.Response(200, json={"type": "directory", "prefix": "", "requested_path": "", "truncated": False, "directories": [], "files": []})
             return httpx.Response(status, json={"detail": "Runner file not_found" if status == 404 else "Runner is offline"})
         return httpx.Response(200, json={"id": "agent-contract", "state": "STOPPED"})
 
@@ -202,7 +232,7 @@ def test_native_readiness_streak_and_polling_after_transient_read_errors(monkeyp
     else:
         deployments.wait_for_file_api_ready("agent-contract", timeout=10, poll_seconds=1, consecutive=3)
         assert reads == outcomes
-        assert sleeps == [1] * 4
+        assert sleeps == [1] * (len(outcomes) - 1)
 
 
 @pytest.mark.parametrize("operation", ["read", "write"])

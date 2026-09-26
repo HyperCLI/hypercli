@@ -1577,7 +1577,8 @@ export interface AgentFileTokenResponse {
   expires_at: string;
 }
 
-type AgentFileAccess = { url: string; token: string } | { transport: 'runner' };
+type ReefFileAccess = { url: string; token: string };
+type AgentFileAccess = ReefFileAccess | { transport: 'runner' };
 /** Native control frames are deliberately bounded for prompt/markdown files. */
 export const RUNNER_FILE_MAX_BYTES = 262_144;
 
@@ -5042,11 +5043,10 @@ export class Deployments {
   }
 
   private async fetchReef(
-    access: AgentFileAccess,
+    access: ReefFileAccess,
     path: string,
     init: RequestInit = {},
   ): Promise<Response> {
-    if ('transport' in access) throw new APIError(501, 'Runner file listing and deletion are not supported');
     const headers = new Headers(init.headers ?? {});
     headers.set('Authorization', `Bearer ${access.token}`);
     const response = await fetch(`${access.url}${path}`, {
@@ -6529,18 +6529,7 @@ export class Deployments {
         );
       }
       try {
-        try {
-          await this.filesList(agentId, '');
-        } catch (error) {
-          if (!(error instanceof APIError) || error.statusCode !== 501
-            || error.detail !== 'Runner file listing and deletion are not supported') throw error;
-          // Discovery, not the Agent projection, established a native transport.
-          try {
-            await this.fileReadBytes(agentId, '.hypercli/USER.md');
-          } catch (readError) {
-            if (!(readError instanceof APIError) || readError.statusCode !== 404 || readError.detail !== 'Runner file not_found') throw readError;
-          }
-        }
+        await this.filesList(agentId, '');
         streak += 1;
         if (streak >= consecutive) return;
       } catch (error) {
@@ -6562,9 +6551,18 @@ export class Deployments {
     const resolvedPath = resolveSyncRootFilePath(path);
     const agentId = await this.agentIdFor(target);
     const access = await this.fileAccess(agentId);
-    const suffix = resolvedPath ? `/${encodeFilePath(resolvedPath)}` : '';
-    const response = await this.fetchReef(access, `/directories${suffix}`);
-    const payload = (await response.json()) as AgentDirectoryListing;
+    let payload: AgentDirectoryListing;
+    if ('transport' in access) {
+      payload = await this.agentHttp.post<AgentDirectoryListing>(
+        `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/list`,
+        { path: resolvedPath ? nativeFilePath(resolvedPath) : '' },
+        { redirect: 'error' },
+      );
+    } else {
+      const suffix = resolvedPath ? `/${encodeFilePath(resolvedPath)}` : '';
+      const response = await this.fetchReef(access, `/directories${suffix}`);
+      payload = (await response.json()) as AgentDirectoryListing;
+    }
     if (!isDirectoryListingPayload(payload)) {
       throw new Error('Reef returned an invalid directory listing');
     }
@@ -6693,6 +6691,17 @@ export class Deployments {
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const agentId = await this.agentIdFor(target);
     const access = await this.fileAccess(agentId);
+    if ('transport' in access) {
+      if (options.recursive) throw new Error('Runner file deletion is never recursive');
+      // Backend POST performs exactly one attempt; an uncertain delete is never replayed.
+      const receipt = await this.agentHttp.post<Record<string, any>>(
+        `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/delete`,
+        { path: nativeFilePath(path) },
+        { redirect: 'error' },
+      );
+      if (receipt?.status !== 'deleted' || receipt?.path !== path) throw new Error('Invalid runner file receipt');
+      return receipt;
+    }
     const response = await this.fetchReef(
       access,
       `/files/${encodedPath}${suffix}`,
