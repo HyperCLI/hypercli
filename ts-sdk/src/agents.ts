@@ -345,6 +345,7 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'registry_auth',
   'restart',
   'runtime_scopes',
+  'executor',
   'docker',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
@@ -907,6 +908,9 @@ export interface AgentDockerOptions {
   volumes?: string[];
 }
 
+/** Runner executor; required for runner-placed agents, forbidden for hosted agents. */
+export type AgentExecutor = 'process' | 'docker';
+
 /** Complete Backend launch_config replacement contract. */
 export interface AgentLaunchConfig {
   config?: Record<string, any>;
@@ -926,6 +930,7 @@ export interface AgentLaunchConfig {
   registry_url: string | null;
   registry_auth: RegistryAuth | Record<string, never>;
   runtime_scopes: string[];
+  executor?: AgentExecutor;
   docker?: AgentDockerOptions | null;
 }
 
@@ -984,6 +989,13 @@ function cloneCompleteLaunchConfig(value: AgentLaunchConfig): AgentLaunchConfig 
   if (typeof value.restart !== 'boolean') {
     throw new Error('launchConfig restart must be a boolean');
   }
+  const executor = value.executor;
+  if (executor !== undefined && executor !== null && executor !== 'process' && executor !== 'docker') {
+    throw new Error("launchConfig executor must be 'process' or 'docker'");
+  }
+  if (executor === 'process' && value.docker != null) {
+    throw new Error('docker launch options require the docker executor');
+  }
   return structuredClone(value) as AgentLaunchConfig;
 }
 
@@ -1014,6 +1026,8 @@ export interface BuildAgentConfigOptions {
   cors?: AgentCorsConfig | null;
   restart?: boolean;
   runtimeScopes?: readonly string[] | null;
+  /** Runner executor (process runs the command on the runner host, docker runs the image). */
+  executor?: AgentExecutor;
   /** Runner-docker launch options (Compose-shape bind volumes); runner placements only. */
   docker?: AgentDockerOptions | null;
 }
@@ -2400,6 +2414,16 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   };
 }
 
+function normalizeExecutor(executor: string | null | undefined): AgentExecutor | undefined {
+  // undefined/null leaves the stored executor alone; the Backend treats
+  // pre-existing runner rows without one as docker.
+  if (executor === undefined || executor === null) return undefined;
+  if (executor !== 'process' && executor !== 'docker') {
+    throw new Error("executor must be 'process' or 'docker'");
+  }
+  return executor;
+}
+
 function normalizeDockerOptions(docker: AgentDockerOptions | null | undefined): AgentDockerOptions | null | undefined {
   // undefined leaves stored runner docker options alone; null (or an empty
   // volumes list) clears them, because the Backend treats provided-but-empty
@@ -2504,7 +2528,12 @@ export function buildAgentConfig(
     prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
   const docker = normalizeDockerOptions(options.docker);
+  const executor = normalizeExecutor(options.executor);
+  if (executor === 'process' && docker != null) {
+    throw new Error('docker launch options require the docker executor');
+  }
   if (docker !== undefined) prepared.docker = docker;
+  if (executor !== undefined) prepared.executor = executor;
   return { config: prepared };
 }
 
@@ -2537,6 +2566,7 @@ function buildAgentCreateConfig(
   prepared.restart = complete.restart;
   if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) prepared.runtime_scopes = complete.runtime_scopes;
   if (complete.docker) prepared.docker = complete.docker;
+  if (complete.executor !== undefined) prepared.executor = complete.executor;
   return prepared;
 }
 

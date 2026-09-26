@@ -147,6 +147,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "registry_auth",
         "restart",
         "runtime_scopes",
+        "executor",
         "docker",
     }
 )
@@ -1017,6 +1018,11 @@ def _copy_complete_launch_config(value: dict) -> dict:
         raise ValueError("sync_exclude cannot exclude the entire sync root; omit it to sync all")
     if type(value["restart"]) is not bool:
         raise ValueError("launch_config restart must be a boolean")
+    executor = value.get("executor")
+    if executor is not None and executor not in ("process", "docker"):
+        raise ValueError("launch_config executor must be 'process' or 'docker'")
+    if executor == "process" and value.get("docker") is not None:
+        raise ValueError("docker launch options require the docker executor")
     return copy.deepcopy(value)
 
 
@@ -1057,6 +1063,16 @@ def _normalize_docker_launch(docker: dict | None) -> dict | None:
     return {"volumes": list(volumes)}
 
 
+def _normalize_executor(executor: str | None) -> str | None:
+    """Validate the optional runner executor; absent stays absent (the Backend
+    treats pre-existing runner rows without one as docker)."""
+    if executor is None:
+        return None
+    if executor not in ("process", "docker"):
+        raise ValueError("executor must be 'process' or 'docker'")
+    return executor
+
+
 def _build_agent_launch(
     config: dict | None = None,
     *,
@@ -1077,6 +1093,7 @@ def _build_agent_launch(
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
     docker: dict | None | object = _UNSET,
+    executor: str | None = None,
     _complete: bool = False,
 ) -> dict:
     prepared_config = copy.deepcopy(config or {})
@@ -1123,6 +1140,9 @@ def _build_agent_launch(
     if cors is not _UNSET:
         complete_launch["cors"] = None if cors is None else copy.deepcopy(dict(cors))
     normalized_docker = None if docker is _UNSET else _normalize_docker_launch(docker)
+    normalized_executor = _normalize_executor(executor)
+    if normalized_executor == "process" and normalized_docker is not None:
+        raise ValueError("docker launch options require the docker executor")
     if normalized_docker is not None:
         complete_launch["docker"] = copy.deepcopy(normalized_docker)
     elif docker is not _UNSET:
@@ -1130,6 +1150,8 @@ def _build_agent_launch(
         # options in a replacement contract: the Backend treats provided-but-
         # empty docker as absent.
         complete_launch["docker"] = None
+    if normalized_executor is not None:
+        complete_launch["executor"] = normalized_executor
     if _complete:
         return complete_launch
 
@@ -1163,6 +1185,8 @@ def _build_agent_launch(
         launch["sync_exclude"] = complete_launch["sync_exclude"]
     if normalized_docker is not None:
         launch["docker"] = copy.deepcopy(normalized_docker)
+    if normalized_executor is not None:
+        launch["executor"] = normalized_executor
     return launch
 
 
@@ -1185,6 +1209,7 @@ def build_agent_config(
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
     docker: dict | None | object = _UNSET,
+    executor: str | None = None,
 ) -> dict:
     """Build an agent launch config payload (mirrors ts-sdk buildAgentConfig).
 
@@ -1219,6 +1244,7 @@ def build_agent_config(
         restart=restart,
         runtime_scopes=runtime_scopes,
         docker=docker,
+        executor=executor,
         _complete=True,
     )
 
@@ -3714,6 +3740,7 @@ class Deployments:
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
         docker: dict | None | object = _UNSET,
+        executor: str | None = None,
         meta_ui: dict = None,
         runner: dict = None,
         dry_run: bool = False,
@@ -3758,6 +3785,7 @@ class Deployments:
             "restart": restart,
             "runtime_scopes": runtime_scopes,
             "docker": docker,
+            "executor": executor,
         }
         launch_payload = _build_agent_launch(config, **launch_options)
         complete_launch = _build_agent_launch(config, _complete=True, **launch_options)
@@ -4044,6 +4072,7 @@ class Deployments:
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
         docker: dict | None | object = _UNSET,
+        executor: str | None = None,
         meta_ui: dict | None = None,
         dry_run: bool = False,
         workspaces_sync: dict | bool | None = None,
@@ -4136,6 +4165,7 @@ class Deployments:
                 list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
             ),
             docker=docker,
+            executor=executor,
             meta_ui=meta_ui,
             runner=runner,
             dry_run=dry_run,

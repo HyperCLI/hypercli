@@ -3163,6 +3163,59 @@ def test_build_agent_config_carries_compose_shaped_docker_volumes():
     assert build_agent_config(docker=None)["docker"] is None
 
 
+def test_agents_create_sends_executor(agents_client):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "CREATING",
+        }
+
+    agents_client._post = fake_post
+    agent = agents_client.create(
+        runtime="codex",
+        runner={"tags": ["linux"]},
+        executor="process",
+        command=["/usr/local/bin/hyper-acp"],
+    )
+    assert posted["executor"] == "process"
+    assert agent._submitted_launch_config["executor"] == "process"
+
+    posted.clear()
+    agents_client.create(runtime="codex")
+    assert "executor" not in posted
+    assert "executor" not in agents_client.create(runtime="codex")._submitted_launch_config
+
+
+def test_executor_is_normalized_and_guarded_against_docker_options():
+    assert build_agent_config(executor="docker")["executor"] == "docker"
+    assert "executor" not in build_agent_config()
+    complete = _build_agent_launch(executor="process", _complete=True)
+    assert complete["executor"] == "process"
+    # Omitted executor stays absent so a stored value survives a replacement write.
+    assert "executor" not in _build_agent_launch(_complete=True)
+
+    for executor in ("podman", "", 1):
+        with pytest.raises(ValueError, match="executor"):
+            build_agent_config(executor=executor)
+    with pytest.raises(ValueError, match="docker launch options"):
+        _build_agent_launch(executor="process", docker={"volumes": ["/a:/b"]})
+
+
+def test_complete_launch_contract_rejects_bad_executor_pairs():
+    launch = build_agent_config()
+    launch["executor"] = "podman"
+    with pytest.raises(ValueError, match="executor"):
+        _copy_complete_launch_config(launch)
+    launch = build_agent_config(executor="process")
+    launch["docker"] = {"volumes": ["/a:/b"]}
+    with pytest.raises(ValueError, match="docker launch options"):
+        _copy_complete_launch_config(launch)
+
+
 def test_build_agent_launch_rejects_invalid_docker_volumes():
     for docker in (
         {"volumes": ["relative:/cache"]},

@@ -177,6 +177,39 @@ describe('Agents SDK', () => {
     }
   });
 
+  it('carries the runner executor and omits it when unset', () => {
+    expect(buildAgentConfig({}, { executor: 'process' }).config.executor).toBe('process');
+    expect(buildAgentConfig({}, { executor: 'docker' }).config.executor).toBe('docker');
+    expect(buildAgentConfig().config).not.toHaveProperty('executor');
+    // undefined and null both leave the stored executor alone.
+    expect(buildAgentConfig({}, { executor: undefined }).config).not.toHaveProperty('executor');
+  });
+
+  it('rejects unknown executors and docker options on the process executor', () => {
+    for (const executor of ['podman', '', 1] as any[]) {
+      expect(() => buildAgentConfig({}, { executor })).toThrow(/executor/);
+    }
+    expect(
+      () => buildAgentConfig({}, { executor: 'process', docker: { volumes: ['/a:/b'] } }),
+    ).toThrow(/docker launch options/);
+  });
+
+  it('forwards executor to the create payload', async () => {
+    const post = vi.fn().mockResolvedValue({ id: 'agent-1', user_id: 'user-456', state: 'CREATING' });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    await deployments.create({
+      runtime: 'codex',
+      executor: 'process',
+      command: ['/usr/local/bin/hyper-acp'],
+      runner: { tags: ['linux'] },
+    });
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ executor: 'process' });
+  });
+
   it('preserves sync root and mutually exclusive sync policy fields', () => {
     const omitted = buildAgentConfig().config;
     const includeAll = buildAgentConfig({}, {
