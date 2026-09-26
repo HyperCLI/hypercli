@@ -147,6 +147,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "registry_auth",
         "restart",
         "runtime_scopes",
+        "docker",
     }
 )
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
@@ -1024,6 +1025,32 @@ def _normalize_sync_owner(value: int | None, field: str) -> int | None:
     return value
 
 
+def _normalize_docker_launch(docker: dict | None) -> dict | None:
+    """Validate optional runner-docker options (Compose-shape bind volumes)."""
+    if docker is None:
+        return None
+    if not isinstance(docker, dict) or not set(docker) <= {"volumes"}:
+        raise ValueError("docker accepts only a volumes list")
+    volumes = docker.get("volumes") or []
+    if not isinstance(volumes, list) or not all(isinstance(volume, str) for volume in volumes):
+        raise ValueError("docker volumes must be a list of strings")
+    for volume in volumes:
+        segments = volume.split(":")
+        if len(segments) not in (2, 3):
+            raise ValueError(f"docker volume must be source:target[:ro]: {volume!r}")
+        source, target = segments[0], segments[1]
+        if not source or not target or "\0" in volume:
+            raise ValueError(f"docker volume paths must be non-empty and NUL-free: {volume!r}")
+        if not source.startswith("/") or not target.startswith("/"):
+            raise ValueError(f"docker volume source and target must be absolute: {volume!r}")
+        if len(segments) == 3 and segments[2] != "ro":
+            raise ValueError(f"docker volume mode must be ro or omitted: {volume!r}")
+    # An empty volumes list declares no extra mounts: send as absent.
+    if not volumes:
+        return None
+    return {"volumes": list(volumes)}
+
+
 def _build_agent_launch(
     config: dict | None = None,
     *,
@@ -1043,6 +1070,7 @@ def _build_agent_launch(
     registry_auth: dict | None = None,
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
+    docker: dict | None = None,
     _complete: bool = False,
 ) -> dict:
     prepared_config = copy.deepcopy(config or {})
@@ -1088,6 +1116,9 @@ def _build_agent_launch(
         complete_launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
     if cors is not _UNSET:
         complete_launch["cors"] = None if cors is None else copy.deepcopy(dict(cors))
+    normalized_docker = _normalize_docker_launch(docker)
+    if normalized_docker is not None:
+        complete_launch["docker"] = copy.deepcopy(normalized_docker)
     if _complete:
         return complete_launch
 
@@ -1119,6 +1150,8 @@ def _build_agent_launch(
         launch["sync_include"] = complete_launch["sync_include"]
     elif "sync_exclude" in complete_launch:
         launch["sync_exclude"] = complete_launch["sync_exclude"]
+    if normalized_docker is not None:
+        launch["docker"] = copy.deepcopy(normalized_docker)
     return launch
 
 
@@ -1140,6 +1173,7 @@ def build_agent_config(
     registry_auth: dict | None = None,
     restart: bool = False,
     runtime_scopes: list[str] | None = None,
+    docker: dict | None = None,
 ) -> dict:
     """Build an agent launch config payload (mirrors ts-sdk buildAgentConfig).
 
@@ -1173,6 +1207,7 @@ def build_agent_config(
         registry_auth=registry_auth,
         restart=restart,
         runtime_scopes=runtime_scopes,
+        docker=docker,
         _complete=True,
     )
 
@@ -3540,7 +3575,7 @@ class Deployments:
         if set(payload) != fields:
             raise ValueError("Backend returned an invalid Agent file token response")
         if "transport" in payload:
-            if (payload.get("transport") != "runner" or payload.get("executor") != "process"
+            if (payload.get("transport") != "runner" or payload.get("executor") not in ("process", "docker")
                     or type(payload.get("max_bytes")) is not int
                     or payload["max_bytes"] != RUNNER_FILE_MAX_BYTES):
                 raise ValueError("Backend returned an invalid runner file transport")
@@ -3682,6 +3717,7 @@ class Deployments:
         registry_auth: dict = None,
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
+        docker: dict = None,
         meta_ui: dict = None,
         runner: dict = None,
         dry_run: bool = False,
@@ -3725,6 +3761,7 @@ class Deployments:
             "registry_auth": registry_auth,
             "restart": restart,
             "runtime_scopes": runtime_scopes,
+            "docker": docker,
         }
         launch_payload = _build_agent_launch(config, **launch_options)
         complete_launch = _build_agent_launch(config, _complete=True, **launch_options)
@@ -4010,6 +4047,7 @@ class Deployments:
         registry_auth: dict | None = None,
         restart: bool = False,
         runtime_scopes: list[str] | None = None,
+        docker: dict | None = None,
         meta_ui: dict | None = None,
         dry_run: bool = False,
         workspaces_sync: dict | bool | None = None,
@@ -4101,6 +4139,7 @@ class Deployments:
             runtime_scopes=(
                 list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
             ),
+            docker=docker,
             meta_ui=meta_ui,
             runner=runner,
             dry_run=dry_run,

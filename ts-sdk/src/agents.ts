@@ -342,6 +342,7 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'registry_auth',
   'restart',
   'runtime_scopes',
+  'docker',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/home/hermes';
@@ -898,6 +899,11 @@ export interface RegistryAuth {
   password: string;
 }
 
+/** Runner-docker launch options; bind mounts use Compose short syntax (`source:target[:ro]`). */
+export interface AgentDockerOptions {
+  volumes?: string[];
+}
+
 /** Complete Backend launch_config replacement contract. */
 export interface AgentLaunchConfig {
   config?: Record<string, any>;
@@ -917,6 +923,7 @@ export interface AgentLaunchConfig {
   registry_url: string | null;
   registry_auth: RegistryAuth | Record<string, never>;
   runtime_scopes: string[];
+  docker?: AgentDockerOptions | null;
 }
 
 const REQUIRED_START_LAUNCH_CONFIG_KEYS: ReadonlyArray<keyof AgentLaunchConfig> = [
@@ -1004,6 +1011,8 @@ export interface BuildAgentConfigOptions {
   cors?: AgentCorsConfig | null;
   restart?: boolean;
   runtimeScopes?: readonly string[] | null;
+  /** Runner-docker launch options (Compose-shape bind volumes); runner placements only. */
+  docker?: AgentDockerOptions | null;
 }
 
 export interface OpenClawRouteOptions {
@@ -2387,6 +2396,36 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   };
 }
 
+function normalizeDockerOptions(docker: AgentDockerOptions | null | undefined): AgentDockerOptions | undefined {
+  if (docker === undefined || docker === null) return undefined;
+  if (!isPlainRecord(docker)) throw new Error('docker accepts only a volumes list');
+  const extra = Object.keys(docker).filter((key) => key !== 'volumes');
+  if (extra.length > 0) throw new Error(`Unsupported docker settings: ${extra.sort().join(', ')}`);
+  const volumes = docker.volumes ?? [];
+  if (!Array.isArray(volumes) || volumes.some((volume) => typeof volume !== 'string')) {
+    throw new Error('docker volumes must be a list of strings');
+  }
+  for (const volume of volumes) {
+    const segments = volume.split(':');
+    if (segments.length < 2 || segments.length > 3) {
+      throw new Error(`docker volume must be source:target[:ro]: ${volume}`);
+    }
+    const [source, target] = segments;
+    if (!source || !target || volume.includes('\0')) {
+      throw new Error(`docker volume paths must be non-empty and NUL-free: ${volume}`);
+    }
+    if (!source.startsWith('/') || !target.startsWith('/')) {
+      throw new Error(`docker volume source and target must be absolute: ${volume}`);
+    }
+    if (segments.length === 3 && segments[2] !== 'ro') {
+      throw new Error(`docker volume mode must be ro or omitted: ${volume}`);
+    }
+  }
+  // An empty volumes list declares no extra mounts: send as absent.
+  if (volumes.length === 0) return undefined;
+  return { volumes: [...volumes] };
+}
+
 export function buildAgentConfig(
   config: Record<string, any> = {},
   options: BuildAgentConfigOptions = {},
@@ -2454,6 +2493,8 @@ export function buildAgentConfig(
     }
     prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
+  const docker = normalizeDockerOptions(options.docker);
+  if (docker !== undefined) prepared.docker = docker;
   return { config: prepared };
 }
 
@@ -2485,6 +2526,7 @@ function buildAgentCreateConfig(
   }
   prepared.restart = complete.restart;
   if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) prepared.runtime_scopes = complete.runtime_scopes;
+  if (complete.docker) prepared.docker = complete.docker;
   return prepared;
 }
 
@@ -4957,7 +4999,7 @@ export class Deployments {
   }
 
   private async fileAccess(agentId: string): Promise<AgentFileAccess> {
-    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: 'process'; max_bytes: number }>(
+    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: 'process' | 'docker'; max_bytes: number }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
       undefined,
       { redirect: 'error' },
@@ -4970,7 +5012,7 @@ export class Deployments {
       throw new Error('Backend returned an invalid Agent file token response');
     }
     if ('transport' in payload) {
-      if (payload.transport !== 'runner' || payload.executor !== 'process' || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
+      if (payload.transport !== 'runner' || !['process', 'docker'].includes(payload.executor) || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
         throw new Error('Backend returned an invalid runner file transport');
       }
       return { transport: 'runner' };

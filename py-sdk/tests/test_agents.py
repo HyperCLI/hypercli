@@ -3148,6 +3148,62 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
         assert not hasattr(agent, "_submitted_launch_config")
 
 
+def test_build_agent_config_carries_compose_shaped_docker_volumes():
+    launch = build_agent_config(
+        docker={"volumes": ["/data/datasets:/mnt/datasets:ro", "/srv/cache:/cache"]}
+    )
+    assert launch["docker"] == {
+        "volumes": ["/data/datasets:/mnt/datasets:ro", "/srv/cache:/cache"]
+    }
+    assert "docker" not in build_agent_config()
+    # An empty volumes list declares no extra mounts: normalized to absent.
+    assert "docker" not in build_agent_config(docker={"volumes": []})
+
+
+def test_build_agent_launch_rejects_invalid_docker_volumes():
+    for docker in (
+        {"volumes": ["relative:/cache"]},
+        {"volumes": ["/a:relative"]},
+        {"volumes": ["/a:/b:rw"]},
+        {"volumes": ["/a:/b:ro:extra"]},
+        {"volumes": ["/a"]},
+        {"volumes": "not-a-list"},
+        {"volumes": [], "bridges": []},
+        {"volumes": [1]},
+    ):
+        with pytest.raises(ValueError, match="docker"):
+            _build_agent_launch(docker=docker)
+
+
+def test_launch_nested_config_rejects_docker_key():
+    with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
+        _build_agent_launch({"docker": {"volumes": ["/a:/b"]}})
+
+
+def test_agents_create_sends_docker_options(agents_client):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "CREATING",
+        }
+
+    agents_client._post = fake_post
+    docker = {"volumes": ["/data:/data:ro"]}
+    agent = agents_client.create(runtime="codex", runner={"tags": ["linux"]}, docker=docker)
+    assert posted["docker"] == docker
+    assert posted["runner"] == {"tags": ["linux"]}
+    assert agent._submitted_launch_config["docker"] == docker
+
+    posted.clear()
+    agents_client.create(runtime="codex")
+    assert "docker" not in posted
+    assert "docker" not in agents_client.create(runtime="codex")._submitted_launch_config
+
+
 def test_build_agent_launch_rejects_nested_launch_fields():
     with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
         _build_agent_launch(

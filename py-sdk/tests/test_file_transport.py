@@ -108,7 +108,7 @@ def test_response_lost_write_is_not_replayed(monkeypatch):
     assert files["x"] == "intervening user edit"
 
 
-@pytest.mark.parametrize("payload", [None, [], {}, {**NATIVE, "executor": "docker"}, {**NATIVE, "max_bytes": 1}, {**NATIVE, "transport": "other"}, {**NATIVE, "extra": True}, {**REEF, "extra": True}])
+@pytest.mark.parametrize("payload", [None, [], {}, {**NATIVE, "executor": "kubernetes"}, {**NATIVE, "max_bytes": 1}, {**NATIVE, "transport": "other"}, {**NATIVE, "extra": True}, {**REEF, "extra": True}])
 def test_malformed_discovery_has_no_fallback(monkeypatch, payload):
     calls = []
     def handle(request):
@@ -118,6 +118,21 @@ def test_malformed_discovery_has_no_fallback(monkeypatch, payload):
     with pytest.raises(ValueError):
         deployments.file_read("agent-contract", "x")
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("executor", ["docker", "process"])
+def test_native_discovery_accepts_both_runner_executors(monkeypatch, executor):
+    calls = []
+    def handle(request):
+        calls.append(request)
+        if request.url.path.endswith("/files/read"):
+            return httpx.Response(404, json={"detail": "Runner file not_found"})
+        return httpx.Response(200, json={**NATIVE, "executor": executor})
+    deployments = setup(monkeypatch, handle)
+    with pytest.raises(Exception) as error:
+        deployments.file_read("agent-contract", "missing")
+    assert getattr(error.value, "status_code", None) == 404
+    assert calls[0].url.path.endswith("/files/token")
 
 
 @pytest.mark.parametrize("status", VECTORS["error_statuses"])

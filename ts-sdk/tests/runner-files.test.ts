@@ -27,12 +27,20 @@ function setup() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('native assignment file transport', () => {
-  it.each(['docker', undefined])('rejects unsupported or unreported assignment mode %s', async (executor) => {
+  it.each(['kubernetes', undefined])('rejects unsupported or unreported assignment mode %s', async (executor) => {
     const { deployments, post } = setup();
     post.mockResolvedValueOnce({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES } as any);
     await expect(deployments.fileWrite(id, 'AGENTS.md', 'User-provided instructions')).rejects.toThrow('invalid runner file transport');
     expect(post).toHaveBeenCalledTimes(1);
   });
+  it.each(['process', 'docker'])('accepts the %s executor token and round-trips natively', async (executor) => {
+    const { deployments, post, files } = setup();
+    post.mockImplementationOnce(async () => ({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES } as any));
+    await expect(deployments.fileWrite(id, 'AGENTS.md', 'docker workspace')).resolves.toEqual({ ok: true });
+    await expect(deployments.fileRead(id, 'AGENTS.md')).resolves.toBe('docker workspace');
+    expect(files.has('AGENTS.md')).toBe(true);
+  });
+
   it('routes Agent.files and deployment text/byte helpers through authenticated backend paths', async () => {
     const { deployments, post } = setup();
     const fetch = vi.fn(() => { throw new Error('No Reef request expected'); });
