@@ -28,7 +28,6 @@ from hypercli.agents import (
     DEFAULT_OPENCLAW_PRO_IMAGE,
     DeploymentEvent,
     Deployments,
-    CodingAgent,
     OPENCLAW_TRUSTED_PROXIES_ENV,
     ExecResult,
     _build_agent_launch,
@@ -1547,7 +1546,7 @@ def test_agents_create_hydrates_acp_runtime_to_coding_agent(agents_client):
         assert posted_json["registry_url"] == "ghcr.io"
         assert posted_json["registry_auth"] == {"username": "u", "password": "p"}
         assert "start" not in posted_json
-        assert isinstance(agent, CodingAgent)
+        assert type(agent) is Agent
         assert agent.meta_ui is None
         assert agent._deployments is agents_client
         assert agent._submitted_launch_config == build_agent_config(
@@ -1633,16 +1632,19 @@ def test_start_refuses_to_invent_registry_auth_for_private_registry(agents_clien
         agents_client.stored_launch_config(_STORED_AGENT_ID)
 
 
-def test_hydrate_agent_dispatches_acp_successor_runtime_names(agents_client):
+def test_hydrate_agent_yields_flat_agent_for_every_runtime(agents_client):
     """Backend folds openclaw→openclaw_acp and hermes-agent→hermes_acp at
-    create/patch, so hydrated rows carry the new names; every hyper-acp
-    runtime, legacy spelling included, hydrates to the single CodingAgent
-    facade."""
+    create/patch, so hydrated rows carry the new names; every runtime, legacy
+    spelling included, hydrates to the single flat Agent (capability gates at
+    call time via Agent.auth, not by hydration class)."""
     base = {"id": "agent-123", "user_id": "user-456", "state": "RUNNING"}
 
-    for runtime in ("hermes_acp", "hermes-agent", "openclaw_acp", "openclaw", "openclaw-pro"):
+    for runtime in (
+        "hermes_acp", "hermes-agent", "openclaw_acp", "openclaw", "openclaw-pro", "generic",
+    ):
         agent = agents_client._hydrate_agent({**base, "runtime": runtime})
-        assert isinstance(agent, CodingAgent), runtime
+        assert type(agent) is Agent, runtime
+        assert agent.runtime == runtime
 
 
 def test_agents_get_returns_generic_agent_for_unknown_runtime(agents_client):
@@ -2157,7 +2159,7 @@ def test_agents_start_stop_delete(agents_client):
         mock_client_class.return_value = mock_client
 
         agent = agents_client.start("agent-123")
-        assert isinstance(agent, CodingAgent)
+        assert type(agent) is Agent
         mock_client.patch.assert_not_called()
         assert mock_client.post.call_args.kwargs["json"] is None
 

@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from hypercli.agents import (
+    Agent,
     CodingAgent,
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_BUZZ_AGENT_IMAGE,
@@ -17,7 +18,10 @@ from hypercli.agents import (
     DEFAULT_CODING_AGENT_IMAGES,
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
+    DEFAULT_HERMES_AGENT_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
+    DEFAULT_OPENCLAW_IMAGE,
+    DEFAULT_OPENCLAW_PRO_IMAGE,
     DEFAULT_PI_ENV,
     DEFAULT_PI_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
@@ -26,6 +30,7 @@ from hypercli.agents import (
     RuntimeAuthClient,
     RuntimeAuthMethod,
     build_permissions_json,
+    build_openclaw_routes,
 )
 
 
@@ -74,7 +79,7 @@ def _agent_payload(runtime: str) -> dict:
 
 
 def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():
-    agent = CodingAgent.from_dict(_agent_payload("goose"))
+    agent = Agent.from_dict(_agent_payload("goose"))
     agent._deployments = Mock()
 
     with pytest.raises(RuntimeError, match="injected deployment credential"):
@@ -82,7 +87,7 @@ def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():
 
 
 def test_codex_auth_methods_merge_acp_and_native_device_login():
-    agent = CodingAgent.from_dict(_agent_payload("codex"))
+    agent = Agent.from_dict(_agent_payload("codex"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
         exit_code=0,
@@ -112,7 +117,7 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
 
 
 def test_pi_auth_methods_use_the_native_adapter_terminal_login():
-    agent = CodingAgent.from_dict(_agent_payload("pi"))
+    agent = Agent.from_dict(_agent_payload("pi"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
         exit_code=0,
@@ -135,7 +140,7 @@ def test_pi_auth_methods_use_the_native_adapter_terminal_login():
 
 
 def test_claude_auth_methods_honor_adapter_terminal_metadata():
-    agent = CodingAgent.from_dict(_agent_payload("claude-code"))
+    agent = Agent.from_dict(_agent_payload("claude-code"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
         exit_code=0,
@@ -213,7 +218,7 @@ async def test_adapter_owned_login_uses_buzz_acp_authenticate():
         return socket
 
     deployments.shell_connect = shell_connect
-    agent = CodingAgent.from_dict(_agent_payload("opencode"))
+    agent = Agent.from_dict(_agent_payload("opencode"))
     agent._deployments = deployments
     auth = RuntimeAuthClient(agent)
     auth.methods = lambda: [
@@ -244,7 +249,7 @@ async def test_adapter_owned_login_uses_buzz_acp_authenticate():
     ],
 )
 def test_runtime_auth_status_normalization(runtime, output, expected):
-    agent = CodingAgent.from_dict(_agent_payload(runtime))
+    agent = Agent.from_dict(_agent_payload(runtime))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(0, output, "")
 
@@ -270,7 +275,7 @@ async def test_login_uses_existing_authenticated_shell_and_parses_device_challen
         return socket
 
     deployments.shell_connect = shell_connect
-    agent = CodingAgent.from_dict(_agent_payload("codex"))
+    agent = Agent.from_dict(_agent_payload("codex"))
     agent._deployments = deployments
     auth = RuntimeAuthClient(agent)
     auth.methods = lambda: [
@@ -315,7 +320,7 @@ async def test_login_wait_timeout_cancels_shell_session():
         return socket
 
     deployments.shell_connect = shell_connect
-    agent = CodingAgent.from_dict(_agent_payload("codex"))
+    agent = Agent.from_dict(_agent_payload("codex"))
     agent._deployments = deployments
     auth = RuntimeAuthClient(agent)
     auth.methods = lambda: [
@@ -336,7 +341,7 @@ async def test_login_wait_timeout_cancels_shell_session():
 
 
 def test_claude_status_parses_json_without_exposing_credentials():
-    agent = CodingAgent.from_dict(_agent_payload("claude-code"))
+    agent = Agent.from_dict(_agent_payload("claude-code"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
         0,
@@ -354,7 +359,7 @@ def test_claude_status_parses_json_without_exposing_credentials():
 
 
 def test_claude_status_parses_current_unauthenticated_cli_shape():
-    agent = CodingAgent.from_dict(_agent_payload("claude-code"))
+    agent = Agent.from_dict(_agent_payload("claude-code"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
         1,
@@ -394,8 +399,8 @@ def _capture_create(monkeypatch, runtime: str = "opencode"):
     return deployments, posts
 
 
-class TestCreateCodingAgent:
-    """ts createCodingAgent parity: one launch contract, runtime-keyed defaults."""
+class TestCreateAgentCodingRuntimes:
+    """ts createAgent parity: one coding launch contract, runtime-keyed defaults."""
 
     @pytest.mark.parametrize(
         "runtime",
@@ -404,9 +409,10 @@ class TestCreateCodingAgent:
     def test_runtime_keyed_default_launch_shape(self, monkeypatch, runtime):
         deployments, posts = _capture_create(monkeypatch, runtime)
 
-        agent = deployments.create_coding_agent(runtime)
+        agent = deployments.create_agent(runtime)
 
-        assert isinstance(agent, CodingAgent)
+        assert isinstance(agent, Agent)
+        assert type(agent) is Agent
         assert agent.id == "agent-1"
         assert posts[0][0] == "/deployments"
         body = posts[0][1]
@@ -432,7 +438,7 @@ class TestCreateCodingAgent:
     def test_default_sync_policy_uses_runtime_include(self, monkeypatch, runtime):
         deployments, posts = _capture_create(monkeypatch, runtime)
 
-        deployments.create_coding_agent(runtime)
+        deployments.create_agent(runtime)
 
         body = posts[0][1]
         assert "sync_exclude" not in body
@@ -444,7 +450,7 @@ class TestCreateCodingAgent:
     def test_buzz_runtime_defaults_to_whole_root_with_empty_exclude(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "buzz-agent")
 
-        deployments.create_coding_agent("buzz-agent")
+        deployments.create_agent("buzz-agent")
 
         body = posts[0][1]
         assert "sync_include" not in body
@@ -453,7 +459,7 @@ class TestCreateCodingAgent:
     def test_opencode_default_include_is_pinned(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode")
+        deployments.create_agent("opencode")
 
         assert posts[0][1]["sync_include"] == [
             ".hypercli/USER.md",
@@ -467,7 +473,7 @@ class TestCreateCodingAgent:
     def test_pi_gets_hyper_runtime_home_and_caller_env_wins(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "pi")
 
-        deployments.create_coding_agent("pi", env={"HYPER_RUNTIME_HOME": "/custom", "X": "1"})
+        deployments.create_agent("pi", env={"HYPER_RUNTIME_HOME": "/custom", "X": "1"})
 
         env = posts[0][1]["env"]
         assert DEFAULT_PI_ENV["HYPER_RUNTIME_HOME"] == "/home/node/.pi/agent"
@@ -477,14 +483,14 @@ class TestCreateCodingAgent:
     def test_non_pi_runtimes_have_no_hyper_runtime_home(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode")
+        deployments.create_agent("opencode")
 
         assert "HYPER_RUNTIME_HOME" not in posts[0][1]["env"]
 
     def test_explicit_sync_include_wins_and_drops_exclude(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent(
+        deployments.create_agent(
             "opencode", sync_include=[".config/opencode"], sync_exclude=["ignored/**"]
         )
 
@@ -495,7 +501,7 @@ class TestCreateCodingAgent:
     def test_null_sync_include_selects_whole_root(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode", sync_include=None)
+        deployments.create_agent("opencode", sync_include=None)
 
         body = posts[0][1]
         assert "sync_include" not in body
@@ -504,7 +510,7 @@ class TestCreateCodingAgent:
     def test_explicit_sync_exclude_replaces_runtime_default(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode", sync_exclude=[".cache/**"])
+        deployments.create_agent("opencode", sync_exclude=[".cache/**"])
 
         body = posts[0][1]
         assert "sync_include" not in body
@@ -513,7 +519,7 @@ class TestCreateCodingAgent:
     def test_permission_mode_serializes_preset_and_legacy_mode_var(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode", permission_mode="plan")
+        deployments.create_agent("opencode", permission_mode="plan")
 
         env = posts[0][1]["env"]
         assert env["HYPER_ACP_PERMISSIONS"] == build_permissions_json("plan")
@@ -523,7 +529,7 @@ class TestCreateCodingAgent:
     def test_caller_permission_env_wins_over_preset(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent(
+        deployments.create_agent(
             "opencode",
             permission_mode="plan",
             env={"HYPER_ACP_PERMISSIONS": "custom", "HYPER_ACP_PERMISSION_MODE": "custom-mode"},
@@ -537,7 +543,7 @@ class TestCreateCodingAgent:
     def test_private_key_env_is_promoted_to_secrets(self, monkeypatch, key):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_coding_agent("opencode", env={key: "nsec-value"})
+        deployments.create_agent("opencode", env={key: "nsec-value"})
 
         body = posts[0][1]
         assert key not in body["env"]
@@ -547,7 +553,7 @@ class TestCreateCodingAgent:
         deployments, _ = _capture_create(monkeypatch, "opencode")
 
         with pytest.raises(ValueError, match="BUZZ_PRIVATE_KEY conflicts between env and secrets"):
-            deployments.create_coding_agent(
+            deployments.create_agent(
                 "opencode",
                 env={"BUZZ_PRIVATE_KEY": "env-value"},
                 secrets={"BUZZ_PRIVATE_KEY": "other-value"},
@@ -557,19 +563,19 @@ class TestCreateCodingAgent:
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
         with pytest.raises(ValueError, match="runtime must be one of"):
-            deployments.create_coding_agent("not-a-runtime")
+            deployments.create_agent("not-a-runtime")
         assert posts == []
 
     def test_non_coding_backend_response_rejected(self, monkeypatch):
         deployments, _ = _capture_create(monkeypatch, "generic")
 
         with pytest.raises(TypeError, match="did not identify runtime"):
-            deployments.create_coding_agent("opencode")
+            deployments.create_agent("opencode")
 
     def test_overrides_flow_through_create(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        agent = deployments.create_coding_agent(
+        agent = deployments.create_agent(
             "opencode",
             name="custom",
             size="medium",
@@ -599,6 +605,185 @@ class TestCreateCodingAgent:
         assert body["tags"] == ["scope=test"]
         assert body["executor"] == "docker"
         assert body["runner"] == {"runner_id": "runner-1"}
+
+
+class TestCreateAgentOpenClawRuntimes:
+    """ts createAgent openclaw branch: gateway route and env builders from the
+    existing py data tables; the pro variant adds the desktop leg."""
+
+    @pytest.mark.parametrize("runtime", ["openclaw", "openclaw_acp"])
+    def test_default_launch_shape(self, monkeypatch, runtime):
+        deployments, posts = _capture_create(monkeypatch, runtime)
+
+        agent = deployments.create_agent(runtime)
+
+        assert type(agent) is Agent
+        body = posts[0][1]
+        assert body["runtime"] == runtime
+        assert body["image"] == DEFAULT_OPENCLAW_IMAGE
+        assert body["sync_root"] == "/home/node"
+        assert body["routes"] == build_openclaw_routes()
+        assert "config" not in body
+        # Non-pro openclaw carries no runtime-scope default.
+        assert "runtime_scopes" not in body
+        env = body["env"]
+        assert env["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert env["OPENCLAW_CRON_ENABLED"] == "1"
+        assert "HYPER_DESKTOP_ENABLED" not in env
+        assert "HYPER_ACP_PERMISSIONS" not in env
+
+    def test_pro_adds_desktop_leg_and_runtime_scopes(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw-pro")
+
+        deployments.create_agent("openclaw-pro")
+
+        body = posts[0][1]
+        assert body["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+        assert body["env"]["HYPER_DESKTOP_ENABLED"] == "1"
+        assert list(body["routes"]) == ["openclaw", "desktop"]
+        assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
+
+    def test_caller_routes_still_front_the_canonical_gateway_route(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent(
+            "openclaw", routes={"custom": {"port": 8080, "auth": True, "prefix": "c"}}
+        )
+
+        routes = posts[0][1]["routes"]
+        assert list(routes) == ["custom", "openclaw"]
+        assert routes["openclaw"] == build_openclaw_routes()["openclaw"]
+
+    def test_memory_index_and_trusted_proxies_env(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent(
+            "openclaw",
+            memory_index={"enabled": False},
+            trusted_proxies=["10.0.0.1", "10.0.0.2"],
+        )
+
+        env = posts[0][1]["env"]
+        assert env["OPENCLAW_MEMORY_SEARCH_ENABLED"] == "0"
+        assert env["OPENCLAW_TRUSTED_PROXIES"] == "10.0.0.1,10.0.0.2"
+
+    def test_openclaw_routes_knob_feeds_build_openclaw_routes(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent("openclaw", openclaw_routes={"gateway_port": 9999})
+
+        assert posts[0][1]["routes"]["openclaw"]["port"] == 9999
+
+
+class TestCreateAgentHermesRuntimes:
+    """ts createAgent hermes branch: /home/hermes root, uid/gid 10000, and the
+    shared/** exclude from the existing py data tables."""
+
+    @pytest.mark.parametrize("runtime", ["hermes-agent", "hermes_acp"])
+    def test_default_launch_shape(self, monkeypatch, runtime):
+        deployments, posts = _capture_create(monkeypatch, runtime)
+
+        agent = deployments.create_agent(runtime)
+
+        assert type(agent) is Agent
+        body = posts[0][1]
+        assert body["runtime"] == runtime
+        assert body["image"] == DEFAULT_HERMES_AGENT_IMAGE
+        assert body["sync_root"] == "/home/hermes"
+        assert body["sync_uid"] == 10000
+        assert body["sync_gid"] == 10000
+        assert "sync_include" not in body
+        assert body["sync_exclude"] == ["shared/**"]
+        assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
+        assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
+        assert body["env"]["HERMES_CRON_ENABLED"] == "1"
+
+    def test_cors_origins_drive_cors_when_cors_unset(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
+
+        deployments.create_agent(
+            "hermes-agent", cors_origins=["https://a.test ", "https://a.test", "https://b.test"]
+        )
+
+        assert posts[0][1]["cors"] == {"allowed_origins": ["https://a.test", "https://b.test"]}
+
+    def test_explicit_cors_wins_over_cors_origins(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
+
+        deployments.create_agent(
+            "hermes-agent",
+            cors={"allowed_origins": ["https://explicit.test"]},
+            cors_origins=["https://ignored.test"],
+        )
+
+        assert posts[0][1]["cors"] == {"allowed_origins": ["https://explicit.test"]}
+
+    def test_wrong_runtime_response_rejected(self, monkeypatch):
+        deployments, _ = _capture_create(monkeypatch, "openclaw")
+
+        with pytest.raises(
+            TypeError, match="Hermes deployment response did not identify runtime 'hermes-agent'"
+        ):
+            deployments.create_agent("hermes-agent")
+
+
+class TestFlatAgentSurface:
+    """The ts flatten: one Agent class, alias for CodingAgent, runtime-gated auth."""
+
+    def test_coding_agent_is_a_pure_agent_alias(self):
+        assert CodingAgent is Agent
+
+    def test_auth_is_available_on_coding_runtimes(self):
+        agent = Agent.from_dict({"id": "a", "user_id": "u", "state": "RUNNING", "runtime": "pi"})
+        assert isinstance(agent.auth, RuntimeAuthClient)
+        assert agent.auth.runtime == "pi"
+
+    @pytest.mark.parametrize("runtime", ["openclaw", "hermes-agent", "not-a-runtime"])
+    def test_auth_gates_runtimes_without_auth_config(self, runtime):
+        agent = Agent.from_dict({"id": "a", "user_id": "u", "state": "RUNNING", "runtime": runtime})
+        with pytest.raises(
+            ValueError, match=f"Runtime authentication is not available for runtime '{runtime}'"
+        ):
+            _ = agent.auth
+
+    def test_auth_gate_names_generic_runtime(self):
+        agent = Agent.from_dict({"id": "a", "user_id": "u", "state": "RUNNING"})
+        with pytest.raises(
+            ValueError, match="Runtime authentication is not available for runtime 'generic'"
+        ):
+            _ = agent.auth
+
+    def test_generic_dispatches_to_raw_create(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "generic")
+
+        agent = deployments.create_agent("generic", name="g", env={"A": "1"})
+
+        assert type(agent) is Agent
+        body = posts[0][1]
+        assert body["name"] == "g"
+        assert body["env"] == {"A": "1"}
+        # The raw generic entry sends no runtime label or launch defaults.
+        assert "runtime" not in body
+        assert "command" not in body
+        assert "image" not in body
+
+    def test_create_coding_agent_warns_and_delegates(self, monkeypatch):
+        alias_deployments, alias_posts = _capture_create(monkeypatch, "opencode")
+
+        with pytest.warns(DeprecationWarning, match="create_coding_agent\\(\\) is deprecated"):
+            agent = alias_deployments.create_coding_agent("opencode", name="legacy")
+
+        assert type(agent) is Agent
+        flat_deployments, flat_posts = _capture_create(monkeypatch, "opencode")
+        flat_deployments.create_agent("opencode", name="legacy")
+        assert alias_posts[0][1] == flat_posts[0][1]
+
+    def test_buzz_launch_config_is_ts_sdk_only(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'buzz'"):
+            deployments.create_agent("opencode", buzz={"privateKeyNsec": "nsec1"})
+        assert posts == []
 
 
 class TestBuildPermissionsJson:

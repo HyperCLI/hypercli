@@ -2789,9 +2789,9 @@ class Deployments:
         return agent
 
 
-    def create_coding_agent(
+    def create_agent(
         self,
-        runtime: CodingAgentRuntime,
+        runtime: ManagedAgentRuntime,
         *,
         name: str = None,
         handle: str = None,
@@ -2821,35 +2821,176 @@ class Deployments:
         dry_run: bool = False,
         workspaces_sync: dict | bool | None = None,
         permission_mode: PermissionMode | None = None,
-    ) -> CodingAgent:
-        """Create an ACP-fronted coding agent. All coding runtimes share one
-        launch contract; ``runtime`` selects the default image, sync includes,
-        and harness env (``pi`` gets ``HYPER_RUNTIME_HOME``), nothing else.
+        cron_enabled: bool | None = None,
+        memory_index: dict | None = None,
+        openclaw_routes: dict | None = None,
+        hermes_route: dict | None = None,
+        cors_origins: list[str] | None = None,
+        trusted_proxies: list[str] | tuple[str, ...] | None = None,
+    ) -> Agent:
+        """Create a managed agent for a runtime in one call.
 
-        Mirrors ts-sdk ``createCodingAgent``: Workspaces boot sync env defaults
-        on, launch env always carries ``HYPER_ACP_PERMISSIONS`` (built from
-        ``permission_mode``, caller ``env`` wins), and ``BUZZ_PRIVATE_KEY`` /
-        ``NOSTR_PRIVATE_KEY`` in ``env`` are promoted to launch secrets.
+        ``runtime`` selects the per-runtime launch defaults (image, sync root
+        and include/exclude presets, uid/gid, env presets, routes, boot
+        command) from the SDK's data tables; the folded options read the knobs
+        each runtime family understands and ignore the rest. ``create()``
+        stays the raw generic entry; ``create_agent`` is the typed one
+        (mirrors ts-sdk ``Deployments.createAgent``).
+
+        - ``openclaw``/``openclaw-pro``/``openclaw_acp``: OpenClaw gateway
+          launch with the openclaw route and cron/memory/workspaces defaults
+          (the pro variant adds the desktop leg).
+        - ``hermes-agent``/``hermes_acp``: Hermes launch with the hermes route
+          and cron defaults.
+        - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
+          ``kimi-code``/``pi``: the shared ACP coding-agent launch contract.
+
+        The typed Buzz launch contract (``BuzzLaunchConfig``) is ts-sdk-only:
+        this surface accepts no ``buzz`` keyword, so passing one raises
+        ``TypeError``.
         """
+        launch = {
+            "name": name,
+            "handle": handle,
+            "size": size,
+            "config": config,
+            "tags": tags,
+            "env": env,
+            "secrets": secrets,
+            "routes": routes,
+            "cors": cors,
+            "command": command,
+            "entrypoint": entrypoint,
+            "image": image,
+            "sync_root": sync_root,
+            "sync_include": sync_include,
+            "sync_exclude": sync_exclude,
+            "sync_uid": sync_uid,
+            "sync_gid": sync_gid,
+            "registry_url": registry_url,
+            "registry_auth": registry_auth,
+            "restart": restart,
+            "runtime_scopes": runtime_scopes,
+            "docker": docker,
+            "executor": executor,
+            "meta_ui": meta_ui,
+            "runner": runner,
+            "dry_run": dry_run,
+        }
+        if runtime == "generic":
+            return self.create(**launch)
+        if runtime in ("openclaw", "openclaw-pro", "openclaw_acp"):
+            return self._create_openclaw_agent(
+                runtime,
+                workspaces_sync=workspaces_sync,
+                cron_enabled=cron_enabled,
+                memory_index=memory_index,
+                openclaw_routes=openclaw_routes,
+                trusted_proxies=trusted_proxies,
+                launch=launch,
+            )
+        if runtime in ("hermes-agent", "hermes_acp"):
+            return self._create_hermes_agent_deployment(
+                runtime,
+                cron_enabled=cron_enabled,
+                hermes_route=hermes_route,
+                cors_origins=cors_origins,
+                launch=launch,
+            )
+        return self._create_coding_agent_deployment(
+            runtime,
+            workspaces_sync=workspaces_sync,
+            permission_mode=permission_mode,
+            launch=launch,
+        )
+
+    def _create_openclaw_agent(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
+        pro = runtime == "openclaw-pro"
+        # The openclaw launch family rejects nested config: launch settings are
+        # top-level fields only.
+        launch.pop("config")
+        launch["env"] = {
+            **({"HYPER_DESKTOP_ENABLED": "1"} if pro else {}),
+            **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
+            **build_openclaw_cron_env(knobs["cron_enabled"]),
+            **build_openclaw_memory_index_env(knobs["memory_index"]),
+            **dict(launch["env"] or {}),
+            **build_openclaw_trusted_proxies_env(knobs["trusted_proxies"]),
+        }
+        if launch["routes"] is None:
+            launch["routes"] = build_openclaw_routes(
+                **{"include_desktop": pro, **dict(knobs["openclaw_routes"] or {})}
+            )
+        else:
+            # A caller-supplied route map still fronts the canonical gateway route.
+            launch["routes"] = {**launch["routes"], **build_openclaw_routes()}
+        launch["image"] = launch["image"] or (
+            DEFAULT_OPENCLAW_PRO_IMAGE if pro else DEFAULT_OPENCLAW_IMAGE
+        )
+        if launch["sync_root"] is None:
+            launch["sync_root"] = DEFAULT_CODING_AGENT_SYNC_ROOT
+        if pro and launch["runtime_scopes"] is None:
+            launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
+        return self.create(runtime=runtime, **launch)
+
+    def _create_hermes_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
+        launch["env"] = {
+            **build_hermes_cron_env(knobs["cron_enabled"]),
+            **dict(launch["env"] or {}),
+        }
+        if launch["cors"] is _UNSET:
+            origins = list(
+                dict.fromkeys(
+                    origin.strip()
+                    for origin in (knobs["cors_origins"] or [])
+                    if origin.strip()
+                )
+            )
+            if origins:
+                launch["cors"] = {"allowed_origins": origins}
+        launch["image"] = launch["image"] or DEFAULT_HERMES_AGENT_IMAGE
+        if launch["sync_root"] is None:
+            launch["sync_root"] = DEFAULT_HERMES_AGENT_SYNC_ROOT
+        if launch["sync_include"] is _UNSET and launch["sync_exclude"] is _UNSET:
+            launch["sync_exclude"] = list(DEFAULT_HERMES_AGENT_SYNC_EXCLUDE)
+        if launch["sync_uid"] is None:
+            launch["sync_uid"] = DEFAULT_HERMES_AGENT_SYNC_UID
+        if launch["sync_gid"] is None:
+            launch["sync_gid"] = DEFAULT_HERMES_AGENT_SYNC_GID
+        if launch["routes"] is None:
+            launch["routes"] = build_hermes_agent_routes(**dict(knobs["hermes_route"] or {}))
+        if launch["runtime_scopes"] is None:
+            launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
+        agent = self.create(runtime=runtime, **launch)
+        if agent.runtime not in ("hermes-agent", "hermes_acp"):
+            raise TypeError("Hermes deployment response did not identify runtime 'hermes-agent'")
+        return agent
+
+    def _create_coding_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
+        """Launch the shared ACP coding-agent contract: Workspaces boot sync
+        env defaults on, launch env always carries ``HYPER_ACP_PERMISSIONS``
+        (built from ``permission_mode``, caller ``env`` wins), and
+        ``BUZZ_PRIVATE_KEY`` / ``NOSTR_PRIVATE_KEY`` in ``env`` are promoted
+        to launch secrets."""
         if runtime not in DEFAULT_CODING_AGENT_IMAGES:
             raise ValueError(
                 "runtime must be one of: " + ", ".join(DEFAULT_CODING_AGENT_IMAGES)
             )
         effective_env = {
-            **build_openclaw_workspaces_sync_env(workspaces_sync),
+            **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
             **(dict(DEFAULT_PI_ENV) if runtime == "pi" else {}),
-            **dict(env or {}),
+            **dict(launch["env"] or {}),
         }
         effective_env.setdefault(
             "HYPER_ACP_PERMISSIONS",
-            build_permissions_json(permission_mode or "default"),
+            build_permissions_json(knobs["permission_mode"] or "default"),
         )
-        if permission_mode is not None:
+        if knobs["permission_mode"] is not None:
             # Transition: legacy hyper-acp builds only read the mode var, so keep
             # emitting it alongside the JSON when the caller chose a mode. A
             # caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
-            effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", permission_mode)
-        effective_secrets = dict(secrets or {})
+            effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", knobs["permission_mode"])
+        effective_secrets = dict(launch["secrets"] or {})
         for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
             value = effective_env.pop(key, None)
             if value is None:
@@ -2858,45 +2999,47 @@ class Deployments:
             if existing is not None and existing != value:
                 raise ValueError(f"{key} conflicts between env and secrets")
             effective_secrets[key] = value
-        effective_sync_include, effective_sync_exclude = _resolve_coding_agent_sync_policy(
+        launch["sync_include"], launch["sync_exclude"] = _resolve_coding_agent_sync_policy(
             runtime,
-            sync_include=sync_include,
-            sync_exclude=sync_exclude,
+            sync_include=launch["sync_include"],
+            sync_exclude=launch["sync_exclude"],
         )
-        agent = self.create(
-            name=name,
-            handle=handle,
-            size=size,
-            runtime=runtime,
-            config=config,
-            tags=tags,
-            env=effective_env,
-            secrets=effective_secrets,
-            routes={} if routes is None else routes,
-            cors=cors,
-            command=list(command) if command is not None else ["/usr/local/bin/hyper-acp"],
-            entrypoint=entrypoint,
-            image=image or DEFAULT_CODING_AGENT_IMAGES[runtime],
-            sync_root=DEFAULT_CODING_AGENT_SYNC_ROOT if sync_root is None else sync_root,
-            sync_include=effective_sync_include,
-            sync_exclude=effective_sync_exclude,
-            sync_uid=1000 if sync_uid is None else sync_uid,
-            sync_gid=1000 if sync_gid is None else sync_gid,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            restart=restart,
-            runtime_scopes=(
-                list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
-            ),
-            docker=docker,
-            executor=executor,
-            meta_ui=meta_ui,
-            runner=runner,
-            dry_run=dry_run,
+        launch["env"] = effective_env
+        launch["secrets"] = effective_secrets
+        launch["routes"] = {} if launch["routes"] is None else launch["routes"]
+        launch["command"] = (
+            list(launch["command"])
+            if launch["command"] is not None
+            else ["/usr/local/bin/hyper-acp"]
         )
-        if not isinstance(agent, CodingAgent):
+        launch["image"] = launch["image"] or DEFAULT_CODING_AGENT_IMAGES[runtime]
+        if launch["sync_root"] is None:
+            launch["sync_root"] = DEFAULT_CODING_AGENT_SYNC_ROOT
+        if launch["sync_uid"] is None:
+            launch["sync_uid"] = 1000
+        if launch["sync_gid"] is None:
+            launch["sync_gid"] = 1000
+        if launch["runtime_scopes"] is None:
+            launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
+        agent = self.create(runtime=runtime, **launch)
+        if agent.runtime != runtime:
             raise TypeError(f"Deployment response did not identify runtime {runtime!r}")
         return agent
+
+    def create_coding_agent(self, runtime: CodingAgentRuntime, **options: Any) -> Agent:
+        """Create an ACP-fronted coding agent. All coding runtimes share one
+        launch contract; ``runtime`` selects the default image, sync includes,
+        and harness env (``pi`` gets ``HYPER_RUNTIME_HOME``), nothing else.
+
+        .. deprecated:: use :meth:`create_agent` with the runtime label; the
+            folded entry takes the same options.
+        """
+        warnings.warn(
+            "create_coding_agent() is deprecated: use create_agent(runtime, **options).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.create_agent(runtime, **options)
 
 
     def budget(self) -> dict:
