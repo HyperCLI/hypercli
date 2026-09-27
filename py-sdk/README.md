@@ -146,11 +146,11 @@ builds routes. The canonical images are
 `ghcr.io/hypercli/hypercli-openclaw:prod` for regular OpenClaw and
 `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro OpenClaw — pass
 the image, `sync_root`, and exclusion choices explicitly in the launch config.
-`create_coding_agent` instead injects the runtime-specific include defaults documented in
+`create_agent` instead injects the runtime-specific include defaults documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
 nullable policy at create time to select the whole root.
 Workspaces boot sync defaults on through `build_openclaw_workspaces_sync_env()`
-— applied automatically by `create_coding_agent` — with
+— applied automatically by `create_agent` — with
 `HYPER_WORKSPACES_DIR` defaulting to `/home/node/shared` unless the launch
 `env` supplies one.
 `build_openclaw_trusted_proxies_env([...])` builds the comma-separated
@@ -252,19 +252,21 @@ HyperCLI-model Codex Responses E2E remains unvalidated, so that path is not yet
 advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
-All coding runtimes share one launch contract, `create_coding_agent(runtime,
-...)`; `runtime` selects the default image, sync includes, and harness env, and
-the launch env always carries `HYPER_ACP_PERMISSIONS` (built from
+All coding runtimes share one launch contract, `create_agent(runtime, ...)`;
+`runtime` selects the default image, sync includes, and harness env, and the
+launch env always carries `HYPER_ACP_PERMISSIONS` (built from
 `permission_mode`). The accepted runtimes are `buzz-agent`, `opencode`,
 `codex`, `claude-code`, `goose`, `kimi-code`, and `pi`.
+`create_coding_agent` survives only as a deprecated alias that warns and
+forwards to `create_agent`.
 
 ```python
-buzz_agent = client.deployments.create_coding_agent("buzz-agent", name="buzz-agent")
-agent = client.deployments.create_coding_agent("opencode", name="opencode")
-codex = client.deployments.create_coding_agent("codex", name="codex")
-claude = client.deployments.create_coding_agent("claude-code", name="claude")
-goose = client.deployments.create_coding_agent("goose", name="goose")
-kimi = client.deployments.create_coding_agent("kimi-code", name="kimi")
+buzz_agent = client.deployments.create_agent("buzz-agent", name="buzz-agent")
+agent = client.deployments.create_agent("opencode", name="opencode")
+codex = client.deployments.create_agent("codex", name="codex")
+claude = client.deployments.create_agent("claude-code", name="claude")
+goose = client.deployments.create_agent("goose", name="goose")
+kimi = client.deployments.create_agent("kimi-code", name="kimi")
 
 methods = codex.auth.methods()
 status = codex.auth.status()
@@ -293,11 +295,11 @@ platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the runtime; do
 not copy an account API key into the launch environment.
 
 The typed Buzz launch contract (`BuzzLaunchConfig`) is TS-SDK-only:
-`create_coding_agent` accepts no `buzz=` option, and passing a `buzz` keyword
-raises `TypeError`. Use the TS SDK's `createCodingAgent(runtime, { buzz: ... })`
-for a Buzz-managed identity launch, or render the raw contract yourself over the
+`create_agent` accepts no `buzz=` option, and passing a `buzz` keyword raises
+`TypeError`. Use the TS SDK's `createAgent(runtime, { buzz: ... })` for a
+Buzz-managed identity launch, or render the raw contract yourself over the
 generic launch surface: put `BUZZ_PRIVATE_KEY` (and optionally
-`NOSTR_PRIVATE_KEY`) in `env` — `create_coding_agent` promotes both to launch
+`NOSTR_PRIVATE_KEY`) in `env` — `create_agent` promotes both to launch
 secrets — and pass the remaining `BUZZ_*` keys as launch environment for the
 managed image to parse at boot.
 
