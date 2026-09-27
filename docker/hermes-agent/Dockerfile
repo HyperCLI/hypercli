@@ -48,8 +48,10 @@ COPY --chmod=0755 config.py /opt/hypercli-hermes/config.py
 COPY --chmod=0755 env.py /opt/hypercli-hermes/env.py
 COPY --chmod=0755 models.py /opt/hypercli-hermes/models.py
 COPY --chmod=0755 patch_hermes_mem0_custom_instructions.py /opt/hypercli-hermes/patch_hermes_mem0_custom_instructions.py
+COPY --chmod=0755 patch_hermes_mem0_shared_oss_backend.py /opt/hypercli-hermes/patch_hermes_mem0_shared_oss_backend.py
 
 RUN /opt/hypercli-hermes/patch_hermes_mem0_custom_instructions.py
+RUN /opt/hypercli-hermes/patch_hermes_mem0_shared_oss_backend.py
 
 RUN usermod -d /home/hermes hermes \
     && mkdir -p /home/hermes/.hermes /home/hermes/shared \

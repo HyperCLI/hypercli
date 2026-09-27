@@ -444,6 +444,41 @@ def main() -> None:
         assert "custom_instructions" not in mem0_config["oss"]
         assert MODEL_KEY not in mem0_seeded
 
+        # mem0's OSS LLM/embedder must follow the launch's agents API base:
+        # mem0's openai provider prefers the config's openai_base_url over
+        # OPENAI_BASE_URL, so configure_mem0.py rewrites the seeded file from
+        # HYPER_AGENTS_API_BASE (stripping a caller's trailing /agents —
+        # litellm owns /v1 only at the host root).
+        mem0_dev_base = run(
+            "docker", "run", "--rm",
+            "-v", f"{volume}:/home/hermes",
+            "-e", "HYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents",
+            IMAGE,
+            "python", "-c",
+            "from pathlib import Path; print(Path('/home/hermes/.hermes/mem0.json').read_text())",
+        ).stdout
+        mem0_dev_config = parse_stdout_json(mem0_dev_base)
+        assert mem0_dev_config["oss"]["llm"]["config"]["openai_base_url"] == (
+            "https://api.dev.hypercli.com/v1"
+        )
+        assert mem0_dev_config["oss"]["embedder"]["config"]["openai_base_url"] == (
+            "https://api.dev.hypercli.com/v1"
+        )
+        mem0_default_base = run(
+            "docker", "run", "--rm",
+            "-v", f"{volume}:/home/hermes",
+            IMAGE,
+            "python", "-c",
+            "from pathlib import Path; print(Path('/home/hermes/.hermes/mem0.json').read_text())",
+        ).stdout
+        mem0_default_config = parse_stdout_json(mem0_default_base)
+        assert mem0_default_config["oss"]["llm"]["config"]["openai_base_url"] == (
+            "https://api.agents.hypercli.com/v1"
+        )
+        assert mem0_default_config["oss"]["embedder"]["config"]["openai_base_url"] == (
+            "https://api.agents.hypercli.com/v1"
+        )
+
         memory_instructions = "Only store durable user preferences."
         mem0_with_instructions = run(
             "docker", "run", "--rm",
