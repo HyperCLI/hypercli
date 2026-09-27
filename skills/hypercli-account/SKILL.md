@@ -18,7 +18,12 @@ Reference: `/opt/hypercli/docs/cli/configuration.mdx`.
 | Area | Command |
 | --- | --- |
 | Identity, capabilities, entitlements | `hyper me` |
+| Account profile | `hyper user --json` |
 | Write the local product API key | `hyper configure` |
+| Agent onboarding and subscription | `hyper agent onboard`, `hyper agent subscribe` |
+| Balance, invoices, transactions | `hyper billing balance` |
+| API keys | `hyper keys list`, `hyper keys create` |
+| Wallet | `hyper wallet balance`, `hyper wallet topup` |
 
 ## Identity and entitlements
 

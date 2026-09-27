@@ -51,6 +51,9 @@ approval.
 
 ## Workspace command map
 
+All rows run under `hyper workspaces <command>` (for example
+`hyper workspaces list`).
+
 | Area | Commands |
 | --- | --- |
 | Workspace lifecycle | `create`, `list`, `update`, `delete` |
