@@ -22,6 +22,7 @@ from hypercli.agents import (
     DEFAULT_KIMI_CODE_IMAGE,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
+    DEFAULT_OPENCLAW_SYNC_EXCLUDE,
     DEFAULT_PI_ENV,
     DEFAULT_PI_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
@@ -626,9 +627,13 @@ class TestCreateAgentOpenClawRuntimes:
         assert "config" not in body
         # Non-pro openclaw carries no runtime-scope default.
         assert "runtime_scopes" not in body
+        assert body["sync_exclude"] == list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
         env = body["env"]
         assert env["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert env["OPENCLAW_CRON_ENABLED"] == "1"
+        assert env["HYPER_MODELS"] == "default-anthropic"
+        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+        assert env["OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN"] == "*"
         assert "HYPER_DESKTOP_ENABLED" not in env
         assert "HYPER_ACP_PERMISSIONS" not in env
 
@@ -674,6 +679,57 @@ class TestCreateAgentOpenClawRuntimes:
 
         assert posts[0][1]["routes"]["openclaw"]["port"] == 9999
 
+    def test_openclaw_sync_exclude_preset_is_byte_pinned_to_ts(self):
+        assert DEFAULT_OPENCLAW_SYNC_EXCLUDE == (
+            "shared/**",
+            ".openclaw/npm/**/node_modules/**",
+            ".openclaw/agents/**/agent/*.sqlite.memory-reindex-*",
+            ".openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*",
+            ".openclaw/browser/**/Code Cache/**",
+            ".openclaw/browser/**/GPUCache/**",
+            ".openclaw/browser/**/ShaderCache/**",
+            ".openclaw/browser/**/GrShaderCache/**",
+            ".openclaw/browser/**/optimization_guide_model_store/**",
+        )
+
+    def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent("openclaw", env={"HYPER_MODELS": "custom-model", "X": "1"})
+
+        env = posts[0][1]["env"]
+        assert env["HYPER_MODELS"] == "custom-model"
+        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+        assert env["X"] == "1"
+
+    def test_control_ui_allowed_origin_wildcard_is_unconditional(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent(
+            "openclaw", env={"OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN": "https://panel.test"}
+        )
+
+        assert posts[0][1]["env"]["OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN"] == "*"
+
+    def test_explicit_sync_include_drops_default_exclude(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent("openclaw", sync_include=[".openclaw/agents"])
+
+        body = posts[0][1]
+        assert body["sync_include"] == [".openclaw/agents"]
+        assert "sync_exclude" not in body
+
+    @pytest.mark.parametrize("knob", ["sync_include", "sync_exclude"])
+    def test_explicit_null_sync_policy_opts_out_of_default_exclude(self, monkeypatch, knob):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        deployments.create_agent("openclaw", **{knob: None})
+
+        body = posts[0][1]
+        assert body[knob] is None
+        assert body.get("sync_exclude") != list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
+
 
 class TestCreateAgentHermesRuntimes:
     """ts createAgent hermes branch: /home/hermes root, uid/gid 10000, and the
@@ -696,7 +752,19 @@ class TestCreateAgentHermesRuntimes:
         assert body["sync_exclude"] == ["shared/**"]
         assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
         assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
-        assert body["env"]["HERMES_CRON_ENABLED"] == "1"
+        env = body["env"]
+        assert env["HERMES_CRON_ENABLED"] == "1"
+        assert env["HYPER_MODELS"] == "default-anthropic"
+        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+
+    def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
+
+        deployments.create_agent("hermes-agent", env={"HYPER_MODELS": "custom-model"})
+
+        env = posts[0][1]["env"]
+        assert env["HYPER_MODELS"] == "custom-model"
+        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
 
     def test_cors_origins_drive_cors_when_cors_unset(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "hermes-agent")
@@ -783,6 +851,13 @@ class TestFlatAgentSurface:
 
         with pytest.raises(TypeError, match="unexpected keyword argument 'buzz'"):
             deployments.create_agent("opencode", buzz={"privateKeyNsec": "nsec1"})
+        assert posts == []
+
+    def test_hosted_slack_knob_is_ts_sdk_only(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'slack'"):
+            deployments.create_agent("openclaw", slack=True)
         assert posts == []
 
 
