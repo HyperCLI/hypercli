@@ -55,16 +55,4 @@ describe('HyperAgent trial flows', () => {
     expect(url).toBe('http://agents.test/agents/stripe/trial');
     expect(JSON.parse(String(init.body))).toEqual({});
   });
-
-  it('claimTrialEntitlement warns and throws because the backend endpoint does not exist', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const agent = makeAgent();
-    await expect(agent.claimTrialEntitlement()).rejects.toThrow(/deprecated/);
-    expect(warn).toHaveBeenCalledOnce();
-    expect(String(warn.mock.calls[0][0])).toContain('/agents/plans/trial');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });

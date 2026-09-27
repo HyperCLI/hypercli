@@ -122,7 +122,7 @@ const scopedClient = new HyperCLI({
 });
 
 await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
-await scopedClient.deployments.startOpenClaw(agent.id);
+await scopedClient.deployments.start(agent.id);
 console.log("started", agent.id);
 
 await scopedClient.deployments.stop(agent.id);
@@ -193,7 +193,7 @@ const exactClient = new HyperCLI({
 });
 
 await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
-await exactClient.deployments.startOpenClaw(agent.id);
+await exactClient.deployments.start(agent.id);
 await exactClient.deployments.stop(agent.id);
 ```
 

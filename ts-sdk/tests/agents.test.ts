@@ -12,7 +12,6 @@ import {
   Deployments,
   flattenLaunchConfig,
   launchConfigHasDesktop,
-  CodingAgent,
   attachSlackRelayAgent,
   getSlackInstallStatus,
   isAgentRuntimeInactiveState,
@@ -953,7 +952,7 @@ describe('Agents SDK', () => {
       runtime: 'openclaw',
       state: 'ARCHIVING',
     });
-    const agent = CodingAgent.fromDict({
+    const agent = Agent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       runtime: 'openclaw',
@@ -2763,7 +2762,7 @@ describe('Agents SDK', () => {
   });
 
   it.each(['openclaw_acp', 'hermes_acp', 'openclaw', 'hermes-agent'])(
-    'hydrates runtime %s to the ACP-facing CodingAgent',
+    'hydrates runtime %s to the ACP-facing Agent',
     async (runtime) => {
       const http = {
         get: vi.fn().mockResolvedValue({
@@ -2777,10 +2776,34 @@ describe('Agents SDK', () => {
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
       const agent = await deployments.get('agent-123');
 
-      expect(agent).toBeInstanceOf(CodingAgent);
+      expect(agent).toBeInstanceOf(Agent);
       expect(agent.runtime).toBe(runtime);
     },
   );
+
+  it('exposes the ACP surface on ACP-capable runtimes without dialing', () => {
+    const agent = Agent.fromDict({ id: 'agent-acp', user_id: 'user-1', state: 'RUNNING', runtime: 'opencode' });
+    expect(agent.acpPool).toBeDefined();
+    expect(agent.auth).toBeDefined();
+  });
+
+  it('gates the ACP surface by runtime at call time', async () => {
+    const generic = Agent.fromDict({ id: 'agent-generic', user_id: 'user-1', state: 'RUNNING', runtime: 'generic' });
+    await expect(generic.acpConnect()).rejects.toThrow(/does not front hyper-acp/);
+    expect(() => generic.acpPool).toThrow(/does not front hyper-acp/);
+    expect(() => generic.auth).toThrow(/Runtime authentication is not available/);
+  });
+
+  it('passes the ACP gate for legacy payloads detected structurally as openclaw', () => {
+    const legacy = Agent.fromDict({
+      id: 'agent-legacy',
+      user_id: 'user-1',
+      state: 'RUNNING',
+      launch_config: { routes: { openclaw: { port: 18789 } } },
+    });
+    expect(legacy.runtime).toBeNull();
+    expect(legacy.acpPool).toBeDefined();
+  });
 
   it.each(['hermes_acp', 'hermes-agent'])(
     'createHermesAgent accepts a backend response already migrated to %s',
@@ -2797,20 +2820,20 @@ describe('Agents SDK', () => {
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
       const agent = await deployments.createHermesAgent({ name: 'hermes' });
 
-      expect(agent).toBeInstanceOf(CodingAgent);
+      expect(agent).toBeInstanceOf(Agent);
       expect(agent.runtime).toBe(runtime);
     },
   );
 
   it('hydrates OpenClaw runtimes without hydrating gateway wire fields', () => {
-    const agent = CodingAgent.fromDict({
+    const agent = Agent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       state: 'running',
       hostname: 'openclaw-test.hypercli.com',
       gateway_token: 'must-not-hydrate',
     });
-    const proAgent = CodingAgent.fromDict({
+    const proAgent = Agent.fromDict({
       id: 'agent-pro',
       user_id: 'user-456',
       state: 'running',
@@ -2818,8 +2841,8 @@ describe('Agents SDK', () => {
       gateway_token: 'must-not-hydrate',
     });
 
-    expect(agent).toBeInstanceOf(CodingAgent);
-    expect(proAgent).toBeInstanceOf(CodingAgent);
+    expect(agent).toBeInstanceOf(Agent);
+    expect(proAgent).toBeInstanceOf(Agent);
     expect('gatewayUrl' in agent).toBe(false);
     expect('gatewayToken' in agent).toBe(false);
     expect('gatewayUrl' in proAgent).toBe(false);

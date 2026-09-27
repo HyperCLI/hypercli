@@ -136,7 +136,6 @@
               "ts-sdk/hermes",
               "ts-sdk/workflows",
               "ts-sdk/workspaces",
-              "ts-sdk/gateway",
               "ts-sdk/reference"
             ]
           },
@@ -155,7 +154,6 @@
               "sdk/agents",
               "sdk/hermes",
               "sdk/workspaces",
-              "sdk/gateway",
               "sdk/x402",
               "sdk/reference"
             ]

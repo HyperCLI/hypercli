@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { CodingAgent, Deployments } from '../src/agents.js';
+import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import {
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
@@ -129,13 +129,13 @@ class FakeAcpProxy {
   }
 }
 
-function acpAgent(proxy: FakeAcpProxy): CodingAgent {
+function acpAgent(proxy: FakeAcpProxy): Agent {
   const deployments = new Deployments(
     {} as unknown as HTTPClient,
     'hyper_api_test',
     `http://127.0.0.1:${proxy.port}`,
   );
-  const agent = CodingAgent.fromDict({
+  const agent = Agent.fromDict({
     id: AGENT_ID,
     user_id: 'user-1',
     state: 'RUNNING',

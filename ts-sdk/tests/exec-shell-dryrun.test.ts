@@ -11,7 +11,6 @@ import {
   DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_OPENCLAW_PRO_IMAGE,
   Deployments,
-  CodingAgent,
   buildAgentConfig,
   buildOpenClawCronEnv,
   buildOpenClawRoutes,
@@ -335,7 +334,7 @@ describe('HyperClaw agents SDK', () => {
       },
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
-    expect(agent).toBeInstanceOf(CodingAgent);
+    expect(agent).toBeInstanceOf(Agent);
   });
 
   it('createOpenClaw accepts memory index launch options', async () => {
@@ -585,7 +584,7 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent.dev.hyperclaw.app',
     });
 
-    const openclaw = CodingAgent.fromDict({
+    const openclaw = Agent.fromDict({
       id: 'agent-2',
       user_id: 'user-1',
       state: 'running',
@@ -604,13 +603,13 @@ describe('HyperClaw agents SDK', () => {
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('CodingAgent waitRunning still delegates to Deployments.waitRunning', async () => {
+  it('Agent waitRunning still delegates to Deployments.waitRunning', async () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
-    const ready = CodingAgent.fromDict({
+    const ready = Agent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'running',
@@ -619,7 +618,7 @@ describe('HyperClaw agents SDK', () => {
     });
     vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
 
-    const agent = CodingAgent.fromDict({
+    const agent = Agent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'starting',
@@ -662,7 +661,7 @@ describe('HyperClaw agents SDK', () => {
     expect(result).toBe(ready);
   });
 
-  it('create posts config and returns bound CodingAgent', async () => {
+  it('create posts config and returns bound Agent', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-1',
       user_id: 'user-1',
@@ -693,7 +692,7 @@ describe('HyperClaw agents SDK', () => {
       }),
       { retries: 1 },
     );
-    expect(agent).toBeInstanceOf(CodingAgent);
+    expect(agent).toBeInstanceOf(Agent);
   });
 
   it('create posts only canonical meta.ui and hydrates it back onto the agent', async () => {

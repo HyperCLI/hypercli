@@ -130,10 +130,8 @@ Preferred current helpers:
 
 - `deployments.logsConnect()`
 - `deployments.shellConnect()`
-- `OpenClawAgent.gateway()`
-- `OpenClawAgent.waitReady()`
 
-Use the backend WebSocket helpers for shells/logs and the gateway client for OpenClaw behavior.
+Use the backend WebSocket helpers for shells/logs.
 
 ## Quick Start
 
@@ -150,7 +148,7 @@ const agent = await client.deployments.createOpenClaw({
 });
 
 await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
-await client.deployments.startOpenClaw(agent.id);
+await client.deployments.start(agent.id);
 const running = await client.deployments.waitRunning(agent.id);
 console.log(running.publicUrl);
 console.log(running.desktopUrl);
@@ -161,4 +159,3 @@ console.log(running.desktopUrl);
 - [Keys SDK](/ts-sdk/keys)
 - [Agents And Deployments](/ts-sdk/agents)
 - [TypeScript SDK Reference](/ts-sdk/reference)
-- [Gateway Client](/ts-sdk/gateway)

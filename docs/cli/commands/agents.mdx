@@ -121,7 +121,7 @@ Important options:
 the runtime. Wait until `status` reports `STOPPED`, then use the separate
 `hyper agents start <id-or-name>` command when the workspace is ready.
 
-Desktop/browser agents use the OpenClaw pro image, set `OPENCLAW_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `OPENCLAW_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env OPENCLAW_DESKTOP_ENABLED=True`.
+Desktop/browser agents use the OpenClaw pro image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
 
 Managed runtimes receive the agent-scoped inference credential as
 `HYPER_AGENTS_API_KEY`; do not rely on `HYPER_API_KEY` inside the runtime.

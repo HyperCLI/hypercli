@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  CodingAgent,
+  Agent,
   DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_BUZZ_AGENT_IMAGE,
   DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -14,8 +14,10 @@ import {
   DEFAULT_CODING_AGENT_IMAGES,
   DEFAULT_CODING_AGENT_SYNC_INCLUDES,
   DEFAULT_CODEX_IMAGE,
+  DEFAULT_HERMES_AGENT_IMAGE,
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
+  DEFAULT_OPENCLAW_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
   DEFAULT_PI_IMAGE,
   DEFAULT_PI_ENV,
@@ -107,9 +109,9 @@ describe('coding agents', () => {
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
-    const agent = await deployments.createCodingAgent(runtime);
+    const agent = await deployments.createAgent(runtime);
 
-    expect(agent).toBeInstanceOf(CodingAgent);
+    expect(agent).toBeInstanceOf(Agent);
     expect(agent.runtime).toBe(runtime);
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       runtime,
@@ -152,7 +154,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', { env: { HYPER_ACP_PERMISSION_MODE: 'bypass-permissions' } });
+    await deployments.createAgent('opencode', { env: { HYPER_ACP_PERMISSION_MODE: 'bypass-permissions' } });
 
     // Legacy mode var passes through verbatim during the transition.
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('bypass-permissions');
@@ -191,7 +193,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', { permissionMode: 'plan' });
+    await deployments.createAgent('opencode', { permissionMode: 'plan' });
 
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe(buildPermissionsJson('plan'));
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('plan');
@@ -205,7 +207,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('codex', { env: { HYPER_ACP_PERMISSIONS: '{"*":"ask"}' } });
+    await deployments.createAgent('codex', { env: { HYPER_ACP_PERMISSIONS: '{"*":"ask"}' } });
 
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe('{"*":"ask"}');
   });
@@ -218,7 +220,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       env: {
         HYPER_ACP_PERMISSIONS: '{"*":"allow"}',
         HYPER_ACP_PERMISSION_MODE: 'bypass-permissions',
@@ -244,7 +246,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', { runtimeScopes: ['models:*'] });
+    await deployments.createAgent('opencode', { runtimeScopes: ['models:*'] });
 
     expect(post.mock.calls[0][1].runtime_scopes).toEqual(['models:*']);
   });
@@ -257,7 +259,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('codex', {
+    await deployments.createAgent('codex', {
       env: { HYPER_WORKSPACES_DIR: '/home/node/custom-shared' },
     });
 
@@ -277,7 +279,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('codex', options);
+    await deployments.createAgent('codex', options);
 
     expect(post.mock.calls[0][1].sync_include).toEqual(expectedInclude);
     expect(post.mock.calls[0][1].sync_exclude).toEqual(expectedExclude);
@@ -290,7 +292,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.createCodingAgent('codex', { syncInclude: [] })).rejects.toThrow(
+    await expect(deployments.createAgent('codex', { syncInclude: [] })).rejects.toThrow(
       /syncInclude must contain/,
     );
   });
@@ -310,7 +312,7 @@ describe('coding agents', () => {
     });
 
     try {
-      await deployments.createCodingAgent('codex');
+      await deployments.createAgent('codex');
     } finally {
       Object.defineProperty(DEFAULT_CODING_AGENT_SYNC_INCLUDES, 'codex', {
         configurable: true,
@@ -330,7 +332,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('codex', { syncInclude: ['.codex'], syncExclude: ['tmp'] });
+    await deployments.createAgent('codex', { syncInclude: ['.codex'], syncExclude: ['tmp'] });
     expect(post.mock.calls[0][1].sync_include).toEqual(['.codex']);
     expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
   });
@@ -343,7 +345,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('codex', {
+    await deployments.createAgent('codex', {
       buzzEnabled: true,
       env: { CODEX_API_KEY: 'test-key' },
       workspacesSync: { workspace: 'buzz' },
@@ -362,7 +364,7 @@ describe('coding agents', () => {
         BUZZ_ACP_RELAY_OBSERVER: 'true',
       },
     });
-    await expect(deployments.createCodingAgent('codex', {
+    await expect(deployments.createAgent('codex', {
       buzzEnabled: true,
       command: ['sleep', 'infinity'],
     })).rejects.toThrow('Buzz launch cannot be combined');
@@ -383,7 +385,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent(runtime, { buzzEnabled: true });
+    await deployments.createAgent(runtime, { buzzEnabled: true });
 
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
@@ -407,7 +409,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent(runtime, {
+    await deployments.createAgent(runtime, {
       // The shared golden pins the exact buzz launch payload, including the
       // complete secrets map; hyper-acp provisioning is tested separately.
       buzzActivity: false,
@@ -459,7 +461,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       image: 'registry.example.test/custom-buzz-opencode:immutable',
       buzz: {
         privateKeyNsec: 'nsec1test',
@@ -480,7 +482,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       name: 'Fizz4',
       // Exact secrets/routes assertions below pin the buzz contract;
       // hyper-acp provisioning is tested separately.
@@ -548,7 +550,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       name: 'buzz-coder',
       buzz: {
         privateKeyNsec: 'nsec1test',
@@ -570,7 +572,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('buzz-agent', {
+    await deployments.createAgent('buzz-agent', {
       buzz: {
         privateKeyNsec: 'nsec1test',
         relayUrl: 'wss://buzz.example.test',
@@ -590,7 +592,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       buzz: {
         privateKeyNsec: 'nsec1test',
         relayUrl: 'wss://buzz.example.test',
@@ -610,7 +612,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       restart: true,
       buzz: {
         privateKeyNsec: 'nsec1test',
@@ -629,7 +631,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', { size: 'small' });
+    await deployments.createAgent('opencode', { size: 'small' });
 
     expect(post.mock.calls[0][1].size).toBe('small');
   });
@@ -641,7 +643,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.createCodingAgent('opencode', {
+    await expect(deployments.createAgent('opencode', {
       size: 'small',
       buzz: {
         privateKeyNsec: 'nsec1test',
@@ -660,7 +662,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('opencode', {
+    await deployments.createAgent('opencode', {
       size: 'medium',
       buzz: {
         privateKeyNsec: 'nsec1test',
@@ -683,13 +685,13 @@ describe('coding agents', () => {
     );
 
     const agents = [
-      CodingAgent.fromDict(data),
+      Agent.fromDict(data),
       await deployments.create({ runtime: 'pi', image: DEFAULT_PI_IMAGE }),
       await deployments.get(agentId),
       ...(await deployments.list()),
     ];
     for (const agent of agents) {
-      expect(agent).toBeInstanceOf(CodingAgent);
+      expect(agent).toBeInstanceOf(Agent);
       expect(agent.runtime).toBe('pi');
     }
     expect(get.mock.calls.map(([path]) => path)).toEqual([
@@ -705,7 +707,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createCodingAgent('pi');
+    await deployments.createAgent('pi');
     expect(post.mock.calls[0][1]).toMatchObject({
       image: 'ghcr.io/hypercli/hypercli-pi:latest',
       command: ['/usr/local/bin/hyper-acp'],
@@ -714,7 +716,7 @@ describe('coding agents', () => {
       sync_include: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
     });
     expect(DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi).toEqual(['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md']);
-    await deployments.createCodingAgent('pi', {
+    await deployments.createAgent('pi', {
       image: 'registry.example.test/pi:custom',
       command: ['/custom/hyper-acp'],
       env: { PI_CODING_AGENT_DIR: '/home/node/custom-pi' },
@@ -730,7 +732,7 @@ describe('coding agents', () => {
   });
 
   it('uses ordinary pi-acp for inherited runtime auth', async () => {
-    const agent = CodingAgent.fromDict(response('pi'));
+    const agent = Agent.fromDict(response('pi'));
     const exec = vi.spyOn(agent, 'exec').mockResolvedValue({
       exitCode: 0, stdout: '{}', stderr: '',
     });
@@ -749,7 +751,7 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.get(agentId)).resolves.toBeInstanceOf(CodingAgent);
+    await expect(deployments.get(agentId)).resolves.toBeInstanceOf(Agent);
   });
 
   it('hydrates the native Buzz runtime returned by get', async () => {
@@ -761,11 +763,11 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.get(agentId)).resolves.toBeInstanceOf(CodingAgent);
+    await expect(deployments.get(agentId)).resolves.toBeInstanceOf(Agent);
   });
 
   it('discovers Buzz ACP methods and merges native runtime methods', async () => {
-    const agent = CodingAgent.fromDict(response('codex'));
+    const agent = Agent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec').mockResolvedValue({
       exitCode: 0,
       stdout: JSON.stringify({
@@ -787,13 +789,13 @@ describe('coding agents', () => {
   });
 
   it('does not pretend managed Goose credentials have a vendor logout', async () => {
-    const goose = CodingAgent.fromDict(response('goose'));
+    const goose = Agent.fromDict(response('goose'));
 
     await expect(goose.auth.logout()).rejects.toThrow('injected deployment credential');
   });
 
   it('normalizes Claude JSON and generic unauthenticated status output', async () => {
-    const claude = CodingAgent.fromDict(response('claude-code'));
+    const claude = Agent.fromDict(response('claude-code'));
     vi.spyOn(claude, 'exec').mockResolvedValue({
       exitCode: 0,
       stdout: JSON.stringify({ loggedIn: true, email: 'dev@example.com', subscriptionType: 'pro', loginMethod: 'oauth' }),
@@ -806,13 +808,13 @@ describe('coding agents', () => {
       method: 'oauth',
     });
 
-    const codex = CodingAgent.fromDict(response('codex'));
+    const codex = Agent.fromDict(response('codex'));
     vi.spyOn(codex, 'exec').mockResolvedValue({ exitCode: 0, stdout: 'Not logged in', stderr: '' });
     await expect(codex.auth.status()).resolves.toMatchObject({ authenticated: false });
   });
 
   it('logs out through the protected exec surface and rechecks status', async () => {
-    const agent = CodingAgent.fromDict(response('opencode'));
+    const agent = Agent.fromDict(response('opencode'));
     const exec = vi.spyOn(agent, 'exec')
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 0, stdout: '0 credentials', stderr: '' });
@@ -825,7 +827,7 @@ describe('coding agents', () => {
   });
 
   it('runs login in an authenticated shell and captures the browser challenge', async () => {
-    const agent = CodingAgent.fromDict(response('codex'));
+    const agent = Agent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec')
       .mockResolvedValueOnce({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 0, stdout: 'Logged in', stderr: '' });
@@ -874,7 +876,7 @@ describe('coding agents', () => {
 
   it('cancels the shell when runtime authentication times out', async () => {
     vi.stubGlobal('WebSocket', undefined);
-    const agent = CodingAgent.fromDict(response('codex'));
+    const agent = Agent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec').mockResolvedValue({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' });
     const socket = {
       onmessage: null as ((event: { data: string }) => void) | null,
@@ -900,6 +902,58 @@ describe('coding agents', () => {
   });
 });
 
+describe('deprecated facades delegate to createAgent', () => {
+  function aliasDeployments(runtime: string) {
+    const post = vi.fn().mockResolvedValue({
+      id: 'alias-1',
+      user_id: 'user-1',
+      state: 'STOPPED',
+      runtime,
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    return { post, deployments };
+  }
+
+  it('createCodingAgent delegates with the coding runtime label', async () => {
+    const { post, deployments } = aliasDeployments('opencode');
+    const spy = vi.spyOn(deployments, 'createAgent');
+    const agent = await deployments.createCodingAgent('opencode', { name: 'legacy' });
+    expect(spy).toHaveBeenCalledExactlyOnceWith('opencode', expect.objectContaining({ name: 'legacy' }));
+    expect(agent).toBeInstanceOf(Agent);
+    expect(agent.runtime).toBe('opencode');
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      runtime: 'opencode',
+      image: DEFAULT_OPENCODE_IMAGE,
+    }), { retries: 1 });
+  });
+
+  it('createOpenClaw delegates with the openclaw label', async () => {
+    const { post, deployments } = aliasDeployments('openclaw');
+    const spy = vi.spyOn(deployments, 'createAgent');
+    await deployments.createOpenClaw({ name: 'legacy' });
+    expect(spy).toHaveBeenCalledExactlyOnceWith('openclaw', expect.objectContaining({ name: 'legacy' }));
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      runtime: 'openclaw',
+      image: DEFAULT_OPENCLAW_IMAGE,
+    }), { retries: 1 });
+  });
+
+  it('createHermesAgent delegates with the hermes label', async () => {
+    const { post, deployments } = aliasDeployments('hermes-agent');
+    const spy = vi.spyOn(deployments, 'createAgent');
+    await deployments.createHermesAgent({ name: 'legacy' });
+    expect(spy).toHaveBeenCalledExactlyOnceWith('hermes-agent', expect.objectContaining({ name: 'legacy' }));
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      runtime: 'hermes-agent',
+      image: DEFAULT_HERMES_AGENT_IMAGE,
+    }), { retries: 1 });
+  });
+});
+
 describe('buzz acp raw outbound launch', () => {
   function provisionDeployments(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' = 'buzz-agent') {
     const post = vi.fn().mockResolvedValue(response(runtime));
@@ -913,7 +967,7 @@ describe('buzz acp raw outbound launch', () => {
 
   it('runs hyper-acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createCodingAgent('buzz-agent', {
+    await deployments.createAgent('buzz-agent', {
       routes: { custom: { port: 9000, auth: true } },
       buzzEnabled: true,
     });
@@ -932,7 +986,7 @@ describe('buzz acp raw outbound launch', () => {
 
   it('strips caller-supplied observer env and child command overrides', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createCodingAgent('buzz-agent', {
+    await deployments.createAgent('buzz-agent', {
       buzzEnabled: true,
       env: {
         HYPER_ACP_WS_LISTEN: '127.0.0.1:1',
@@ -954,7 +1008,7 @@ describe('buzz acp raw outbound launch', () => {
 
   it('deprecated buzzActivity flag does not reenable the observer route', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createCodingAgent('buzz-agent', { buzzEnabled: true, buzzActivity: true });
+    await deployments.createAgent('buzz-agent', { buzzEnabled: true, buzzActivity: true });
     const payload = post.mock.calls[0][1];
     expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
@@ -965,7 +1019,7 @@ describe('buzz acp raw outbound launch', () => {
 
   it('provisions nothing on a non-buzz image by default', async () => {
     const { post, deployments } = provisionDeployments('codex');
-    await deployments.createCodingAgent('codex');
+    await deployments.createAgent('codex');
     const payload = post.mock.calls[0][1];
     expect(payload.command).toEqual(['/usr/local/bin/hyper-acp']);
     expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
@@ -976,7 +1030,7 @@ describe('buzz acp raw outbound launch', () => {
 
   it('keeps an explicit plain ACP launch command', async () => {
     const { post, deployments } = provisionDeployments('opencode');
-    await deployments.createCodingAgent('opencode', { command: ['/bin/sh', '-c', 'sleep infinity'] });
+    await deployments.createAgent('opencode', { command: ['/bin/sh', '-c', 'sleep infinity'] });
     const payload = post.mock.calls[0][1];
     expect(payload.command).toEqual(['/bin/sh', '-c', 'sleep infinity']);
   });

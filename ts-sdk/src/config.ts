@@ -35,21 +35,7 @@ function getNodeConfigPaths(): { configDir: string; configFile: string } | null 
   }
 }
 
-export function configDir(): string {
-  return getNodeConfigPaths()?.configDir || '.hypercli';
-}
-
-export function configFile(): string {
-  return getNodeConfigPaths()?.configFile || '.hypercli/config';
-}
-
-/** @deprecated Use configDir() so HYPER_HOME is read at call time. */
-export const CONFIG_DIR = getNodeConfigPaths()?.configDir || '.hypercli';
-/** @deprecated Use configFile() so HYPER_HOME is read at call time. */
-export const CONFIG_FILE = getNodeConfigPaths()?.configFile || '.hypercli/config';
-
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
-export const DEFAULT_WS_URL = 'wss://api.hypercli.com';
 export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.hypercli.com/agents';
 export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 export const DEV_AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
@@ -57,7 +43,7 @@ export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 
 // GHCR images
-export const GHCR_IMAGES = 'ghcr.io/compute3ai/images';
+const GHCR_IMAGES = 'ghcr.io/compute3ai/images';
 export const COMFYUI_IMAGE = `${GHCR_IMAGES}/comfyui`;
 
 function normalizeAgentsApiBase(url: string): string {

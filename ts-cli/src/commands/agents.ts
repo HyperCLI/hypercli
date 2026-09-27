@@ -27,9 +27,7 @@ import {
   type AgentLaunchConfig,
   type AgentRouteConfig,
   type AgentState,
-  type CodingAgent,
   type CodingAgentAcpClient,
-  type CodingAgentRuntime,
   type Deployments,
   type HyperAgentGrantRedemptionResponse,
   type HyperCLI,
@@ -70,22 +68,11 @@ export const usage = [
 /** Hidden commands work but stay out of the help listing. */
 const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes'];
 
-/** CLI --runtime name → Deployments create entry; ACP coding runtimes ride the single createCodingAgent facade. */
-const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
-  ['openclaw', 'createOpenClaw'],
-  ['hermes', 'createHermesAgent'],
-  ['generic', 'create'],
-  ['goose', 'createCodingAgent'],
-  ['opencode', 'createCodingAgent'],
-  ['codex', 'createCodingAgent'],
-  ['claude-code', 'createCodingAgent'],
-  ['kimi-code', 'createCodingAgent'],
-  ['pi', 'createCodingAgent'],
-  ['buzz', 'createCodingAgent'],
-]);
-
-/** CLI name → SDK CodingAgentRuntime label for the createCodingAgent dispatch. */
-const CODING_AGENT_CREATE_RUNTIMES: ReadonlyMap<string, CodingAgentRuntime> = new Map([
+/** CLI --runtime name → SDK runtime label; everything rides the flat createAgent. */
+const RUNTIME_LABELS: ReadonlyMap<string, ManagedAgentRuntime> = new Map([
+  ['openclaw', 'openclaw'],
+  ['hermes', 'hermes-agent'],
+  ['generic', 'generic'],
   ['goose', 'goose'],
   ['opencode', 'opencode'],
   ['codex', 'codex'],
@@ -98,7 +85,7 @@ const CODING_AGENT_CREATE_RUNTIMES: ReadonlyMap<string, CodingAgentRuntime> = ne
 /** desktop/src/agent-utils parity: only these runtimes get the token ceremony. */
 const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro', 'openclaw_acp']);
 const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent', 'hermes_acp']);
-/** CodingAgent family: chat rides the pod-side ACP bridge, never a gateway. */
+/** Agent family: chat rides the pod-side ACP bridge, never a gateway. */
 const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz-agent']);
 const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
 const HERMES_RUNTIMES: ReadonlySet<string> = HERMES_SET;
@@ -560,13 +547,12 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   if (!agentName) throw new UsageError('missing agent name');
   const runtime = str(parsed, 'runtime')?.toLowerCase();
   if (!runtime) {
-    throw new UsageError(`--runtime is required (one of: ${[...RUNTIME_COMMANDS.keys()].join(', ')})`);
+    throw new UsageError(`--runtime is required (one of: ${[...RUNTIME_LABELS.keys()].join(', ')})`);
   }
-  const method = RUNTIME_COMMANDS.get(runtime);
-  const codingRuntime = CODING_AGENT_CREATE_RUNTIMES.get(runtime);
-  if (!method) {
+  const runtimeLabel = RUNTIME_LABELS.get(runtime);
+  if (!runtimeLabel) {
     throw new UsageError(
-      `unknown runtime '${runtime}' (expected one of: ${[...RUNTIME_COMMANDS.keys()].join(', ')})`,
+      `unknown runtime '${runtime}' (expected one of: ${[...RUNTIME_LABELS.keys()].join(', ')})`,
     );
   }
 
@@ -617,7 +603,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const configBag = runtime === 'openclaw' ? {} : { ...(model ? { model } : {}), ...params };
   // Coding runtimes own their pod boot command; a caller command there would
   // replace the ACP entrypoint silently. openclaw/generic/hermes honor it.
-  if (commandArgv.length > 0 && codingRuntime) {
+  if (commandArgv.length > 0 && ACP_SET.has(runtimeLabel)) {
     throw new UsageError(
       `a command argv is not supported for coding runtime '${runtime}'; the runtime owns its boot command`,
     );
@@ -637,16 +623,14 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
 
   if (dryRun) {
     // Print the resolved payload, call nothing (not even ctx.client()).
-    const printable = { runtime, method, options: maskCreatePayloadSecrets(payload) };
+    const printable = { runtime, method: 'createAgent', options: maskCreatePayloadSecrets(payload) };
     ctx.output.result(printable, JSON.stringify(printable, null, 2));
     return;
   }
 
   const { d } = await adopt(ctx);
   const created = await api('create agent', async () =>
-    codingRuntime
-      ? d.createCodingAgent(codingRuntime, payload as Parameters<Deployments['createCodingAgent']>[1])
-      : (d as unknown as Record<string, (options: unknown) => Promise<Agent>>)[method](payload));
+    d.createAgent(runtimeLabel, payload as Parameters<Deployments['createAgent']>[1]));
   ctx.output.result(
     recordJsonRecord(created, `${dashboardBase(ctx)}/agents/${created.id}`),
     recordLabelValue([
@@ -1573,15 +1557,14 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       else process.stdout.write(text);
     };
 
-    // ACP is the single chat surface for every supported runtime
-    // (routines.ts uses the same cast; CodingAgent.acpConnect only reads
-    // the agent id plus the deployments base, both set on any hydrated
-    // record, so the cast is safe structurally). The dial rides the backend
+    // ACP is the single chat surface for every supported runtime: the flat
+    // Agent owns acpConnect and call-time gates on the runtime label (a
+    // non-ACP label throws rather than dialing). The dial rides the backend
     // session proxy (/ws/acp) by default; --session attaches that session at
     // the socket level so the loadSession replay is delivered (an unknown id
     // fails the connect — the proxy closes with 4404).
     const acp = await atStage('connect', () =>
-      (agent as unknown as CodingAgent).acpConnect({
+      agent.acpConnect({
         signal: controller.signal,
         clientInfo: { name: 'hypercli-cli' },
         ...(sessionName !== undefined ? { sessionId: sessionName } : {}),

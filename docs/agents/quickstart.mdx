@@ -45,13 +45,20 @@ The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.jso
 ## Create An Agent With The Python SDK
 
 ```python
-from hypercli import HyperCLI
+from hypercli import HyperCLI, build_openclaw_routes
 
 client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
-agent = client.deployments.create_openclaw(name="my-agent", size="small")
+agent = client.deployments.create(
+    name="my-agent",
+    size="small",
+    runtime="openclaw",
+    image="ghcr.io/hypercli/hypercli-openclaw:prod",
+    sync_root="/home/node",
+    routes=build_openclaw_routes(include_desktop=True),
+)
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start_openclaw(agent.id)
+agent = client.deployments.start(agent.id)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 print(agent.id, agent.state, agent.vnc_url)
 
@@ -124,4 +131,3 @@ asyncio.run(main())
 
 - [CLI Reference](/cli/commands/agents)
 - [Python SDK Agents](/sdk/agents)
-- [Gateway Client](/sdk/gateway)

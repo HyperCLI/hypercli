@@ -159,50 +159,28 @@ Methods:
 - `cpFrom()`
 - `shellConnect()`
 
-### `OpenClawAgent`
+### `CodingAgent`
 
-Adds:
+Hydrated for every `hyper-acp`-fronted runtime. Adds:
 
-- `gatewayUrl`
-- `gatewayToken`
-- `resolveGatewayToken()`
-- `gateway()`
-- `connect()`
-- `gatewayStatus()`
-- `waitReady()`
-- `configGet()`
-- `configSchema()`
-- `configPatch()`
-- `configApply()`
-- `modelsList()`
-- `sessionsList()`
-- `channelsStatus()`
-- `channelsLogout()`
-- `webLoginStart()`
-- `webLoginWait()`
-- `workspaceFiles()`
-- `fileGet()`
-- `fileSet()`
-- `chatHistory()`
-- `chatSendMessage()`
-- `providerUpsert()`
-- `providerRemove()`
-- `modelUpsert()`
-- `modelRemove()`
-- `setDefaultModel()`
-- `setMemorySearch()`
-- `channelUpsert()`
-- `channelPatch()`
-- `telegramUpsert()`
-- `slackUpsert()`
-- `discordUpsert()`
-- `cronList()`
+- `auth`
+  runtime-specific `RuntimeAuthClient`: `methods()`, `status()`, `login()`,
+  `logout()`
+- `acpConnect(options)`
+  ACP client over the backend session proxy (`/ws/acp`)
+- `acpPool`
+  lazily created `CodingAgentAcpPool` — shared, lease-based ACP connection
+- `acpTurnDriver(options)`
+  per-session `AcpTurnDriver` bound to a pooled lease
 
 ## `Deployments`
 
 Major methods:
 
 - `create()`
+- `createOpenClaw(...)`
+- `createHermesAgent(...)`
+- `createCodingAgent(runtime, ...)`
 - `budget()`
 - `metrics()`
 - `list()`
@@ -215,7 +193,6 @@ Major methods:
 - `logsToken()`
 - `env()`
 - `exec()`
-- `health()`
 - `filesList()`
 - `fileReadBytes()`
 - `fileRead()`
@@ -227,20 +204,3 @@ Major methods:
 - `logsConnect()`
 - `shellToken()`
 - `shellConnect()`
-
-## Gateway
-
-`GatewayClient` major methods:
-
-- lifecycle: `connect()`, `close()`, `waitReady()`
-- events: `onEvent()`
-- config: `configGet()`, `configSchema()`, `configPatch()`, `configApply()`, `configSet()`
-- chat: `sendChat()`, `chatHistory()`, `chatAbort()`
-- sessions: `sessionsList()`, `sessionsPreview()`, `sessionsReset()`
-- files: `filesList()`, `fileGet()`, `fileSet()`
-- channels: `channelsStatus()`, `channelsLogout()`, `webLoginStart()`, `webLoginWait()`
-- models: `modelsList()`
-- cron: `cronList()`, `cronAdd()`, `cronRemove()`
-- approvals: `execApprove()`, `execDeny()`
-- nodes: `nodesList()`, `nodeDescribe()`, `nodePairList()`, `nodePairApprove()`, `nodePairReject()`, `nodePairRemove()`, `nodeRename()`, `nodeInvoke()`
-- status: `status()`

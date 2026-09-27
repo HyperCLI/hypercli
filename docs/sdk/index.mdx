@@ -88,17 +88,21 @@ Use `agent_api_key` when your HyperCLI key is different from your main HyperCLI 
 ## Quick Start
 
 ```python
-from hypercli import HyperCLI
+from hypercli import HyperCLI, build_openclaw_routes
 
 client = HyperCLI(api_key="hyper_...")
 
-agent = client.deployments.create_openclaw(
+agent = client.deployments.create(
     name="docs-demo",
+    runtime="openclaw",
+    image="ghcr.io/hypercli/hypercli-openclaw:prod",
+    sync_root="/home/node",
+    routes=build_openclaw_routes(include_desktop=True),
     env={"APP_ENV": "prod"},
 )
 
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start_openclaw(agent.id)
+agent = client.deployments.start(agent.id)
 agent = agent.wait_running(timeout=300)
 print(agent.public_url)   # https://docs-demo.hypercli.app
 print(agent.desktop_url)  # https://desktop-docs-demo.hypercli.app
@@ -188,21 +192,8 @@ Preferred helpers:
 
 These use backend-issued short-lived tokens and the backend `/ws/logs/{agent_id}` and `/ws/shell/{agent_id}` endpoints.
 
-### Use `OpenClawAgent.gateway()` for gateway work
-
-Preferred helpers:
-
-- `agent.gateway()`
-- `agent.connect()`
-- `agent.wait_ready()`
-- `agent.config_get()`
-- `agent.chat_send()`
-
-These connect to the root agent host, not `openclaw-<host>`.
-
 ## Next Pages
 
 - [Keys SDK](/sdk/keys)
 - [Agents SDK](/sdk/agents)
 - [Python SDK Reference](/sdk/reference)
-- [Gateway Client SDK](/sdk/gateway)
