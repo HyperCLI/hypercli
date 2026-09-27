@@ -561,12 +561,12 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const size = str(parsed, 'size');
   const env = parseParams(strList(parsed, 'env'));
   // Payload passthrough: openclaw strips the generic config bag in
-  // createOpenClaw, so --param rides env there; the other runtimes carry a
+  // createAgent, so --param rides env there; the other runtimes carry a
   // free-form config bag that reaches the create payload.
   const params = parseParams(strList(parsed, 'param'));
   const dryRun = parsed.values['dry-run'] === true;
 
-  // openclaw strips the generic config bag in createOpenClaw, so a model there
+  // openclaw strips the generic config bag in createAgent, so a model there
   // would be silently dropped; refuse instead of pretending.
   if (model && runtime === 'openclaw') {
     throw new UsageError(

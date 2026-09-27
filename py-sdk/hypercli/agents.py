@@ -96,6 +96,22 @@ OPENCLAW_TRUSTED_PROXIES_ENV = "OPENCLAW_TRUSTED_PROXIES"
 HERMES_CRON_ENV_DEFAULTS = {
     "HERMES_CRON_ENABLED": "1",
 }
+DEFAULT_OPENCLAW_MODEL_ENV = {
+    "HYPER_MODELS": "default-anthropic",
+    "HYPER_EMBEDDING_MODELS": "qwen3-embedding-4b",
+}
+DEFAULT_HERMES_MODEL_ENV = DEFAULT_OPENCLAW_MODEL_ENV
+DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
+    "shared/**",
+    ".openclaw/npm/**/node_modules/**",
+    ".openclaw/agents/**/agent/*.sqlite.memory-reindex-*",
+    ".openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*",
+    ".openclaw/browser/**/Code Cache/**",
+    ".openclaw/browser/**/GPUCache/**",
+    ".openclaw/browser/**/ShaderCache/**",
+    ".openclaw/browser/**/GrShaderCache/**",
+    ".openclaw/browser/**/optimization_guide_model_store/**",
+)
 DEFAULT_HERMES_AGENT_SYNC_EXCLUDE = ("shared/**",)
 LAUNCH_CONFIG_KEYS = frozenset(
     {
@@ -2845,9 +2861,9 @@ class Deployments:
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
           ``kimi-code``/``pi``: the shared ACP coding-agent launch contract.
 
-        The typed Buzz launch contract (``BuzzLaunchConfig``) is ts-sdk-only:
-        this surface accepts no ``buzz`` keyword, so passing one raises
-        ``TypeError``.
+        The typed Buzz launch contract (``BuzzLaunchConfig``) and the hosted
+        Slack ``slack`` knob are ts-sdk-only: this surface accepts neither
+        keyword, so passing one raises ``TypeError``.
         """
         launch = {
             "name": name,
@@ -2914,7 +2930,14 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
             **build_openclaw_cron_env(knobs["cron_enabled"]),
             **build_openclaw_memory_index_env(knobs["memory_index"]),
+            **DEFAULT_OPENCLAW_MODEL_ENV,
             **dict(launch["env"] or {}),
+            # OpenClaw treats this env as a full replace for
+            # gateway.controlUi.allowedOrigins, and every HyperCLI surface
+            # (desktop, console) drives the control UI from dynamic origins.
+            # The only value that lands reliably is the wildcard — always
+            # write it.
+            "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN": "*",
             **build_openclaw_trusted_proxies_env(knobs["trusted_proxies"]),
         }
         if launch["routes"] is None:
@@ -2929,6 +2952,10 @@ class Deployments:
         )
         if launch["sync_root"] is None:
             launch["sync_root"] = DEFAULT_CODING_AGENT_SYNC_ROOT
+        # An explicit None include/exclude opts out of the default into
+        # whole-root persistence, the same as ts's explicit null.
+        if launch["sync_include"] is _UNSET and launch["sync_exclude"] is _UNSET:
+            launch["sync_exclude"] = list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
         if pro and launch["runtime_scopes"] is None:
             launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
         return self.create(runtime=runtime, **launch)
@@ -2936,6 +2963,7 @@ class Deployments:
     def _create_hermes_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
         launch["env"] = {
             **build_hermes_cron_env(knobs["cron_enabled"]),
+            **DEFAULT_HERMES_MODEL_ENV,
             **dict(launch["env"] or {}),
         }
         if launch["cors"] is _UNSET:
