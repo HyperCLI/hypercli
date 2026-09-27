@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import secrets
 import shlex
 import sys
 from pathlib import Path
@@ -12,16 +13,19 @@ import typer
 from hypercli.agents import (
     AGENT_FILE_MAX_BYTES,
     DEFAULT_AGENT_RUNTIME_SCOPES,
+    DEFAULT_CODING_AGENT_SYNC_ROOT,
     DEFAULT_HERMES_AGENT_IMAGE,
+    DEFAULT_HERMES_AGENT_SYNC_EXCLUDE,
+    DEFAULT_HERMES_AGENT_SYNC_ROOT,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
     Agent,
     Deployments,
-    HermesAgent,
-    OpenClawAgent,
+    build_hermes_agent_routes,
     build_hermes_cron_env,
     build_openclaw_cron_env,
     build_openclaw_memory_index_env,
+    build_openclaw_routes,
 )
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 from rich.console import Console
@@ -37,6 +41,11 @@ PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"
 _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
+
+# The OpenClaw image refuses to boot without a gateway token; the reduced SDK
+# treats it as an ordinary caller-owned secret (SPEC.md §4), so the CLI mints
+# one into launch secrets at create time.
+OPENCLAW_GATEWAY_TOKEN_SECRET = "OPENCLAW_GATEWAY_TOKEN"
 
 # Config — uses HyperCLI API key (hyper_api_...) for backend auth
 STATE_DIR = hyper_home()
@@ -274,9 +283,6 @@ def _save_agent_state(agent: Agent):
         "user_id": agent.user_id,
         "hostname": agent.hostname,
         "jwt_token": agent.jwt_token or existing.get("jwt_token"),
-        "api_server_key": (
-            agent.api_server_key if isinstance(agent, HermesAgent) else existing.get("api_server_key")
-        ),
         "runtime": agent.runtime or existing.get("runtime"),
         "launch_config": saved_launch,
         "state": agent.state,
@@ -352,26 +358,9 @@ def _get_agent_with_token(agent_id: str) -> Agent:
     local = state.get(pod.id, {}) or state.get(resolved_agent_id, {})
     if not pod.jwt_token and local.get("jwt_token"):
         pod.jwt_token = local["jwt_token"]
-    if isinstance(pod, HermesAgent) and not pod.api_server_key and local.get("api_server_key"):
-        pod.api_server_key = local["api_server_key"]
     if pod.launch_config is None and local.get("launch_config") is not None:
         pod.launch_config = local["launch_config"]
-    if isinstance(pod, OpenClawAgent) and not pod.gateway_token:
-        # Gateway tokens are caller-held and never ride projections; when no
-        # local state holds one (fresh machines, CI), recover it through the
-        # explicit secret retrieval endpoint.
-        try:
-            pod.gateway_token = pod.secret("OPENCLAW_GATEWAY_TOKEN") or None
-        except Exception:
-            pass
     return pod
-
-
-def _require_openclaw_agent(agent: Agent) -> OpenClawAgent:
-    if isinstance(agent, OpenClawAgent):
-        return agent
-    console.print("[red]❌ Agent is not an OpenClaw-backed agent.[/red]")
-    raise typer.Exit(1)
 
 
 def _parse_env_vars(values: list[str] | None) -> dict | None:
@@ -587,8 +576,7 @@ def create(
     ),
     sync_uid: int = typer.Option(None, "--sync-uid", min=0, max=4_294_967_294, help="UID for synced files; Lagoon defaults to 1000"),
     sync_gid: int = typer.Option(None, "--sync-gid", min=0, max=4_294_967_294, help="GID for synced files; Lagoon defaults to 1000"),
-    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
-    api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
+    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override (stored as a caller-owned secret)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent"),
 ):
     """Provision a new managed agent in STOPPED state."""
@@ -614,11 +602,6 @@ def create(
         effective_env = _apply_hermes_cron_env(env_dict, cron)
         memory_index = None
     else:
-        if api_server_key is not None:
-            raise typer.BadParameter(
-                "--api-server-key is only valid with --runtime hermes-agent",
-                param_hint="--api-server-key",
-            )
         desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
         effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
         effective_env = _apply_openclaw_cron_env(effective_env, cron)
@@ -637,32 +620,41 @@ def create(
         common = {
             "name": name,
             "size": size,
-            "env": effective_env,
             "command": command_argv,
             "entrypoint": entrypoint_argv,
             "registry_url": registry_url,
             "registry_auth": registry_auth,
-            "sync_uid": sync_uid,
-            "sync_gid": sync_gid,
             "dry_run": dry_run,
             **sync_policy,
         }
         if runtime == "hermes-agent":
-            pod = agents.create_hermes_agent(
+            pod = agents.create(
                 **common,
+                env=effective_env,
                 image=_default_hermes_agent_image(image),
-                api_server_key=api_server_key,
-                cron_enabled=cron,
+                sync_uid=10000 if sync_uid is None else sync_uid,
+                sync_gid=10000 if sync_gid is None else sync_gid,
+                runtime="hermes-agent",
+                routes=build_hermes_agent_routes(),
+                sync_root=DEFAULT_HERMES_AGENT_SYNC_ROOT,
+                **(
+                    {"sync_exclude": list(DEFAULT_HERMES_AGENT_SYNC_EXCLUDE)}
+                    if not sync_policy
+                    else {}
+                ),
             )
         else:
-            create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
-            pod = create_func(
+            pod = agents.create(
                 **common,
                 image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
-                gateway_token=gateway_token,
-                openclaw_route_options={"include_desktop": desktop_enabled},
-                cron_enabled=cron,
-                memory_index=memory_index,
+                sync_uid=sync_uid,
+                sync_gid=sync_gid,
+                runtime="openclaw-pro" if desktop_enabled else "openclaw",
+                env=build_openclaw_memory_index_env(memory_index) | effective_env,
+                secrets={OPENCLAW_GATEWAY_TOKEN_SECRET: gateway_token or secrets.token_hex(32)},
+                routes=build_openclaw_routes(include_desktop=desktop_enabled),
+                runtime_scopes=list(DEFAULT_AGENT_RUNTIME_SCOPES) if desktop_enabled else None,
+                sync_root=DEFAULT_CODING_AGENT_SYNC_ROOT,
             )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
@@ -676,7 +668,7 @@ def create(
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
     if runtime == "hermes-agent":
-        console.print(f"  API:      {pod.api_url or 'pending route assignment'}")
+        console.print(f"  API:      {pod.route_url('hermes') or 'pending route assignment'}")
     else:
         console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
@@ -688,7 +680,7 @@ def create(
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
         console.print(f"Start:   [bold]hyper agents start {pod.id[:8]}[/bold]")
         if runtime == "hermes-agent":
-            console.print(f"API:     {pod.api_url or 'pending route assignment'}")
+            console.print(f"API:     {pod.route_url('hermes') or 'pending route assignment'}")
         elif desktop_enabled:
             console.print(f"Desktop: {pod.vnc_url}")
         else:
@@ -945,8 +937,6 @@ def start(
     ),
     sync_uid: int = typer.Option(None, "--sync-uid", min=0, max=4_294_967_294, help="UID for synced files; Lagoon defaults to 1000"),
     sync_gid: int = typer.Option(None, "--sync-gid", min=0, max=4_294_967_294, help="GID for synced files; Lagoon defaults to 1000"),
-    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
-    api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting the agent"),
 ):
     """Start a previously stopped agent."""
@@ -976,8 +966,6 @@ def start(
             "sync_exclude": sync_exclude,
             "sync_uid": sync_uid,
             "sync_gid": sync_gid,
-            "gateway_token": gateway_token,
-            "api_server_key": api_server_key,
             "dry_run": True if dry_run else None,
         }.items()
         if value is not None
@@ -1037,7 +1025,6 @@ def start(
     local = state.get(agent_id, {})
     if not local and getattr(existing_pod, "launch_config", None) is not None:
         local = {
-            "api_server_key": getattr(existing_pod, "api_server_key", None),
             "runtime": getattr(existing_pod, "runtime", None),
             "launch_config": existing_pod.launch_config,
         }
@@ -1053,10 +1040,6 @@ def start(
     sync_policy = _sync_policy_kwargs(sync_include, sync_exclude)
     runtime = str(getattr(existing_pod, "runtime", None) or local.get("runtime") or "openclaw").strip().lower()
     is_hermes = runtime == "hermes-agent"
-    effective_gateway_token = gateway_token
-    effective_api_server_key = api_server_key or local.get("api_server_key") or getattr(
-        existing_pod, "api_server_key", None
-    )
     saved_env = saved_launch_fields.get("env") if isinstance(saved_launch_fields.get("env"), dict) else {}
     merged_env = {**dict(saved_env or {}), **dict(env_dict or {})}
     if is_hermes:
@@ -1068,17 +1051,11 @@ def start(
             index_watch=index_watch,
             index_watch_debounce_ms=index_watch_debounce_ms,
             index_interval_minutes=index_interval_minutes,
-            gateway_token=gateway_token,
         )
         desktop_enabled = False
         effective_env = _apply_hermes_cron_env(merged_env, cron, default=None)
         effective_image = _default_hermes_agent_image(image, saved_launch_fields)
     else:
-        if api_server_key is not None:
-            raise typer.BadParameter(
-                "--api-server-key is only valid for a Hermes Agent",
-                param_hint="--api-server-key",
-            )
         desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
         effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
         effective_env = _apply_openclaw_cron_env(effective_env, cron, default=None)
@@ -1143,9 +1120,8 @@ def start(
             resolved_start_id = requested_agent_id if requested_agent_id == "self" else agent_id
             if not dry_run:
                 agents.update(resolved_start_id, launch_config=hermes_launch_config)
-            pod = agents.start_hermes_agent(resolved_start_id, dry_run=dry_run)
+            pod = agents.start(resolved_start_id, dry_run=dry_run)
         else:
-            start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
             resolved_start_id = requested_agent_id if requested_agent_id == "self" else agent_id
             openclaw_launch_config = {
                 key: copy.deepcopy(value)
@@ -1154,7 +1130,7 @@ def start(
             }
             if not dry_run:
                 agents.update(resolved_start_id, launch_config=openclaw_launch_config)
-            pod = start_func(resolved_start_id, dry_run=dry_run)
+            pod = agents.start(resolved_start_id, dry_run=dry_run)
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
         raise typer.Exit(1)
@@ -1166,7 +1142,7 @@ def start(
         console.print("  No agent was created.")
     else:
         if is_hermes:
-            console.print(f"  API: {pod.api_url or 'pending route assignment'}")
+            console.print(f"  API: {pod.route_url('hermes') or 'pending route assignment'}")
         else:
             console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
 
@@ -1494,215 +1470,3 @@ def token(
 
     console.print(f"[green]✅ Token refreshed[/green]")
     console.print(f"  Expires: {result.get('expires_at', 'unknown')}")
-
-
-# ---------------------------------------------------------------------------
-# Gateway commands (OpenClaw Gateway RPC via WebSocket)
-# ---------------------------------------------------------------------------
-
-def _run_async(coro):
-    """Run an async coroutine from sync CLI."""
-    import asyncio
-    return asyncio.run(coro)
-
-
-@app.command("config")
-def gateway_config(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    schema: bool = typer.Option(False, "--schema", help="Show config schema instead of current config"),
-):
-    """Get the OpenClaw gateway config for an agent."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        result = await (pod.config_schema() if schema else pod.config_get())
-        console.print_json(json.dumps(result, default=str))
-
-    _run_async(_run())
-
-
-@app.command("config-patch")
-def gateway_config_patch(
-    agent_id: str = typer.Argument(..., help="Agent ID or name"),
-    patch: str = typer.Argument(..., help="JSON patch to apply"),
-):
-    """Patch the OpenClaw gateway config (merges with existing). Restarts gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-    patch_data = json.loads(patch)
-
-    async def _run():
-        await pod.config_patch(patch_data)
-        console.print("[green]✅ Config patched. Gateway restarting.[/green]")
-
-    _run_async(_run())
-
-
-@app.command("models")
-def gateway_models(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-):
-    """List available models on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        models = await pod.models_list()
-        if not models:
-            console.print("[dim]No models configured[/dim]")
-            return
-        for m in models:
-            ctx = m.get("contextWindow", "?")
-            console.print(f"  {m['provider']}/{m['name']}  (ctx={ctx})")
-
-    _run_async(_run())
-
-
-@app.command("files")
-def gateway_files(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    get: str = typer.Option(None, "--get", help="Read a specific file"),
-    set_file: str = typer.Option(None, "--set", help="Write a file (name=content)"),
-):
-    """List or read/write workspace files on an agent via Gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        if get:
-            content = await pod.file_get(get)
-            console.print(content)
-        elif set_file:
-            name, _, content = set_file.partition("=")
-            if not content:
-                console.print("[red]Usage: --set 'SOUL.md=# My Agent'[/red]")
-                raise typer.Exit(1)
-            await pod.file_set(name, content)
-            console.print(f"[green]✅ Written {name}[/green]")
-        else:
-            _, files = await pod.workspace_files()
-            if not files:
-                console.print("[dim]No workspace files[/dim]")
-                return
-            for f in files:
-                icon = "📄" if not f.get("missing") else "❌"
-                size = f.get("size", 0)
-                console.print(f"  {icon} {f['name']:30s} {size:>8,} bytes")
-
-    _run_async(_run())
-
-
-@app.command("sessions")
-def gateway_sessions(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    limit: int = typer.Option(20, "--limit", "-n"),
-):
-    """List chat sessions on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        sessions = await pod.sessions_list(limit=limit)
-        if not sessions:
-            console.print("[dim]No sessions[/dim]")
-            return
-        for s in sessions:
-            console.print(f"  {s.get('key','?'):20s}  {s.get('status','?'):10s}  {s.get('lastActivity','')}")
-
-    _run_async(_run())
-
-
-@app.command("cron")
-def gateway_cron(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-):
-    """List cron jobs on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        jobs = await pod.cron_list()
-        if not jobs:
-            console.print("[dim]No cron jobs[/dim]")
-            return
-        for j in jobs:
-            enabled = "✅" if j.get("enabled", True) else "⏸️"
-            console.print(f"  {enabled} {j.get('id','?'):20s}  {j.get('name','unnamed'):20s}  {j.get('schedule','')}")
-
-    _run_async(_run())
-
-
-@app.command("cron-add")
-def gateway_cron_add(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    job_json: str = typer.Argument(..., help='Cron job JSON, e.g. \'{"name":"backup","schedule":"0 * * * *","command":"echo hi"}\''),
-):
-    """Add a cron job to an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-    try:
-        job_data = json.loads(job_json)
-    except json.JSONDecodeError as e:
-        console.print(f"[red]Invalid JSON: {e}[/red]")
-        raise typer.Exit(1)
-
-    async def _run():
-        result = await pod.cron_add(job_data)
-        console.print(f"[green]Cron job added[/green]")
-        console.print_json(json.dumps(result, default=str))
-
-    _run_async(_run())
-
-
-@app.command("cron-remove")
-def gateway_cron_remove(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    job_id: str = typer.Argument(..., help="Cron job ID to remove"),
-):
-    """Remove a cron job from an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        await pod.cron_remove(job_id)
-        console.print(f"[green]Cron job {job_id} removed[/green]")
-
-    _run_async(_run())
-
-
-@app.command("cron-run")
-def gateway_cron_run(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    job_id: str = typer.Argument(..., help="Cron job ID to trigger"),
-):
-    """Manually trigger a cron job on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        result = await pod.cron_run(job_id)
-        console.print(f"[green]Cron job {job_id} triggered[/green]")
-        if result:
-            console.print_json(json.dumps(result, default=str))
-
-    _run_async(_run())
-
-
-@app.command("gateway-chat")
-def gateway_chat(
-    agent_id: str = typer.Argument(None, help="Agent ID or name"),
-    message: str = typer.Argument(..., help="Message to send"),
-    session_key: str = typer.Option("main", "--session-key", help="Gateway chat session key"),
-):
-    """Send a chat message to an agent via the Gateway and stream the response."""
-    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
-
-    async def _run():
-        async for event in pod.chat_send(message, session_key=session_key):
-            if event.type == "content":
-                print(event.text, end="", flush=True)
-            elif event.type == "thinking":
-                console.print(f"[dim]{event.text}[/dim]", end="")
-            elif event.type == "tool_call":
-                console.print(f"\n[yellow]🔧 {event.data}[/yellow]")
-            elif event.type == "tool_result":
-                console.print(f"\n[cyan]📤 {event.data}[/cyan]")
-            elif event.type == "error":
-                console.print(f"\n[red]❌ {event.text}[/red]")
-            elif event.type == "done":
-                print()
-        print()
-
-    _run_async(_run())
