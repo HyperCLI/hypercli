@@ -2,9 +2,10 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { Deployments, OpenCodeAgent } from '../src/agents.js';
+import { CodingAgent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import {
+  ACP_TURN_STARTED_METHOD,
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpReplayGapError,
@@ -12,6 +13,7 @@ import {
   type CodingAgentAcpReplayEvent,
 } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
+import { ACP_BUNDLE_FRAMING_HEADER, AcpTurnDriver } from '../src/acp-driver.js';
 
 const AGENT_ID = 'c0ffee00-0000-4000-8000-000000000001';
 
@@ -37,6 +39,7 @@ class FakeAcpPeer {
   public readonly frames: WireFrame[] = [];
   public readonly responses: WireFrame[] = [];
   public initializeCount = 0;
+  public lastInitializeParams: unknown = null;
   public socketClosed = false;
   private nextSession = 0;
   private nextServerId = 10_000;
@@ -67,11 +70,27 @@ class FakeAcpPeer {
     switch (frame.method) {
       case 'initialize':
         this.initializeCount += 1;
-        this.result(frame, {
-          protocolVersion: 1,
-          agentInfo: { name: 'fake-acp-child', version: '1.0.0' },
-          agentCapabilities: this.server.capabilities,
-        });
+        this.lastInitializeParams = frame.params ?? null;
+        if (this.server.protocolVersion === 2) {
+          this.result(frame, {
+            protocolVersion: 2,
+            info: { name: 'fake-acp-child', version: '2.0.0' },
+            capabilities: this.server.v2Capabilities,
+          });
+        } else {
+          this.result(frame, {
+            protocolVersion: this.server.protocolVersion,
+            agentInfo: { name: 'fake-acp-child', version: '1.0.0' },
+            agentCapabilities: this.server.capabilities,
+          });
+        }
+        return;
+      case 'session/resume':
+        if (this.server.failResume) {
+          this.error(frame, -32000, 'session is gone');
+        } else {
+          this.result(frame, this.server.resumeResult ?? {});
+        }
         return;
       case 'session/new':
         this.nextSession += 1;
@@ -141,13 +160,22 @@ class FakeAcpPeer {
 
 interface FakeAcpBridgeOptions {
   capabilities?: Record<string, unknown>;
+  /** The protocol version the fake agent answers in initialize. Default 1. */
+  protocolVersion?: 1 | 2;
+  /** v2-shaped `capabilities` payload answered when protocolVersion is 2. */
+  v2Capabilities?: Record<string, unknown>;
 }
 
 class FakeAcpBridge {
   public peers: FakeAcpPeer[] = [];
   public upgrades: IncomingMessage[] = [];
   public capabilities: Record<string, unknown>;
+  public protocolVersion: 1 | 2;
+  public v2Capabilities: Record<string, unknown>;
   public failLoad = false;
+  public failResume = false;
+  /** Custom payload answered for session/resume (v2 replay tests stream history via update first). */
+  public resumeResult: Record<string, unknown> | null = null;
   public promptHook: PromptHook = (peer, frame) => peer.finishPrompt(frame, 'end_turn');
   /** Overrides the default empty session/load reply; the hook streams any replayed history, then answers. */
   public loadHook: PromptHook | null = null;
@@ -160,6 +188,8 @@ class FakeAcpBridge {
       loadSession: true,
       sessionCapabilities: { list: {} },
     };
+    this.protocolVersion = options.protocolVersion ?? 1;
+    this.v2Capabilities = options.v2Capabilities ?? { session: {} };
   }
 
   get port(): number {
@@ -209,13 +239,13 @@ async function waitFor(condition: () => boolean, timeoutMs = 4_000): Promise<voi
   throw new Error('timed out waiting for condition');
 }
 
-function acpAgent(bridge: FakeAcpBridge): OpenCodeAgent {
+function acpAgent(bridge: FakeAcpBridge): CodingAgent {
   const deployments = new Deployments(
     {} as unknown as HTTPClient,
     'hyper_api_test',
     bridge.apiBase,
   );
-  const agent = OpenCodeAgent.fromDict({
+  const agent = CodingAgent.fromDict({
     id: AGENT_ID,
     user_id: 'user-1',
     state: 'RUNNING',
@@ -247,7 +277,7 @@ afterEach(async () => {
 });
 
 describe('CodingAgent.acpConnect', () => {
-  it('dials the /ws bridge with token query auth and agent_id, then completes the initialize handshake', async () => {
+  it('dials the /ws/acp session proxy with token query auth and agent_id, then completes the initialize handshake', async () => {
     const bridge = await startBridge();
     const updates: string[] = [];
     const client = track(await acpAgent(bridge).acpConnect({ onUpdate: () => updates.push('u') }));
@@ -256,20 +286,29 @@ describe('CodingAgent.acpConnect', () => {
     expect(bridge.peers).toHaveLength(1);
     const upgrade = bridge.upgrades[0];
     const url = new URL(upgrade.url ?? '', 'http://127.0.0.1');
-    expect(url.pathname).toBe('/ws');
+    // Default transport is the client-facing session proxy, not the raw
+    // agent-keyed tunnel; no session_id means a session-less (create) dial.
+    expect(url.pathname).toBe('/ws/acp');
     expect(url.searchParams.get('agent_id')).toBe(AGENT_ID);
     expect(url.searchParams.get('token')).toBe('hyper_api_test');
+    expect(url.searchParams.has('session_id')).toBe(false);
 
     const init = bridge.currentPeer.framesFor('initialize');
     expect(init).toHaveLength(1);
+    // v2 is offered by default with both capability shapes present so v1-only
+    // and v2 agents can each decode the handshake.
     expect(init[0].params).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: 2,
       clientInfo: { name: 'hypercli-ts-sdk' },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
+      info: { name: 'hypercli-ts-sdk' },
+      capabilities: {},
     });
+    // The v1-only fake answered 1, so the session negotiates down.
+    expect(client.negotiatedProtocolVersion).toBe(1);
     expect(client.initializeResponse?.agentInfo?.name).toBe('fake-acp-child');
     expect(updates).toEqual([]);
   });
@@ -488,6 +527,187 @@ describe('CodingAgent.acpConnect', () => {
     expect(closes).toEqual([expect.objectContaining({ code: 4401 })]);
     await expect(client.newSession()).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
     expect(bridge.peers).toHaveLength(1);
+  });
+});
+
+describe('ACP version negotiation', () => {
+  it('a v2-answering agent negotiates v2 and exposes the v2-shaped initialize response', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    const client = track(await acpAgent(bridge).acpConnect());
+
+    expect(client.negotiatedProtocolVersion).toBe(2);
+    const init = bridge.currentPeer.framesFor('initialize');
+    expect(init[0].params).toMatchObject({ protocolVersion: 2 });
+    const response = client.initializeResponse as { info?: { name?: string } };
+    expect(response.info?.name).toBe('fake-acp-child');
+  });
+
+  it('v2: loadSession is unavailable and steers callers to resumeSession with replayFrom', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+
+    await expect(client.loadSession('session-1')).rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
+    await expect(client.loadSession('session-1')).rejects.toThrow(/resumeSession/);
+    expect(bridge.currentPeer.framesFor('session/load')).toHaveLength(0);
+    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
+  });
+
+  it('v2: resumeSession accepts replayFrom and brackets the replay epoch', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    bridge.resumeResult = {};
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+
+    const resumes = bridge.currentPeer.framesFor('session/resume');
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0].params).toMatchObject({
+      sessionId: 'session-1',
+      replayFrom: { type: 'start' },
+    });
+    expect(events).toEqual([
+      { sessionId: 'session-1', phase: 'start', epoch: 1 },
+      { sessionId: 'session-1', phase: 'end', epoch: 1, ok: true },
+    ]);
+    expect(client.replayEpoch('session-1')).toBe(0);
+  });
+
+  it('v2: resumeSession without replayFrom stays unbracketed', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    const events: CodingAgentAcpReplayEvent[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    client.addReplayListener((event) => events.push(event));
+    await client.newSession();
+
+    await client.resumeSession('session-1');
+    const resumes = bridge.currentPeer.framesFor('session/resume');
+    expect(resumes[0].params).not.toHaveProperty('replayFrom');
+    expect(events).toEqual([]);
+  });
+
+  it('v1: resumeSession with replayFrom is rejected (replay belongs to loadSession)', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+
+    await expect(client.resumeSession('session-1', { replayFrom: { type: 'start' } }))
+      .rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
+    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
+  });
+
+  it('v2: reconnect replays sessions via session/resume, never session/load', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    let holdPrompt = true;
+    bridge.promptHook = (peer, frame) => {
+      if (holdPrompt) return;
+      peer.finishPrompt(frame, 'end_turn');
+    };
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+
+    bridge.currentPeer.drop();
+    await waitFor(() => bridge.peers.length === 2);
+    await client.waitConnected();
+    const second = bridge.currentPeer;
+
+    await waitFor(() => second.framesFor('session/resume').length > 0);
+    expect(second.framesFor('session/load')).toHaveLength(0);
+    expect(second.framesFor('session/resume')[0].params).toMatchObject({
+      sessionId: 'session-1',
+      replayFrom: { type: 'start' },
+    });
+
+    holdPrompt = false;
+    await expect(client.prompt('session-1', 'after reconnect')).resolves.toMatchObject({ stopReason: 'end_turn' });
+  });
+
+  it('v2: a failed resume replay after reconnect surfaces a replay gap and drops the session', async () => {
+    const bridge = await startBridge({ protocolVersion: 2 });
+    const errors: Error[] = [];
+    const client = track(await acpAgent(bridge).acpConnect({ onError: (error) => errors.push(error) }));
+    await client.newSession();
+
+    bridge.failResume = true;
+    bridge.currentPeer.drop();
+    await waitFor(() => errors.length > 0);
+
+    expect(errors[0]).toBeInstanceOf(CodingAgentAcpReplayGapError);
+    expect((errors[0] as CodingAgentAcpReplayGapError).sessionId).toBe('session-1');
+    expect(client.connected).toBe(true);
+    expect(client.sessionIds).toEqual([]);
+  });
+
+  it('v2: reconnect against an agent without a session surface drops sessions with a replay gap', async () => {
+    const bridge = await startBridge({ protocolVersion: 2, v2Capabilities: {} });
+    const errors: Error[] = [];
+    const client = track(await acpAgent(bridge).acpConnect({ onError: (error) => errors.push(error) }));
+
+    await expect(client.resumeSession('anything')).rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
+
+    // Track a session manually via raw new since v2 surface gating blocks nothing for session/new.
+    await client.newSession();
+    bridge.currentPeer.drop();
+    await waitFor(() => errors.length > 0);
+
+    expect(errors[0]).toBeInstanceOf(CodingAgentAcpReplayGapError);
+    expect(errors[0].message).toMatch(/session surface/);
+    expect(client.sessionIds).toEqual([]);
+  });
+
+  it('a v1-only agent negotiates v1 even when offered 2, and load/resume behave as before', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({ protocolVersion: 2 });
+    expect(client.negotiatedProtocolVersion).toBe(1);
+
+    await client.newSession();
+    await client.loadSession('session-1');
+    expect(bridge.currentPeer.framesFor('session/load')).toHaveLength(1);
+    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
+  });
+
+  it('an unsupported answered version fails the connect', async () => {
+    const bridge = await startBridge();
+    (bridge as { protocolVersion: number }).protocolVersion = 99;
+    const clientPromise = acpAgent(bridge).acpConnect();
+    await expect(clientPromise).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
+    await expect(clientPromise).rejects.toThrow(/protocol version 99/);
+  });
+
+  it('pinning protocolVersion: 1 offers 1 verbatim (no v2 shapes needed)', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect({ protocolVersion: 1 }));
+    expect(client.negotiatedProtocolVersion).toBe(1);
+    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({
+      protocolVersion: 1,
+      clientInfo: { name: 'hypercli-ts-sdk' },
+    });
+  });
+
+  it('mixed pool: two agents at different versions negotiate independently per key', async () => {
+    const bridgeV1 = await startBridge();
+    const bridgeV2 = await startBridge({ protocolVersion: 2 });
+    const pool = new CodingAgentAcpPool({
+      connect: (key) => acpAgent(key === 'v2-agent' ? bridgeV2 : bridgeV1).acpConnect(),
+    });
+    pools.push(pool);
+
+    const [lease1, lease2] = await Promise.all([pool.acquire('v1-agent'), pool.acquire('v2-agent')]);
+    expect(lease1.client.negotiatedProtocolVersion).toBe(1);
+    expect(lease2.client.negotiatedProtocolVersion).toBe(2);
+
+    // The v1 lease replays via load; the v2 lease has no session/load.
+    await lease1.client.newSession();
+    await lease2.client.newSession();
+    await lease1.client.loadSession('session-1');
+    await expect(lease2.client.loadSession('session-1')).rejects.toThrow(/resumeSession/);
+
+    lease1.release();
+    lease2.release();
   });
 });
 
@@ -788,5 +1008,95 @@ describe('CodingAgentAcpPool', () => {
     leaseB.release();
     await waitFor(() => bridge.currentPeer.socketClosed);
     expect(pool.size('agent')).toBe(0);
+  });
+});
+
+describe('CodingAgent.acpTurnDriver', () => {
+  it('returns a ready per-session driver on the pooled connection; the prompt response completes the turn', async () => {
+    const bridge = await startBridge();
+    const agent = acpAgent(bridge);
+    // The default promptHook answers with stopReason and emits NO vendor
+    // frames: hyper-acp is a pure passthrough, the response is the turn end.
+    const commits: { turnId: unknown; stopReason: string }[] = [];
+
+    const driver = await agent.acpTurnDriver({
+      sessionId: 'session-1',
+      commit: async (turnId, stopReason) => {
+        commits.push({ turnId, stopReason });
+      },
+    });
+
+    expect(driver).toBeInstanceOf(AcpTurnDriver);
+    expect(bridge.peers).toHaveLength(1);
+    expect(agent.acpPool.size(agent.id)).toBe(1);
+
+    void driver.submit('hello from the pane');
+    await waitFor(() => commits.length === 1);
+
+    const prompts = bridge.currentPeer.framesFor('session/prompt');
+    expect(prompts).toHaveLength(1);
+    const blocks = (prompts[0].params as { prompt: { type: string; text?: string }[] }).prompt;
+    expect(blocks[0].text?.startsWith(ACP_BUNDLE_FRAMING_HEADER)).toBe(true);
+
+    // Passthrough pod: no frame binds the request id, so commit sees null.
+    expect(commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    // turn_ended_ack is not part of the wire contract: nothing is sent.
+    expect(bridge.currentPeer.framesFor('_hypercli.dev/turn_ended_ack')).toEqual([]);
+    driver.close();
+    await waitFor(() => bridge.currentPeer.socketClosed);
+  });
+
+  it('shares one pooled connection across sessions, isolates per session, and releases per lease', async () => {
+    const bridge = await startBridge();
+    const agent = acpAgent(bridge);
+    const commitsA: unknown[] = [];
+    const commitsB: unknown[] = [];
+
+    const driverA = await agent.acpTurnDriver({
+      sessionId: 'session-1',
+      commit: async (turnId) => {
+        commitsA.push(turnId);
+      },
+    });
+    const driverB = await agent.acpTurnDriver({
+      sessionId: 'session-2',
+      commit: async (turnId) => {
+        commitsB.push(turnId);
+      },
+    });
+
+    // Both drivers ride the single pooled connection for this agent.
+    expect(bridge.peers).toHaveLength(1);
+    expect(agent.acpPool.size(agent.id)).toBe(2);
+
+    // Driver A's turn completes via its prompt response; driver B is idle
+    // and untouched.
+    void driverA.submit('for A');
+    await waitFor(() => commitsA.length === 1);
+    expect(commitsB).toEqual([]);
+
+    // Stray vendor frames (a future pod) for foreign sessions are ignored by
+    // both drivers: delivered, bound to nothing, no state mutation.
+    bridge.currentPeer.notify(ACP_TURN_STARTED_METHOD, { sessionId: 'session-2', turnId: 99 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(driverA.turnState).toBe('idle');
+    expect(driverB.turnState).toBe('idle');
+    expect(driverB.currentTurnId).toBeNull();
+
+    // Lease discipline: a pane-style lease + driver leases on one connection;
+    // closing one never tears the connection down under the others.
+    const pane = await agent.acpPool.acquire(agent.id);
+    const peer = bridge.currentPeer;
+    driverA.close();
+    expect(agent.acpPool.size(agent.id)).toBe(2);
+    expect(peer.socketClosed).toBe(false);
+
+    pane.release();
+    expect(agent.acpPool.size(agent.id)).toBe(1);
+    expect(peer.socketClosed).toBe(false);
+
+    driverB.close();
+    await waitFor(() => peer.socketClosed);
+    expect(agent.acpPool.size(agent.id)).toBe(0);
   });
 });

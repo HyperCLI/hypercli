@@ -43,11 +43,20 @@ Retry policy (mirrors the TypeScript client):
 The default permission policy matches the TypeScript SDK: a raw client never
 auto-approves — inbound ``session/request_permission`` requests are answered
 with the ``cancelled`` outcome, and unknown inbound requests get a
-JSON-RPC ``method not found`` error.
+JSON-RPC ``method not found`` error. Callers that want to serve agent→client
+requests register a request listener (:meth:`ACPClient.add_request_listener`)
+which takes over that default handling for matching methods.
+
+Vendor extension frames (``_hypercli.dev/*``) are NOTIFICATIONS, never
+requests: outbound ones go through :meth:`ACPClient.notify`, and inbound ones
+are offered to the method-keyed registry
+(:meth:`ACPClient.add_notification_listener`, wildcard key ``"*"``) before
+being dropped.
 """
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -65,6 +74,9 @@ DEFAULT_OPEN_TIMEOUT = 30.0
 DEFAULT_CLIENT_INFO = {"name": "hypercli-py-sdk", "version": ""}
 
 UpdateListener = Callable[[dict[str, Any]], None]
+NotificationListener = Callable[[dict[str, Any]], Any]
+WildcardNotificationListener = Callable[[str, dict[str, Any]], Any]
+RequestListener = Callable[..., Any]
 
 
 class ACPError(RuntimeError):
@@ -173,6 +185,8 @@ class ACPClient:
         self._update_listeners: list[UpdateListener] = []
         if on_update is not None:
             self._update_listeners.append(on_update)
+        self._notification_listeners: dict[str, list[Callable[..., Any]]] = {}
+        self._request_listeners: dict[str, list[RequestListener]] = {}
         self._reader = asyncio.ensure_future(self._read_loop())
 
     @classmethod
@@ -251,6 +265,8 @@ class ACPClient:
         self._closed = True
         self._fail_pending(ACPClosedError("ACP client closed"))
         self._update_listeners.clear()
+        self._notification_listeners.clear()
+        self._request_listeners.clear()
         if self._reader is not asyncio.current_task():
             self._reader.cancel()
             await asyncio.gather(self._reader, return_exceptions=True)
@@ -273,6 +289,87 @@ class ACPClient:
                 self._update_listeners.remove(listener)
 
         return unsubscribe
+
+    def add_notification_listener(
+        self,
+        method: str,
+        listener: Callable[..., Any],
+    ) -> Callable[[], None]:
+        """Register a sink for non-``session/update`` notifications; returns an unsubscribe.
+
+        ``method`` is an exact method-name key. The special key ``"*"`` is a
+        wildcard: its listeners receive ``(method, params)`` for every
+        notification offered to the registry, while exact-key listeners receive
+        ``params`` only. Listeners may be sync or async; async results are
+        scheduled off the read loop. Listener exceptions are logged and never
+        kill the reader.
+        """
+        key = method or "*"
+        self._notification_listeners.setdefault(key, []).append(listener)
+
+        def unsubscribe() -> None:
+            self.remove_notification_listener(method, listener)
+
+        return unsubscribe
+
+    def remove_notification_listener(self, method: str, listener: Callable[..., Any]) -> None:
+        """Remove a listener registered with :meth:`add_notification_listener`."""
+        listeners = self._notification_listeners.get(method or "*")
+        if listeners and listener in listeners:
+            listeners.remove(listener)
+
+    def add_request_listener(
+        self,
+        method: str,
+        listener: RequestListener,
+    ) -> Callable[[], None]:
+        """Register a handler for inbound agent→client REQUESTS; returns an unsubscribe.
+
+        ``method`` is an exact method-name key (``session/request_permission``,
+        ``fs/read_text_file``, ...) or the wildcard ``"*"``. Exact-key listeners
+        are invoked as ``listener(params)``; wildcard listeners as
+        ``listener(method, params)`` — mirroring the notification registry.
+        Only ONE response exists per request, so the first-registered exact-key
+        listener wins over any wildcard; the first-registered wildcard is used
+        when no exact listener matches.
+
+        The listener is served off the read loop so dispatch keeps pumping
+        while it runs. Its return value becomes the JSON-RPC ``result``.
+        Raising :class:`ACPRequestError` replies with its code/message; any
+        other exception replies with a JSON-RPC internal error. When NO
+        listener matches, the default policy answers ``session/request_permission``
+        with ``cancelled`` and every other method with ``-32601``.
+        """
+        key = method or "*"
+        self._request_listeners.setdefault(key, []).append(listener)
+
+        def unsubscribe() -> None:
+            self.remove_request_listener(method, listener)
+
+        return unsubscribe
+
+    def remove_request_listener(self, method: str, listener: RequestListener) -> None:
+        """Remove a listener registered with :meth:`add_request_listener`."""
+        listeners = self._request_listeners.get(method or "*")
+        if listeners and listener in listeners:
+            listeners.remove(listener)
+
+    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        """Send a JSON-RPC notification frame; no response is awaited.
+
+        Send failures raise :class:`RetryableACPError`: a notification carries
+        no request id and starts no turn, so re-sending from a fresh client is
+        always the caller's call.
+        """
+        if self._closed:
+            raise ACPClosedError("ACP client is closed")
+        frame = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        try:
+            await self._ws.send(json.dumps(frame, separators=(",", ":")))
+        except asyncio.CancelledError:
+            raise
+        except (WebSocketException, OSError) as exc:
+            raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
 
     async def new_session(self, *, cwd: str, mcp_servers: list[Any] | None = None) -> str:
         """Create a session with ``session/new`` and return its session id."""
@@ -395,6 +492,16 @@ class ACPClient:
         if frame_id is None:
             if method_name == "session/update":
                 self._emit_update(frame.get("params") or {})
+            else:
+                self._emit_notification(method_name, frame.get("params") or {})
+            return
+        listener, wildcard = self._request_listener_for(method_name)
+        if listener is not None:
+            # Served as a task so the read loop keeps dispatching while the
+            # listener awaits its (possibly cross-connection) answer.
+            asyncio.ensure_future(
+                self._serve_inbound_request(listener, wildcard, method_name, frame.get("params") or {}, frame_id)
+            )
             return
         if method_name == "session/request_permission":
             reply: dict[str, Any] = {"jsonrpc": "2.0", "id": frame_id, "result": {"outcome": {"outcome": "cancelled"}}}
@@ -404,6 +511,55 @@ class ACPClient:
                 "id": frame_id,
                 "error": {"code": -32601, "message": f"Method not found: {method_name}"},
             }
+        await self._send_reply(reply)
+
+    def _request_listener_for(self, method: str) -> tuple[RequestListener | None, bool]:
+        """Resolve the serving listener; returns ``(listener, is_wildcard)``."""
+        listeners = self._request_listeners.get(method)
+        if listeners:
+            return listeners[0], False
+        listeners = self._request_listeners.get("*")
+        if listeners:
+            return listeners[0], True
+        return None, False
+
+    async def _serve_inbound_request(
+        self,
+        listener: RequestListener,
+        wildcard: bool,
+        method: str,
+        params: dict[str, Any],
+        frame_id: Any,
+    ) -> None:
+        if self._closed:
+            return
+        try:
+            result = listener(method, params) if wildcard else listener(params)
+            if inspect.isawaitable(result):
+                result = await result
+            reply: dict[str, Any] = {
+                "jsonrpc": "2.0",
+                "id": frame_id,
+                "result": result if isinstance(result, dict) else {},
+            }
+        except asyncio.CancelledError:
+            raise
+        except ACPRequestError as exc:
+            reply = {
+                "jsonrpc": "2.0",
+                "id": frame_id,
+                "error": {"code": exc.code if exc.code is not None else -32603, "message": exc.rpc_message},
+            }
+        except Exception as exc:
+            logger.exception("ACP inbound-request listener for %s raised", method)
+            reply = {
+                "jsonrpc": "2.0",
+                "id": frame_id,
+                "error": {"code": -32603, "message": str(exc)},
+            }
+        await self._send_reply(reply)
+
+    async def _send_reply(self, reply: dict[str, Any]) -> None:
         try:
             await self._ws.send(json.dumps(reply, separators=(",", ":")))
         except (WebSocketException, OSError) as exc:
@@ -415,6 +571,30 @@ class ACPClient:
                 listener(params)
             except Exception:
                 logger.exception("ACP session/update listener raised")
+
+    def _emit_notification(self, method: str, params: dict[str, Any]) -> None:
+        for listener in list(self._notification_listeners.get(method, ())):
+            self._invoke_notification_listener(listener, params)
+        for listener in list(self._notification_listeners.get("*", ())):
+            self._invoke_notification_listener(listener, method, params)
+
+    def _invoke_notification_listener(self, listener: Callable[..., Any], *args: Any) -> None:
+        try:
+            result = listener(*args)
+        except Exception:
+            logger.exception("ACP notification listener raised")
+            return
+        if inspect.isawaitable(result):
+            task = asyncio.ensure_future(result)
+            task.add_done_callback(self._log_async_listener_failure)
+
+    @staticmethod
+    def _log_async_listener_failure(task: asyncio.Future) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("ACP async notification listener failed: %s", exc, exc_info=exc)
 
     def _fail_pending(self, exc: BaseException) -> None:
         pending, self._pending = self._pending, {}

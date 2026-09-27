@@ -3,8 +3,11 @@ ARG HYPERCLI_SHA
 ARG HYPERCLI_REPO=https://github.com/HyperCLI/hypercli.git
 ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
 ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:2026.9.4
+ARG ACP_IMAGE=hypercli-acp:local
 
 FROM ${OPENCLAW_BASE_IMAGE} AS upstream-openclaw
+
+FROM ${ACP_IMAGE} AS acp
 
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
@@ -13,6 +16,9 @@ ARG OPENCLAW_BASE_IMAGE
 
 USER root
 COPY --from=upstream-openclaw /app /app
+COPY --from=acp /hyper-acp /opt/hypercli/bin/hyper-acp
+RUN ln -sf /opt/hypercli/bin/hyper-acp /usr/local/bin/hyper-acp \
+    && hyper-acp --help >/dev/null
 RUN mkdir -p /opt/hypercli-openclaw /home/node/.openclaw && \
     ln -sf /app/openclaw.mjs /usr/local/bin/openclaw && \
     chown -R node:node /home/node /opt/hypercli-openclaw /app
@@ -76,9 +82,15 @@ ENV OPENCLAW_MEMORY_SEARCH_SYNC_WATCH=
 ENV OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS=
 ENV OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES=
 ENV DISPLAY=:99
+# ACP leg as pod default: hyper-acp spawns `openclaw acp`; the entrypoint
+# backgrounds `openclaw gateway run` first (the bridge dials it over loopback
+# with OPENCLAW_GATEWAY_TOKEN auth). `gateway run` override = native gateway.
+ENV HYPER_ACP_AGENT_COMMAND=openclaw \
+    HYPER_ACP_AGENT_ARGS=acp
 
 WORKDIR /app
 USER node
 
 EXPOSE 18789 3000
 ENTRYPOINT ["/opt/hypercli-openclaw/entrypoint.sh"]
+CMD ["/usr/local/bin/hyper-acp"]

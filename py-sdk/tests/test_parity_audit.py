@@ -1,7 +1,5 @@
 """Tests for backend parity fixes (flow helpers, x402 payloads, transports)."""
 import base64
-import json
-from datetime import datetime, timezone
 from unittest.mock import Mock
 
 import pytest
@@ -122,36 +120,6 @@ def test_x402_create_job_posts_flat_job_create_request(monkeypatch):
     assert payload["env_vars"] == {"A": "1"}
     assert payload["region"] == "va"
     assert base64.b64decode(payload["command"]).decode() == "echo hi"
-
-
-def test_x402_top_up_posts_amount_and_optional_user_id(monkeypatch):
-    captured = {}
-
-    def fake_x402_post(base_url, path, payload, account, timeout):
-        captured["path"] = path
-        captured["payload"] = payload
-        return {
-            "user_id": "user-1",
-            "amount": 10.0,
-            "wallet": "0xabc",
-            "transaction_id": "tx-1",
-            "message": "ok",
-        }
-
-    monkeypatch.setattr("hypercli.x402._x402_post", fake_x402_post)
-    client = X402Client(api_url="https://api.test")
-
-    result = client.top_up(amount=10.0, account=object())
-
-    assert captured["path"] == "/api/x402/top_up"
-    assert captured["payload"] == {"amount": 10.0}
-    assert result["transaction_id"] == "tx-1"
-
-    client.top_up(amount=5.0, account=object(), user_id="user-9")
-    assert captured["payload"] == {"amount": 5.0, "user_id": "user-9"}
-
-    with pytest.raises(ValueError):
-        client.top_up(amount=0, account=object())
 
 
 def test_auth_me_parses_nested_runtime_kind():
@@ -309,25 +277,6 @@ def test_agent_usage_methods_hit_usage_routes():
     assert http._session.get.call_args.kwargs["params"] == {"days": 1}
 
 
-def test_agent_me_hits_agents_me():
-    agent, http = make_agent()
-    http._session.get.return_value.raise_for_status = Mock()
-    http._session.get.return_value.json.return_value = {
-        "user_id": "u-1",
-        "team_id": "t-1",
-        "plan_id": "pro",
-        "auth_type": "user",
-        "capabilities": [],
-        "auth_capabilities": [],
-        "has_active_subscription": True,
-    }
-
-    result = agent.me()
-
-    assert http._session.get.call_args.args[0] == "https://api.hypercli.com/agents/me"
-    assert result["plan_id"] == "pro"
-
-
 def test_create_stripe_checkout_posts_plan_route():
     from hypercli.agent import HyperAgentStripeCheckoutResponse
 
@@ -429,33 +378,6 @@ def test_billing_payments_and_payment():
     single = agent.billing_payment("pay-1")
     assert isinstance(single, HyperAgentPayment)
     assert http._session.get.call_args.args[0] == "https://api.hypercli.com/agents/billing/payments/pay-1"
-
-
-def test_entitlement_instances():
-    agent, http = make_agent()
-    http._session.get.return_value.raise_for_status = Mock()
-    http._session.get.return_value.json.return_value = {
-        "items": [
-            {
-                "id": "ent-1",
-                "user_id": "u-1",
-                "subscription_id": None,
-                "plan_id": "team",
-                "plan_name": "Team",
-                "provider": "STRIPE",
-                "status": "ACTIVE",
-                "starts_at": "2026-09-01T00:00:00Z",
-                "expires_at": "2026-10-01T00:00:00Z",
-                "slot_grants": {"medium": 1},
-            }
-        ]
-    }
-
-    instances = agent.entitlement_instances()
-
-    assert http._session.get.call_args.args[0] == "https://api.hypercli.com/agents/entitlements/instances"
-    assert instances[0].id == "ent-1"
-    assert instances[0].expires_at == datetime(2026, 10, 1, tzinfo=timezone.utc)
 
 
 def test_claim_trial_entitlement_warns_deprecation():

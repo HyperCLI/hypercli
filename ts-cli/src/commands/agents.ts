@@ -17,7 +17,6 @@
  *     field, so repeated --scope values are joined into the key name.
  */
 
-import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -27,22 +26,19 @@ import {
   type Agent,
   type AgentLaunchConfig,
   type AgentRouteConfig,
-  type AgentSessionClient,
   type AgentState,
   type CodingAgent,
   type CodingAgentAcpClient,
+  type CodingAgentRuntime,
   type Deployments,
-  type HermesAgent,
   type HyperAgentGrantRedemptionResponse,
   type HyperCLI,
   type ManagedAgentRuntime,
-  type OpenClawAgent,
   type Routine,
   type RoutineCreateOptions,
   type RoutineUpdateOptions,
 } from '@hypercli.com/sdk';
 import { parseCommandArgs, type ParsedCommand } from '../core/argv.js';
-import { installOpenClawAuthBridge } from '../core/auth-store.js';
 import { cmdAgentsLogin } from './agent-login.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
@@ -72,23 +68,35 @@ export const usage = [
 ];
 
 /** Hidden commands work but stay out of the help listing. */
-const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes', 'models'];
+const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes'];
 
+/** CLI --runtime name → Deployments create entry; ACP coding runtimes ride the single createCodingAgent facade. */
 const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['openclaw', 'createOpenClaw'],
   ['hermes', 'createHermesAgent'],
-  ['goose', 'createGoose'],
-  ['opencode', 'createOpenCode'],
-  ['codex', 'createCodex'],
-  ['claude-code', 'createClaudeCode'],
-  ['kimi-code', 'createKimiCode'],
-  ['pi', 'createPi'],
-  ['buzz', 'createBuzzAgent'],
+  ['goose', 'createCodingAgent'],
+  ['opencode', 'createCodingAgent'],
+  ['codex', 'createCodingAgent'],
+  ['claude-code', 'createCodingAgent'],
+  ['kimi-code', 'createCodingAgent'],
+  ['pi', 'createCodingAgent'],
+  ['buzz', 'createCodingAgent'],
+]);
+
+/** CLI name → SDK CodingAgentRuntime label for the createCodingAgent dispatch. */
+const CODING_AGENT_CREATE_RUNTIMES: ReadonlyMap<string, CodingAgentRuntime> = new Map([
+  ['goose', 'goose'],
+  ['opencode', 'opencode'],
+  ['codex', 'codex'],
+  ['claude-code', 'claude-code'],
+  ['kimi-code', 'kimi-code'],
+  ['pi', 'pi'],
+  ['buzz', 'buzz-agent'],
 ]);
 
 /** desktop/src/agent-utils parity: only these runtimes get the token ceremony. */
-const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro']);
-const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent']);
+const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro', 'openclaw_acp']);
+const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent', 'hermes_acp']);
 /** CodingAgent family: chat rides the pod-side ACP bridge, never a gateway. */
 const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz-agent']);
 const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
@@ -180,10 +188,6 @@ function recordJsonRecord(agent: Agent, dashboard?: string): Record<string, unkn
     launch_config: redactLaunchConfig(agent.launchConfig),
     meta: agent.meta ? redactRecord(agent.meta) : null,
   };
-  const gatewayToken = (agent as Partial<OpenClawAgent>).gatewayToken;
-  if (typeof gatewayToken === 'string' && gatewayToken) bag.gateway_token = maskSecret(gatewayToken);
-  const apiServerKey = (agent as { apiServerKey?: string | null }).apiServerKey;
-  if (typeof apiServerKey === 'string' && apiServerKey) bag.api_server_key = maskSecret(apiServerKey);
   return bag;
 }
 
@@ -476,6 +480,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     throw new UsageError(`--runtime is required (one of: ${[...RUNTIME_COMMANDS.keys()].join(', ')})`);
   }
   const method = RUNTIME_COMMANDS.get(runtime);
+  const codingRuntime = CODING_AGENT_CREATE_RUNTIMES.get(runtime);
   if (!method) {
     throw new UsageError(
       `unknown runtime '${runtime}' (expected one of: ${[...RUNTIME_COMMANDS.keys()].join(', ')})`,
@@ -547,7 +552,9 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
 
   const { d } = await adopt(ctx);
   const created = await api('create agent', async () =>
-    (d as unknown as Record<string, (options: unknown) => Promise<Agent>>)[method](payload));
+    codingRuntime
+      ? d.createCodingAgent(codingRuntime, payload as Parameters<Deployments['createCodingAgent']>[1])
+      : (d as unknown as Record<string, (options: unknown) => Promise<Agent>>)[method](payload));
   ctx.output.result(
     recordJsonRecord(created, `${dashboardBase(ctx)}/agents/${created.id}`),
     recordLabelValue([
@@ -567,37 +574,11 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * The runtime-dispatched start shared by `agents start` and `agents chat`:
-  * openclaw ensures its gateway-token secret exists before start; every
-  * runtime then starts the Backend-stored launch config without rewriting it.
+ * The start shared by `agents start` and `agents chat`: every runtime starts
+ * the Backend-stored launch config without rewriting it.
  */
 async function startAgentForRuntime(d: Deployments, agent: Agent): Promise<Agent> {
-  const runtime = (agent.runtime ?? '').toLowerCase();
-  const id = agent.id;
-  if (OPENCLAW_RUNTIMES.has(runtime)) {
-    // Ensure the openclaw gateway token before startOpenClaw: read the stored
-    // secret; only a genuine 404 means "no token yet" — any other failure
-    // aborts the start rather than invalidating live gateway sessions.
-    let gatewayToken: string | null = null;
-    try {
-      const secret = await d.secret(id, 'OPENCLAW_GATEWAY_TOKEN');
-      const value = String(secret.value ?? '').trim();
-      if (value) gatewayToken = value;
-    } catch (err) {
-      if (!(err instanceof APIError) || err.statusCode !== 404) {
-        throw new CliError(`start failed: could not read the gateway token secret: ${describeFailure(err)}`);
-      }
-    }
-    if (!gatewayToken) {
-      gatewayToken = randomBytes(32).toString('hex');
-      await api('store gateway token', () => d.setSecret(id, 'OPENCLAW_GATEWAY_TOKEN', gatewayToken as string));
-    }
-    return api('start agent', () => d.startOpenClaw(id));
-  }
-  if (HERMES_RUNTIMES.has(runtime)) {
-    return api('start agent', () => d.startHermesAgent(id));
-  }
-  return api('start agent', () => d.start(id));
+  return api('start agent', () => d.start(agent.id));
 }
 
 async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
@@ -1349,16 +1330,8 @@ async function cmdToken(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// config (hidden) / models (hidden, openclaw-only)
+// config (hidden)
 // ---------------------------------------------------------------------------
-
-function requireOpenClaw(agent: Agent, what: string): OpenClawAgent {
-  const runtime = agent.runtime ?? 'unknown';
-  if (!OPENCLAW_RUNTIMES.has(runtime.toLowerCase())) {
-    throw new CliError(`${what} is only supported on openclaw agents (this is ${runtime})`);
-  }
-  return agent as OpenClawAgent;
-}
 
 async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
   const [verb, ...rest] = args;
@@ -1383,80 +1356,34 @@ async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
   ctx.output.result(config, JSON.stringify(config, null, 2));
 }
 
-async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args);
-  if (parsed.help) return printHelp();
-  const ref = onePositional(parsed, 'agent id');
-  const { d } = await adopt(ctx);
-  const agent = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
-  const openclaw = requireOpenClaw(agent, 'models');
-  const models = await api('list models', () => openclaw.modelsList());
-
-  const rows: unknown[][] = [];
-  let tabular = models.length > 0;
-  for (const entry of models) {
-    const record = entry as Record<string, unknown>;
-    const provider = typeof record.provider === 'string' ? record.provider : null;
-    const nameField = typeof record.name === 'string' ? record.name : null;
-    if (!provider || !nameField) {
-      tabular = false;
-      break;
-    }
-    rows.push([provider, nameField, record.contextWindow ?? record.context_length ?? '']);
-  }
-  ctx.output.result(
-    models,
-    models.length === 0
-      ? 'No models configured.'
-      : tabular
-        ? { columns: ['PROVIDER', 'NAME', 'CONTEXT'], rows }
-        : JSON.stringify(models, null, 2),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // chat — the canonical one-shot prompt round trip, validated per runtime in CI
 //
 // CI contract: zero TTY, no prompts, no stdin reads. Exit 0 exactly when an
 // assistant reply is produced. Every failure is a CliError naming its stage:
-//   chat: <start|wait|connect|pair|prompt> stage failed: ...
-// Progress (started agent, pairing state, session opened) goes to stderr via
+//   chat: <start|wait|connect|prompt> stage failed: ...
+// Progress (started agent, session opened) goes to stderr via
 // ctx.output.info; stdout carries only the reply text (or the --json bag).
 //
-// Runtime families (record.runtime string gating — the records stay plain
-// hydrated Agent objects; no instanceof):
-//   openclaw/openclaw-pro — OpenClawAgent.connectSession() over the gateway;
-//     the ONLY family that pairs. autoApprovePairing stays on (SDK default,
-//     agents.ts gatewayOptions) and onPairing surfaces state on stderr.
-//     Pairing artifacts (device identity + per-agent device token) persist in
-//     ~/.hypercli/auth.json via core/auth-store.ts, so repeat chats re-use the
-//     already-paired device instead of re-pairing.
-//   hermes-agent          — HermesAgent.connect(); server-key auth, no
-//     pairing.
-//   coding agents (opencode, goose, codex, claude-code, kimi-code,
-//   buzz-agent)           — CodingAgent.acpConnect() over the backend /ws
-//     bridge, no pairing. The reply is folded from agent_message_chunk
-//     notifications; prompt() resolving is the terminal condition.
+// Every chat-capable runtime (openclaw, hermes-agent, and the coding agents)
+// rides the same ACP surface: acpConnect() over the backend /ws/acp session
+// proxy, no pairing. The reply is folded from agent_message_chunk
+// notifications; prompt() resolving is the terminal condition. The records
+// stay plain hydrated Agent objects; no instanceof, runtime gate on
+// record.runtime.
 //
-// Sessions: NO session flag means a brand-new session every invocation on
-// every family (there is no carried-over default session). -s/--session NAME
-// is reuse-or-create: ACP resumes via session/load (the NAME is the ACP
-// session id); hermes and openclaw reuse a session whose key (or label) is
-// NAME, creating it when absent.
+// Sessions: NO session flag means a brand-new session every invocation
+// (there is no carried-over default session). -s/--session NAME resumes via
+// session/load (the NAME is the ACP session id).
 // ---------------------------------------------------------------------------
 
-type ChatStage = 'start' | 'wait' | 'connect' | 'pair' | 'prompt';
+type ChatStage = 'start' | 'wait' | 'connect' | 'prompt';
 
-type ChatFamily = 'openclaw' | 'hermes' | 'acp';
-
-function chatFamily(runtime: string): ChatFamily {
-  const key = runtime.toLowerCase();
-  if (OPENCLAW_RUNTIMES.has(key)) return 'openclaw';
-  if (HERMES_RUNTIMES.has(key)) return 'hermes';
-  if (ACP_RUNTIMES.has(key)) return 'acp';
+function requireChatRuntime(runtime: string): string {
+  const supported = [...OPENCLAW_RUNTIMES, ...HERMES_RUNTIMES, ...ACP_RUNTIMES];
+  if (supported.some((r) => r === runtime.toLowerCase())) return runtime;
   throw new CliError(
-    `chat is not supported on runtime '${runtime || 'unknown'}' `
-    + `(supported: ${[...OPENCLAW_RUNTIMES, ...HERMES_RUNTIMES, ...ACP_RUNTIMES].join(', ')})`,
+    `chat is not supported on runtime '${runtime || 'unknown'}' ` + `(supported: ${supported.join(', ')})`,
   );
 }
 
@@ -1481,20 +1408,6 @@ async function acpOpenSession(client: CodingAgentAcpClient, name: string | undef
   return created.sessionId;
 }
 
-/** Resolve the chat session key on the canonical session surface: reuse-or-create. */
-async function canonicalSessionKey(
-  session: AgentSessionClient,
-  name: string | undefined,
-): Promise<{ key: string; resumed: boolean }> {
-  if (name !== undefined) {
-    const existing = await session.sessionsList();
-    const found = existing.find((s) => s.key === name || s.label === name);
-    if (found) return { key: found.key, resumed: true };
-    return { key: (await session.sessionsCreate({ key: name })).key, resumed: false };
-  }
-  return { key: (await session.sessionsCreate({})).key, resumed: false };
-}
-
 async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, {
     session: { type: 'string', short: 's' },
@@ -1513,7 +1426,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
 
   const { d } = await adopt(ctx);
   const resolved = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
-  const family = chatFamily(resolved.runtime ?? '');
+  requireChatRuntime(resolved.runtime ?? '');
 
   let stage: ChatStage = 'start';
   let timedOut = false;
@@ -1557,8 +1470,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     let reply = '';
     let streamedText = '';
     let sessionId = '';
-    // ACP resumes iff acpOpenSession went loadSession; hermes/openclaw iff the
-    // canonical surface found (vs created) the session.
+    // Resumed iff acpOpenSession went loadSession (a --session NAME was given).
     let sessionResumed = false;
     // --stream deltas go to stdout in table mode; under --json stdout belongs
     // to the result bag, so deltas ride stderr there instead.
@@ -1569,99 +1481,40 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       else process.stdout.write(text);
     };
 
-    if (family === 'acp') {
-      const acp = await atStage('connect', () =>
-        (agent as unknown as CodingAgent).acpConnect({
-          signal: controller.signal,
-          clientInfo: { name: 'hypercli-cli' },
-          onUpdate: (notification) => {
-            const update = notification.update as unknown as {
-              sessionUpdate?: string;
-              content?: unknown;
-            };
-            if (update.sessionUpdate !== 'agent_message_chunk') return;
-            const text = acpContentText(update.content);
-            if (!text) return;
-            reply += text;
-            emitDelta(text);
-          },
-        }));
-      try {
-        closeActive = () => acp.close();
-        sessionId = await atStage('connect', () => acpOpenSession(acp, sessionName));
-        sessionResumed = sessionName !== undefined;
-        ctx.output.info(`session opened ${sessionId}`);
-        await atStage('prompt', () => acp.prompt(sessionId, promptText));
-        if (!reply) throw new Error('the turn ended without an assistant reply');
-      } finally {
-        closeActive = undefined;
-        acp.close();
-      }
-    } else {
-      if (family === 'openclaw') {
-        // Persist pairing artifacts (device identity + issued device token)
-        // to ~/.hypercli/auth.json so repeat chats don't re-pair. Bridge is
-        // idempotent and file-backed, never in-memory. HOME-less environments
-        // (CI sandboxes) make homedir() unusable — skip persistence rather
-        // than crash the chat; pairing still works for this process.
-        try {
-          installOpenClawAuthBridge();
-        } catch (err) {
-          ctx.output.info(`chat: pairing persistence disabled: ${describeFailure(err)}`);
-        }
-      }
-      const session: AgentSessionClient = await atStage('connect', (): Promise<AgentSessionClient> =>
-        family === 'hermes'
-          ? (agent as unknown as HermesAgent).connect({ signal: controller.signal })
-          : (agent as unknown as OpenClawAgent).connectSession({
-              autoApprovePairing: true,
-              timeout: remainingMs(),
-              onPairing: (pairing) => {
-                if (!pairing) return;
-                if (pairing.status === 'pending') {
-                  stage = 'pair';
-                  ctx.output.info(
-                    `pairing pending (request ${pairing.requestId}); auto-approving via trusted agent exec`,
-                  );
-                } else if (pairing.status === 'approving') {
-                  stage = 'pair';
-                  ctx.output.info('approving pairing request via trusted agent exec');
-                } else if (pairing.status === 'approved') {
-                  stage = 'connect';
-                  ctx.output.info('paired device');
-                } else if (pairing.status === 'failed') {
-                  ctx.output.info(`pairing failed: ${pairing.error ?? 'unknown error'}`);
-                }
-              },
-            }));
-      try {
-        closeActive = () => session.close();
-        const resolvedSession = await atStage('connect', () => canonicalSessionKey(session, sessionName));
-        sessionId = resolvedSession.key;
-        sessionResumed = resolvedSession.resumed;
-        ctx.output.info(`session opened ${sessionId}`);
-        let sawDone = false;
-        await atStage('prompt', async () => {
-          for await (const event of session.chatSend(promptText, sessionId)) {
-            if (event.type === 'content') {
-              const text = event.text ?? '';
-              if (event.replace === true) reply = text;
-              else {
-                reply += text;
-                emitDelta(text);
-              }
-            } else if (event.type === 'done') {
-              sawDone = true;
-            } else if (event.type === 'error') {
-              throw new Error(event.text ?? 'the runtime reported an error');
-            }
-          }
-        });
-        if (!sawDone && !reply) throw new Error('the turn ended without an assistant reply');
-      } finally {
-        closeActive = undefined;
-        session.close();
-      }
+    // ACP is the single chat surface for every supported runtime
+    // (routines.ts uses the same cast; CodingAgent.acpConnect only reads
+    // the agent id plus the deployments base, both set on any hydrated
+    // record, so the cast is safe structurally). The dial rides the backend
+    // session proxy (/ws/acp) by default; --session attaches that session at
+    // the socket level so the loadSession replay is delivered (an unknown id
+    // fails the connect — the proxy closes with 4404).
+    const acp = await atStage('connect', () =>
+      (agent as unknown as CodingAgent).acpConnect({
+        signal: controller.signal,
+        clientInfo: { name: 'hypercli-cli' },
+        ...(sessionName !== undefined ? { sessionId: sessionName } : {}),
+        onUpdate: (notification) => {
+          const update = notification.update as unknown as {
+            sessionUpdate?: string;
+            content?: unknown;
+          };
+          if (update.sessionUpdate !== 'agent_message_chunk') return;
+          const text = acpContentText(update.content);
+          if (!text) return;
+          reply += text;
+          emitDelta(text);
+        },
+      }));
+    try {
+      closeActive = () => acp.close();
+      sessionId = await atStage('connect', () => acpOpenSession(acp, sessionName));
+      sessionResumed = sessionName !== undefined;
+      ctx.output.info(`session opened ${sessionId}`);
+      await atStage('prompt', () => acp.prompt(sessionId, promptText));
+      if (!reply) throw new Error('the turn ended without an assistant reply');
+    } finally {
+      closeActive = undefined;
+      acp.close();
     }
 
     const payload = {
@@ -1878,8 +1731,6 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdToken(ctx, rest);
     case 'config':
       return cmdConfig(ctx, rest);
-    case 'models':
-      return cmdModels(ctx, rest);
     case 'routes':
       return cmdRoutes(ctx, rest);
     default:

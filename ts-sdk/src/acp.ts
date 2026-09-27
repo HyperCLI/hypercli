@@ -8,14 +8,32 @@
  * `initialize` handshake, and exposes typed session helpers plus a raw
  * JSON-RPC escape hatch.
  *
- * Reconnect mirrors the ACP v1 contract used by the bridge: the runtime side
- * is long-lived, the client re-dials, re-initializes, and replays each known
- * session with `session/load`. In-flight prompt turns are never retried
- * mid-turn; `session/load` failures surface as soft
+ * Version negotiation follows the upstream ACP contract: `initialize` offers
+ * the highest protocol version this client speaks (v2 by default, pinned via
+ * {@link CodingAgentAcpConnectOptions.protocolVersion}) and includes BOTH the
+ * v1 param shape (`clientCapabilities`/`clientInfo`) and the v2 shape
+ * (`capabilities`/`info`) so a v1-only and a v2 agent can each decode the
+ * handshake — the same normalization upstream's AgentProtocolRouter applies
+ * when downgrading an offered v2 initialize. The agent answers with the
+ * version it supports (spec: its latest if it doesn't support the offer);
+ * the answered version is the negotiated version for the rest of the session
+ * and is exposed as {@link CodingAgentAcpClient.negotiatedProtocolVersion}.
+ * On v2 there is no `session/load` — reattach and history replay go through
+ * `session/resume` with a `replayFrom` cursor instead.
+ *
+ * Reconnect mirrors the ACP reattach contract used by the bridge: the runtime
+ * side is long-lived, the client re-dials, re-initializes (re-negotiating),
+ * and replays each known session (`session/load` on v1, `session/resume` with
+ * `replayFrom: { type: 'start' }` on v2). In-flight prompt turns are never
+ * retried mid-turn; replay failures surface as soft
  * {@link CodingAgentAcpReplayGapError}s while the connection stays alive.
  */
 import NodeWebSocket from 'ws';
 import * as acp from '@agentclientprotocol/sdk';
+import type {
+  InitializeResponse as AcpV2InitializeResponse,
+  ReplayFrom as AcpReplayFrom,
+} from '@agentclientprotocol/sdk/experimental/v2';
 import {
   createWebSocketStream,
   MemoryAcpCookieStore,
@@ -24,16 +42,89 @@ import {
 } from '@agentclientprotocol/sdk/experimental/ws-client';
 
 export type { ContentBlock, RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk';
+export type { AcpReplayFrom };
+
+/** ACP major protocol versions this client can negotiate. */
+export type CodingAgentAcpProtocolVersion = 1 | 2;
+
+/**
+ * Which backend socket `acpConnect` dials (sessions/README §14):
+ * - `'proxy'` (default): `/ws/acp`, the client-facing ACP session authority.
+ *   Sessions are backend-keyed — the proxy owns `{session_id → legs}`, tees
+ *   runtime frames to every attached session client, and answers
+ *   `session/new` with the backend session id.
+ * - `'direct'`: the agent-keyed `/ws` bridge. Infra/debug escape hatch only —
+ *   the bridge is being hardened to runtime + backend-service identities
+ *   (proxy, routines), so interactive consumers must not select it.
+ */
+export type CodingAgentAcpTransport = 'proxy' | 'direct';
 
 /** Reconnect backoff budget, mirroring the buzz-activity subscriptions. */
 export const ACP_RECONNECT_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000];
 
 /**
- * Bridge close codes that must not be retried: the identity/binding itself is
- * rejected, so re-dialing with the same credentials can never succeed.
- * (4409, duplicate side, is transient — the other client may disconnect.)
+ * Proxy (`/ws/acp`) close code for an attach whose `session_id` the backend
+ * session store does not hold for this agent. Re-dialing the same id can
+ * never succeed, so the code is terminal just like the auth refusals.
  */
-const ACP_TERMINAL_CLOSE_CODES = new Set([4401, 4403, 4408]);
+export const ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404;
+
+/**
+ * Vendor turn-lifecycle frames from sessions/README §4. The deployed
+ * hyper-acp is a pure passthrough and emits NONE of these — the registrations
+ * and the `onTurnEvent` listener are forward-compat for pods that may emit
+ * them later (frames are confirmation-only there; the `session/prompt`
+ * response remains the turn-end evidence). `turnId` is the JSON-RPC request
+ * id of the `session/prompt` the turn belongs to. All frames are
+ * notifications. `_hypercli.dev/turn_ended_ack` was dropped from the wire
+ * contract: no pod-side retention, no acks.
+ */
+export const ACP_TURN_STARTED_METHOD = '_hypercli.dev/turn_started';
+export const ACP_TURN_ENDED_METHOD = '_hypercli.dev/turn_ended';
+
+/**
+ * Read-ack contract (sessions/README §15 — explicit acks). The backend ACP
+ * proxy annotates every persisted-and-teed frame with its durable store seq
+ * under `params._meta[ACP_READ_ACK_META_KEY].seq`. A client batch-acks the
+ * highest seq it has consumed via the `_hypercli.dev/session_read_ack`
+ * REQUEST (one per N messages, not per frame); the proxy advances the
+ * caller's user-member cursor under the session row lock with GREATEST
+ * semantics, so acks are at-least-once safe and stale acks are absorbed. The
+ * response resolves only after the store commit — it IS the durability ack
+ * for the read receipt. Acks beyond the persisted head are rejected (you can
+ * only ack what the store wrote); a delivery gap is visible as a seq jump
+ * and is recoverable with a keyset re-read (`after_seq = cursor`).
+ */
+export const ACP_READ_ACK_METHOD = '_hypercli.dev/session_read_ack';
+export const ACP_READ_ACK_META_KEY = 'hypercli.dev';
+
+/** JSON-RPC request id of a `session/prompt`, used to key a turn. */
+export type CodingAgentAcpTurnId = string | number;
+
+export interface CodingAgentAcpTurnStartedEvent {
+  kind: 'turn_started';
+  sessionId: string;
+  turnId: CodingAgentAcpTurnId;
+}
+
+export interface CodingAgentAcpTurnEndedEvent {
+  kind: 'turn_ended';
+  sessionId: string;
+  turnId: CodingAgentAcpTurnId;
+  stopReason: string;
+  partial?: boolean;
+}
+
+export type CodingAgentAcpTurnEvent = CodingAgentAcpTurnStartedEvent | CodingAgentAcpTurnEndedEvent;
+
+/**
+ * Bridge close codes that must not be retried: the identity/binding itself is
+ * rejected, so re-dialing with the same credentials can never succeed. 4404
+ * is the proxy's unknown-session attach — same permanence, the session the
+ * URL pins does not exist. (4409, duplicate side, is transient — the other
+ * client may disconnect.)
+ */
+const ACP_TERMINAL_CLOSE_CODES = new Set([4401, 4403, ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE, 4408]);
 
 /** Thrown when a capability-gated helper hits a child that does not advertise it. */
 export class CodingAgentAcpUnavailableError extends Error {
@@ -98,6 +189,40 @@ export class CodingAgentAcpReplayGapError extends Error {
   }
 }
 
+/**
+ * Soft error delivered via `onError` when an automatic read ack fails (e.g.
+ * the socket dropped mid-ack). The receipt is NOT durable; the client retries
+ * on the next delivered frame or an explicit `ackSessionRead` call.
+ */
+export class CodingAgentAcpReadAckError extends Error {
+  public readonly sessionId: string;
+  public readonly seq: number;
+  constructor(sessionId: string, seq: number, detail: string, options: { cause?: unknown } = {}) {
+    super(
+      `read_ack: ACP session ${sessionId} read receipt for seq ${seq} was not persisted: ${detail}`,
+      options.cause !== undefined ? { cause: options.cause } : undefined,
+    );
+    this.name = 'CodingAgentAcpReadAckError';
+    this.sessionId = sessionId;
+    this.seq = seq;
+  }
+}
+
+/** Per-session read-ack position tracked by {@link CodingAgentAcpClient}. */
+export interface CodingAgentAcpReadAckState {
+  /** Highest persisted seq seen on a delivered frame (0 = none seen). */
+  latestSeq: number;
+  /** Highest seq the proxy has durably confirmed for this client. */
+  ackedSeq: number;
+  /** Number of forward seq jumps observed (missed-frame evidence). */
+  gaps: number;
+}
+
+interface ReadAckTracking extends CodingAgentAcpReadAckState {
+  /** An ack request is currently in flight for this session. */
+  inFlight: boolean;
+}
+
 export interface CodingAgentAcpConnectOptions {
   /** Abort before connect rejects the promise; abort after connect closes the client. */
   signal?: AbortSignal;
@@ -105,8 +230,34 @@ export interface CodingAgentAcpConnectOptions {
   cwd?: string;
   /** Override the `clientInfo` sent with `initialize`. */
   clientInfo?: { name?: string; version?: string };
+  /**
+   * Protocol version offered in `initialize`. Defaults to 2; the agent
+   * answers with the version it supports and that answer is the negotiated
+   * version for the session (see
+   * {@link CodingAgentAcpClient.negotiatedProtocolVersion}). Pin to 1 only to
+   * interop with a pre-negotiation runtime that rejects an unknown offer.
+   */
+  protocolVersion?: CodingAgentAcpProtocolVersion;
   /** MCP servers attached to every session created or replayed by this client. */
   mcpServers?: acp.McpServer[];
+  /**
+   * Which backend socket `CodingAgent.acpConnect` dials; see
+   * {@link CodingAgentAcpTransport}. Defaults to `'proxy'`. `'direct'` is an
+   * infra/debug-only escape hatch to the agent-keyed `/ws` bridge.
+   */
+  transport?: CodingAgentAcpTransport;
+  /**
+   * Proxy transport only: the backend session id to attach at dial time
+   * (create-or-attach semantics — no `sessionId` means the socket starts
+   * session-less and `newSession()` mints one through the proxy; a provided
+   * id dials `/ws/acp?agent_id&token&session_id=…`, joining the session's live
+   * tee before any replay call so a following `loadSession`/`resumeSession`
+   * history stream actually reaches this connection). An id the store does
+   * not hold closes the socket with
+   * {@link ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE} (4404). Combining it with
+   * `transport: 'direct'` throws — the `/ws` bridge has no session binding.
+   */
+  sessionId?: string;
   /** Receives every `session/update` notification. */
   onUpdate?: (notification: acp.SessionNotification) => void;
   /**
@@ -125,6 +276,15 @@ export interface CodingAgentAcpConnectOptions {
   onWriteTextFile?: (
     params: acp.WriteTextFileRequest,
   ) => acp.MaybePromise<acp.WriteTextFileResponse | void>;
+  /**
+   * Batch read receipts (§15 ack contract): when set, the client sends one
+   * `_hypercli.dev/session_read_ack` request whenever the highest delivered
+   * store seq outruns the last durably acked seq by at least this many
+   * messages. Omit to ack only via explicit {@link CodingAgentAcpClient.ackSessionRead}
+   * calls. Frames the proxy never annotated (direct-bridge connections) never
+   * trigger an ack.
+   */
+  readAckEvery?: number;
   /** Soft errors (replay gaps); the client stays alive. */
   onError?: (error: Error) => void;
   /** Terminal close: reconnect budget exhausted or a terminal bridge close code. */
@@ -179,14 +339,19 @@ export class CodingAgentAcpClient {
   private readonly clientName: string;
   private readonly clientVersion: string;
   private readonly cookieStore = new MemoryAcpCookieStore();
+  private readonly offeredProtocolVersion: CodingAgentAcpProtocolVersion;
   private connection: acp.ClientConnection | null = null;
-  private initializeResponseValue: acp.InitializeResponse | null = null;
+  private initializeResponseValue: acp.InitializeResponse | AcpV2InitializeResponse | null = null;
+  private negotiatedVersionValue: CodingAgentAcpProtocolVersion | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
+  private readonly turnListeners = new Set<(event: CodingAgentAcpTurnEvent) => void>();
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   /** In-memory only: sessionId → latest epoch + in-flight load count. */
   private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
+  /** Read-ack position per session; ackedSeq mirrors the proxy-side cursor. */
+  private readonly readAckStates = new Map<string, ReadAckTracking>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
@@ -204,6 +369,7 @@ export class CodingAgentAcpClient {
     this.mcpServers = options.mcpServers ?? [];
     this.clientName = options.clientInfo?.name ?? 'hypercli-ts-sdk';
     this.clientVersion = options.clientInfo?.version ?? '';
+    this.offeredProtocolVersion = options.protocolVersion ?? 2;
     this.onAbort = () => this.close();
   }
 
@@ -231,8 +397,22 @@ export class CodingAgentAcpClient {
     return this.closedFlag;
   }
 
-  /** Latest `initialize` response; refreshed on every (re)connect. */
-  get initializeResponse(): acp.InitializeResponse | null {
+  /**
+   * The negotiated ACP protocol version for the session: the version the
+   * agent answered in the latest `initialize` handshake. Refreshed on every
+   * (re)connect; `null` before the first handshake completes.
+   */
+  get negotiatedProtocolVersion(): CodingAgentAcpProtocolVersion | null {
+    return this.negotiatedVersionValue;
+  }
+
+  /**
+   * Latest `initialize` response; refreshed on every (re)connect. The shape
+   * follows the negotiated version: v1 responses carry
+   * `agentCapabilities`/`agentInfo`, v2 responses carry
+   * `capabilities`/`info`.
+   */
+  get initializeResponse(): acp.InitializeResponse | AcpV2InitializeResponse | null {
     return this.initializeResponseValue;
   }
 
@@ -252,6 +432,21 @@ export class CodingAgentAcpClient {
     this.updateListeners.add(listener);
     return () => {
       this.updateListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Register a listener for the vendor turn-lifecycle frames
+   * (`_hypercli.dev/turn_started` / `_hypercli.dev/turn_ended`) emitted by
+   * the pod-side hyper-acp. Frames for sessions other than the caller's are
+   * included; listeners key off `sessionId`/`turnId`. Returns an unsubscribe
+   * function; a throwing listener is logged and does not break the others.
+   * `close()` clears all listeners.
+   */
+  onTurnEvent(listener: (event: CodingAgentAcpTurnEvent) => void): () => void {
+    this.turnListeners.add(listener);
+    return () => {
+      this.turnListeners.delete(listener);
     };
   }
 
@@ -343,9 +538,20 @@ export class CodingAgentAcpClient {
     });
   }
 
+  /**
+   * Reattach a session with full history replay (`session/load`). v1 only:
+   * ACP v2 removed `session/load` — on a v2-negotiated connection callers use
+   * {@link resumeSession} with a `replayFrom` cursor instead.
+   */
   async loadSession(sessionId: string): Promise<acp.LoadSessionResponse> {
     const context = this.requireContext();
-    if (this.initializeResponseValue?.agentCapabilities?.loadSession !== true) {
+    if (this.negotiatedVersionValue === 2) {
+      throw new CodingAgentAcpUnavailableError(
+        'session/load',
+        'the connection negotiated ACP v2, which removed session/load; use resumeSession(sessionId, { replayFrom: { type: \'start\' } }) to reattach with history replay',
+      );
+    }
+    if (!this.v1Capabilities().load) {
       throw new CodingAgentAcpUnavailableError(
         'session/load',
         'the agent did not advertise agentCapabilities.loadSession in its initialize response',
@@ -366,19 +572,40 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Restore a session's context without history replay (`session/resume`).
-   * v2-forward-compatible: `session/load` is dropped in ACP v2, resume is
-   * kept. Falls back to nothing — callers wanting history must use loadSession.
+   * Restore a session's context (`session/resume`). Without `replayFrom` no
+   * history is replayed. On a v2-negotiated connection `replayFrom` requests
+   * retained history (`{ type: 'start' }` replays everything) — this is the
+   * v2 replacement for the removed `session/load`; replayed history streams
+   * as `session/update` notifications before the resume response resolves, so
+   * the call runs inside a replay-epoch bracket exactly like a v1 load. On v1
+   * `replayFrom` is unsupported (loadSession replays history there).
    */
-  async resumeSession(sessionId: string): Promise<acp.ResumeSessionResponse> {
+  async resumeSession(
+    sessionId: string,
+    options: { replayFrom?: AcpReplayFrom | null } = {},
+  ): Promise<acp.ResumeSessionResponse> {
     const context = this.requireContext();
     this.requireSessionCapability('session/resume', 'resume');
+    if (options.replayFrom !== undefined && options.replayFrom !== null && this.negotiatedVersionValue !== 2) {
+      throw new CodingAgentAcpUnavailableError(
+        'session/resume',
+        'replayFrom is an ACP v2 parameter; the connection negotiated v1 — use loadSession for history replay',
+      );
+    }
     const previous = this.sessions.get(sessionId);
-    const response = await context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, {
+    const params: Record<string, unknown> = {
       sessionId,
       cwd: previous?.cwd ?? this.cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
-    });
+    };
+    if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
+    const requestResume = () => context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
+    // A replaying resume streams history before its response resolves (the
+    // same boundary problem as v1 session/load), so it gets an epoch bracket.
+    const replaying = options.replayFrom !== undefined && options.replayFrom !== null;
+    const response = replaying
+      ? await this.performReplayBracket(sessionId, requestResume)
+      : await requestResume();
     this.sessions.set(sessionId, {
       cwd: previous?.cwd ?? this.cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
@@ -530,12 +757,49 @@ export class CodingAgentAcpClient {
     return this.requireContext().notify(method, params);
   }
 
+  /**
+   * Snapshot of the read-ack position for a session (§15 ack contract).
+   * `latestSeq` is what the proxy delivered with a store-seq annotation,
+   * `ackedSeq` what it durably confirmed. Zeros for sessions that never saw
+   * an annotated frame (e.g. direct-bridge connections).
+   */
+  readAckState(sessionId: string): CodingAgentAcpReadAckState {
+    const state = this.readAckStates.get(sessionId);
+    return {
+      latestSeq: state?.latestSeq ?? 0,
+      ackedSeq: state?.ackedSeq ?? 0,
+      gaps: state?.gaps ?? 0,
+    };
+  }
+
+  /**
+   * Durably advance this client's read cursor for a session. `seq` defaults
+   * to the highest delivered annotated seq; a client with nothing delivered
+   * resolves to 0 without touching the wire. Resolves with the proxy's
+   * confirmed cursor (GREATEST — a stale explicit ack never regresses it).
+   * Rejects when the proxy rejects the ack (e.g. seq beyond the persisted
+   * head) or the connection is down.
+   */
+  async ackSessionRead(sessionId: string, seq?: number): Promise<number> {
+    const target = seq ?? this.readAckStates.get(sessionId)?.latestSeq ?? 0;
+    if (!Number.isInteger(target) || target < 1) return 0;
+    const result = await this.requireContext().request<{ cursor?: unknown }>(ACP_READ_ACK_METHOD, {
+      sessionId,
+      seq: target,
+    });
+    const cursor = typeof result?.cursor === 'number' && Number.isInteger(result.cursor) ? result.cursor : target;
+    this.noteReadAcked(sessionId, cursor);
+    return cursor;
+  }
+
   close(): void {
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
+    this.turnListeners.clear();
     this.replayListeners.clear();
     this.closeListeners.clear();
+    this.readAckStates.clear();
     this.permissionHandler = null;
     this.generation += 1;
     this.options.signal?.removeEventListener('abort', this.onAbort);
@@ -558,7 +822,11 @@ export class CodingAgentAcpClient {
       throw new CodingAgentAcpConnectionError('ACP connect aborted');
     }
     this.options.signal?.addEventListener('abort', this.onAbort, { once: true });
-    let dialed: { connection: acp.ClientConnection; initializeResponse: acp.InitializeResponse };
+    let dialed: {
+      connection: acp.ClientConnection;
+      initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
+      negotiatedVersion: CodingAgentAcpProtocolVersion;
+    };
     try {
       dialed = await this.dialAndInitialize();
     } catch (error) {
@@ -571,16 +839,25 @@ export class CodingAgentAcpClient {
       dialed.connection.close(new CodingAgentAcpConnectionError('ACP client closed'));
       throw new CodingAgentAcpConnectionError('ACP connect aborted');
     }
-    const { connection, initializeResponse } = dialed;
+    const { connection, initializeResponse, negotiatedVersion } = dialed;
     this.connection = connection;
     this.initializeResponseValue = initializeResponse;
+    this.negotiatedVersionValue = negotiatedVersion;
     this.failures = 0;
     this.resolveConnectedWaiters();
   }
 
+  /**
+   * The `initialize` offer: the highest protocol version we speak (v2 unless
+   * pinned) plus BOTH capability shapes, so the params decode on either side
+   * — a v1 agent reads `clientCapabilities`/`clientInfo`, a v2 agent reads
+   * `capabilities`/`info`, and unknown keys are ignored by both. v2 has no
+   * `fs/*` or `terminal/*` client methods, so the v2 `capabilities` payload
+   * is the empty baseline; the v1 shape keeps advertising the fs handlers.
+   */
   private initializeParams(): acp.InitializeRequest {
     return {
-      protocolVersion: acp.PROTOCOL_VERSION,
+      protocolVersion: this.offeredProtocolVersion,
       clientCapabilities: {
         fs: {
           readTextFile: this.options.onReadTextFile !== undefined,
@@ -589,7 +866,9 @@ export class CodingAgentAcpClient {
         terminal: false,
       },
       clientInfo: { name: this.clientName, version: this.clientVersion },
-    };
+      capabilities: {},
+      info: { name: this.clientName, version: this.clientVersion },
+    } as acp.InitializeRequest;
   }
 
   private buildApp(): acp.ClientApp {
@@ -604,6 +883,16 @@ export class CodingAgentAcpClient {
       return { outcome: { outcome: 'cancelled' as const } };
     });
     app.onNotification(acp.methods.client.session.update, (context) => {
+      // Seq annotation (§15 ack contract): persisted proxy-tee'd frames carry
+      // their store seq under _meta; the value drives batch read acks and gap
+      // detection. Unannotated frames (direct bridge) leave tracking alone.
+      const meta = (context.params as { _meta?: Record<string, unknown> | null })._meta;
+      const vendor = meta?.[ACP_READ_ACK_META_KEY];
+      const seq = vendor && typeof vendor === 'object' ? (vendor as Record<string, unknown>).seq : undefined;
+      this.noteDeliveredSeq(
+        context.params.sessionId,
+        typeof seq === 'number' && Number.isInteger(seq) ? seq : null,
+      );
       this.options.onUpdate?.(context.params);
       for (const listener of [...this.updateListeners]) {
         try {
@@ -612,6 +901,41 @@ export class CodingAgentAcpClient {
           console.error('ACP session/update listener threw', error);
         }
       }
+    });
+    // Vendor turn frames use the params-parser overload with an identity
+    // parser: they are hyper-acp extensions the generated ACP schemas do not
+    // know. Malformed frames are dropped rather than thrown into the
+    // connection's notification pipeline.
+    app.onNotification(ACP_TURN_STARTED_METHOD, (params: unknown) => params, (context) => {
+      const params = context.params as { sessionId?: unknown; turnId?: unknown } | null;
+      if (
+        typeof params?.sessionId !== 'string'
+        || (typeof params.turnId !== 'string' && typeof params.turnId !== 'number')
+      ) {
+        return;
+      }
+      this.emitTurnEvent({ kind: 'turn_started', sessionId: params.sessionId, turnId: params.turnId });
+    });
+    app.onNotification(ACP_TURN_ENDED_METHOD, (params: unknown) => params, (context) => {
+      const params = context.params as {
+        sessionId?: unknown;
+        turnId?: unknown;
+        stopReason?: unknown;
+        partial?: unknown;
+      } | null;
+      if (
+        typeof params?.sessionId !== 'string'
+        || (typeof params.turnId !== 'string' && typeof params.turnId !== 'number')
+      ) {
+        return;
+      }
+      this.emitTurnEvent({
+        kind: 'turn_ended',
+        sessionId: params.sessionId,
+        turnId: params.turnId,
+        stopReason: typeof params.stopReason === 'string' ? params.stopReason : 'unknown',
+        partial: params.partial === true ? true : undefined,
+      });
     });
     if (this.options.onReadTextFile) {
       const handler = this.options.onReadTextFile;
@@ -657,7 +981,8 @@ export class CodingAgentAcpClient {
    */
   private async dialAndInitialize(): Promise<{
     connection: acp.ClientConnection;
-    initializeResponse: acp.InitializeResponse;
+    initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
+    negotiatedVersion: CodingAgentAcpProtocolVersion;
   }> {
     const { connection, closeInfo } = this.dial();
     try {
@@ -665,8 +990,21 @@ export class CodingAgentAcpClient {
         acp.methods.agent.initialize,
         this.initializeParams(),
       );
-      return { connection, initializeResponse };
+      const answered = (initializeResponse as { protocolVersion?: unknown }).protocolVersion;
+      if (answered !== 1 && answered !== 2) {
+        // Per the ACP version-negotiation contract the client closes a
+        // connection whose answered version it does not support.
+        connection.close(new CodingAgentAcpConnectionError(`unsupported ACP protocol version ${String(answered)}`));
+        const code = closeInfo.code ?? null;
+        this.lastCloseCode = code;
+        throw new CodingAgentAcpConnectionError(
+          `ACP initialize failed: the agent answered protocol version ${String(answered)}, which this client does not support (it speaks 1 and 2)`,
+          { code },
+        );
+      }
+      return { connection, initializeResponse, negotiatedVersion: answered };
     } catch (error) {
+      if (error instanceof CodingAgentAcpConnectionError) throw error;
       connection.close(error instanceof Error ? error : undefined);
       const code = closeInfo.code ?? null;
       this.lastCloseCode = code;
@@ -725,9 +1063,10 @@ export class CodingAgentAcpClient {
     if (this.closedFlag) return;
     const generation = ++this.generation;
     let connection: acp.ClientConnection;
-    let initializeResponse: acp.InitializeResponse;
+    let initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
+    let negotiatedVersion: CodingAgentAcpProtocolVersion;
     try {
-      ({ connection, initializeResponse } = await this.dialAndInitialize());
+      ({ connection, initializeResponse, negotiatedVersion } = await this.dialAndInitialize());
     } catch {
       if (this.closedFlag || generation !== this.generation) return;
       this.scheduleReconnect(this.lastCloseCode ?? 1006, 'reconnect attempt failed');
@@ -739,32 +1078,46 @@ export class CodingAgentAcpClient {
     }
     this.connection = connection;
     this.initializeResponseValue = initializeResponse;
+    this.negotiatedVersionValue = negotiatedVersion;
     this.failures = 0;
     this.resolveConnectedWaiters();
     await this.replaySessions(connection, generation);
   }
 
+  /**
+   * Reattach every tracked session after a reconnect, version-aware: v1
+   * replays with `session/load` (gated on the `loadSession` capability), v2
+   * resumes with `replayFrom: { type: 'start' }` (gated on the v2 session
+   * surface — there is no `session/load` in v2). Either way a session that
+   * cannot be replayed is dropped with a soft
+   * {@link CodingAgentAcpReplayGapError} and the connection stays alive.
+   */
   private async replaySessions(connection: acp.ClientConnection, generation: number): Promise<void> {
-    const canLoad = this.initializeResponseValue?.agentCapabilities?.loadSession === true;
+    const useV2Resume = this.negotiatedVersionValue === 2;
+    const canReplay = useV2Resume ? this.v2SessionSurface() !== null : this.v1Capabilities().load;
     for (const [sessionId, tracked] of [...this.sessions]) {
       if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
-      if (!canLoad) {
+      if (!canReplay) {
         this.sessions.delete(sessionId);
         this.softError(new CodingAgentAcpReplayGapError(
           sessionId,
-          'the agent no longer advertises agentCapabilities.loadSession',
+          useV2Resume
+            ? 'the v2 agent no longer advertises a session surface (capabilities.session)'
+            : 'the agent no longer advertises agentCapabilities.loadSession',
         ));
         continue;
       }
       try {
-        const response = await this.performLoad(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
+        const response = useV2Resume
+          ? await this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers)
+          : await this.performLoad(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
         tracked.modes = response?.modes ?? null;
         tracked.configOptions = response?.configOptions ?? null;
       } catch (error) {
         this.sessions.delete(sessionId);
         this.softError(new CodingAgentAcpReplayGapError(
           sessionId,
-          error instanceof Error ? error.message : 'session/load rejected',
+          error instanceof Error ? error.message : 'session replay rejected',
           { cause: error },
         ));
       }
@@ -786,30 +1139,51 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * One `session/load` round-trip bracketed by a replay epoch: `start` fires
+   * One history-replaying round-trip (`session/load` on v1, `session/resume`
+   * with `replayFrom` on v2) bracketed by a replay epoch: `start` fires
    * before the request goes on the wire (ahead of every replayed history
    * notification), `end` fires once the response settles (after the full
-   * history has streamed, per the protocol's load contract).
+   * history has streamed, per the protocol's replay contract).
    */
-  private async performLoad(
-    context: acp.ClientContext,
-    sessionId: string,
-    cwd: string,
-    mcpServers: acp.McpServer[],
-  ): Promise<acp.LoadSessionResponse> {
+  private async performReplayBracket<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
     const epoch = this.beginReplay(sessionId);
     try {
-      const response = await context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
-        sessionId,
-        cwd,
-        mcpServers,
-      });
+      const response = await run();
       this.endReplay(sessionId, epoch, true);
       return response;
     } catch (error) {
       this.endReplay(sessionId, epoch, false);
       throw error;
     }
+  }
+
+  private performLoad(
+    context: acp.ClientContext,
+    sessionId: string,
+    cwd: string,
+    mcpServers: acp.McpServer[],
+  ): Promise<acp.LoadSessionResponse> {
+    return this.performReplayBracket(sessionId, () =>
+      context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
+        sessionId,
+        cwd,
+        mcpServers,
+      }));
+  }
+
+  private performResumeReplay(
+    context: acp.ClientContext,
+    sessionId: string,
+    cwd: string,
+    mcpServers: acp.McpServer[],
+  ): Promise<acp.ResumeSessionResponse> {
+    return this.performReplayBracket(sessionId, () =>
+      context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, {
+        sessionId,
+        cwd,
+        mcpServers,
+        replayFrom: { type: 'start' },
+      }));
   }
 
   private beginReplay(sessionId: string): number {
@@ -830,6 +1204,16 @@ export class CodingAgentAcpClient {
     this.emitReplay({ sessionId, phase: 'end', epoch, ok });
   }
 
+  private emitTurnEvent(event: CodingAgentAcpTurnEvent): void {
+    for (const listener of [...this.turnListeners]) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('ACP turn event listener threw', error);
+      }
+    }
+  }
+
   private emitReplay(event: CodingAgentAcpReplayEvent): void {
     for (const listener of [...this.replayListeners]) {
       try {
@@ -842,6 +1226,59 @@ export class CodingAgentAcpClient {
 
   private softError(error: Error): void {
     this.options.onError?.(error);
+  }
+
+  /**
+   * Record one delivered annotated frame. A forward jump (a frame whose seq
+   * is not latestSeq+1) means frames were lost on the tee — the cursor batch
+   * ack still advances, and a consumer that needs the hole refilled re-reads
+   * with `after_seq = ackedSeq`. Stale/duplicate deliveries are ignored.
+   */
+  private noteDeliveredSeq(sessionId: string, seq: number | null): void {
+    if (seq === null) return;
+    let state = this.readAckStates.get(sessionId);
+    if (!state) {
+      state = { latestSeq: 0, ackedSeq: 0, gaps: 0, inFlight: false };
+      this.readAckStates.set(sessionId, state);
+    }
+    if (seq <= state.latestSeq) return;
+    if (state.latestSeq > 0 && seq > state.latestSeq + 1) state.gaps += 1;
+    state.latestSeq = seq;
+    this.maybeAutoAck(sessionId, state);
+  }
+
+  private noteReadAcked(sessionId: string, cursor: number): void {
+    const state = this.readAckStates.get(sessionId);
+    if (!state) return;
+    state.ackedSeq = Math.max(state.ackedSeq, cursor);
+    state.inFlight = false;
+    this.maybeAutoAck(sessionId, state);
+  }
+
+  /**
+   * Batch-ack trigger: one in-flight ack per session, fired when the
+   * uncontested window (`latestSeq − ackedSeq`) reaches `readAckEvery`.
+   * Failures surface as soft {@link CodingAgentAcpReadAckError}s and leave
+   * ackedSeq alone — the next delivered frame (or explicit ack) retries.
+   */
+  private maybeAutoAck(sessionId: string, state: ReadAckTracking): void {
+    const every = this.options.readAckEvery;
+    if (every === undefined || every < 1 || state.inFlight || this.closedFlag) return;
+    if (state.latestSeq - state.ackedSeq < every) return;
+    const target = state.latestSeq;
+    state.inFlight = true;
+    this.ackSessionRead(sessionId, target).catch((error: unknown) => {
+      const current = this.readAckStates.get(sessionId);
+      if (current) current.inFlight = false;
+      this.softError(
+        new CodingAgentAcpReadAckError(
+          sessionId,
+          target,
+          error instanceof Error ? error.message : 'read ack rejected or connection down',
+          { cause: error },
+        ),
+      );
+    });
   }
 
   private requireConnection(): acp.ClientConnection {
@@ -862,11 +1299,54 @@ export class CodingAgentAcpClient {
     return this.requireConnection().agent;
   }
 
+  /**
+   * v1 `loadSession` capability view. v2 has no `session/load`, so this is
+   * only consulted on v1-negotiated connections.
+   */
+  private v1Capabilities(): { load: boolean } {
+    const response = this.initializeResponseValue;
+    if (!response || this.negotiatedVersionValue === 2) return { load: false };
+    return { load: (response as acp.InitializeResponse).agentCapabilities?.loadSession === true };
+  }
+
+  /**
+   * The v2 session surface advertised in `capabilities.session`. Present
+   * (even as `{}`) means the baseline v2 session methods — `session/new`,
+   * `session/list`, `session/resume`, `session/close`, `session/prompt`,
+   * `session/cancel`, `session/update` — are supported; `null` means the
+   * agent supports no `session/*` methods at all.
+   */
+  private v2SessionSurface(): { delete: unknown; fork: unknown } | null {
+    const response = this.initializeResponseValue;
+    if (!response || this.negotiatedVersionValue !== 2) return null;
+    const session = (response as AcpV2InitializeResponse).capabilities?.session;
+    if (session === null || session === undefined) return null;
+    return { delete: session.delete ?? null, fork: session.fork ?? null };
+  }
+
   private requireSessionCapability(
     method: string,
     capability: 'list' | 'delete' | 'fork' | 'resume' | 'close',
   ): void {
-    const caps = this.initializeResponseValue?.agentCapabilities?.sessionCapabilities;
+    if (this.negotiatedVersionValue === 2) {
+      const surface = this.v2SessionSurface();
+      if (surface === null) {
+        throw new CodingAgentAcpUnavailableError(
+          method,
+          'the agent negotiated ACP v2 without a session surface (no capabilities.session in its initialize response)',
+        );
+      }
+      const gated = capability === 'delete' ? surface.delete : capability === 'fork' ? surface.fork : {};
+      if (gated === null || gated === undefined) {
+        throw new CodingAgentAcpUnavailableError(
+          method,
+          `the v2 agent did not advertise capabilities.session.${capability} in its initialize response`,
+        );
+      }
+      return;
+    }
+    const response = this.initializeResponseValue as acp.InitializeResponse | null;
+    const caps = response?.agentCapabilities?.sessionCapabilities;
     if (!caps || caps[capability] === null || caps[capability] === undefined) {
       throw new CodingAgentAcpUnavailableError(
         method,

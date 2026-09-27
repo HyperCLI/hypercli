@@ -12,6 +12,12 @@ pub enum ManagedRuntime {
     Openclaw,
     OpenclawPro,
     HermesAgent,
+    // ACP-driven successors of the legacy openclaw/hermes-agent wire names;
+    // the Backend folds the legacy spellings into these at create/patch.
+    #[serde(rename = "openclaw_acp")]
+    OpenclawAcp,
+    #[serde(rename = "hermes_acp")]
+    HermesAcp,
     BuzzAgent,
     Opencode,
     Codex,
@@ -32,7 +38,12 @@ impl ManagedRuntime {
             Self::Goose => Some("ghcr.io/hypercli/hypercli-goose:latest"),
             Self::KimiCode => Some("ghcr.io/hypercli/hypercli-kimi-code:latest"),
             Self::Pi => Some("ghcr.io/hypercli/hypercli-pi:latest"),
-            Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
+            Self::Generic
+            | Self::Openclaw
+            | Self::OpenclawPro
+            | Self::HermesAgent
+            | Self::OpenclawAcp
+            | Self::HermesAcp => None,
         }
     }
 
@@ -61,7 +72,12 @@ impl ManagedRuntime {
             Self::Goose => Some(&[".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
             Self::KimiCode => Some(&[".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
             Self::Pi => Some(&[".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
-            Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
+            Self::Generic
+            | Self::Openclaw
+            | Self::OpenclawPro
+            | Self::HermesAgent
+            | Self::OpenclawAcp
+            | Self::HermesAcp => None,
         }
     }
 }
@@ -2454,6 +2470,35 @@ mod tests {
             "requested_size": "huge"
         }))
         .is_err());
+    }
+
+    #[test]
+    fn deployment_runtime_accepts_acp_successor_and_legacy_names() {
+        // The Backend folds the legacy openclaw/hermes-agent spellings into
+        // their *_acp successors at create/patch, so both spellings can
+        // surface from stored rows and both must round-trip.
+        for (wire, expected) in [
+            ("openclaw", ManagedRuntime::Openclaw),
+            ("openclaw-pro", ManagedRuntime::OpenclawPro),
+            ("hermes-agent", ManagedRuntime::HermesAgent),
+            ("openclaw_acp", ManagedRuntime::OpenclawAcp),
+            ("hermes_acp", ManagedRuntime::HermesAcp),
+        ] {
+            let deployment: Deployment = serde_json::from_value(serde_json::json!({
+                "id": "agent-1",
+                "runtime": wire,
+            }))
+            .unwrap();
+            assert_eq!(deployment.runtime, Some(expected));
+        }
+        assert_eq!(
+            serde_json::to_value(ManagedRuntime::OpenclawAcp).unwrap(),
+            "openclaw_acp"
+        );
+        assert_eq!(
+            serde_json::to_value(ManagedRuntime::HermesAcp).unwrap(),
+            "hermes_acp"
+        );
     }
 
     #[test]

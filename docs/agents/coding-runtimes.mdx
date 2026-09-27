@@ -23,7 +23,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
-| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. Its HTTP API Server uses a separate generated `API_SERVER_KEY`. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. The API key is write-only launch material; a later list/get cannot recover it. |
+| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
 `/usr/local/bin/hypercli-runtime-auth` wrapper. Their login commands run inside
@@ -40,14 +40,11 @@ complete configuration; HyperCLI does not mix a vendor URL with a platform
 credential.
 
 Hermes launches as runtime `hermes-agent` with
-`ghcr.io/hypercli/hypercli-hermes-agent:latest`, enables its API Server on port
-8642, and exposes the route named `hermes`. The SDK generates or accepts the
-separate API-server key and never substitutes it for the backend-injected
-model credential. Python and TypeScript retain it only on the agent object
-returned by create/start; Rust retains it on `HermesLaunchConfig`. Python,
-TypeScript, and Rust expose Hermes-native health, session, run, and SSE helpers;
-use the returned `/v1` base URL with an OpenAI client for the API Server's
-OpenAI-compatible resources.
+`ghcr.io/hypercli/hypercli-hermes-agent:latest` and exposes the route named
+`hermes`. The SDK seeds no authentication material and never substitutes
+caller-supplied secrets for the backend-injected model credential. The legacy
+`gateway run` API-server mode is an explicit opt-in; the Rust SDK's
+`HermesApiClient` talks to that surface with a caller-supplied credential.
 
 ## Selective-sync contract
 

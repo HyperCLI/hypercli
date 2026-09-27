@@ -27,17 +27,22 @@ beforeAll(() => {
 // moves ahead without a rebuild, apps and their test suites silently run
 // stale code (missing exports, old behavior). This guard fails loudly.
 describe('dist export parity', () => {
-  it('exports PiAgent and its defaults from root and agents entry points', async () => {
+  it('exports the single CodingAgent facade and pi defaults from root and agents entry points', async () => {
     const root = await import('../dist/index.js');
     const agents = await import('../dist/agents.js');
-    expect(root.PiAgent).toBe(agents.PiAgent);
+    expect(root.CodingAgent).toBe(agents.CodingAgent);
     expect(root.DEFAULT_PI_IMAGE).toBe(agents.DEFAULT_CODING_AGENT_IMAGES.pi);
     expect(root.DEFAULT_PI_ENV).toBe(agents.DEFAULT_PI_ENV);
     expect(root.DEFAULT_PI_ENV).toEqual({ HYPER_RUNTIME_HOME: '/home/node/.pi/agent' });
-    const agent = root.PiAgent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
+    const agent = root.CodingAgent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
     expect(agent).toBeInstanceOf(root.CodingAgent);
     expect(agent.runtime).toBe('pi');
-    expect(root.Deployments.prototype.createPi).toBeTypeOf('function');
+    expect(root.Deployments.prototype.createCodingAgent).toBeTypeOf('function');
+    expect(root.Deployments.prototype.createPi).toBeUndefined();
+    expect(root.Deployments.prototype.createOpenCode).toBeUndefined();
+    expect(root.Deployments.prototype.startOpenClaw).toBeUndefined();
+    expect(root.Deployments.prototype.startHermesAgent).toBeUndefined();
+    expect(root.Deployments.prototype.createOpenClawPro).toBeUndefined();
   });
 
   const entries = Object.entries(pkg.exports as Record<string, { import?: string }>)

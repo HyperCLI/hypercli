@@ -3,7 +3,7 @@ Tests for HyperAgent SDK client
 """
 import os
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -21,16 +21,8 @@ from hypercli.agent import (
     HyperAgentEntitlement,
     HyperAgentSubscriptionSummary,
     HyperAgentModel,
-    HyperAgentUsageSummary,
-    HyperAgentUsageHistory,
-    HyperAgentKeyUsage,
     HyperAgentTypeCatalog,
-    HyperAgentBillingInfo,
-    HyperAgentBillingProfileFields,
-    HyperAgentBillingProfileResponse,
-    HyperAgentPaymentsResponse,
     HyperAgentStripeCheckoutResponse,
-    HyperAgentX402CheckoutResponse,
     parse_hyper_agent_plan_id,
 )
 
@@ -797,73 +789,6 @@ class TestHyperAgentClient:
             json={},
         )
 
-    def test_openai_client_creation(self, mock_http):
-        """Test that OpenAI client is created with correct config."""
-        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
-
-        # Access openai property to trigger creation
-        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
-            mock_openai.return_value = MagicMock()
-            client = agent.openai
-
-            mock_openai.assert_called_once_with(
-                api_key="sk-hyper-test",
-                base_url="https://api.agents.dev.hypercli.com/v1",
-            )
-
-    def test_openai_client_uses_agents_base_url_for_inference(self, mock_http):
-        agent = HyperAgent(
-            mock_http,
-            agent_api_key="sk-hyper-test",
-            agents_api_base_url="https://api.hypercli.com/agents",
-        )
-
-        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _ = agent.openai
-
-            mock_openai.assert_called_once_with(
-                api_key="sk-hyper-test",
-                base_url="https://api.agents.hypercli.com/v1",
-            )
-
-    def test_openai_client_normalizes_generic_api_host_to_agents_host(self, mock_http):
-        agent = HyperAgent(
-            mock_http,
-            agent_api_key="sk-hyper-test",
-            agents_api_base_url="https://api.dev.hypercli.com",
-        )
-
-        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
-            mock_openai.return_value = MagicMock()
-            _ = agent.openai
-
-            mock_openai.assert_called_once_with(
-                api_key="sk-hyper-test",
-                base_url="https://api.agents.dev.hypercli.com/v1",
-            )
-
-    def test_chat_uses_openai_client(self, mock_http):
-        """Test that chat method uses OpenAI client."""
-        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
-
-        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
-            agent.chat(
-                model="kimi-k2.5",
-                messages=[{"role": "user", "content": "Hello"}],
-                temperature=0.7,
-                max_tokens=100
-            )
-
-            mock_client.chat.completions.create.assert_called_once_with(
-                model="kimi-k2.5",
-                messages=[{"role": "user", "content": "Hello"}],
-                temperature=0.7,
-                max_tokens=100
-            )
 
     def test_purchase_via_x402_uses_plan_route(self, mock_http):
         agent = HyperAgent(
@@ -971,16 +896,6 @@ class TestHyperAgentIntegration:
         result = agent_client.discovery_health()
         assert "status" in result
         assert result["status"] == "ok"
-
-    @pytest.mark.integration
-    def test_chat_integration(self, agent_client):
-        """Test actual chat completion (requires running service + credits)."""
-        response = agent_client.chat(
-            model="kimi-k2.5",
-            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
-            max_tokens=10
-        )
-        assert response.choices[0].message.content is not None
 
 
 def test_hypercli_dev_client_defaults_agents_urls():

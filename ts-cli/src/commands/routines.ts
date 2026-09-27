@@ -11,8 +11,9 @@
  * `run` therefore replays the executor's semantics locally: fetch the
  * routine's agent, require RUNNING and an ACP-family runtime (mirror of
  * routines/app/executor.py `execute_routine`), then send the prompt over the
- * agent ACP bridge — session_id bound -> session/load (new session on
- * failure), else session/new. The turn inherently runs to a stop reason
+ * backend ACP session proxy (/ws/acp) — session_id bound -> socket attach +
+ * session/load (new session on failure), else session/new. The turn
+ * inherently runs to a stop reason
  * (closing the socket would cancel it), so --wait only controls whether the
  * assistant reply is printed.
  */
@@ -428,9 +429,9 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
 
   const work = (async (): Promise<RunResult> => {
     let reply = '';
-    const acp = await (agent as unknown as CodingAgent).acpConnect({
+    const acpBase = {
       clientInfo: { name: 'hypercli-cli' },
-      onUpdate: (notification) => {
+      onUpdate: (notification: { update?: unknown }) => {
         const update = notification.update as unknown as {
           sessionUpdate?: string;
           content?: unknown;
@@ -438,13 +439,33 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
         if (update.sessionUpdate !== 'agent_message_chunk') return;
         reply += acpContentText(update.content);
       },
-    });
+    };
+    // Session-keyed dial through the /ws/acp proxy: a bound session_id
+    // attaches at the socket level, which is what re-drives a cold session's
+    // leg there. An id the proxy store does not hold rejects the connect
+    // (4404); fall back to a session-less dial and mint a fresh session,
+    // mirroring the load-failure fallback below.
+    let acp: Awaited<ReturnType<CodingAgent['acpConnect']>>;
+    let boundAttached = false;
+    if (routine.sessionId) {
+      try {
+        acp = await (agent as unknown as CodingAgent).acpConnect({ ...acpBase, sessionId: routine.sessionId });
+        boundAttached = true;
+      } catch (err) {
+        ctx.output.info(
+          `could not attach bound session ${routine.sessionId} (${describeError(err)}); starting a new session`,
+        );
+        acp = await (agent as unknown as CodingAgent).acpConnect(acpBase);
+      }
+    } else {
+      acp = await (agent as unknown as CodingAgent).acpConnect(acpBase);
+    }
     try {
       closeActive = () => acp.close();
       stage = 'session';
       let sessionId: string;
       let resume = false;
-      if (routine.sessionId) {
+      if (routine.sessionId && boundAttached) {
         try {
           await acp.loadSession(routine.sessionId);
           sessionId = routine.sessionId;

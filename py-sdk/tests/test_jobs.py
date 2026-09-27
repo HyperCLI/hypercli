@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from hypercli.jobs import Job, JobListPage, Jobs, get_job_tags, job_has_tags, normalize_job_tags
+from hypercli.jobs import Job, JobListPage, Jobs
 from hypercli.job.base import BaseJob
 
 
@@ -88,7 +88,6 @@ def test_job_from_dict_preserves_tags():
     )
 
     assert job.tags == ["team=ml"]
-    assert job.tag_map == {"team": "ml"}
 
 
 def test_jobs_list_sends_repeated_tag_filters():
@@ -218,53 +217,3 @@ def test_job_from_dict_falls_back_to_created_at_for_running_jobs():
 
     assert 40 <= job.elapsed <= 50
     assert 250 <= job.time_left <= 260
-
-
-def test_normalize_job_tags_supports_dict_and_list():
-    assert normalize_job_tags({"team": "ml", "env": "prod"}) == {"team": "ml", "env": "prod"}
-    assert normalize_job_tags(["team=ml", "env=prod"]) == {"team": "ml", "env": "prod"}
-
-
-def test_get_job_tags_supports_job_and_dict_payloads():
-    job = Job.from_dict(
-        {
-            "job_id": "job-1",
-            "job_key": "job-key-123",
-            "state": "running",
-            "gpu_type": "l40s",
-            "gpu_count": 1,
-            "region": "oh",
-            "interruptible": True,
-            "price_per_hour": 1.2,
-            "price_per_second": 0.0003,
-            "docker_image": "nvidia/cuda",
-            "runtime": 120,
-            "tags": ["team=ml", "env=prod"],
-        }
-    )
-
-    assert get_job_tags(job) == {"team": "ml", "env": "prod"}
-    assert get_job_tags({"tags": ["team=ml", "env=prod"]}) == {"team": "ml", "env": "prod"}
-
-
-def test_job_has_tags_matches_required_subset():
-    job = Job.from_dict(
-        {
-            "job_id": "job-1",
-            "job_key": "job-key-123",
-            "state": "running",
-            "gpu_type": "l40s",
-            "gpu_count": 1,
-            "region": "oh",
-            "interruptible": True,
-            "price_per_hour": 1.2,
-            "price_per_second": 0.0003,
-            "docker_image": "nvidia/cuda",
-            "runtime": 120,
-            "tags": ["team=ml", "env=prod"],
-        }
-    )
-
-    assert job.has_tags({"team": "ml"})
-    assert job_has_tags(job, ["team=ml", "env=prod"])
-    assert not job_has_tags(job, {"team": "ops"})

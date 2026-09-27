@@ -77,10 +77,6 @@ class FlowCatalogItem:
         )
 
 
-# Backward-compat alias. Raw x402 render endpoint was replaced by flow endpoints.
-X402RenderCreate = X402FlowCreate
-
-
 def _require_x402_deps():
     try:
         from x402 import x402ClientSync
@@ -212,25 +208,6 @@ class X402Client:
                 return item.price_usd
         raise APIError(404, f"Flow {flow_type} not found in flow catalog")
 
-    def top_up(
-        self,
-        *,
-        amount: float,
-        account: Any,
-        user_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Top up the account balance via an x402 payment.
-
-        The paid amount is taken from the x402 payment header. ``amount`` is a
-        client-side guard only.
-        """
-        if amount <= 0:
-            raise ValueError("amount must be greater than 0")
-        payload: dict[str, Any] = {"amount": amount}
-        if user_id:
-            payload["user_id"] = user_id
-        return _x402_post(self.api_url, "/api/x402/top_up", payload, account, self.timeout)
-
     def create_job(
         self,
         *,
@@ -297,17 +274,3 @@ class X402Client:
 
         data = _x402_post(self.api_url, f"/api/x402/flow/{flow_type}", payload, account, self.timeout)
         return X402FlowCreate.from_dict(data)
-
-    def create_render(
-        self,
-        *,
-        amount: float,
-        account: Any,
-        params: dict[str, Any],
-        render_type: str = "comfyui",
-        notify_url: str | None = None,
-    ) -> X402RenderCreate:
-        del amount, account, params, render_type, notify_url
-        raise RuntimeError(
-            "x402 render endpoint has been removed. Use create_flow(flow_type=..., amount=..., params=...) instead."
-        )

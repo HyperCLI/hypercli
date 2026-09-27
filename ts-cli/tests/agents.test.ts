@@ -29,7 +29,6 @@ const ID_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const ID_A2 = 'aaaaaaaa-9999-4999-8999-999999999999';
 
 // Sentinels: must never appear in full on stdout/stderr anywhere.
-const GW_TOKEN = 'gw-full-token-abcdef0123456789';
 const JWT = 'jwt-sentinel-must-not-print';
 const SCOPED_KEY = 'hak-scoped-FULLSECRET-0000aaaa';
 
@@ -85,7 +84,6 @@ function agentFixture(overrides: Record<string, unknown> = {}): Agent {
     stoppedAt: null,
     archivedAt: null,
     jwtToken: JWT,
-    gatewayToken: GW_TOKEN,
     meta: { plan_id: 'solo' },
     routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     launchConfig: { env: { FOO: 'bar' }, image: 'img' },
@@ -155,8 +153,6 @@ function createMockDeploymentsApi(
     waitRunning: vi.fn(async (id: string) => byId(id)),
     waitForState: vi.fn(async (id: string) => byId(id)),
     start: vi.fn(async (id: string) => stateful(id, 'STARTING')),
-    startOpenClaw: vi.fn(async (id: string) => stateful(id, 'STARTING')),
-    startHermesAgent: vi.fn(async (id: string) => stateful(id, 'STARTING')),
     storedLaunchConfig: vi.fn(async () => launchConfigFixture()),
     secret: vi.fn(async () => {
       throw new APIError(404, 'not found');
@@ -196,13 +192,7 @@ function createMockDeploymentsApi(
     removeRoute: vi.fn(async (id: string) => ({ agentId: id, routes: {}, cors: null, routeStatuses: {} })),
     createOpenClaw: vi.fn(async () => stateful('new-openclaw', 'STOPPED')),
     createHermesAgent: vi.fn(async () => stateful('new-hermes', 'STOPPED')),
-    createGoose: vi.fn(async () => stateful('new-goose', 'STOPPED')),
-    createOpenCode: vi.fn(async () => stateful('new-opencode', 'STOPPED')),
-    createCodex: vi.fn(async () => stateful('new-codex', 'STOPPED')),
-    createClaudeCode: vi.fn(async () => stateful('new-claude', 'STOPPED')),
-    createKimiCode: vi.fn(async () => stateful('new-kimi', 'STOPPED')),
-    createPi: vi.fn(async () => stateful('new-pi', 'STOPPED')),
-    createBuzzAgent: vi.fn(async () => stateful('new-buzz', 'STOPPED')),
+    createCodingAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
     update: vi.fn(async (id: string) => byId(id)),
   };
   return { ...base, ...overrides };
@@ -280,7 +270,6 @@ describe('hyper agents ls', () => {
     expect(stderr()).toContain('total 2');
     expect(stderr()).toContain('RUNNING 1');
     expect(stderr()).toContain('STOPPED 1');
-    expect(out).not.toContain(GW_TOKEN);
     expect(out).not.toContain(JWT);
   });
 
@@ -303,8 +292,6 @@ describe('hyper agents ls', () => {
     expect(payload).toHaveLength(1);
     expect(payload[0].id).toBe(ID_A);
     expect(payload[0].dashboard).toBe(`https://console.hypercli.com/agents/${ID_A}`);
-    expect(stdout()).toContain('...6789'); // gateway token last-4 only
-    expect(stdout()).not.toContain(GW_TOKEN);
     expect(stdout()).not.toContain(JWT);
   });
 });
@@ -327,7 +314,6 @@ describe('hyper agents status', () => {
     expect(out).toContain('RUNNING');
     expect(out).toContain('plan_id');
     expect(out).toContain('solo');
-    expect(out).not.toContain(GW_TOKEN);
     expect(out).not.toContain(JWT);
   });
 
@@ -364,7 +350,6 @@ describe('hyper agents status', () => {
 
     const out = stdout();
     expect(out).toContain('"launch_epoch": 3');
-    expect(out).not.toContain(GW_TOKEN);
     expect(out).not.toContain(JWT);
   });
 });
@@ -441,7 +426,15 @@ describe('hyper agents set runtime', () => {
 
     expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw' });
     expect(stdout()).toContain('launch image reset to the openclaw default');
-    expect(stderr()).not.toContain(GW_TOKEN);
+  });
+
+  it.each(['openclaw_acp', 'hermes_acp'])('accepts the *_acp runtime name %s as a set target', async (runtime) => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'STOPPED' })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['set', 'runtime', ID_A, runtime]);
+
+    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime });
   });
 
   it('--reset-image is rejected: the flag was removed (the backend auto-resets)', async () => {
@@ -563,7 +556,7 @@ describe('hyper agents create', () => {
     }
   });
 
-  it('dispatches per runtime: hermes -> createHermesAgent, buzz -> createBuzzAgent', async () => {
+  it('dispatches per runtime: hermes -> createHermesAgent, buzz -> createCodingAgent', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
@@ -574,27 +567,31 @@ describe('hyper agents create', () => {
     expect(d.createOpenClaw).not.toHaveBeenCalled();
 
     await agents.run(ctx, ['create', 'b1', '--runtime', 'buzz']);
-    expect(d.createBuzzAgent).toHaveBeenCalledWith(
+    expect(d.createCodingAgent).toHaveBeenCalledWith(
+      'buzz-agent',
       expect.objectContaining({ name: 'b1', dryRun: false }),
     );
   });
 
-  it('dispatches the coding runtimes: codex, claude-code, kimi-code', async () => {
+  it('dispatches the coding runtimes through the single createCodingAgent facade', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['create', 'cx', '--runtime', 'codex']);
-    expect(d.createCodex).toHaveBeenCalledWith(
+    expect(d.createCodingAgent).toHaveBeenCalledWith(
+      'codex',
       expect.objectContaining({ name: 'cx', dryRun: false }),
     );
 
     await agents.run(ctx, ['create', 'cc', '--runtime', 'claude-code']);
-    expect(d.createClaudeCode).toHaveBeenCalledWith(
+    expect(d.createCodingAgent).toHaveBeenCalledWith(
+      'claude-code',
       expect.objectContaining({ name: 'cc', dryRun: false }),
     );
 
     await agents.run(ctx, ['create', 'kc', '--runtime', 'kimi-code']);
-    expect(d.createKimiCode).toHaveBeenCalledWith(
+    expect(d.createCodingAgent).toHaveBeenCalledWith(
+      'kimi-code',
       expect.objectContaining({ name: 'kc', dryRun: false }),
     );
     expect(d.createOpenClaw).not.toHaveBeenCalled();
@@ -614,75 +611,16 @@ describe('hyper agents create', () => {
 // ---------- start — runtime dispatch ----------
 
 describe('hyper agents start', () => {
-  it('openclaw: reads the gateway token secret, then bodyless startOpenClaw', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw' })], {
-      secret: vi.fn(async () => ({ value: 'existinggwtoken0123', launch_epoch: 3 })),
-    });
+  it.each(['openclaw', 'hermes-agent', 'goose'])('%s: bodyless start, no secret ceremony', async (runtime) => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['start', ID_A]);
 
-    expect(d.secret).toHaveBeenCalledWith(ID_A, 'OPENCLAW_GATEWAY_TOKEN');
+    expect(d.secret).not.toHaveBeenCalled();
     expect(d.setSecret).not.toHaveBeenCalled();
-    expect(d.startOpenClaw).toHaveBeenCalledWith(ID_A);
-    expect(d.storedLaunchConfig).not.toHaveBeenCalled();
-    expect(d.startHermesAgent).not.toHaveBeenCalled();
-    expect(d.start).not.toHaveBeenCalled();
-  });
-
-  it('openclaw with no stored secret (404): mints and stores a 64-hex token, then starts', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw-pro' })], {
-      secret: vi.fn(async () => {
-        throw new APIError(404, 'secret not found');
-      }),
-    });
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['start', ID_A]);
-
-    const minted = (d.setSecret.mock.calls[0] as unknown[])[2] as string;
-    expect(minted).toMatch(/^[0-9a-f]{64}$/);
-    expect(d.startOpenClaw).toHaveBeenCalledWith(ID_A);
-    expect(d.storedLaunchConfig).not.toHaveBeenCalled();
-  });
-
-  it('openclaw: a non-404 secret read failure aborts the start (no silent re-mint)', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw' })], {
-      secret: vi.fn(async () => {
-        throw new APIError(500, 'boom');
-      }),
-    });
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    const err = await runErr(ctx, ['start', ID_A]);
-
-    expect(err).toBeInstanceOf(CliError);
-    expect((err as Error).message).toContain('secret');
-    expect(d.setSecret).not.toHaveBeenCalled();
-    expect(d.startOpenClaw).not.toHaveBeenCalled();
-  });
-
-  it('hermes: bodyless startHermesAgent', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'hermes-agent' })]);
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['start', ID_A]);
-
-    expect(d.storedLaunchConfig).not.toHaveBeenCalled();
-    expect(d.startHermesAgent).toHaveBeenCalledWith(ID_A);
-    expect(d.startOpenClaw).not.toHaveBeenCalled();
-    expect(d.start).not.toHaveBeenCalled();
-  });
-
-  it('other runtimes: plain start()', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'goose' })]);
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['start', ID_A]);
-
     expect(d.start).toHaveBeenCalledWith(ID_A);
-    expect(d.startOpenClaw).not.toHaveBeenCalled();
-    expect(d.startHermesAgent).not.toHaveBeenCalled();
+    expect(d.storedLaunchConfig).not.toHaveBeenCalled();
   });
 });
 
@@ -1223,31 +1161,6 @@ describe('hyper agents config', () => {
     expect((err as Error).message).toContain('launch config');
   });
 
-  it('models on a goose agent errors with the same runtime gating', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'goose' })]);
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    const err = await runErr(ctx, ['models', ID_A]);
-
-    expect(err).toBeInstanceOf(CliError);
-    expect((err as Error).message).toBe('models is only supported on openclaw agents (this is goose)');
-  });
-
-  it('models on openclaw prints the provider/name table', async () => {
-    const modelsList = vi.fn(async () => [
-      { provider: 'anthropic', name: 'claude-x', contextWindow: 200000 },
-      { provider: 'openai', name: 'gpt-x' },
-    ]);
-    const d = createMockDeploymentsApi([agentFixture({ modelsList })]);
-    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
-
-    await agents.run(ctx, ['models', ID_A]);
-
-    const out = stdout();
-    expect(out).toContain('anthropic');
-    expect(out).toContain('claude-x');
-    expect(out).toContain('200000');
-  });
 });
 
 // ---------- routes (hidden) ----------

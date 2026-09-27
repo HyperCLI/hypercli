@@ -6,16 +6,12 @@ import {
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
 import {
-  ClaudeCodeAgent,
-  CodexAgent,
+  type CodingAgentRuntime,
   DEFAULT_CLAUDE_CODE_IMAGE,
   DEFAULT_CODEX_IMAGE,
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
-  GooseAgent,
-  KimiCodeAgent,
-  OpenCodeAgent,
 } from "../../src/agents.js";
 
 describe("TS SDK integration: agents", () => {
@@ -35,22 +31,22 @@ describe("TS SDK integration: agents", () => {
   });
 
   agentsIt.each([
-    ["createOpenCode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
-    ["createCodex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent],
-    ["createClaudeCode", "claude-code", DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
-    ["createGoose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent],
-    ["createKimiCode", "kimi-code", DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent],
+    ["opencode", DEFAULT_OPENCODE_IMAGE],
+    ["codex", DEFAULT_CODEX_IMAGE],
+    ["claude-code", DEFAULT_CLAUDE_CODE_IMAGE],
+    ["goose", DEFAULT_GOOSE_IMAGE],
+    ["kimi-code", DEFAULT_KIMI_CODE_IMAGE],
   ] as const)(
     "validates the %s hosted runtime through the live dry-run API",
-    async (method, runtime, image, AgentClass) => {
+    async (runtime, image) => {
       const client = createIntegrationClient();
-      const preview = await client.deployments[method]({
+      const preview = await client.deployments.createCodingAgent(runtime as CodingAgentRuntime, {
         name: `ts-${runtime}-dry-${Math.random().toString(16).slice(2, 10)}`,
         dryRun: true,
         workspacesSync: true,
       });
 
-      expect(preview).toBeInstanceOf(AgentClass);
+      expect(preview.runtime).not.toBeNull();
       expect(preview.runtime).toBe(runtime);
       expect(preview.dryRun).toBe(true);
       expect(preview.launchConfig).toMatchObject({
@@ -110,7 +106,7 @@ describe("TS SDK integration: agents", () => {
       const fetched = await scoped.deployments.get(agentA.id);
       expect(fetched.id).toBe(agentA.id);
 
-      const dryStarted = await scoped.deployments.startOpenClaw(agentA.id, {
+      const dryStarted = await scoped.deployments.start(agentA.id, {
         dryRun: true,
       });
       expect(dryStarted.id).toBe(agentA.id);

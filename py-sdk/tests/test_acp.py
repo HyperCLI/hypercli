@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 import websockets
@@ -15,6 +16,31 @@ from hypercli.acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
+
+
+class StubWs:
+    """In-memory WebSocket stand-in: outbound frames are recorded, inbound
+    frames arrive through :meth:`feed` into the client's read loop."""
+
+    def __init__(self, *, fail_send: bool = False):
+        self.sent: list[dict] = []
+        self.fail_send = fail_send
+        self._incoming: asyncio.Queue = asyncio.Queue()
+        self.close_calls = 0
+
+    async def send(self, data: str):
+        if self.fail_send:
+            raise OSError("stub send failure")
+        self.sent.append(json.loads(data))
+
+    async def recv(self):
+        return await self._incoming.get()
+
+    async def close(self):
+        self.close_calls += 1
+
+    def feed(self, frame: dict) -> None:
+        self._incoming.put_nowait(json.dumps(frame))
 
 
 class FakeAcpBridge:
@@ -389,3 +415,242 @@ async def test_unknown_inbound_requests_get_method_not_found():
         await bridge.stop()
     assert answers[0]["error"]["code"] == -32601
     assert "fs/read_text_file" in answers[0]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_request_listener_handles_inbound_request_round_trip():
+    client = ACPClient(StubWs(), {})
+    client.add_request_listener("fs/read_text_file", lambda params: {"content": f"data:{params['path']}"})
+    try:
+        await client._dispatch({"jsonrpc": "2.0", "id": 77, "method": "fs/read_text_file", "params": {"path": "/etc/motd"}})
+        for _ in range(10):
+            if client._ws.sent:
+                break
+            await asyncio.sleep(0)
+        assert client._ws.sent == [{"jsonrpc": "2.0", "id": 77, "result": {"content": "data:/etc/motd"}}]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_wildcard_request_listener_receives_method_and_params():
+    client = ACPClient(StubWs(), {})
+    seen: list[tuple[str, dict]] = []
+
+    async def wildcard(method, params):
+        seen.append((method, params))
+        return {"ok": True}
+
+    client.add_request_listener("*", wildcard)
+    try:
+        await client._dispatch({"jsonrpc": "2.0", "id": 78, "method": "elicitation/create", "params": {"x": 1}})
+        for _ in range(10):
+            if client._ws.sent:
+                break
+            await asyncio.sleep(0)
+        assert seen == [("elicitation/create", {"x": 1})]
+        assert client._ws.sent == [{"jsonrpc": "2.0", "id": 78, "result": {"ok": True}}]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_request_listener_acp_error_reply_uses_its_code_and_message():
+    client = ACPClient(StubWs(), {})
+
+    def deny(params):
+        raise ACPRequestError("fs/read_text_file", -32601, "no fs capability here")
+
+    client.add_request_listener("fs/read_text_file", deny)
+    try:
+        await client._dispatch({"jsonrpc": "2.0", "id": 79, "method": "fs/read_text_file", "params": {}})
+        for _ in range(10):
+            if client._ws.sent:
+                break
+            await asyncio.sleep(0)
+        assert client._ws.sent == [{"jsonrpc": "2.0", "id": 79, "error": {"code": -32601, "message": "no fs capability here"}}]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_request_listener_generic_error_maps_to_internal_error():
+    client = ACPClient(StubWs(), {})
+
+    def boom(params):
+        raise RuntimeError("kaboom")
+
+    client.add_request_listener("session/request_permission", boom)
+    try:
+        await client._dispatch({"jsonrpc": "2.0", "id": 80, "method": "session/request_permission", "params": {}})
+        for _ in range(10):
+            if client._ws.sent:
+                break
+            await asyncio.sleep(0)
+        assert client._ws.sent[0]["error"]["code"] == -32603
+        assert "kaboom" in client._ws.sent[0]["error"]["message"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_request_listener_unsubscribe_restores_defaults():
+    client = ACPClient(StubWs(), {})
+    unsubscribe = client.add_request_listener("session/request_permission", lambda params: {"outcome": {"outcome": "cancelled"}})
+    try:
+        unsubscribe()
+        # No listener: the default policy cancels permission and answers
+        # unknown methods with method-not-found.
+        await client._dispatch({"jsonrpc": "2.0", "id": 81, "method": "session/request_permission", "params": {}})
+        await client._dispatch({"jsonrpc": "2.0", "id": 82, "method": "mcp/connect", "params": {}})
+        assert client._ws.sent[0]["result"] == {"outcome": {"outcome": "cancelled"}}
+        assert client._ws.sent[1]["error"]["code"] == -32601
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notify_sends_notification_frame_without_id_then_returns():
+    client = ACPClient(StubWs(), {"protocolVersion": 1})
+    try:
+        await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
+        await client.notify("_hypercli.dev/bare")
+    finally:
+        await client.close()
+    assert client.initialize_response["protocolVersion"] == 1
+    assert client._ws.sent == [
+        {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended_ack", "params": {"turnId": 7}},
+        {"jsonrpc": "2.0", "method": "_hypercli.dev/bare", "params": {}},
+    ]
+    assert all("id" not in frame for frame in client._ws.sent)
+
+
+@pytest.mark.asyncio
+async def test_notify_send_failure_is_retryable_and_never_awaited():
+    client = ACPClient(StubWs(fail_send=True), {})
+    try:
+        with pytest.raises(RetryableACPError, match="WebSocket connection failed"):
+            await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
+    finally:
+        await client.close()
+    with pytest.raises(ACPClosedError, match="ACP client is closed"):
+        await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
+
+
+@pytest.mark.asyncio
+async def test_notification_listeners_exact_and_wildcard_and_removal():
+    client = ACPClient(StubWs(), {})
+    exact: list[dict] = []
+    wildcard: list[tuple[str, dict]] = []
+
+    def on_turn_ended(params):
+        exact.append(params)
+
+    client.add_notification_listener("_hypercli.dev/turn_ended", on_turn_ended)
+    client.add_notification_listener("*", lambda method, params: wildcard.append((method, params)))
+    try:
+        frame = {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended",
+                 "params": {"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}}
+        await client._dispatch(frame)
+        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
+                                "params": {"sessionId": "s-1", "turnId": 9}})
+        assert exact == [{"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}]
+        assert wildcard == [
+            ("_hypercli.dev/turn_ended", {"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}),
+            ("_hypercli.dev/turn_started", {"sessionId": "s-1", "turnId": 9}),
+        ]
+        client.remove_notification_listener("_hypercli.dev/turn_ended", on_turn_ended)
+        await client._dispatch(frame)
+        assert len(exact) == 1
+        assert len(wildcard) == 3
+
+        unsubscribe = client.add_notification_listener("_hypercli.dev/turn_started", lambda params: exact.append(params))
+        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
+                                "params": {"sessionId": "s-1", "turnId": 10}})
+        assert len(exact) == 2
+        unsubscribe()
+        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
+                                "params": {"sessionId": "s-1", "turnId": 11}})
+        assert len(exact) == 2
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notification_listener_exceptions_are_logged_and_never_kill_dispatch(caplog):
+    client = ACPClient(StubWs(), {})
+    seen: list[dict] = []
+
+    def boom(params):
+        raise RuntimeError("listener exploded")
+
+    async def async_boom(params):
+        raise RuntimeError("async listener exploded")
+
+    client.add_notification_listener("_hypercli.dev/turn_ended", boom)
+    client.add_notification_listener("_hypercli.dev/turn_ended", async_boom)
+    client.add_notification_listener("_hypercli.dev/turn_ended", seen.append)
+    try:
+        frame = {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended", "params": {"turnId": 1}}
+        with caplog.at_level(logging.ERROR, logger="hypercli.acp"):
+            await client._dispatch(frame)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        assert seen == [{"turnId": 1}]
+        assert any("ACP notification listener raised" in record.getMessage() for record in caplog.records)
+        assert any("async listener exploded" in record.getMessage() for record in caplog.records)
+
+        caplog.clear()
+        async_seen: list[dict] = []
+
+        async def collect(params):
+            await asyncio.sleep(0)
+            async_seen.append(params)
+
+        client.add_notification_listener("_hypercli.dev/turn_ended", collect)
+        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended", "params": {"turnId": 2}})
+        assert async_seen == []  # async listeners run off the read loop
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert async_seen == [{"turnId": 2}]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_update_is_not_offered_to_notification_registry():
+    client = ACPClient(StubWs(), {})
+    updates: list[dict] = []
+    wildcard: list[tuple[str, dict]] = []
+    client.add_update_listener(updates.append)
+    client.add_notification_listener("*", lambda method, params: wildcard.append((method, params)))
+    try:
+        await client._dispatch({"jsonrpc": "2.0", "method": "session/update",
+                                "params": {"sessionId": "s-1", "update": {"sessionUpdate": "agent_message_chunk"}}})
+        assert len(updates) == 1
+        assert wildcard == []
+        # Unknown notifications without registered listeners are dropped silently.
+        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/nobody", "params": {}})
+        assert wildcard == [("_hypercli.dev/nobody", {})]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_vendor_notifications_reach_listeners_through_the_read_loop():
+    client = ACPClient(StubWs(), {})
+    started: list[dict] = []
+    ended: list[dict] = []
+    client.add_notification_listener("_hypercli.dev/turn_started", started.append)
+    client.add_notification_listener("_hypercli.dev/turn_ended", ended.append)
+    try:
+        client._ws.feed({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
+                         "params": {"sessionId": "s-1", "turnId": 4}})
+        client._ws.feed({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended",
+                         "params": {"sessionId": "s-1", "turnId": 4, "stopReason": "end_turn"}})
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert started == [{"sessionId": "s-1", "turnId": 4}]
+        assert ended == [{"sessionId": "s-1", "turnId": 4, "stopReason": "end_turn"}]
+    finally:
+        await client.close()

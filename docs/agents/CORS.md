@@ -1,17 +1,20 @@
 # CORS on Agent Runtimes — the Hermes SSE failure
 
-Status: diagnosed 2026-08-22, validated live on dev01. Durable fix pending
-(see "Where the fix lands").
+Status: diagnosed 2026-08-22, validated live on dev01. The API-server lane
+described below is the legacy image mode (`gateway run`); the managed Hermes
+runtime is ACP-native now and the SDK launch helpers seed no API-server env
+at all. CORS for browser callers is configured at the route plane
+(`cors.allowed_origins`, via the SDK's `corsOrigins`), not through pod env.
 
 ## The exact failure
 
-Hermes agents expose an HTTP/SSE API (`/api/sessions/*/chat/stream`, `/v1/runs/*/events`)
-on the agent's public hostname. Browsers enforce CORS on these calls; WebSocket
-(the OpenClaw gateway) is not CORS-bound, which is why OpenClaw agents never hit
-this.
+Hermes's legacy API server mode exposes an HTTP/SSE API
+(`/api/sessions/*/chat/stream`, `/v1/runs/*/events`) on the agent's public
+hostname. Browsers enforce CORS on these calls; WebSocket (the OpenClaw
+gateway) is not CORS-bound, which is why OpenClaw agents never hit this.
 
-Hermes's API server has a CORS middleware (`gateway/platforms/api_server.py`,
-`cors_middleware`). It computes allowed-origin headers and applies them like
+The API server's CORS middleware (`gateway/platforms/api_server.py`,
+`cors_middleware`) computes allowed-origin headers and applies them like
 this:
 
 ```python
@@ -37,19 +40,15 @@ Verified with a scratch agent: `STREAM STATUS: 200`,
 `content-type: text/event-stream`, `access-control-allow-origin: null`, while
 the same pod's JSON endpoints returned ACAO correctly.
 
-A second, independent gate exists in the same file: `_origin_allowed()` rejects
-any request carrying an `Origin` header with **403** when
-`API_SERVER_CORS_ORIGINS` is empty. Requests with no `Origin` (curl, server to
-server) always pass. So a browser client needs both:
+A second, independent gate existed in the same file: `_origin_allowed()`
+rejected any request carrying an `Origin` header with **403** when the pod's
+allowed-origins env was empty. Requests with no `Origin` (curl, server to
+server) always passed.
 
-1. The pod env `API_SERVER_CORS_ORIGINS` listing the dashboard origin
-   (comma-separated; `*` allowed; see `gateway/config.py:2204`).
-2. CORS headers actually stamped on the (possibly streaming) response.
-
-(1) is seeded by the launcher at create and re-seeded at start (SDK
-`createHermesAgent({ corsOrigins })` → `env.API_SERVER_CORS_ORIGINS`; the claw
-launcher adds the current dashboard origin on every start). (2) is broken for
-SSE in the hermes middleware.
+Post-strip, neither gate is seeded by the launcher: `corsOrigins` maps to the
+route-plane `cors.allowed_origins` and nothing more. An explicit legacy-mode
+(`gateway run`) launch can still configure the in-pod middleware through its
+own env, but that is caller-managed configuration on an opt-in path.
 
 ## The validated fix
 
@@ -82,10 +81,11 @@ and the chat turn completed in the dashboard.
 No. OpenClaw's dashboard path is `wss://` — WebSocket upgrades are not CORS
 preflighted, and extra CORS response headers on the upgrade are inert. Traefik
 does not reject disallowed origins; it simply withholds CORS headers, so
-enforcement stays at the app layer (Hermes's `_origin_allowed`, OpenClaw's
-token auth). The `/_reef/` route (priority 2000) is a separate route entry and
-can carry or skip the middleware independently. Attaching the middleware to an
-OpenClaw runtime route would be a no-op for its WS traffic.
+enforcement stays at the app layer (OpenClaw's token auth, or the legacy
+Hermes API server's own origin gate when that mode is explicitly enabled).
+The `/_reef/` route (priority 2000) is a separate route entry and can carry or
+skip the middleware independently. Attaching the middleware to an OpenClaw
+runtime route would be a no-op for its WS traffic.
 
 ## Where the fix lands (decision pending)
 
@@ -108,8 +108,9 @@ curl -X OPTIONS -H "Origin: $ORIGIN" \
   -H "Access-Control-Request-Headers: authorization,content-type" \
   -D - -o /dev/null "https://$AGENT_HOST/api/sessions/$SID/chat/stream"
 
-# the actual SSE response — this is the one that matters
-curl -N -D - -H "Origin: $ORIGIN" -H "Authorization: Bearer $API_SERVER_KEY" \
+# the actual SSE response — this is the one that matters; supply whatever
+# inbound credential the explicitly-launched legacy API server was given
+curl -N -D - -H "Origin: $ORIGIN" -H "Authorization: Bearer $AGENT_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message":"ping"}' \
   "https://$AGENT_HOST/api/sessions/$SID/chat/stream" | head -5
@@ -117,6 +118,7 @@ curl -N -D - -H "Origin: $ORIGIN" -H "Authorization: Bearer $API_SERVER_KEY" \
 # fixed:  access-control-allow-origin: $ORIGIN (+ vary: Origin)
 ```
 
-The full lifecycle regression is `site/tests/claw/agents-hermes-e2e.spec.ts`
-(fresh identity → trial → launch hermes → Ready → chat round-trip → stop →
-delete), the hermes twin of `agents-e2e.spec.ts`.
+The historical full-lifecycle regression (fresh identity → trial → launch
+hermes → Ready → chat round-trip → stop → delete) lived in
+`site/tests/claw/agents-hermes-e2e.spec.ts`; that Playwright suite was removed
+with the retired `site/apps/claw` dashboard.

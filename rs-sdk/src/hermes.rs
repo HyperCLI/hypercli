@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
-use uuid::Uuid;
 
 use crate::{CreateDeploymentRequest, ManagedRuntime, Nullable, RouteConfig};
 
@@ -32,41 +31,31 @@ const HERMES_ROUTE: &str = "hermes";
 
 /// Minimal managed launch defaults for the HyperCLI Hermes image.
 ///
-/// `API_SERVER_KEY` authenticates clients to Hermes, is stored in secret env,
-/// and is intentionally distinct from the backend-injected
-/// `HYPER_AGENTS_API_KEY` used for model inference. The latter must not be
-/// supplied through this helper.
+/// The launch contract seeds no authentication material: caller-supplied env
+/// and secrets pass through untouched. Running the legacy image API-server
+/// mode is an explicit opt-in; callers that choose it supply whatever
+/// credential that mode requires themselves.
 pub struct HermesLaunchConfig {
-    api_server_key: SecretString,
     pub image: String,
     pub route_auth: bool,
     pub route_prefix: String,
     pub cron_enabled: Option<bool>,
 }
 
+impl Default for HermesLaunchConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HermesLaunchConfig {
-    pub fn new(api_server_key: impl Into<SecretString>) -> Self {
+    pub fn new() -> Self {
         Self {
-            api_server_key: api_server_key.into(),
             image: HERMES_AGENT_IMAGE.to_owned(),
             route_auth: false,
             route_prefix: String::new(),
             cron_enabled: None,
         }
-    }
-
-    /// Generate a 32-byte random gateway credential without reading user or
-    /// process configuration.
-    pub fn generated() -> Self {
-        Self::new(format!(
-            "{}{}",
-            Uuid::new_v4().simple(),
-            Uuid::new_v4().simple()
-        ))
-    }
-
-    pub fn api_server_key(&self) -> &SecretString {
-        &self.api_server_key
     }
 
     pub fn with_cron_enabled(mut self, enabled: bool) -> Self {
@@ -80,7 +69,6 @@ impl HermesLaunchConfig {
         self.apply(
             &mut request.image,
             &mut request.env,
-            &mut request.secrets,
             &mut request.routes,
             &mut request.sync_root,
             &mut request.sync_include,
@@ -105,7 +93,6 @@ impl HermesLaunchConfig {
         &self,
         image: &mut Option<String>,
         env: &mut BTreeMap<String, String>,
-        secrets: &mut BTreeMap<String, String>,
         routes: &mut BTreeMap<String, RouteConfig>,
         sync_root: &mut Option<String>,
         sync_include: &mut Option<Vec<String>>,
@@ -114,17 +101,10 @@ impl HermesLaunchConfig {
         sync_gid: &mut Option<u32>,
     ) {
         image.get_or_insert_with(|| self.image.clone());
-        env.insert("API_SERVER_ENABLED".to_owned(), "true".to_owned());
-        env.insert("API_SERVER_HOST".to_owned(), "0.0.0.0".to_owned());
         env.entry(HYPER_MODELS_ENV.to_owned())
             .or_insert_with(|| "default-anthropic".to_owned());
         env.entry(HYPER_EMBEDDING_MODELS_ENV.to_owned())
             .or_insert_with(|| "qwen3-embedding-4b".to_owned());
-        env.remove("API_SERVER_KEY");
-        secrets.insert(
-            "API_SERVER_KEY".to_owned(),
-            self.api_server_key.expose_secret().to_owned(),
-        );
         // Never carry the OpenClaw gateway credential into a Hermes pod.
         env.remove("OPENCLAW_GATEWAY_TOKEN");
         routes
@@ -960,7 +940,7 @@ mod tests {
             serde_json::to_value(ManagedRuntime::HermesAgent).unwrap(),
             "hermes-agent"
         );
-        let launch = HermesLaunchConfig::new("gateway-secret-only");
+        let launch = HermesLaunchConfig::new();
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
         request
             .env
@@ -968,6 +948,9 @@ mod tests {
         request
             .env
             .insert("OPENCLAW_GATEWAY_TOKEN".into(), "wrong".into());
+        request
+            .secrets
+            .insert("USER_SUPPLIED_SECRET".into(), "kept".into());
         launch.apply_to_create(&mut request);
         assert_eq!(request.runtime, ManagedRuntime::HermesAgent);
         assert_eq!(request.image.as_deref(), Some(HERMES_AGENT_IMAGE));
@@ -986,8 +969,9 @@ mod tests {
             (Some(10_000), Some(10_000))
         );
         assert_eq!(request.routes[HERMES_ROUTE].port, HERMES_API_PORT);
-        assert!(!request.env.contains_key("API_SERVER_KEY"));
-        assert_eq!(request.secrets["API_SERVER_KEY"], "gateway-secret-only");
+        assert_eq!(request.env["API_SERVER_KEY"], "legacy-public-value");
+        assert!(!request.secrets.contains_key("API_SERVER_KEY"));
+        assert_eq!(request.secrets["USER_SUPPLIED_SECRET"], "kept");
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));
         assert!(!request.env.contains_key("HYPER_AGENTS_API_KEY"));
         assert_eq!(request.env[HERMES_CRON_ENABLED_ENV], "1");
@@ -995,7 +979,7 @@ mod tests {
 
     #[test]
     fn hermes_cron_can_be_overridden_on_create() {
-        let launch = HermesLaunchConfig::new("gateway-secret-only").with_cron_enabled(false);
+        let launch = HermesLaunchConfig::new().with_cron_enabled(false);
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::HermesAgent);
         launch.apply_to_create(&mut create);
         assert_eq!(create.env[HERMES_CRON_ENABLED_ENV], "0");

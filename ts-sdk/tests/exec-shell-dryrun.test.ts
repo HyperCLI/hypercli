@@ -11,8 +11,7 @@ import {
   DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_OPENCLAW_PRO_IMAGE,
   Deployments,
-  OpenClawAgent,
-  OpenClawProAgent,
+  CodingAgent,
   buildAgentConfig,
   buildOpenClawCronEnv,
   buildOpenClawRoutes,
@@ -293,7 +292,7 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
 
-  it('createOpenClawPro defaults desktop image env and routes', async () => {
+  it('createOpenClaw with runtime openclaw-pro defaults desktop image env and routes', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -310,9 +309,10 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    const agent = await deployments.createOpenClawPro({ name: 'test-agent', dryRun: true });
+    const agent = await deployments.createOpenClaw({ name: 'test-agent', runtime: 'openclaw-pro', dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      runtime: 'openclaw-pro',
       image: DEFAULT_OPENCLAW_PRO_IMAGE,
       sync_root: '/home/node',
       sync_exclude: expect.arrayContaining([
@@ -335,7 +335,7 @@ describe('HyperClaw agents SDK', () => {
       },
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
-    expect(agent).toBeInstanceOf(OpenClawProAgent);
+    expect(agent).toBeInstanceOf(CodingAgent);
   });
 
   it('createOpenClaw accepts memory index launch options', async () => {
@@ -556,7 +556,7 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
   });
 
-  it('startOpenClaw starts without patching launch config', async () => {
+  it('start starts without patching launch config', async () => {
     const patch = vi.fn();
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
@@ -571,7 +571,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.startOpenClaw('agent-123');
+    await deployments.start('agent-123');
 
     expect(patch).not.toHaveBeenCalled();
     expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', undefined, { retries: 1 });
@@ -585,7 +585,7 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent.dev.hyperclaw.app',
     });
 
-    const openclaw = OpenClawAgent.fromDict({
+    const openclaw = CodingAgent.fromDict({
       id: 'agent-2',
       user_id: 'user-1',
       state: 'running',
@@ -600,239 +600,17 @@ describe('HyperClaw agents SDK', () => {
     expect(generic.publicUrl).toBe('https://agent.dev.hyperclaw.app');
     expect(generic.desktopUrl).toBe('https://desktop-agent.dev.hyperclaw.app');
     expect(generic.shellUrl).toBeNull();
-    expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
-    expect(openclaw.gatewayToken).toBeNull();
     expect(openclaw.command).toEqual(['sleep', '3600']);
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('OpenClawAgent derives its gateway URL from the hostname', () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-root',
-      user_id: 'user-1',
-      state: 'running',
-      hostname: 'agent-root.dev.hyperclaw.app',
-    });
-    expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
-  });
-
-  it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
-    const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
-      ? { agent_id: 'agent-ctx', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-ctx', launch_epoch: 1 }
-      : path.endsWith('/routes')
-        ? {
-            agent_id: 'agent-ctx',
-            routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
-            route_statuses: { openclaw: { hostname: 'openclaw-agent.dev.hypercli.com', url: 'https://openclaw-agent.dev.hypercli.com', dns_state: 'active' } },
-          }
-        : {
-          id: 'agent-ctx',
-          user_id: 'user-1',
-          state: 'RUNNING',
-          hostname: 'openclaw-agent.dev.hypercli.com',
-          launch_epoch: 1,
-        });
-    const deployments = new Deployments(
-      { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
-      'sk-hyper-test',
-      'https://api.dev.hypercli.com',
-    );
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-ctx',
-      user_id: 'user-1',
-      state: 'running',
-      jwt_token: 'jwt-ctx',
-      hostname: 'openclaw-agent.dev.hypercli.com',
-      routes: { openclaw: { port: 18789, auth: false } },
-    });
-    agent.gatewayToken = 'gw-ctx';
-    (agent as any)._deployments = deployments;
-
-    await agent.waitForGatewayContext();
-    const gateway = agent.gateway({ clientId: 'openclaw-control-ui', clientMode: 'webchat' }) as any;
-
-    expect(gateway.url).toBe('wss://openclaw-agent.dev.hypercli.com');
-    expect(gateway.deploymentId).toBe('agent-ctx');
-    expect(gateway.apiKey).toBe('sk-hyper-test');
-    expect(gateway.apiBase).toBe('https://api.dev.hypercli.com/agents');
-    expect(gateway.autoApprovePairing).toBe(true);
-    expect(gateway.gatewayToken).toBe('gw-ctx');
-    expect(gateway.token).toBeUndefined();
-  });
-
-  it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
-    const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
-      ? { agent_id: 'agent-jwtless', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-jwtless', launch_epoch: 1 }
-      : path.endsWith('/routes')
-        ? {
-            agent_id: 'agent-jwtless',
-            routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
-            route_statuses: { openclaw: { hostname: 'openclaw-agent.dev.hypercli.com', url: 'https://openclaw-agent.dev.hypercli.com', dns_state: 'active' } },
-          }
-        : {
-          id: 'agent-jwtless',
-          user_id: 'user-1',
-          state: 'RUNNING',
-          hostname: 'openclaw-agent.dev.hypercli.com',
-          launch_epoch: 1,
-        });
-    const deployments = new Deployments(
-      { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
-      'sk-hyper-test',
-      'https://api.dev.hypercli.com',
-    );
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-jwtless',
-      user_id: 'user-1',
-      state: 'running',
-      hostname: 'openclaw-agent.dev.hypercli.com',
-      routes: { openclaw: { port: 18789, auth: false } },
-    });
-    agent.gatewayToken = 'gw-jwtless';
-    (agent as any)._deployments = deployments;
-
-    await agent.waitForGatewayContext();
-    const gateway = agent.gateway() as any;
-
-    expect(gateway.token).toBeUndefined();
-    expect(gateway.gatewayToken).toBe('gw-jwtless');
-  });
-
-  it('OpenClawAgent waitReady delegates to GatewayClient.waitReady', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-ready',
-      user_id: 'user-1',
-      state: 'running',
-      hostname: 'openclaw-agent.dev.hypercli.com',
-      routes: { openclaw: { port: 18789, auth: false } },
-      gateway_token: 'gw-ready',
-      jwt_token: 'jwt-ready',
-    });
-    agent.gatewayUrl = 'wss://openclaw-agent.dev.hypercli.com';
-    agent.gatewayToken = 'gw-ready';
-
-    const waitReady = vi.fn().mockResolvedValue({ gateway: { mode: 'local' } });
-    const close = vi.fn();
-    const release = vi.fn();
-    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({
-      client: { waitReady, close },
-      release,
-    } as any);
-
-    const result = await agent.waitReady(90_000, { retryIntervalMs: 250, probe: 'status' });
-
-    expect(result.gateway.mode).toBe('local');
-    expect(waitReady).toHaveBeenCalledWith(90_000, { retryIntervalMs: 250, probe: 'status' });
-    expect(release).toHaveBeenCalledTimes(1);
-    expect(close).not.toHaveBeenCalled();
-  });
-
-  it('OpenClawAgent runtime helper wrappers delegate to the GatewayClient surface', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-gateway-helpers',
-      user_id: 'user-1',
-      state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
-      gateway_token: 'gw-helpers',
-      jwt_token: 'jwt-helpers',
-    });
-
-    const close = vi.fn();
-    const modelsList = vi.fn().mockResolvedValue([{ id: 'kimi-k2.5' }]);
-    const agentsList = vi.fn().mockResolvedValue([{ id: 'workspace-agent' }]);
-    const filesList = vi.fn().mockResolvedValue([{ name: 'README.md' }]);
-    const fileGet = vi.fn().mockResolvedValue('hello');
-    const fileSet = vi.fn().mockResolvedValue(undefined);
-    const chatHistory = vi.fn().mockResolvedValue([{ role: 'assistant', content: [{ type: 'text', text: 'hi' }] }]);
-    const sendChat = vi.fn().mockResolvedValue({ runId: 'run-123' });
-    const cronList = vi.fn().mockResolvedValue([{ id: 'job-1' }]);
-    const chatSend = vi.fn(async function* (_message: string, _sessionKey: string) {
-      yield { type: 'content', text: 'chunk-1' };
-      yield { type: 'done' };
-    });
-    const release = vi.fn();
-
-    const gatewayClient = {
-      close,
-      modelsList,
-      agentsList,
-      filesList,
-      fileGet,
-      fileSet,
-      chatHistory,
-      sendChat,
-      chatSend,
-      cronList,
-    } as any;
-    vi.spyOn(agent, 'connect').mockResolvedValue(gatewayClient);
-    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({
-      client: gatewayClient,
-      release,
-    } as any);
-
-    await expect(agent.modelsList()).resolves.toEqual([{ id: 'kimi-k2.5' }]);
-
-    await expect(agent.workspaceFiles()).resolves.toEqual({
-      agentId: 'workspace-agent',
-      files: [{ name: 'README.md' }],
-    });
-    expect(agentsList).toHaveBeenCalled();
-    expect(filesList).toHaveBeenCalledWith('workspace-agent');
-
-    await expect(agent.fileGet('README.md')).resolves.toBe('hello');
-    expect(fileGet).toHaveBeenCalledWith('workspace-agent', 'README.md');
-
-    await agent.fileSet('README.md', 'updated');
-    expect(fileSet).toHaveBeenCalledWith('workspace-agent', 'README.md', 'updated');
-
-    await expect(agent.fileGet('README.md', 'explicit-agent')).resolves.toBe('hello');
-    expect(fileGet).toHaveBeenCalledWith('explicit-agent', 'README.md');
-
-    await agent.fileSet('README.md', 'explicit-update', 'explicit-agent');
-    expect(fileSet).toHaveBeenCalledWith('explicit-agent', 'README.md', 'explicit-update');
-
-    await expect(agent.chatHistory('main', 20)).resolves.toEqual([
-      { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
-    ]);
-    expect(chatHistory).toHaveBeenCalledWith('main', 20);
-
-    await expect(
-      agent.chatSendMessage('hello', {
-        sessionKey: 'main',
-        agentId: 'workspace-agent',
-        attachments: [{ id: 'att-1', dataUrl: 'data:image/png;base64,YWJj', mimeType: 'image/png' }],
-      }),
-    ).resolves.toEqual({ runId: 'run-123' });
-    expect(sendChat).toHaveBeenCalledWith(
-      'hello',
-      'main',
-      'workspace-agent',
-      [{ id: 'att-1', dataUrl: 'data:image/png;base64,YWJj', mimeType: 'image/png' }],
-    );
-
-    const streamed = [];
-    for await (const event of agent.chatSend('stream me', 'main')) {
-      streamed.push(event);
-    }
-    expect(chatSend).toHaveBeenCalledWith('stream me', 'main', undefined);
-    expect(streamed).toEqual([
-      { type: 'content', text: 'chunk-1' },
-      { type: 'done' },
-    ]);
-
-    await expect(agent.cronList()).resolves.toEqual([{ id: 'job-1' }]);
-    expect(cronList).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledTimes(10);
-    expect(close).not.toHaveBeenCalled();
-  });
-
-  it('OpenClawAgent waitRunning still delegates to Deployments.waitRunning', async () => {
+  it('CodingAgent waitRunning still delegates to Deployments.waitRunning', async () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
-    const ready = OpenClawAgent.fromDict({
+    const ready = CodingAgent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'running',
@@ -841,7 +619,7 @@ describe('HyperClaw agents SDK', () => {
     });
     vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
 
-    const agent = OpenClawAgent.fromDict({
+    const agent = CodingAgent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'starting',
@@ -850,12 +628,10 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent-ready.hypercli.app',
     });
     (agent as any)._deployments = deployments;
-    const gateway = vi.spyOn(agent, 'waitForGatewayContext');
 
     const result = await agent.waitRunning(42_000, 250);
 
     expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250, 10);
-    expect(gateway).not.toHaveBeenCalled();
     expect(result).toBe(ready);
   });
 
@@ -886,7 +662,7 @@ describe('HyperClaw agents SDK', () => {
     expect(result).toBe(ready);
   });
 
-  it('create posts config and returns bound OpenClawAgent', async () => {
+  it('create posts config and returns bound CodingAgent', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-1',
       user_id: 'user-1',
@@ -917,8 +693,7 @@ describe('HyperClaw agents SDK', () => {
       }),
       { retries: 1 },
     );
-    expect(agent).toBeInstanceOf(OpenClawAgent);
-    expect((agent as OpenClawAgent).gatewayToken).toBeNull();
+    expect(agent).toBeInstanceOf(CodingAgent);
   });
 
   it('create posts only canonical meta.ui and hydrates it back onto the agent', async () => {

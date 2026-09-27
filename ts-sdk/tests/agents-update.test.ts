@@ -8,7 +8,7 @@ describe('Deployments.update', () => {
     const meta = { ui: { description: '# SOUL', avatar: { icon_index: 2 } } };
     const post = vi.fn().mockResolvedValue({ id: 'a', runtime: 'opencode', meta });
     const deployments = new Deployments({ post } as unknown as HTTPClient, 'test', 'https://api.test/agents');
-    const agent = await deployments.createOpenCode({ meta });
+    const agent = await deployments.createCodingAgent('opencode', { meta });
     expect(post.mock.calls[0][1].meta).toEqual(meta);
     expect(agent.meta?.ui?.description).toBe('# SOUL');
   });

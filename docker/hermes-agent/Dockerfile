@@ -78,9 +78,6 @@ ENV HYPER_DESKTOP_ENABLED=0
 ENV HYPER_DESKTOP_PORT=3000
 ENV HYPER_DESKTOP_GEOMETRY=1280x800x24
 ENV DISPLAY=:99
-ENV API_SERVER_ENABLED=true
-ENV API_SERVER_HOST=0.0.0.0
-ENV API_SERVER_PORT=8642
 ENV HERMES_CRON_ENABLED=
 ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/home/hermes/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WORKDIR /home/hermes

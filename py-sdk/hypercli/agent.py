@@ -1,28 +1,19 @@
 """
 HyperAgent API client
 
-Provides access to the HyperClaw inference API for AI agents.
-Uses the official OpenAI Python client for chat completions.
+Provides access to the HyperClaw agents control-plane API.
 """
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from math import isfinite
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 from urllib.parse import quote, urlsplit
 
 from .config import get_agents_api_base_url
 from .agents import AgentSlot
 from .http import HTTPClient
-
-try:
-    from openai import OpenAI
-
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OpenAI = None
-    OPENAI_AVAILABLE = False
 
 
 class HyperAgentCanonicalPlanId(str, Enum):
@@ -931,24 +922,13 @@ class HyperAgent:
     """
     HyperAgent API client.
 
-    Provides access to HyperClaw inference endpoints using the OpenAI Python
-    client.
+    Provides access to the HyperClaw agents control-plane endpoints.
 
     Usage:
         from hypercli import HyperCLI
 
         client = HyperCLI(agent_api_key="sk-...")
-
-        openai = client.agent.openai
-        response = openai.chat.completions.create(
-            model="kimi-k2.5",
-            messages=[{"role": "user", "content": "Hello!"}],
-        )
-
-        response = client.agent.chat(
-            model="kimi-k2.5",
-            messages=[{"role": "user", "content": "Hello!"}],
-        )
+        models = client.agent.models()
     """
 
     AGENT_API_BASE = "https://api.hypercli.com/v1"
@@ -966,7 +946,6 @@ class HyperAgent:
         self._dev = dev
         self._base_url = self._resolve_base_url(agents_api_base_url, dev)
         self._control_base_url = self._resolve_control_base_url(getattr(http, "base_url", None), agents_api_base_url, dev)
-        self._openai = None
 
     @classmethod
     def _resolve_base_url(cls, agents_api_base_url: str | None, dev: bool) -> str:
@@ -1011,62 +990,23 @@ class HyperAgent:
             return "https://api.dev.hypercli.com/agents"
         return f"{scheme}://{parsed.netloc}/agents"
 
-    @property
-    def openai(self) -> "OpenAI":
-        if not OPENAI_AVAILABLE:
-            raise ImportError(
-                "OpenAI package required for chat. Install with: pip install openai"
-            )
-
-        if self._openai is None:
-            self._openai = OpenAI(
-                api_key=self._api_key,
-                base_url=self._base_url,
-            )
-        return self._openai
-
-    def chat(
-        self,
-        model: str,
-        messages: List[Dict],
-        temperature: float = None,
-        max_tokens: int = None,
-        tools: List[Dict] = None,
-        tool_choice: Union[str, Dict] = None,
-        stream: bool = False,
-        **kwargs,
-    ):
-        params = {
-            "model": model,
-            "messages": messages,
-            **kwargs,
-        }
-
-        if temperature is not None:
-            params["temperature"] = temperature
-        if max_tokens is not None:
-            params["max_tokens"] = max_tokens
-        if tools:
-            params["tools"] = tools
-        if tool_choice:
-            params["tool_choice"] = tool_choice
-        if stream:
-            params["stream"] = stream
-
-        return self.openai.chat.completions.create(**params)
-
     def models(self) -> List[HyperAgentModel]:
-        response = self.openai.models.list()
+        response = self._http._session.get(
+            f"{self._base_url}/models",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        data = response.json()
         return [
             HyperAgentModel.from_dict(
                 {
-                    "id": model.id,
-                    "name": getattr(model, "name", model.id),
-                    "context_length": getattr(model, "context_length", 0),
-                    "capabilities": getattr(model, "capabilities", {}),
+                    "id": model.get("id"),
+                    "name": model.get("name") or model.get("id"),
+                    "context_length": model.get("context_length") or 0,
+                    "capabilities": model.get("capabilities") or {},
                 }
             )
-            for model in response.data
+            for model in data.get("data", [])
         ]
 
     def _api_base_without_v1(self) -> str:
@@ -1170,10 +1110,6 @@ class HyperAgent:
     def agent_usage(self, *, days: int = 1) -> Dict[str, Any]:
         """Return token usage attributed to each Agent runtime key (1-30 days)."""
         return self._control_get("/usage/agents", params={"days": int(days)})
-
-    def me(self) -> Dict[str, Any]:
-        """Return the agents-side auth context for the current credential."""
-        return self._control_get("/me")
 
     def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
         response = self._http._session.post(
@@ -1329,11 +1265,6 @@ class HyperAgent:
             raise ValueError("payment_id is required")
         data = self._control_get(f"/billing/payments/{quote(normalized_payment_id, safe='')}")
         return HyperAgentPayment.from_dict(data)
-
-    def entitlement_instances(self) -> list[HyperAgentEntitlement]:
-        """List the account's concrete entitlement instances."""
-        data = self._control_get("/entitlements/instances")
-        return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
 
     def purchase_via_x402(
         self,

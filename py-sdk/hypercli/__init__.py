@@ -1,8 +1,4 @@
 """HyperCLI SDK - Python client for HyperCLI API"""
-from ._compat import ensure_collections_compat
-
-ensure_collections_compat()
-
 from .client import HyperCLI
 from .config import (
     configure,
@@ -33,9 +29,6 @@ from .jobs import (
     find_by_id,
     find_by_hostname,
     find_by_ip,
-    get_job_tags,
-    job_has_tags,
-    normalize_job_tags,
 )
 from .renders import Render, RenderStatus
 from .voice import VoiceAPI
@@ -58,8 +51,8 @@ from .workspaces import (
 )
 from .routines import Routine, RoutinesAPI
 from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
-from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
-from .files import File, AsyncFiles
+from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
+from .files import File
 from .user import AuthMe, RuntimeIdentity, User, UserAPI
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
@@ -77,12 +70,8 @@ from .agents import (
     AgentSlot,
     AgentSlotInventory,
     AgentSize,
-    BuzzAgent,
-    BuzzLaunchConfig,
     CANONICAL_AGENT_STATES,
-    ClaudeCodeAgent,
     CodingAgent,
-    CodexAgent,
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_BUZZ_AGENT_IMAGE,
     DEFAULT_BUZZ_CODING_AGENT_IMAGES,
@@ -94,13 +83,6 @@ from .agents import (
     DeploymentEvent,
     Deployments,
     ExecResult,
-    GooseAgent,
-    HermesAgent,
-    KimiCodeAgent,
-    PiAgent,
-    OpenClawAgent,
-    OpenClawProAgent,
-    OpenCodeAgent,
     RuntimeAuthClient,
     RuntimeAuthMethod,
     RuntimeAuthStatus,
@@ -115,23 +97,6 @@ from .agents import (
     build_openclaw_workspaces_sync_env,
     is_agent_runtime_inactive_state,
     is_agent_transitional_state,
-)
-from .hermes import (
-    HermesAPIError,
-    HermesApiClient,
-    HermesCapabilities,
-    HermesDetailedHealth,
-    HermesHealth,
-    HermesMessage,
-    HermesMessageList,
-    HermesModel,
-    HermesModels,
-    HermesRun,
-    HermesSSEEvent,
-    HermesSession,
-    HermesSessionEnvelope,
-    HermesSessionList,
-    HermesSessionModelLock,
 )
 from .shell import ShellSession, shell_connect
 from .agent import (
@@ -177,17 +142,6 @@ from .acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
-from .gateway import (
-    GatewayClient,
-    GatewayError,
-    ChatEvent,
-    GatewayChatToolCall,
-    GatewayChatMessageSummary,
-    extract_gateway_chat_thinking,
-    extract_gateway_chat_media_urls,
-    extract_gateway_chat_tool_calls,
-    normalize_gateway_chat_message,
-)
 __version__ = "2026.6.26"
 __all__ = [
     "HyperCLI",
@@ -222,9 +176,7 @@ __all__ = [
     "JobListPage",
     "JobMetrics",
     "GPUMetrics",
-    "normalize_job_tags",
-    "get_job_tags",
-    "job_has_tags",
+    "JobLifecycleEvent",
     # Renders API
     "Render",
     "RenderStatus",
@@ -258,11 +210,9 @@ __all__ = [
     "X402Client",
     "X402JobLaunch",
     "X402FlowCreate",
-    "X402RenderCreate",
     "FlowCatalogItem",
     # Files API
     "File",
-    "AsyncFiles",
     "User",
     "UserAPI",
     "AuthMe",
@@ -309,8 +259,6 @@ __all__ = [
     "AgentSlot",
     "AgentSlotInventory",
     "AgentSize",
-    "BuzzAgent",
-    "BuzzLaunchConfig",
     "CodingAgent",
     "DEFAULT_AGENT_RUNTIME_SCOPES",
     "DEFAULT_BUZZ_AGENT_IMAGE",
@@ -320,15 +268,6 @@ __all__ = [
     "DEFAULT_HERMES_AGENT_IMAGE",
     "DEFAULT_HERMES_AGENT_SYNC_EXCLUDE",
     "DEFAULT_HERMES_AGENT_SYNC_ROOT",
-    "OpenCodeAgent",
-    "CodexAgent",
-    "ClaudeCodeAgent",
-    "GooseAgent",
-    "HermesAgent",
-    "KimiCodeAgent",
-    "PiAgent",
-    "OpenClawAgent",
-    "OpenClawProAgent",
     "RuntimeAuthClient",
     "RuntimeAuthMethod",
     "RuntimeAuthStatus",
@@ -342,22 +281,6 @@ __all__ = [
     "build_openclaw_trusted_proxies_env",
     "build_openclaw_workspaces_sync_env",
     "OPENCLAW_TRUSTED_PROXIES_ENV",
-    # Hermes API Server
-    "HermesAPIError",
-    "HermesApiClient",
-    "HermesCapabilities",
-    "HermesDetailedHealth",
-    "HermesHealth",
-    "HermesMessage",
-    "HermesMessageList",
-    "HermesModel",
-    "HermesModels",
-    "HermesRun",
-    "HermesSSEEvent",
-    "HermesSession",
-    "HermesSessionEnvelope",
-    "HermesSessionList",
-    "HermesSessionModelLock",
     # Shell
     "ShellSession",
     "shell_connect",
@@ -402,14 +325,4 @@ __all__ = [
     "ACPUnavailableError",
     "AmbiguousDeliveryError",
     "RetryableACPError",
-    # OpenClaw Gateway
-    "GatewayClient",
-    "GatewayError",
-    "ChatEvent",
-    "GatewayChatToolCall",
-    "GatewayChatMessageSummary",
-    "extract_gateway_chat_thinking",
-    "extract_gateway_chat_media_urls",
-    "extract_gateway_chat_tool_calls",
-    "normalize_gateway_chat_message",
 ]

@@ -33,6 +33,8 @@ const VERIFIED: Array<[string, string, string]> = [
   ['openclaw', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['openclaw-pro', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['hermes-agent', '.hermes/skills', '/home/hermes/.hermes/skills'],
+  ['openclaw_acp', '.openclaw/skills', '/home/node/.openclaw/skills'],
+  ['hermes_acp', '.hermes/skills', '/home/hermes/.hermes/skills'],
   ['opencode', '.agents/skills', '/home/node/.agents/skills'],
   ['buzz-agent', '.agents/skills', '/home/node/.agents/skills'],
   ['goose', '.goose/skills', '/home/node/.goose/skills'],

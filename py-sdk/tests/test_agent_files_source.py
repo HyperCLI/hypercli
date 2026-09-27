@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hypercli.agents import Deployments, OpenClawAgent
+from hypercli.agents import Agent, Deployments
 
 
 def make_agent():
@@ -18,7 +18,7 @@ def make_agent():
     deployments.file_write.return_value = {"ok": True}
     deployments.file_write_bytes.return_value = {"ok": True}
     deployments.file_delete.return_value = {"ok": True}
-    agent = OpenClawAgent(
+    agent = Agent(
         id="agent-123",
         user_id="user-456",
         state="STOPPED",
@@ -58,8 +58,3 @@ def test_deployments_file_paths_cannot_escape_sync_root(path):
         deployments.file_write("agent-123", path, "blocked")
 
 
-def test_gateway_file_rpc_remains_explicit_on_openclaw_agent():
-    agent, _ = make_agent()
-    assert hasattr(agent, "workspace_files")
-    assert hasattr(agent, "file_get")
-    assert hasattr(agent, "file_set")

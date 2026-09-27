@@ -4,30 +4,6 @@ import {
   getAgentsApiBaseUrl,
   getAgentsApiBaseUrlFromProductBase,
 } from './config.js';
-export {
-  GatewayClient,
-  type GatewayOptions,
-  type GatewayConnectOptions,
-  type GatewayEvent,
-  type GatewayProtocolErrorCode,
-  type GatewayProtocolErrorInfo,
-  type ChatEvent,
-  type GatewayEphemeralChatSession,
-  type GatewayChatHistoryResult,
-  type GatewayChatHistorySessionInfo,
-  type GatewayChatInFlightRun,
-  type ChatAttachment,
-  type BrowserChatAttachment,
-  type GatewayChatAttachmentPayload,
-  type GatewayChatToolCall,
-  type GatewayChatMessageSummary,
-  type GatewayEventHandler,
-  normalizeChatAttachments,
-  extractGatewayChatThinking,
-  extractGatewayChatMediaUrls,
-  extractGatewayChatToolCalls,
-  normalizeGatewayChatMessage,
-} from './openclaw/gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
 import { KeysAPI } from './keys.js';

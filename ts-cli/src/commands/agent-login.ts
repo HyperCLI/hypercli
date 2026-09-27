@@ -488,8 +488,10 @@ const NATIVE_LOGIN_HINTS: Readonly<Record<string, string>> = {
   pi: 'Pi uses native provider configuration: open hyper agents shell <id>, then run pi to configure API keys or login',
   openclaw: 'openclaw uses the gateway-token pairing ceremony, managed automatically by hyper agents start',
   'openclaw-pro': 'openclaw uses the gateway-token pairing ceremony, managed automatically by hyper agents start',
+  openclaw_acp: 'openclaw uses the gateway-token pairing ceremony, managed automatically by hyper agents start',
   hermes: 'hermes authenticates with its server key; there is no pod login flow',
   'hermes-agent': 'hermes authenticates with its server key; there is no pod login flow',
+  hermes_acp: 'hermes authenticates with its server key; there is no pod login flow',
 };
 
 // ---------------------------------------------------------------------------

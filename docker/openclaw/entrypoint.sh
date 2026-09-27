@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ACP default: background the gateway in-pod and run hyper-acp (spawning
+# `openclaw acp`) in front. `gateway ...` selects the deprecated native
+# gateway mode; any other argument is exec'd directly.
+LAUNCH_MODE=acp
+case "${1:-}" in
+  ""|hyper-acp|/usr/local/bin/hyper-acp|/opt/hypercli/bin/hyper-acp|acp)
+    if [[ $# -gt 0 ]]; then shift; fi
+    ;;
+  gateway)
+    LAUNCH_MODE=gateway
+    shift
+    ;;
+  *)
+    LAUNCH_MODE=command
+    ;;
+esac
+
+# stdio ACP reserves fd 1 for JSON-RPC frames; boot chatter goes to stderr
+# and fd 1 is restored right before hyper-acp starts.
+[[ "${LAUNCH_MODE}" == "acp" ]] && exec 3>&1 1>&2
+
 . /opt/hypercli/lib/desktop.sh
 
 USER_HOME="${HOME:-/home/node}"
@@ -79,5 +100,87 @@ if hyper_desktop_enabled; then
   hyper_start_desktop
 fi
 
-echo "[openclaw] starting gateway on ${OPENCLAW_GATEWAY_BIND:-lan}:${OPENCLAW_PORT:-18789}"
-exec openclaw gateway run --port "${OPENCLAW_PORT:-18789}" --bind "${OPENCLAW_GATEWAY_BIND:-lan}"
+if [[ "${LAUNCH_MODE}" == "gateway" ]]; then
+  if [[ $# -eq 0 ]]; then
+    set -- run
+  fi
+  if [[ "${1}" == "run" ]]; then
+    run_args=("${@:2}")
+    echo "[openclaw] starting gateway on ${OPENCLAW_GATEWAY_BIND:-lan}:${OPENCLAW_PORT:-18789}"
+    exec openclaw gateway run --port "${OPENCLAW_PORT:-18789}" --bind "${OPENCLAW_GATEWAY_BIND:-lan}" "${run_args[@]}"
+  fi
+  exec openclaw gateway "$@"
+fi
+
+if [[ "${LAUNCH_MODE}" == "command" ]]; then
+  exec "$@"
+fi
+
+# ACP mode: background the gateway (pod-internal hop), wait for it to accept
+# loopback connections, then run hyper-acp in front (`openclaw acp` is baked
+# in via HYPER_ACP_AGENT_* image ENVs). First process to exit ends the pod.
+GATEWAY_PORT="${OPENCLAW_PORT:-18789}"
+GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
+# URL is env-pinned to loopback so the bridge dial never carries --token argv.
+export OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://127.0.0.1:${GATEWAY_PORT}}"
+
+# Sessions/chat are backend-authoritative — the contract authority is
+# sessions/README.md §15 (the memory-shaped session model): hyper-acp must
+# dial the backend ACP bridge over HYPER_ACP_WS_URL, or it boots into the
+# stdio fallback (acp/hyper-acp/crates/hyper-acp/src/bin/hyper-acp.rs) and
+# the pod serves no sessions/chat at all. Lagoon/Fly pods receive
+# HYPER_AGENTS_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
+# derive the bridge URL here from the agents API base with the same rules
+# docker/coding/entrypoint.sh uses (https→wss, http→ws, trailing slash and
+# /agents handled). An explicit HYPER_ACP_WS_URL always wins: backend
+# runners and pods pin the exact /ws bridge per launch and that override
+# must never be rewritten (agents/backend/agents/runners/launch.py).
+if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
+  acp_ws_base="${HYPER_AGENTS_API_BASE:-${HYPER_API_BASE:-https://api.agents.hypercli.com}}"
+  acp_ws_base="${acp_ws_base%/}"
+  case "${acp_ws_base}" in
+    https://*) acp_ws_base="wss://${acp_ws_base#https://}" ;;
+    http://*) acp_ws_base="ws://${acp_ws_base#http://}" ;;
+    ws://*|wss://*) ;;
+    *) acp_ws_base="wss://${acp_ws_base}" ;;
+  esac
+  acp_ws_base="${acp_ws_base%/agents}"
+  case "${acp_ws_base}" in
+    */ws) HYPER_ACP_WS_URL="${acp_ws_base}" ;;
+    *) HYPER_ACP_WS_URL="${acp_ws_base}/ws" ;;
+  esac
+  export HYPER_ACP_WS_URL
+fi
+
+openclaw gateway run --port "${GATEWAY_PORT}" --bind "${GATEWAY_BIND}" >&2 &
+gateway_pid=$!
+
+acp_pid=""
+shutdown() { [[ -z "${acp_pid}" ]] || kill "${acp_pid}" 2>/dev/null || true; kill "${gateway_pid}" 2>/dev/null || true; }
+trap shutdown TERM INT
+
+deadline=$(( SECONDS + ${OPENCLAW_ACP_GATEWAY_READY_TIMEOUT_SECONDS:-180} ))
+while (( SECONDS < deadline )); do
+  if ! kill -0 "${gateway_pid}" 2>/dev/null; then
+    echo "[openclaw] gateway exited during ACP startup" >&2
+    kill "${gateway_pid}" 2>/dev/null || true
+    wait 2>/dev/null || true
+    exit 1
+  fi
+  if (exec 9<>"/dev/tcp/127.0.0.1/${GATEWAY_PORT}") 2>/dev/null; then
+    exec 1>&3 3>&-
+    # background children of non-interactive shells would get /dev/null stdin
+    hyper-acp "$@" <&0 &
+    acp_pid=$!
+    status=0
+    wait -n "${acp_pid}" "${gateway_pid}" || status=$?
+    kill "${acp_pid}" "${gateway_pid}" 2>/dev/null || true
+    wait 2>/dev/null || true
+    exit "${status}"
+  fi
+  sleep 1
+done
+echo "[openclaw] gateway readiness timed out after ${OPENCLAW_ACP_GATEWAY_READY_TIMEOUT_SECONDS:-180}s" >&2
+kill "${gateway_pid}" 2>/dev/null || true
+wait 2>/dev/null || true
+exit 1

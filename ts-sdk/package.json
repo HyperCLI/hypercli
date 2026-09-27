@@ -26,10 +26,6 @@
       "import": "./dist/agents.js",
       "types": "./dist/agents.d.ts"
     },
-    "./gateway": {
-      "import": "./dist/gateway.js",
-      "types": "./dist/gateway.d.ts"
-    },
     "./skills": {
       "import": "./dist/skills.js",
       "types": "./dist/skills.d.ts"
@@ -45,42 +41,6 @@
     "./openclaw/control-ui-origin": {
       "import": "./dist/openclaw-control-ui-origin.js",
       "types": "./dist/openclaw-control-ui-origin.d.ts"
-    },
-    "./openclaw/gateway": {
-      "import": "./dist/openclaw/gateway.js",
-      "types": "./dist/openclaw/gateway.d.ts"
-    },
-    "./openclaw/skills": {
-      "import": "./dist/openclaw/skills.js",
-      "types": "./dist/openclaw/skills.d.ts"
-    },
-    "./openclaw/node-proxy": {
-      "import": "./dist/openclaw/node-proxy.js",
-      "types": "./dist/openclaw/node-proxy.d.ts"
-    },
-    "./openclaw/channels": {
-      "import": "./dist/openclaw/channels.js",
-      "types": "./dist/openclaw/channels.d.ts"
-    },
-    "./openclaw/connectors": {
-      "import": "./dist/openclaw/connectors.js",
-      "types": "./dist/openclaw/connectors.d.ts"
-    },
-    "./openclaw/slack": {
-      "import": "./dist/openclaw/slack.js",
-      "types": "./dist/openclaw/slack.d.ts"
-    },
-    "./openclaw/whatsapp": {
-      "import": "./dist/openclaw/whatsapp.js",
-      "types": "./dist/openclaw/whatsapp.d.ts"
-    },
-    "./hermes/gateway": {
-      "import": "./dist/hermes/gateway.js",
-      "types": "./dist/hermes/gateway.d.ts"
-    },
-    "./session": {
-      "import": "./dist/session.js",
-      "types": "./dist/session.d.ts"
     },
     "./keys": {
       "import": "./dist/keys.js",
@@ -105,7 +65,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/acp-client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/file-transport.test.ts tests/runner-files.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/openclaw-control-ui-origin.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts tests/routines.test.ts tests/runners.test.ts tests/agent-trial.test.ts tests/agents-update.test.ts tests/agents-lifecycle.test.ts tests/billing.test.ts tests/comfyui.test.ts tests/files.test.ts tests/instances.test.ts tests/openclaw-node-proxy.test.ts tests/renders.test.ts tests/renders-subscription.test.ts tests/shell-session.test.ts tests/user-auth-me.test.ts tests/user.test.ts tests/voice-session.test.ts tests/voice-transcription-session.test.ts tests/voice.test.ts tests/workspaces-sync.test.ts tests/x402.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/acp-client.test.ts tests/acp-driver.test.ts tests/acp-read-ack.test.ts tests/acp-proxy.test.ts tests/sessions.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/file-transport.test.ts tests/runner-files.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-control-ui-origin.test.ts tests/claw.test.ts tests/user-profile-image.test.ts tests/routines.test.ts tests/runners.test.ts tests/agent-trial.test.ts tests/agents-update.test.ts tests/agents-lifecycle.test.ts tests/billing.test.ts tests/comfyui.test.ts tests/files.test.ts tests/instances.test.ts tests/renders.test.ts tests/renders-subscription.test.ts tests/shell-session.test.ts tests/user-auth-me.test.ts tests/user.test.ts tests/voice-session.test.ts tests/voice-transcription-session.test.ts tests/voice.test.ts tests/workspaces-sync.test.ts tests/x402.test.ts",
     "test:files": "vitest run tests/agent-files-source.test.ts tests/file-transport.test.ts tests/runner-files.test.ts tests/agents.test.ts tests/exec-shell-dryrun.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
