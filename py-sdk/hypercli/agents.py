@@ -274,6 +274,92 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "pi": DEFAULT_BUZZ_PI_IMAGE,
 }
 
+PermissionMode = Literal[
+    "default",
+    "auto",
+    "bypass-permissions",
+    "accept-edits",
+    "plan",
+    "dont-ask",
+    "buzz-hosted",
+]
+
+# Canonical key order; the harness compares the serialized bytes
+# (buzz-backend-provider pins the buzz-hosted preset byte-for-byte).
+_PERMISSION_PRESETS: dict[str, dict[str, Any]] = {
+    "default": {"*": "allow"},
+    "auto": {"*": "allow"},
+    "bypass-permissions": {"*": "allow"},
+    "accept-edits": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "edit": "allow",
+        "todowrite": "allow",
+        "*": "ask",
+    },
+    "plan": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "question": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "external_directory": "deny",
+        "skill": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "*": "deny",
+    },
+    "dont-ask": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "*": "deny",
+    },
+    "buzz-hosted": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow",
+        "todowrite": "allow",
+        "question": "allow",
+        "edit": "allow",
+        "doom_loop": "deny",
+        "external_directory": "allow",
+        "bash": {
+            "sprig *": "allow",
+            "sprig": "allow",
+            "buzz *": "allow",
+            "buzz": "allow",
+            "hyper *": "allow",
+            "git *": "allow",
+            "*": "deny",
+        },
+        "webfetch": "allow",
+        "websearch": "allow",
+        "skill": "allow",
+        "task": "allow",
+        "*": "deny",
+    },
+}
+
+
+def build_permissions_json(mode: PermissionMode, overrides: dict | None = None) -> str:
+    """Serialize the opencode ConfigPermissionV1 permission JSON for a preset
+    mode, optionally layered with caller overrides. The output is what
+    ``HYPER_ACP_PERMISSIONS`` carries in launch-config env; hyper-acp translates
+    it to ``OPENCODE_PERMISSION`` at child spawn."""
+    preset = _PERMISSION_PRESETS.get(str(mode)) or _PERMISSION_PRESETS["default"]
+    merged = {**preset, **overrides} if overrides else preset
+    return json.dumps(merged, separators=(",", ":"))
+
 
 # Public file access uses backend discovery for Reef or native runner transport. S3 is reserved
 # for archive/restore internals.
@@ -714,6 +800,30 @@ def _normalize_executor(executor: str | None) -> str | None:
     if executor not in ("process", "docker"):
         raise ValueError("executor must be 'process' or 'docker'")
     return executor
+
+
+def _resolve_coding_agent_sync_policy(
+    runtime: CodingAgentRuntime,
+    *,
+    sync_include: list[str] | None | object,
+    sync_exclude: list[str] | None | object,
+) -> tuple[list[str] | None | object, list[str] | None | object]:
+    """Mirror ts createCodingAgent: an explicit include wins, an explicit
+    nullable policy opts out of the helper default into whole-root
+    persistence, and an omitted policy selects the runtime's preset include
+    (``[]`` exclude — exclude nothing — when the runtime retains the root)."""
+    if sync_include is not _UNSET and sync_include is not None:
+        return list(sync_include), _UNSET
+    if sync_exclude is not _UNSET:
+        if sync_exclude is None:
+            return _UNSET, _UNSET
+        return _UNSET, list(sync_exclude)
+    if sync_include is None:
+        return _UNSET, _UNSET
+    default_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime]
+    if default_include:
+        return list(default_include), _UNSET
+    return _UNSET, []
 
 
 def _build_agent_launch(
@@ -2697,6 +2807,116 @@ class Deployments:
         data = self._post(AGENTS_API_PREFIX, json=body)
         agent = self._hydrate_agent(data)
         agent.__dict__["_submitted_launch_config"] = complete_launch
+        return agent
+
+
+    def create_coding_agent(
+        self,
+        runtime: CodingAgentRuntime,
+        *,
+        name: str = None,
+        handle: str = None,
+        size: str = None,
+        config: dict = None,
+        tags: list[str] = None,
+        env: dict = None,
+        secrets: dict = None,
+        routes: dict = None,
+        cors: AgentCorsConfig | dict | None | object = _UNSET,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        sync_root: str = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        restart: bool = False,
+        runtime_scopes: list[str] | None = None,
+        docker: dict | None | object = _UNSET,
+        executor: str | None = None,
+        meta_ui: dict = None,
+        runner: dict = None,
+        dry_run: bool = False,
+        workspaces_sync: dict | bool | None = None,
+        permission_mode: PermissionMode | None = None,
+    ) -> CodingAgent:
+        """Create an ACP-fronted coding agent. All coding runtimes share one
+        launch contract; ``runtime`` selects the default image, sync includes,
+        and harness env (``pi`` gets ``HYPER_RUNTIME_HOME``), nothing else.
+
+        Mirrors ts-sdk ``createCodingAgent``: Workspaces boot sync env defaults
+        on, launch env always carries ``HYPER_ACP_PERMISSIONS`` (built from
+        ``permission_mode``, caller ``env`` wins), and ``BUZZ_PRIVATE_KEY`` /
+        ``NOSTR_PRIVATE_KEY`` in ``env`` are promoted to launch secrets.
+        """
+        if runtime not in DEFAULT_CODING_AGENT_IMAGES:
+            raise ValueError(
+                "runtime must be one of: " + ", ".join(DEFAULT_CODING_AGENT_IMAGES)
+            )
+        effective_env = {
+            **build_openclaw_workspaces_sync_env(workspaces_sync),
+            **(dict(DEFAULT_PI_ENV) if runtime == "pi" else {}),
+            **dict(env or {}),
+        }
+        effective_env.setdefault(
+            "HYPER_ACP_PERMISSIONS",
+            build_permissions_json(permission_mode or "default"),
+        )
+        if permission_mode is not None:
+            # Transition: legacy hyper-acp builds only read the mode var, so keep
+            # emitting it alongside the JSON when the caller chose a mode. A
+            # caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
+            effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", permission_mode)
+        effective_secrets = dict(secrets or {})
+        for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
+            value = effective_env.pop(key, None)
+            if value is None:
+                continue
+            existing = effective_secrets.get(key)
+            if existing is not None and existing != value:
+                raise ValueError(f"{key} conflicts between env and secrets")
+            effective_secrets[key] = value
+        effective_sync_include, effective_sync_exclude = _resolve_coding_agent_sync_policy(
+            runtime,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+        )
+        agent = self.create(
+            name=name,
+            handle=handle,
+            size=size,
+            runtime=runtime,
+            config=config,
+            tags=tags,
+            env=effective_env,
+            secrets=effective_secrets,
+            routes={} if routes is None else routes,
+            cors=cors,
+            command=list(command) if command is not None else ["/usr/local/bin/hyper-acp"],
+            entrypoint=entrypoint,
+            image=image or DEFAULT_CODING_AGENT_IMAGES[runtime],
+            sync_root=DEFAULT_CODING_AGENT_SYNC_ROOT if sync_root is None else sync_root,
+            sync_include=effective_sync_include,
+            sync_exclude=effective_sync_exclude,
+            sync_uid=1000 if sync_uid is None else sync_uid,
+            sync_gid=1000 if sync_gid is None else sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            restart=restart,
+            runtime_scopes=(
+                list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
+            ),
+            docker=docker,
+            executor=executor,
+            meta_ui=meta_ui,
+            runner=runner,
+            dry_run=dry_run,
+        )
+        if not isinstance(agent, CodingAgent):
+            raise TypeError(f"Deployment response did not identify runtime {runtime!r}")
         return agent
 
 

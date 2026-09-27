@@ -17,6 +17,8 @@
         "hyper files",
         "hyper voice",
         "hyper websearch",
+        "hyper llm chat",
+        "hyper llm image",
         "hyper agents wait <agent> --state <state>"
       ]
     },
@@ -25,7 +27,15 @@
       "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, and set up the local product API key with hyper configure. Use for who-am-I, capability, entitlement, and credential-setup questions.",
       "commands": [
         "hyper me",
-        "hyper configure"
+        "hyper user --json",
+        "hyper configure",
+        "hyper agent onboard",
+        "hyper agent subscribe",
+        "hyper billing balance",
+        "hyper keys list",
+        "hyper keys create",
+        "hyper wallet balance",
+        "hyper wallet topup"
       ]
     },
     {
@@ -72,6 +82,9 @@
         "hyper jobs cancel",
         "hyper jobs extend",
         "hyper jobs exec",
+        "hyper instances gpus",
+        "hyper instances launch",
+        "hyper launch <image>",
         "hyper jobs get <job>"
       ]
     },
@@ -92,6 +105,8 @@
         "hyper files",
         "hyper workspaces",
         "hyper memory import",
+        "hyper workspaces <command>",
+        "hyper workspaces list",
         "hyper memory"
       ]
     },

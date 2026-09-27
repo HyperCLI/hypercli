@@ -409,7 +409,7 @@ class HyperAgentEntitlement:
         expires_at = data.get("expires_at")
         updated_at = data.get("updated_at")
         return cls(
-            id=data["id"],
+            id=str(data.get("id") or ""),
             user_id=data.get("user_id", ""),
             subscription_id=data.get("subscription_id"),
             plan_id=data.get("plan_id", ""),
@@ -635,6 +635,75 @@ class HyperAgentKeyUsage:
             keys=[HyperAgentKeyUsageEntry.from_dict(item) for item in data.get("keys", [])],
             days=int(data.get("days", 0) or 0),
         )
+
+
+@dataclass
+class HyperAgentUsageMetrics:
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    requests: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentUsageMetrics":
+        data = data or {}
+        return cls(
+            total_tokens=int(data.get("total_tokens", 0) or 0),
+            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(data.get("completion_tokens", 0) or 0),
+            requests=int(data.get("requests", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentAgentUsageEntry(HyperAgentUsageMetrics):
+    agent_id: str = ""
+    name: str = ""
+    managed: bool = False
+    avatar_url: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentAgentUsageEntry":
+        metrics = HyperAgentUsageMetrics.from_dict(data)
+        return cls(
+            total_tokens=metrics.total_tokens,
+            prompt_tokens=metrics.prompt_tokens,
+            completion_tokens=metrics.completion_tokens,
+            requests=metrics.requests,
+            agent_id=str(data.get("agent_id", "") or ""),
+            name=str(data.get("name", "") or ""),
+            managed=bool(data.get("managed", False)),
+            avatar_url=data.get("avatar_url") or None,
+        )
+
+
+@dataclass
+class HyperAgentAgentUsage:
+    agents: list[HyperAgentAgentUsageEntry]
+    unattributed: HyperAgentUsageMetrics
+    days: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentAgentUsage":
+        data = data or {}
+        return cls(
+            agents=[HyperAgentAgentUsageEntry.from_dict(item) for item in data.get("agents") or []],
+            unattributed=HyperAgentUsageMetrics.from_dict(data.get("unattributed")),
+            days=int(data.get("days", 0) or 0),
+        )
+
+
+@dataclass
+class HyperAgentUsageReport:
+    """Tolerant combined view over /usage/history, /usage/keys, and /usage/agents:
+    each section degrades to None on failure so a key missing a scope family
+    never blanks the whole panel."""
+
+    days: int
+    history: list[HyperAgentUsageHistoryEntry] | None
+    keys: list[HyperAgentKeyUsageEntry] | None
+    agents: list[HyperAgentAgentUsageEntry] | None
+    unattributed: HyperAgentUsageMetrics | None
 
 
 @dataclass
@@ -869,6 +938,73 @@ class HyperAgentPaymentsResponse:
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentPaymentsResponse":
         return cls(items=[HyperAgentPayment.from_dict(item) for item in data.get("items", [])])
+
+
+@dataclass
+class HyperAgentBillingHistory:
+    """Whether the account has any subscription or payment history."""
+
+    has_billing_history: bool
+    subscription_count: int
+    payment_count: int
+
+
+@dataclass
+class HyperAgentGrant:
+    """A grant record applied to the account (balance purchase or activation code)."""
+
+    id: str
+    user_id: str | None
+    entitlement_id: str | None
+    type: str
+    plan_id: str
+    duration: int
+    code: str | None
+    tags: list[str]
+    meta: dict[str, Any] | None
+    applied_at: datetime | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentGrant":
+        data = data or {}
+
+        def _dt(value: object) -> datetime | None:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+
+        tags = data.get("tags")
+        return cls(
+            id=str(data.get("id") or ""),
+            user_id=data.get("user_id"),
+            entitlement_id=data.get("entitlement_id"),
+            type=str(data.get("type") or ""),
+            plan_id=str(data.get("plan_id") or ""),
+            duration=int(data.get("duration", 0) or 0),
+            code=data.get("code"),
+            tags=[str(item) for item in tags] if isinstance(tags, list) else [],
+            meta=data.get("meta") or None,
+            applied_at=_dt(data.get("applied_at")),
+            created_at=_dt(data.get("created_at")),
+            updated_at=_dt(data.get("updated_at")),
+        )
+
+
+@dataclass
+class HyperAgentGrantRedemptionResponse:
+    """Result of redeeming a grant code or purchasing an entitlement from balance."""
+
+    grant: HyperAgentGrant
+    entitlement: HyperAgentEntitlement
+    payment: HyperAgentPayment | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentGrantRedemptionResponse":
+        return cls(
+            grant=HyperAgentGrant.from_dict(data.get("grant") or {}),
+            entitlement=HyperAgentEntitlement.from_dict(data.get("entitlement") or {}),
+            payment=HyperAgentPayment.from_dict(data["payment"]) if data.get("payment") else None,
+        )
 
 
 @dataclass
@@ -1111,6 +1247,41 @@ class HyperAgent:
         """Return token usage attributed to each Agent runtime key (1-30 days)."""
         return self._control_get("/usage/agents", params={"days": int(days)})
 
+    def usage_report(self, *, days: int = 7) -> HyperAgentUsageReport:
+        """Tolerant combined view over /usage/history, /usage/keys, and /usage/agents.
+
+        Each section degrades to ``None`` on failure so a key missing a scope
+        family never blanks the whole panel. ``days`` is clamped to 1-90.
+        """
+        try:
+            clamped = int(days) or 7
+        except (TypeError, ValueError):
+            clamped = 7
+        clamped = min(max(clamped, 1), 90)
+
+        try:
+            history: list[HyperAgentUsageHistoryEntry] | None = self.usage_history(days=clamped).history
+        except Exception:  # noqa: BLE001 - ts contract: sections degrade to None on any failure
+            history = None
+        try:
+            keys: list[HyperAgentKeyUsageEntry] | None = self.key_usage(days=clamped).keys
+        except Exception:  # noqa: BLE001 - ts contract: sections degrade to None on any failure
+            keys = None
+        try:
+            attributed = HyperAgentAgentUsage.from_dict(self.agent_usage(days=clamped))
+            agents: list[HyperAgentAgentUsageEntry] | None = attributed.agents
+            unattributed: HyperAgentUsageMetrics | None = attributed.unattributed
+        except Exception:  # noqa: BLE001 - ts contract: sections degrade to None on any failure
+            agents = None
+            unattributed = None
+        return HyperAgentUsageReport(
+            days=clamped,
+            history=history,
+            keys=keys,
+            agents=agents,
+            unattributed=unattributed,
+        )
+
     def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
         response = self._http._session.post(
             f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
@@ -1265,6 +1436,55 @@ class HyperAgent:
             raise ValueError("payment_id is required")
         data = self._control_get(f"/billing/payments/{quote(normalized_payment_id, safe='')}")
         return HyperAgentPayment.from_dict(data)
+
+    def billing_history(self) -> HyperAgentBillingHistory:
+        """Whether the account has any subscription or payment history."""
+        subscriptions = self.subscriptions()
+        payments = self.billing_payments(limit=1)
+        subscription_count = len(subscriptions)
+        payment_count = len(payments.items)
+        return HyperAgentBillingHistory(
+            has_billing_history=subscription_count > 0 or payment_count > 0,
+            subscription_count=subscription_count,
+            payment_count=payment_count,
+        )
+
+    def purchase_entitlement_from_balance(
+        self,
+        plan_id: str,
+        *,
+        duration: int,
+        tags: list[str] | None = None,
+        extend_existing: bool | None = None,
+    ) -> HyperAgentGrantRedemptionResponse:
+        """Purchase a plan entitlement from the account's prepaid balance."""
+        payload: dict[str, Any] = {"duration": int(duration)}
+        if tags is not None:
+            payload["tags"] = tags
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
+        return HyperAgentGrantRedemptionResponse.from_dict(
+            self._control_post(f"/billing/balance/{quote(str(plan_id), safe='')}", payload)
+        )
+
+    def redeem_grant_code(
+        self,
+        code: str,
+        *,
+        extend_existing: bool | None = None,
+    ) -> HyperAgentGrantRedemptionResponse:
+        """Redeem a promo/activation grant code and return the applied grant plus
+        the resulting entitlement.
+
+        Codes create new entitlements by default; pass ``extend_existing=True``
+        only for renewal/extension behavior.
+        """
+        payload: dict[str, Any] = {"code": code}
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
+        return HyperAgentGrantRedemptionResponse.from_dict(
+            self._control_post("/billing/grants/redeem", payload)
+        )
 
     def purchase_via_x402(
         self,
