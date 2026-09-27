@@ -8,6 +8,8 @@ const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
+const AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.hypercli.com/ws/acp';
+const DEV_AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.dev.hypercli.com/ws/acp';
 
 export function toWsBaseUrl(baseUrl: string): string {
   const base = (baseUrl || '').replace(/\/+$/, '');
@@ -100,4 +102,27 @@ export function defaultHyperAcpWsUrl(apiBase: string): string {
   }
   const base = resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, '');
   return normalizeAgentsWsUrl(base);
+}
+
+/**
+ * Client-facing ACP session proxy (sessions/README §14): the session
+ * authority every chat/session consumer dials. Lives next to (never on) the
+ * agent-keyed `/ws` tunnel — that route stays reserved for runtime attach
+ * and backend-service legs and is re-factored here only via the URL shape.
+ */
+export function defaultAcpProxyWsUrl(apiBase: string): string {
+  const resolvedApiBase = resolveAgentsApiBase(apiBase);
+  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_ACP_PROXY_WS_URL;
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
+    return DEV_AGENTS_ACP_PROXY_WS_URL;
+  }
+  const tunnel = normalizeAgentsWsUrl(resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, ''));
+  return `${tunnel.slice(0, -'/ws'.length)}/ws/acp`;
 }

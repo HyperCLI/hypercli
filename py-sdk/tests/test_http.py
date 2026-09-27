@@ -1,9 +1,7 @@
-import collections
 import logging
 
 import httpx
 
-from hypercli._compat import ensure_collections_compat
 from hypercli.http import APIError, _handle_bytes_response, _handle_response
 
 
@@ -56,9 +54,3 @@ def test_handle_bytes_response_can_raise_without_error_log(caplog) -> None:
     assert "HyperCLI API request failed" not in caplog.text
 
 
-def test_ensure_collections_compat_restores_python312_aliases(monkeypatch) -> None:
-    monkeypatch.delattr(collections, "MutableSet", raising=False)
-
-    ensure_collections_compat()
-
-    assert collections.MutableSet is not None

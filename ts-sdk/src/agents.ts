@@ -1,5 +1,7 @@
 /**
- * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
+ * HyperClaw agents API - typed agent lifecycle, files, and exec. Agent chat
+ * and sessions are driven over ACP (see acp.ts) through the backend /ws
+ * bridge; the SDK no longer talks to runtime-internal gateway processes.
  */
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
@@ -38,6 +40,7 @@ export {
   type AgentSlotSize,
 } from './agent-slots.js';
 import {
+  defaultAcpProxyWsUrl,
   defaultAgentsWsUrl,
   defaultHyperAcpWsUrl,
   normalizeAgentsWsUrl,
@@ -58,6 +61,8 @@ import {
   CodingAgentAcpClient,
   type CodingAgentAcpConnectOptions,
 } from './acp.js';
+import { CodingAgentAcpPool } from './acp-pool.js';
+import { AcpTurnDriver, type AcpTurnDriverOptions } from './acp-driver.js';
 export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
@@ -66,6 +71,14 @@ export {
   ACP_RECONNECT_DELAYS_MS,
   type CodingAgentAcpConnectOptions,
 } from './acp.js';
+export {
+  AcpTurnDriver,
+  ACP_BUNDLE_FRAMING_HEADER,
+  type AcpTurnBundle,
+  type AcpTurnDriverOptions,
+  type AcpTurnDriverState,
+  type AcpTurnOutcome,
+} from './acp-driver.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 // Activity-transport error classes, re-exported here so consumers can classify
 // failures without pulling the SDK root entry (and its optional x402 peers)
@@ -77,61 +90,12 @@ export {
 import { APIError } from './errors.js';
 import { HTTPClient, type RequestOverrides } from './http.js';
 import {
-  GatewayClient,
-  type ChatAttachment,
-  type ChatEvent,
-  type GatewayIntegrationAuthStartParams,
-  type GatewayIntegrationAuthStartResult,
-  type GatewayIntegrationAuthStatusParams,
-  type GatewayIntegrationAuthStatusResult,
-  type GatewayIntegrationDisconnectParams,
-  type GatewayIntegrationDisconnectResult,
-  type GatewayIntegrationStatusParams,
-  type GatewayIntegrationStatusResult,
-  type GatewayOptions,
-  type GatewaySessionsListResult,
-  type GatewayWebLoginStartOptions,
-  type GatewayWebLoginStartResult,
-  type GatewayWebLoginWaitOptions,
-  type GatewayWebLoginWaitResult,
-  type GatewayWaitReadyOptions,
-  type OpenClawConfigSchemaResponse,
-  type OpenClawSlackRelayOptions,
-} from './openclaw/gateway.js';
-import {
-  OpenClawGatewayConnectionManager,
-  type OpenClawGatewayConnectionManagerOptions,
-  type OpenClawGatewayLease,
-} from './openclaw/connection-manager.js';
-export {
-  DEFAULT_OPENCLAW_GATEWAY_IDLE_TIMEOUT_MS,
-  DEFAULT_OPENCLAW_GATEWAY_MAX_CONNECTIONS,
-  OpenClawGatewayConnectionManager,
-  type OpenClawGatewayConnectionManagerOptions,
-  type OpenClawGatewayLease,
-} from './openclaw/connection-manager.js';
-import type {
-  OpenClawTelegramConfigPatch,
-  OpenClawWhatsAppConfigPatch,
-} from './openclaw/channels.js';
-import {
   HOSTED_SLACK_APP_ENABLED_ENV,
   HOSTED_SLACK_GATEWAY_ID_ENV,
   HOSTED_SLACK_LAUNCH_ENV_KEYS,
   HostedSlackLaunchEnv,
   normalizeSlackRelayBaseUrl,
 } from './channels.js';
-import type {
-  OpenClawSlackHttpConfiguration,
-  OpenClawSlackRelayConfiguration,
-  OpenClawSlackSocketConfiguration,
-} from './openclaw/slack.js';
-import { HermesApiClient } from './hermes/gateway.js';
-import {
-  HermesSessionClient,
-  OpenClawSessionClient,
-  type AgentSessionConnectOptions,
-} from './session.js';
 
 const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
 const DEPLOYMENTS_API_PREFIX = '/deployments';
@@ -171,6 +135,8 @@ export type ManagedAgentRuntime =
   | 'openclaw'
   | 'openclaw-pro'
   | 'hermes-agent'
+  | 'openclaw_acp'
+  | 'hermes_acp'
   | 'buzz-agent'
   | 'opencode'
   | 'codex'
@@ -179,6 +145,26 @@ export type ManagedAgentRuntime =
   | 'kimi-code'
   | 'pi';
 export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' | 'pi'>;
+/**
+ * Runtime labels whose pods front `hyper-acp` and hydrate to the single
+ * {@link CodingAgent} facade. `generic` stays plain {@link Agent}; legacy
+ * openclaw payloads without a runtime label are detected structurally
+ * (`isOpenClawHydrationData`).
+ */
+const HYPER_ACP_RUNTIMES: ReadonlySet<string> = new Set<ManagedAgentRuntime>([
+  'openclaw',
+  'openclaw-pro',
+  'hermes-agent',
+  'openclaw_acp',
+  'hermes_acp',
+  'buzz-agent',
+  'opencode',
+  'codex',
+  'claude-code',
+  'goose',
+  'kimi-code',
+  'pi',
+]);
 export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_OPENCODE_IMAGE,
@@ -307,7 +293,7 @@ export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '30000',
   OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '0',
 } as const;
-export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
+export const WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: '1',
   HYPER_WORKSPACES_DIR: '/home/node/shared',
   HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -398,13 +384,6 @@ export interface BrowserDesktopUrlOptions {
   resize?: string | null;
 }
 
-export interface AgentGatewayContext {
-  agent_id: string;
-  gateway_url: string;
-  gateway_token: string;
-  launch_epoch: number;
-}
-
 export interface AgentEnvResponse {
   agent_id: string;
   env: Record<string, string>;
@@ -433,72 +412,6 @@ export interface AgentSecretResponse {
   key: string;
   value: string;
   launch_epoch: number;
-}
-
-export interface GatewayContextWaitOptions {
-  timeoutMs?: number;
-  retryIntervalMs?: number;
-  signal?: AbortSignal;
-  /** Re-read the stored gateway Secret instead of reusing the retained token. */
-  forceGatewayTokenRefresh?: boolean;
-}
-
-interface OpenClawGatewayContextFlight {
-  deploymentId: string;
-  controller: AbortController;
-  promise: Promise<AgentGatewayContext>;
-  waiters: number;
-  settled: boolean;
-}
-
-class OpenClawRouteContractError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'OpenClawRouteContractError';
-  }
-}
-
-class OpenClawLifecycleTerminalError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'OpenClawLifecycleTerminalError';
-  }
-}
-
-const OPENCLAW_GATEWAY_TERMINAL_STATES = new Set([
-  'STOPPING',
-  'STOPPED',
-  'ARCHIVING',
-  'ARCHIVED',
-  'FAILED',
-  'NO_NAMESPACE',
-  'DELETED',
-]);
-
-const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS = 300_000;
-const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS = 1_000;
-
-export interface OpenClawOperationsSnapshot {
-  sessions: GatewaySessionsListResult | null;
-  cronJobs: any[] | null;
-  failures: Partial<Record<'sessions' | 'cron', string>>;
-  capturedAt: number;
-}
-
-function stringifyOpenClawOperationsFailure(reason: unknown): string {
-  if (reason instanceof Error) return reason.message || reason.name || 'Error';
-  if (typeof reason === 'string') return reason;
-  try {
-    const serialized = JSON.stringify(reason);
-    if (serialized !== undefined) return serialized;
-  } catch {
-    // Fall back to String for non-serializable rejection values.
-  }
-  try {
-    return String(reason);
-  } catch {
-    return 'Unknown error';
-  }
 }
 
 export interface AgentShellTokenResponse {
@@ -1070,7 +983,7 @@ export interface OpenClawMemoryIndexOptions {
   intervalMinutes?: number | null;
 }
 
-export interface OpenClawWorkspacesSyncOptions {
+export interface WorkspacesSyncOptions {
   enabled?: boolean | null;
   readyOnly?: boolean | null;
   workspace?: string | null;
@@ -1270,7 +1183,6 @@ export interface OpenClawSlackOptions {
 }
 
 export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'config'> {
-  gatewayToken?: string | null;
   /**
    * Enable hosted Slack. Pass `true` (or relay overrides) to state the intent;
    * the SDK owns the complete `HYPER_SLACK_*` launch env, including the gateway
@@ -1285,11 +1197,7 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
   trustedProxies?: string[] | null;
   cronEnabled?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
-  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
-}
-
-export interface OpenClawStartAgentOptions {
-  dryRun?: boolean;
+  workspacesSync?: WorkspacesSyncOptions | boolean | null;
 }
 
 interface PreparedHostedSlack {
@@ -1300,15 +1208,11 @@ interface PreparedHostedSlack {
 
 export interface HermesAgentCreateOptions extends CreateAgentOptions {
   hermesRoute?: HermesAgentRouteOptions | null;
-  /** Explicit inbound Hermes API credential; a fresh 32-byte key is generated when omitted. */
-  apiServerKey?: string | null;
-  /** Browser origins allowed to call the Hermes API; mapped to API_SERVER_CORS_ORIGINS. */
+  /** Browser origins allowed on the public route; drives the route-plane cors allowed_origins when `cors` is unset. */
   corsOrigins?: string[] | null;
   /** Enable Hermes automatic cron dispatch for this launch. Defaults to true on create. */
   cronEnabled?: boolean | null;
 }
-
-export interface HermesAgentStartOptions extends StartAgentOptions {}
 
 /** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
 export type PermissionMode =
@@ -1401,7 +1305,7 @@ export function buildPermissionsJson(mode: PermissionMode, overrides?: Permissio
 }
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime'> {
-  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  workspacesSync?: WorkspacesSyncOptions | boolean | null;
   /**
    * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
    * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
@@ -1926,37 +1830,22 @@ function agentMetaFromDict(data: unknown): AgentMeta | null {
   return meta;
 }
 
-function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>): Record<string, any> {
-  const merged = structuredClone(base);
-  for (const [key, value] of Object.entries(patch)) {
-    if (
-      value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      merged[key] &&
-      typeof merged[key] === 'object' &&
-      !Array.isArray(merged[key])
-    ) {
-      merged[key] = deepMergeConfig(merged[key], value as Record<string, any>);
-    } else {
-      merged[key] = structuredClone(value);
-    }
-  }
-  return merged;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isOpenClawRuntime(
+  runtime: string | null | undefined,
+  routes: unknown = null,
+): boolean {
+  if (runtime === 'openclaw' || runtime === 'openclaw-pro' || runtime === 'openclaw_acp') return true;
+  return !!(routes && typeof routes === 'object' && !Array.isArray(routes)
+    && (routes as Record<string, unknown>).openclaw);
+}
+
 function isOpenClawHydrationData(data: AgentHydrationData): boolean {
-  if (data.runtime === 'openclaw' || data.runtime === 'openclaw-pro') return true;
-  const routes = data.routes;
-  if (routes && typeof routes === 'object' && !Array.isArray(routes) && routes.openclaw) {
-    return true;
-  }
-  const launchRoutes = data.launch_config?.routes;
-  return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
+  return isOpenClawRuntime(data.runtime, data.routes)
+    || isOpenClawRuntime(null, data.launch_config?.routes);
 }
 
 function isTruthyEnv(value: unknown): boolean {
@@ -2113,7 +2002,7 @@ function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListi
   );
 }
 
-export { defaultHyperAcpWsUrl, resolveAgentsApiBase } from './agent-urls.js';
+export { defaultAcpProxyWsUrl, defaultHyperAcpWsUrl, resolveAgentsApiBase } from './agent-urls.js';
 
 function randomHexToken(bytes: number): string {
   const buffer = new Uint8Array(bytes);
@@ -2571,17 +2460,11 @@ function buildAgentCreateConfig(
 }
 
 function defaultOpenClawImage(
+  runtime: string,
   image: string | null | undefined,
 ): string {
   if (image !== undefined && image !== null) return image;
-  return DEFAULT_OPENCLAW_IMAGE;
-}
-
-function defaultOpenClawProImage(
-  image: string | null | undefined,
-): string {
-  if (image !== undefined && image !== null) return image;
-  return DEFAULT_OPENCLAW_PRO_IMAGE;
+  return runtime === 'openclaw-pro' ? DEFAULT_OPENCLAW_PRO_IMAGE : DEFAULT_OPENCLAW_IMAGE;
 }
 
 function canonicalOpenClawGatewayRoute(): AgentRouteConfig {
@@ -2613,21 +2496,6 @@ function withOpenClawGatewayRoute(
 function defaultHermesAgentImage(image: string | null | undefined): string {
   if (image !== undefined && image !== null) return image;
   return DEFAULT_HERMES_AGENT_IMAGE;
-}
-
-function resolveHermesApiServerKey(
-  explicit: string | null | undefined,
-  env: Record<string, string> | undefined,
-  secrets: Record<string, string> | undefined,
-): string {
-  const supplied = [explicit, secrets?.API_SERVER_KEY, env?.API_SERVER_KEY]
-    .map((value) => value?.trim() ?? '')
-    .filter(Boolean);
-  if (new Set(supplied).size > 1) {
-    throw new Error('Hermes API_SERVER_KEY conflicts between inputs');
-  }
-  const key = supplied[0] || randomHexToken(32);
-  return key;
 }
 
 function normalizeHostedSlackOption(
@@ -2665,29 +2533,15 @@ function resolveHostedSlackRelayBaseUrl(
 
 function prepareOpenClawLaunch(
   options: OpenClawCreateAgentOptions,
-  generateGatewayToken: true,
   defaultSlackRelayBaseUrl?: string | null,
 ): {
   env: Record<string, string>;
   secrets: Record<string, string>;
-  gatewayToken: string | null;
   slack: PreparedHostedSlack;
 } {
   const env = { ...(options.env ?? {}) };
   rejectOpenClawSecretOnlyEnv(env);
   const secrets = { ...(options.secrets ?? {}) };
-  const explicitGatewayToken = options.gatewayToken?.trim() || null;
-  const secretGatewayToken = secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
-  if (options.gatewayToken !== undefined && options.gatewayToken !== null && !explicitGatewayToken) {
-    throw new Error('gatewayToken must not be blank');
-  }
-  if (explicitGatewayToken && secretGatewayToken && explicitGatewayToken !== secretGatewayToken) {
-    throw new Error('gatewayToken conflicts with secrets.OPENCLAW_GATEWAY_TOKEN');
-  }
-  const gatewayToken = explicitGatewayToken
-    ?? secretGatewayToken
-    ?? (generateGatewayToken ? randomHexToken(32) : null);
-  if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
   // OpenClaw treats this env as a full replace for
   // gateway.controlUi.allowedOrigins, and every HyperCLI surface (desktop,
   // console) drives the control UI from dynamic origins. The only value that
@@ -2749,7 +2603,7 @@ function prepareOpenClawLaunch(
       gatewayId: env[HOSTED_SLACK_GATEWAY_ID_ENV]?.trim() || null,
     };
   }
-  return { env, secrets, gatewayToken, slack };
+  return { env, secrets, slack };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -3008,13 +2862,13 @@ export function buildHermesCronEnv(enabled: boolean | null = null): Record<strin
   };
 }
 
-export function buildOpenClawWorkspacesSyncEnv(
-  workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null = null,
+export function buildWorkspacesSyncEnv(
+  workspacesSync: WorkspacesSyncOptions | boolean | null = null,
 ): Record<string, string> {
   if (workspacesSync === false) return { HYPER_WORKSPACES_BOOT_SYNC: '0' };
   const options = typeof workspacesSync === 'object' && workspacesSync !== null ? workspacesSync : {};
   if (options.enabled === false) return { HYPER_WORKSPACES_BOOT_SYNC: '0' };
-  const env: Record<string, string> = { ...OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS };
+  const env: Record<string, string> = { ...WORKSPACES_SYNC_ENV_DEFAULTS };
   if (options.enabled !== undefined && options.enabled !== null) {
     env.HYPER_WORKSPACES_BOOT_SYNC = envBool(options.enabled);
   }
@@ -3334,6 +3188,9 @@ type RuntimeAuthConfig = {
   nativeMethods: RuntimeAuthMethod[];
 };
 
+// Runtime auth surfaces are launch-shape data per runtime label, not class
+// behavior. openclaw/hermes-agent pods have no in-pod login flow and carry
+// no table entry.
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   'buzz-agent': {
     agentCommand: ['buzz-agent'],
@@ -3560,7 +3417,11 @@ export class RuntimeAuthClient {
   private readonly config: RuntimeAuthConfig;
 
   constructor(public readonly agent: CodingAgent) {
-    this.config = RUNTIME_AUTH_CONFIG[agent.runtime];
+    const config = RUNTIME_AUTH_CONFIG[agent.runtime as CodingAgentRuntime];
+    if (!config) {
+      throw new Error(`Runtime authentication is not available for runtime '${agent.runtime ?? 'generic'}'`);
+    }
+    this.config = config;
   }
 
   async methods(): Promise<RuntimeAuthMethod[]> {
@@ -3675,1105 +3536,120 @@ export class RuntimeAuthClient {
   }
 }
 
+/**
+ * The one ACP-facing managed-agent facade.
+ *
+ * Every managed runtime — openclaw, openclaw-pro, hermes-agent, and the
+ * coding-agent runtimes — boots its pod behind `hyper-acp`, so chat,
+ * sessions, runtime auth, and turn driving all ride the same ACP bridge; the
+ * runtimes differ only in the `runtime` label plus launch-config data
+ * (images, sync roots/uid/gid, harness env). Session protocol behavior is
+ * version-keyed (`negotiatedProtocolVersion`), never runtime-keyed.
+ */
 export class CodingAgent extends Agent {
-  declare public readonly runtime: CodingAgentRuntime;
-  static readonly defaultSyncInclude: readonly string[] | null = null;
+  static override fromDict(data: AgentHydrationData): CodingAgent {
+    return new CodingAgent(agentStateFromDict(data));
+  }
 
   get auth(): RuntimeAuthClient {
     return new RuntimeAuthClient(this);
   }
 
   /**
-   * Connect to this agent's ACP child through the backend bridge.
+   * Connect to this agent's ACP surface through the backend session proxy.
    *
-   * Every coding-agent pod runs `hyper-acp`, which pipes the pod-side ACP
-   * child (`opencode acp`, `claude-code acp`, ...) onto an outbound WebSocket
-   * to the backend `/ws` bridge. This dials the client side of that bridge
-   * (`?agent_id=<id>&token=<api key>` — the same base URL/auth as every other
-   * agent SDK call), completes the ACP v1 `initialize` handshake, and returns
-   * a session-capable client. The `cwd` default is the agent workspace root
-   * (the coding-agent sync root, `/home/node`).
+   * Default (`options.transport` unset): dials `/ws/acp` — the client-facing
+   * ACP session authority (sessions/README §14). The proxy owns the backend
+   * session record `{session_id → legs}`, fans runtime frames out to every
+   * attached session client, and answers `session/new` with the backend
+   * session id (backend-keyed, not the pod-side ACP id). Create-or-attach
+   * semantics key on `options.sessionId`:
+   *
+   * - omitted: the socket starts session-less; `newSession()` runs the
+   *   proxy's `session/new`, minting the backend session.
+   * - provided: the dial attaches to that session (`?session_id=...`),
+   *   joining its live tee first — attach BEFORE `loadSession`/
+   *   `resumeSession` so the replayed history stream reaches this
+   *   connection. An id the store does not hold fails the connect with
+   *   close code 4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
+   *
+   * `transport: 'direct'` dials the agent-keyed `/ws` bridge instead
+   * (`?agent_id&token`), the pre-proxy path. Infra/debug only: `/ws` is
+   * being hardened to runtime + backend-service identities, and combining
+   * it with `sessionId` throws (the bridge has no session binding).
+   *
+   * The ACP `initialize` handshake offers protocol version 2 by default and
+   * negotiates down to v1 for v1-only runtimes (see
+   * `client.negotiatedProtocolVersion`; through the proxy the answer is the
+   * min of the offer and the leg's version). The `cwd` default is the agent
+   * workspace root (the launch's sync root, `/home/node` for coding-agent
+   * runtimes, `/home/hermes` for hermes-agent).
    */
   async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
     const deployments = this.requireDeployments();
-    const url = new URL(defaultHyperAcpWsUrl(deployments.agentApiBase));
+    const transport = options.transport ?? 'proxy';
+    if (transport === 'direct' && options.sessionId) {
+      throw new Error(
+        "acpConnect: sessionId is a proxy-transport option; the direct /ws bridge " +
+        "has no session binding (drop sessionId or use the default 'proxy' transport)",
+      );
+    }
+    const url = new URL(
+      transport === 'direct'
+        ? defaultHyperAcpWsUrl(deployments.agentApiBase)
+        : defaultAcpProxyWsUrl(deployments.agentApiBase),
+    );
     url.searchParams.set('agent_id', this.id);
     url.searchParams.set('token', deployments.agentApiKey);
+    if (options.sessionId) url.searchParams.set('session_id', options.sessionId);
+    const syncRoot = this.launchConfig?.sync_root;
     return CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
-      { ...options, cwd: options.cwd ?? DEFAULT_CODING_AGENT_SYNC_ROOT },
+      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT) },
     );
   }
-}
 
-export class BuzzAgent extends CodingAgent {
-  declare public readonly runtime: 'buzz-agent';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['buzz-agent'];
-  static override fromDict(data: AgentHydrationData): BuzzAgent {
-    return new BuzzAgent(agentStateFromDict(data));
-  }
-}
+  private acpPoolValue: CodingAgentAcpPool | null = null;
 
-export class OpenCodeAgent extends CodingAgent {
-  declare public readonly runtime: 'opencode';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.opencode;
-  static override fromDict(data: AgentHydrationData): OpenCodeAgent {
-    return new OpenCodeAgent(agentStateFromDict(data));
-  }
-}
-
-export class CodexAgent extends CodingAgent {
-  declare public readonly runtime: 'codex';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.codex;
-  static override fromDict(data: AgentHydrationData): CodexAgent {
-    return new CodexAgent(agentStateFromDict(data));
-  }
-}
-
-export class ClaudeCodeAgent extends CodingAgent {
-  declare public readonly runtime: 'claude-code';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['claude-code'];
-  static override fromDict(data: AgentHydrationData): ClaudeCodeAgent {
-    return new ClaudeCodeAgent(agentStateFromDict(data));
-  }
-}
-
-export class GooseAgent extends CodingAgent {
-  declare public readonly runtime: 'goose';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.goose;
-  static override fromDict(data: AgentHydrationData): GooseAgent {
-    return new GooseAgent(agentStateFromDict(data));
-  }
-}
-
-export class KimiCodeAgent extends CodingAgent {
-  declare public readonly runtime: 'kimi-code';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['kimi-code'];
-  static override fromDict(data: AgentHydrationData): KimiCodeAgent {
-    return new KimiCodeAgent(agentStateFromDict(data));
-  }
-}
-
-export class PiAgent extends CodingAgent {
-  declare public readonly runtime: 'pi';
-  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi;
-  static override fromDict(data: AgentHydrationData): PiAgent {
-    return new PiAgent(agentStateFromDict(data));
-  }
-}
-
-const CODING_AGENT_CLASSES = {
-  'buzz-agent': BuzzAgent,
-  opencode: OpenCodeAgent,
-  codex: CodexAgent,
-  'claude-code': ClaudeCodeAgent,
-  goose: GooseAgent,
-  'kimi-code': KimiCodeAgent,
-  pi: PiAgent,
-} as const;
-
-export class HermesAgent extends Agent {
-  declare public readonly runtime: 'hermes-agent';
-  public readonly apiUrl: string | null;
-  public readonly openaiBaseUrl: string | null;
-  /** Available only on the instance returned by createHermesAgent/startHermesAgent. */
-  public apiServerKey: string | null;
-
-  constructor(fields: AgentStateFields & { apiUrl?: string | null; apiServerKey?: string | null }) {
-    super(fields);
-    this.apiUrl = fields.apiUrl ?? this.routeUrl('hermes', '');
-    this.openaiBaseUrl = this.apiUrl ? `${this.apiUrl.replace(/\/+$/, '')}/v1` : null;
-    this.apiServerKey = fields.apiServerKey ?? null;
-  }
-
-  static override fromDict(data: AgentHydrationData): HermesAgent {
-    const fields = agentStateFromDict(data);
-    if (fields.launchConfig?.env && typeof fields.launchConfig.env === 'object') {
-      fields.launchConfig = structuredClone(fields.launchConfig);
-      delete fields.launchConfig.env.API_SERVER_KEY;
+  /**
+   * Lazily created connection pool for this agent's ACP surface. Two
+   * clients dialed to the same agent share one pod-side stdio session, so all
+   * ACP consumers (chat panes, session sweeps, turn drivers) must ride ONE
+   * pooled connection via leases instead of dialing their own — the bridge
+   * rejects a duplicate runtime attach. The pool closes the connection when
+   * the last lease releases, so a lease taken by a long-lived consumer (a
+   * turn driver) outlives callers that unmount (a chat pane) and vice versa.
+   *
+   * Under the default proxy transport the pooled connection dials session-less:
+   * prompting a session id the proxy has never seen (a stored id whose
+   * runtime was evicted backend-side) fails with an unknown-session error.
+   * Prompt against ids created through this proxy, or attach first with a
+   * dedicated `acpConnect({ sessionId })`.
+   */
+  get acpPool(): CodingAgentAcpPool {
+    if (this.acpPoolValue === null) {
+      this.acpPoolValue = new CodingAgentAcpPool({ connect: () => this.acpConnect() });
     }
-    return new HermesAgent({
-      ...fields,
-      // Never recover API_SERVER_KEY from launch_config or process env.
-      apiServerKey: null,
-    });
-  }
-
-  /** Create a client for this agent's authenticated Hermes API. */
-  get api(): HermesApiClient | null {
-    if (!this.apiUrl || !this.apiServerKey) return null;
-    return new HermesApiClient(this.apiUrl, { apiKey: this.apiServerKey });
-  }
-
-  /** Require a ready URL and the one-time SDK-retained API server key. */
-  apiClient(): HermesApiClient {
-    const client = this.api;
-    if (!client) {
-      throw new Error('Hermes API context is unavailable; use the HermesAgent returned by createHermesAgent/startHermesAgent after its hostname is attached');
-    }
-    return client;
-  }
-
-  override async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<HermesAgent> {
-    const ready = await super.waitRunning(timeoutMs, pollIntervalMs);
-    if (!(ready instanceof HermesAgent)) {
-      throw new Error("Running deployment did not identify runtime 'hermes-agent'");
-    }
-    ready.apiServerKey = this.apiServerKey;
-    return ready;
+    return this.acpPoolValue;
   }
 
   /**
-   * Connect to this agent's Hermes session API and return the canonical
-   * session client. Waits for the agent to be RUNNING with its route live,
-   * then resolves API_SERVER_KEY from the SDK-retained key or the deployment
-   * Secret (so a fresh page can reconnect), and verifies reachability plus
-   * authorization before resolving.
+   * Acquire a lease on this agent's pooled ACP connection and return a ready
+   * per-session {@link AcpTurnDriver} bound to it. `options.sessionId` is the
+   * pinned ACP session id (the id the app persists, e.g. under
+   * `localStorage["acp-session:<agentId>"]`); drivers are cheap — one per
+   * session, all sharing the same lease-held connection — and turn frames for
+   * other sessions are ignored per-session. The driver holds its lease until
+   * `driver.close()`; the pooled connection stays up for other leaseholders.
    */
-  async connect(options: AgentSessionConnectOptions = {}): Promise<HermesSessionClient> {
-    const deployments = this.requireDeployments();
-    const timeoutMs = options.timeoutMs ?? 60_000;
-    const deadline = Date.now() + timeoutMs;
-    const callerAbortError = (): Error => {
-      if (options.signal?.reason instanceof Error) return options.signal.reason;
-      const error = new Error('Hermes session connect cancelled');
-      error.name = 'AbortError';
-      return error;
-    };
-
-    let apiUrl = this.apiUrl;
-    let current: Agent = this;
-    while (true) {
-      if (options.signal?.aborted) throw callerAbortError();
-      if (current.state.toUpperCase() !== 'RUNNING' || !apiUrl) {
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for Hermes agent ${this.id} to become reachable`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-        current = await deployments.get(this.id);
-        apiUrl = apiUrl ?? (current instanceof HermesAgent ? current.apiUrl : null);
-        continue;
-      }
-      break;
-    }
-
-    let apiServerKey = this.apiServerKey;
-    if (!apiServerKey) {
-      // Rehydrate the redacted Secret through the explicit per-secret
-      // retrieval endpoint; never read launch_config.env for it.
-      const secretData = await deployments.secret(this.id, 'API_SERVER_KEY');
-      apiServerKey = secretData.value;
-      this.apiServerKey = apiServerKey;
-    }
-
-    const client = new HermesSessionClient(apiUrl, {
-      apiKey: apiServerKey,
-      ...(options.fetch ? { fetch: options.fetch } : {}),
-    });
-    await client.connect(options);
-    return client;
-  }
-}
-
-export class OpenClawAgent extends Agent {
-  public gatewayUrl: string | null;
-  public gatewayToken: string | null;
-  private gatewayLaunchEpoch: number | null = null;
-
-  get gatewayConnectionKey(): string {
-    return `${this.id}:${this.gatewayLaunchEpoch ?? this.launchEpoch}:${this.gatewayUrl ?? ''}`;
-  }
-
-  get gatewayConnectionScope(): OpenClawGatewayConnectionManager | null {
-    return this._deployments?.openClawGateways ?? null;
-  }
-
-  constructor(fields: AgentStateFields & { gatewayUrl?: string | null; gatewayToken?: string | null }) {
-    super(fields);
-    this.gatewayUrl = fields.gatewayUrl ?? null;
-    this.gatewayToken = fields.gatewayToken ?? null;
-  }
-
-  static override fromDict(data: AgentHydrationData): OpenClawAgent {
-    return new OpenClawAgent({
-      ...agentStateFromDict(data),
-      gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
-      gatewayToken: null,
-    });
-  }
-
-  protected static gatewayUrlFromHostname(hostname: string | null | undefined): string | null {
-    const trimmed = String(hostname ?? '').trim();
-    return trimmed ? `wss://${trimmed}` : null;
-  }
-
-  protected static gatewayUrlFromRouteStatus(status: Record<string, unknown> | undefined): string | null {
-    if (String(status?.dns_state ?? '').trim().toLowerCase() !== 'active') return null;
-    const rawUrl = String(status?.url ?? '').trim();
-    if (!rawUrl) return null;
-    let parsed: URL;
+  async acpTurnDriver(options: AcpTurnDriverOptions): Promise<AcpTurnDriver> {
+    const lease = await this.acpPool.acquire(this.id);
     try {
-      parsed = new URL(rawUrl);
-    } catch {
-      throw new OpenClawRouteContractError('OpenClaw route status contains an invalid URL');
-    }
-    const loopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
-    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
-    else if (parsed.protocol === 'http:' && loopback) parsed.protocol = 'ws:';
-    else if (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && loopback)) {
-      throw new OpenClawRouteContractError('OpenClaw route status must use HTTPS or WSS');
-    }
-    const expectedHostname = String(status?.hostname ?? '').trim().toLowerCase().replace(/\.$/, '');
-    const actualHostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
-    if (
-      !actualHostname
-      || (expectedHostname && actualHostname !== expectedHostname)
-      || parsed.username
-      || parsed.password
-      || parsed.search
-      || parsed.hash
-    ) {
-      throw new OpenClawRouteContractError('OpenClaw route status contains an invalid public URL');
-    }
-    return parsed.toString().replace(/\/$/, '');
-  }
-
-  /** Resolve OpenClaw connection context while retaining caller-known credentials. */
-  async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
-    const callerAbortError = (): Error => {
-      if (options.signal?.reason instanceof Error) return options.signal.reason;
-      const error = new Error('OpenClaw gateway context wait cancelled');
-      error.name = 'AbortError';
-      return error;
-    };
-    if (options.signal?.aborted) throw callerAbortError();
-    const timeoutMs = options.timeoutMs ?? 30_000;
-    const retryIntervalMs = options.retryIntervalMs ?? 1_000;
-    const deployments = this.requireDeployments();
-    const deadline = Date.now() + timeoutMs;
-    let lastError: unknown = null;
-    const timeoutError = (): Error => {
-      return lastError instanceof Error
-        ? lastError
-        : new Error('Timed out waiting for OpenClaw gateway context');
-    };
-    const controller = new AbortController();
-    const forwardAbort = () => controller.abort(callerAbortError());
-    options.signal?.addEventListener('abort', forwardAbort, { once: true });
-    const timeoutId = setTimeout(() => controller.abort(timeoutError()), Math.max(0, timeoutMs));
-    const waitAbortError = (): Error => {
-      return controller.signal.reason instanceof Error ? controller.signal.reason : callerAbortError();
-    };
-    const runWithAbort = <T>(operation: Promise<T>): Promise<T> => {
-      if (controller.signal.aborted) return Promise.reject(waitAbortError());
-      return new Promise<T>((resolve, reject) => {
-        const abortOperation = () => {
-          cleanup();
-          reject(waitAbortError());
-        };
-        const cleanup = () => controller.signal.removeEventListener('abort', abortOperation);
-        controller.signal.addEventListener('abort', abortOperation, { once: true });
-        operation.then(
-          (value) => {
-            cleanup();
-            resolve(value);
-          },
-          (error) => {
-            cleanup();
-            reject(error);
-          },
-        );
-      });
-    };
-    const waitForRetry = (delayMs: number): Promise<void> => {
-      if (controller.signal.aborted) return Promise.reject(waitAbortError());
-      return new Promise<void>((resolve, reject) => {
-        const finish = () => {
-          controller.signal.removeEventListener('abort', abortWait);
-          resolve();
-        };
-        const timer = setTimeout(finish, delayMs);
-        const abortWait = () => {
-          clearTimeout(timer);
-          controller.signal.removeEventListener('abort', abortWait);
-          reject(waitAbortError());
-        };
-        controller.signal.addEventListener('abort', abortWait, { once: true });
-      });
-    };
-
-    try {
-      while (true) {
-        const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) throw timeoutError();
-        const requestOptions: RequestOverrides = {
-          signal: controller.signal,
-          timeout: Math.max(1, remainingMs),
-        };
-        let refreshed: Agent;
-        let resolvedGatewayUrl: string | null = null;
-        let resolvedFromRouteStatus = false;
-        try {
-          refreshed = await runWithAbort(deployments.get(this.id, requestOptions));
-          if (refreshed.launchEpoch < this.launchEpoch) {
-            throw new Error('gateway Agent belongs to an older launch epoch');
-          }
-          const refreshedState = refreshed.state.toUpperCase();
-          if (refreshedState !== 'RUNNING') {
-            const message = `gateway Agent is ${refreshed.state}, not RUNNING`;
-            if (OPENCLAW_GATEWAY_TERMINAL_STATES.has(refreshedState)) {
-              throw new OpenClawLifecycleTerminalError(message);
-            }
-            throw new Error(message);
-          }
-          const routeState = await runWithAbort(deployments.getRoutes(this.id, requestOptions));
-          const routeStatus = routeState.routeStatuses.openclaw;
-          resolvedGatewayUrl = OpenClawAgent.gatewayUrlFromRouteStatus(routeStatus);
-          if (!resolvedGatewayUrl) {
-            const dnsState = String(routeStatus?.dns_state ?? 'pending_create').trim() || 'pending_create';
-            const lastRouteError = String(routeStatus?.last_error ?? '').trim();
-            throw new Error(
-              `OpenClaw gateway route is ${dnsState}${lastRouteError ? `: ${lastRouteError}` : ''}`,
-            );
-          }
-          resolvedFromRouteStatus = true;
-        } catch (error) {
-          if (
-            error instanceof OpenClawRouteContractError
-            || error instanceof OpenClawLifecycleTerminalError
-          ) throw error;
-          if (error instanceof APIError && [401, 403, 404].includes(error.statusCode)) {
-            throw error;
-          }
-          lastError = error;
-          const remainingAfterRequestMs = deadline - Date.now();
-          if (remainingAfterRequestMs <= 0) throw timeoutError();
-          const retryDelayMs = Math.min(Math.max(0, retryIntervalMs), remainingAfterRequestMs);
-          await waitForRetry(retryDelayMs);
-          continue;
-        }
-
-        // Prefer the caller-retained token unless reconnect authentication
-        // explicitly requires the latest value from Secret storage.
-        let gatewayToken = options.forceGatewayTokenRefresh ? null : this.gatewayToken;
-        if (!gatewayToken) {
-          try {
-            const secretData = await runWithAbort(
-              deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
-            );
-            if (Number(secretData.launch_epoch ?? 0) < refreshed.launchEpoch) {
-              throw new Error('gateway Secret belongs to an older launch epoch');
-            }
-            gatewayToken = String(secretData.value ?? '').trim() || null;
-          } catch (error) {
-            if (error instanceof APIError && [401, 403, 404].includes(error.statusCode)) {
-              throw new Error(
-                'OpenClaw gateway token is unavailable; retain the object returned by createOpenClaw or pass gatewayToken explicitly',
-              );
-            }
-            throw error;
-          }
-          if (!gatewayToken) {
-            throw new Error('OpenClaw gateway token secret is empty');
-          }
-        }
-        const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
-        if (
-          confirmed.launchEpoch !== refreshed.launchEpoch
-          || confirmed.state.toUpperCase() !== 'RUNNING'
-        ) {
-          throw new Error('gateway Agent changed while its Secret was resolved');
-        }
-        let gatewayUrl: string | null = null;
-        if (resolvedFromRouteStatus) {
-          const confirmedRoutes = await runWithAbort(deployments.getRoutes(this.id, requestOptions));
-          const confirmedRouteUrl = OpenClawAgent.gatewayUrlFromRouteStatus(
-            confirmedRoutes.routeStatuses.openclaw,
-          );
-          if (!confirmedRouteUrl || confirmedRouteUrl !== resolvedGatewayUrl) {
-            throw new Error('OpenClaw gateway route changed while its Secret was resolved');
-          }
-          gatewayUrl = confirmedRouteUrl;
-        }
-        gatewayUrl ??= confirmed instanceof OpenClawAgent
-          ? confirmed.gatewayUrl
-          : OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
-        if (!gatewayUrl) throw new Error('OpenClaw gateway route disappeared during Secret resolution');
-        this.gatewayUrl = gatewayUrl;
-        this.gatewayToken = gatewayToken;
-        this.gatewayLaunchEpoch = refreshed.launchEpoch;
-        return {
-          agent_id: this.id,
-          gateway_url: gatewayUrl,
-          gateway_token: gatewayToken,
-          launch_epoch: refreshed.launchEpoch,
-        };
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      options.signal?.removeEventListener('abort', forwardAbort);
-    }
-  }
-
-  gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
-    if (!this.gatewayUrl) {
-      throw new Error('Agent has no OpenClaw gateway URL');
-    }
-    return new GatewayClient(this.gatewayOptions(this.gatewayUrl, this.gatewayToken, options));
-  }
-
-  async acquireGateway(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-    contextOptions: GatewayContextWaitOptions = {},
-  ): Promise<OpenClawGatewayLease> {
-    const deployments = this.requireDeployments();
-    const generation = deployments.openClawGateways.generation(this.id);
-    const knownLaunchEpoch = this.gatewayLaunchEpoch ?? this.launchEpoch;
-    if (this.gatewayUrl && knownLaunchEpoch > 0) {
-      const existing = deployments.openClawGateways.acquireExisting({
-        deploymentId: this.id,
-        launchEpoch: knownLaunchEpoch,
-        generation,
-        options: this.gatewayOptions(this.gatewayUrl, this.gatewayToken, options),
-      });
-      if (existing) return existing;
-    }
-
-    const context = await deployments.resolveOpenClawGatewayContext(this, contextOptions);
-    this.gatewayUrl = context.gateway_url;
-    this.gatewayToken = context.gateway_token;
-    this.gatewayLaunchEpoch = context.launch_epoch;
-    return deployments.openClawGateways.acquire({
-      deploymentId: this.id,
-      launchEpoch: context.launch_epoch,
-      generation,
-      options: this.gatewayOptions(context.gateway_url, context.gateway_token, options),
-    });
-  }
-
-  /** Acquire the deployment-scoped gateway and wait for its authenticated hello. */
-  async acquireConnectedGateway(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-    contextOptions: GatewayContextWaitOptions = {},
-  ): Promise<OpenClawGatewayLease> {
-    const deployments = this.requireDeployments();
-    const generation = deployments.openClawGateways.generation(this.id);
-    const lease = await this.acquireGateway(options, contextOptions);
-    try {
-      await lease.client.connect({
-        signal: contextOptions.signal,
-      });
-      if (deployments.openClawGateways.generation(this.id) !== generation) {
-        throw new Error(`OpenClaw gateway connection for ${this.id} was invalidated`);
-      }
-      return lease;
+      return new AcpTurnDriver(lease, options);
     } catch (error) {
-      lease.release({ retain: false });
+      lease.release();
       throw error;
     }
-  }
-
-  invalidateGatewayConnection(): void {
-    this.requireDeployments().invalidateOpenClawGateway(this.id);
-    this.gatewayToken = null;
-    this.gatewayLaunchEpoch = null;
-  }
-
-  private gatewayOptions(
-    gatewayUrl: string,
-    gatewayToken: string | null,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'>,
-  ): GatewayOptions {
-    const deployments = this.requireDeployments();
-    const launchEpoch = this.gatewayLaunchEpoch ?? this.launchEpoch;
-    return {
-      ...options,
-      url: gatewayUrl,
-      token: undefined,
-      gatewayToken: options.gatewayToken ?? gatewayToken ?? undefined,
-      refreshGatewayToken: options.refreshGatewayToken ?? (options.gatewayToken === undefined
-        ? async (signal) => {
-            const context = await deployments.resolveOpenClawGatewayContext(this, {
-              forceGatewayTokenRefresh: true,
-              signal,
-            });
-            if (context.launch_epoch !== launchEpoch || context.gateway_url !== gatewayUrl) {
-              deployments.invalidateOpenClawGateway(this.id);
-              throw new Error('OpenClaw gateway context changed while reconnecting');
-            }
-            return context.gateway_token;
-          }
-        : undefined),
-      deploymentId: options.deploymentId ?? this.id,
-      apiKey: options.apiKey ?? deployments.agentApiKey,
-      apiBase: options.apiBase ?? deployments.agentApiBase,
-      autoApprovePairing: options.autoApprovePairing ?? true,
-    };
-  }
-
-  async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
-    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
-      await this.waitForGatewayContext();
-    }
-    const client = this.gateway(options);
-    await client.connect();
-    return client;
-  }
-
-  /** Connect and return the canonical runtime-neutral session client view. */
-  async connectSession(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<OpenClawSessionClient> {
-    return new OpenClawSessionClient(await this.connect(options));
-  }
-
-  /** Run one operation against the deployment-scoped managed gateway. */
-  private async withGateway<T>(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'>,
-    fn: (client: GatewayClient) => Promise<T>,
-    contextOptions: GatewayContextWaitOptions = {},
-  ): Promise<T> {
-    const lease = await this.acquireConnectedGateway(options, contextOptions);
-    try {
-      return await fn(lease.client);
-    } finally {
-      lease.release();
-    }
-  }
-
-  async gatewayStatus(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => client.status());
-  }
-
-  async waitReady(
-    timeoutMs = 300_000,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWaitReadyOptions = {},
-  ): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => (
-      client.waitReady(timeoutMs, {
-        retryIntervalMs: options.retryIntervalMs,
-        probe: options.probe,
-      })
-    ), { timeoutMs: options.timeout });
-  }
-
-  async configGet(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => client.configGet());
-  }
-
-  async configSchema(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<OpenClawConfigSchemaResponse> {
-    return this.withGateway(options, (client) => client.configSchema());
-  }
-
-  async configPatch(
-    patch: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<void> {
-    await this.withGateway(options, (client) => client.configPatch(patch));
-  }
-
-  async configureSlackRelay(
-    options: (Omit<OpenClawSlackRelayOptions, 'gatewayId'> & { gatewayId?: string }) | OpenClawSlackRelayConfiguration,
-    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
-  ): Promise<void> {
-    const { accountId, ...connectOptions } = gatewayOptions;
-    await this.withGateway(connectOptions, async (client) => {
-      if ('relay' in options) {
-        await client.configureSlackRelay(options, accountId);
-      } else {
-        await client.configureSlackRelay({
-          ...options,
-          gatewayId: options.gatewayId ?? this.gatewayId ?? `agent:${this.id}`,
-        });
-      }
-    });
-  }
-
-  async configureSlackSocket(
-    config: OpenClawSlackSocketConfiguration,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
-  ): Promise<void> {
-    const { accountId, ...gatewayOptions } = options;
-    await this.withGateway(gatewayOptions, (client) => client.configureSlackSocket(config, accountId));
-  }
-
-  async configureSlackHttp(
-    config: OpenClawSlackHttpConfiguration,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
-  ): Promise<void> {
-    const { accountId, ...gatewayOptions } = options;
-    await this.withGateway(gatewayOptions, (client) => client.configureSlackHttp(config, accountId));
-  }
-
-  async configureTelegram(
-    config: OpenClawTelegramConfigPatch,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
-  ): Promise<void> {
-    const { accountId, ...gatewayOptions } = options;
-    await this.withGateway(gatewayOptions, (client) => client.configureTelegram(config, accountId));
-  }
-
-  async configureWhatsapp(
-    config: OpenClawWhatsAppConfigPatch,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
-  ): Promise<void> {
-    const { accountId, ...gatewayOptions } = options;
-    await this.withGateway(gatewayOptions, (client) => client.configureWhatsapp(config, accountId));
-  }
-
-  async configApply(
-    config: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<void> {
-    await this.withGateway(options, (client) => client.configApply(config));
-  }
-
-  async modelsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    return this.withGateway(options, (client) => client.modelsList());
-  }
-
-  async sessionsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    return this.withGateway(options, (client) => client.sessionsList());
-  }
-
-  async sessionsListResult(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewaySessionsListResult> {
-    return this.withGateway(options, (client) => client.sessionsListResult());
-  }
-
-  async operationsSnapshot(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<OpenClawOperationsSnapshot> {
-    return this.withGateway(options, async (client) => {
-      const [sessionsResult, cronResult] = await Promise.allSettled([
-        client.sessionsListResult(),
-        client.cronList(),
-      ] as const);
-      const failures: OpenClawOperationsSnapshot['failures'] = {};
-      if (sessionsResult.status === 'rejected') {
-        failures.sessions = stringifyOpenClawOperationsFailure(sessionsResult.reason);
-      }
-      if (cronResult.status === 'rejected') {
-        failures.cron = stringifyOpenClawOperationsFailure(cronResult.reason);
-      }
-      return {
-        sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : null,
-        cronJobs: cronResult.status === 'fulfilled' ? cronResult.value : null,
-        failures,
-        capturedAt: Date.now(),
-      };
-    }, { timeoutMs: options.timeout });
-  }
-
-  async *chatSend(
-    message: string,
-    sessionKey: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      attachments?: ChatAttachment[];
-    } = {},
-  ): AsyncGenerator<ChatEvent> {
-    const lease = await this.acquireConnectedGateway(options);
-    try {
-      for await (const event of lease.client.chatSend(message, sessionKey, options.attachments)) {
-        yield event;
-      }
-    } finally {
-      lease.release();
-    }
-  }
-
-  async channelsStatus(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      probe?: boolean;
-      timeoutMs?: number;
-      channel?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => (
-      client.channelsStatus(options.probe ?? false, options.timeoutMs, options.channel)
-    ));
-  }
-
-  async channelsStart(
-    channel: string,
-    accountId?: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => client.channelsStart(channel, accountId));
-  }
-
-  async channelsStop(
-    channel: string,
-    accountId?: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => client.channelsStop(channel, accountId));
-  }
-
-  async channelsLogout(
-    channel: string,
-    accountId?: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    return this.withGateway(options, (client) => client.channelsLogout(channel, accountId));
-  }
-
-  async webLoginStart(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginStartOptions = {},
-  ): Promise<GatewayWebLoginStartResult> {
-    return this.withGateway(options, (client) => (
-      client.webLoginStart({
-        force: options.force,
-        timeoutMs: options.timeoutMs,
-        verbose: options.verbose,
-        accountId: options.accountId,
-      })
-    ));
-  }
-
-  async webLoginWait(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginWaitOptions = {},
-  ): Promise<GatewayWebLoginWaitResult> {
-    return this.withGateway(options, (client) => (
-      client.webLoginWait({
-        timeoutMs: options.timeoutMs,
-        accountId: options.accountId,
-        currentQrDataUrl: options.currentQrDataUrl,
-      })
-    ));
-  }
-
-  async integrationsAuthStart(
-    params: GatewayIntegrationAuthStartParams,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<GatewayIntegrationAuthStartResult> {
-    return this.withGateway(options, (client) => client.integrationsAuthStart(params));
-  }
-
-  async integrationsAuthStatus(
-    params: GatewayIntegrationAuthStatusParams,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<GatewayIntegrationAuthStatusResult> {
-    return this.withGateway(options, (client) => client.integrationsAuthStatus(params));
-  }
-
-  async integrationsStatus(
-    params: GatewayIntegrationStatusParams = {},
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<GatewayIntegrationStatusResult> {
-    return this.withGateway(options, (client) => client.integrationsStatus(params));
-  }
-
-  async integrationsDisconnect(
-    params: GatewayIntegrationDisconnectParams,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<GatewayIntegrationDisconnectResult> {
-    return this.withGateway(options, (client) => client.integrationsDisconnect(params));
-  }
-
-  async workspaceFiles(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<{ agentId: string; files: any[] }> {
-    return this.withGateway(options, async (client) => {
-      const agents = await client.agentsList();
-      const agentId = agents[0]?.id ?? 'main';
-      const files = await client.filesList(agentId);
-      return { agentId, files };
-    });
-  }
-
-  async fileGet(
-    name: string,
-    agentId?: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<string> {
-    return this.withGateway(options, async (client) => {
-      let resolvedAgentId: string;
-      if (agentId) {
-        resolvedAgentId = agentId;
-      } else {
-        const agents = await client.agentsList();
-        resolvedAgentId = agents[0]?.id ?? 'main';
-      }
-      return await client.fileGet(resolvedAgentId, name);
-    });
-  }
-
-  async fileSet(
-    name: string,
-    content: string,
-    agentId?: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<void> {
-    await this.withGateway(options, async (client) => {
-      let resolvedAgentId: string;
-      if (agentId) {
-        resolvedAgentId = agentId;
-      } else {
-        const agents = await client.agentsList();
-        resolvedAgentId = agents[0]?.id ?? 'main';
-      }
-      await client.fileSet(resolvedAgentId, name, content);
-    });
-  }
-
-  async chatHistory(
-    sessionKey?: string,
-    limit = 50,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<any[]> {
-    return this.withGateway(options, (client) => client.chatHistory(sessionKey, limit));
-  }
-
-  async chatSendMessage(
-    message: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      sessionKey?: string;
-      agentId?: string;
-      attachments?: ChatAttachment[];
-    } = {},
-  ): Promise<any> {
-    return this.withGateway(options, (client) => (
-      client.sendChat(
-        message,
-        options.sessionKey,
-        options.agentId,
-        options.attachments,
-      )
-    ));
-  }
-
-  private async mutateConfig(
-    mutator: (config: Record<string, any>) => void | Promise<void>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    const config = structuredClone(await this.configGet(options));
-    await mutator(config);
-    await this.configApply(config, options);
-    return config;
-  }
-
-  async providerUpsert(
-    providerId: string,
-    providerConfig: OpenClawModelProviderPatch,
-    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    const { api, baseUrl, apiKey, models, ...extra } = providerConfig;
-    const config = await this.mutateConfig((next) => {
-      const modelsCfg = (next.models ??= {});
-      const providers = (modelsCfg.providers ??= {});
-      const provider = { ...(providers[providerId] ?? {}) };
-      provider.api = api;
-      provider.baseUrl = baseUrl;
-      if (apiKey !== undefined) provider.apiKey = apiKey;
-      if (models !== undefined) provider.models = structuredClone(models);
-      Object.assign(provider, extra);
-      providers[providerId] = provider;
-    }, gatewayOptions);
-    return config.models?.providers?.[providerId] ?? {};
-  }
-
-  async providerRemove(
-    providerId: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    const config = await this.mutateConfig((next) => {
-      if (next.models?.providers) {
-        delete next.models.providers[providerId];
-      }
-    }, options);
-    return config.models?.providers ?? {};
-  }
-
-  async modelUpsert(
-    providerId: string,
-    modelId: string,
-    modelConfig: Omit<Partial<OpenClawModelDefinitionConfig>, 'id'> = {},
-    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    const config = await this.mutateConfig((next) => {
-      const providers = ((next.models ??= {}).providers ??= {});
-      const provider = { ...(providers[providerId] ?? {}) };
-      const models = Array.isArray(provider.models)
-        ? provider.models.map((entry: Record<string, any>) => ({ ...entry }))
-        : [];
-      let model = models.find((entry: Record<string, any>) => entry.id === modelId);
-      if (!model) {
-        model = { id: modelId };
-        models.push(model);
-      }
-      Object.assign(model, modelConfig);
-      provider.models = models;
-      providers[providerId] = provider;
-    }, gatewayOptions);
-    return (
-      config.models?.providers?.[providerId]?.models?.find((entry: Record<string, any>) => entry.id === modelId) ??
-      {}
-    );
-  }
-
-  async modelRemove(
-    providerId: string,
-    modelId: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Array<Record<string, any>>> {
-    const config = await this.mutateConfig((next) => {
-      const providers = ((next.models ??= {}).providers ??= {});
-      const provider = { ...(providers[providerId] ?? {}) };
-      provider.models = Array.isArray(provider.models)
-        ? provider.models.filter((entry: Record<string, any>) => entry.id !== modelId)
-        : [];
-      providers[providerId] = provider;
-    }, options);
-    return config.models?.providers?.[providerId]?.models ?? [];
-  }
-
-  async setDefaultModel(
-    providerId: string,
-    modelId: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<string> {
-    const primary = `${providerId}/${modelId}`;
-    await this.mutateConfig((next) => {
-      const defaults = ((next.agents ??= {}).defaults ??= {});
-      const model = (defaults.model ??= {});
-      model.primary = primary;
-    }, options);
-    return primary;
-  }
-
-  async setMemorySearch(
-    memorySearchConfig: {
-      provider: string;
-      model: string;
-      baseUrl?: string;
-      apiKey?: string;
-      [key: string]: any;
-    },
-    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<Record<string, any>> {
-    const { provider, model, baseUrl, apiKey, ...extra } = memorySearchConfig;
-    const config = await this.mutateConfig((next) => {
-      const defaults = ((next.agents ??= {}).defaults ??= {});
-      const memorySearch = { ...(defaults.memorySearch ?? {}) };
-      memorySearch.provider = provider;
-      memorySearch.model = model;
-      const remote = { ...(memorySearch.remote ?? {}) };
-      if (baseUrl !== undefined) remote.baseUrl = baseUrl;
-      if (apiKey !== undefined) remote.apiKey = apiKey;
-      if (Object.keys(remote).length > 0) memorySearch.remote = remote;
-      Object.assign(memorySearch, extra);
-      defaults.memorySearch = memorySearch;
-    }, gatewayOptions);
-    return config.agents?.defaults?.memorySearch ?? {};
-  }
-
-  async channelUpsert(
-    channelId: string,
-    channelConfig: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    const { accountId, ...gatewayOptions } = options;
-    const config = await this.mutateConfig((next) => {
-      const channels = (next.channels ??= {});
-      const current =
-        channels[channelId] && typeof channels[channelId] === 'object'
-          ? structuredClone(channels[channelId] as Record<string, any>)
-          : {};
-      if (accountId) {
-        const accounts =
-          current.accounts && typeof current.accounts === 'object'
-            ? structuredClone(current.accounts as Record<string, any>)
-            : {};
-        const currentAccount =
-          accounts[accountId] && typeof accounts[accountId] === 'object'
-            ? accounts[accountId] as Record<string, any>
-            : {};
-        accounts[accountId] = deepMergeConfig(currentAccount, channelConfig);
-        current.accounts = accounts;
-        channels[channelId] = current;
-        return;
-      }
-      channels[channelId] = deepMergeConfig(current, channelConfig);
-    }, gatewayOptions);
-    const channel = config.channels?.[channelId] ?? {};
-    if (accountId) {
-      return channel.accounts?.[accountId] ?? {};
-    }
-    return channel;
-  }
-
-  async channelPatch(
-    channelId: string,
-    patch: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    return await this.channelUpsert(channelId, patch, options);
-  }
-
-  async telegramUpsert(
-    channelConfig: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    return await this.channelUpsert('telegram', channelConfig, options);
-  }
-
-  async slackUpsert(
-    channelConfig: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    return await this.channelUpsert('slack', channelConfig, options);
-  }
-
-  async discordUpsert(
-    channelConfig: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
-    return await this.channelUpsert('discord', channelConfig, options);
-  }
-
-  async cronList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    return this.withGateway(options, (client) => client.cronList());
-  }
-
-  async cronAdd(
-    job: Record<string, any>,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<any> {
-    return this.withGateway(options, (client) => client.cronAdd(job));
-  }
-
-  async cronRemove(
-    jobId: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<void> {
-    await this.withGateway(options, (client) => client.cronRemove(jobId));
-  }
-
-  async cronRun(
-    jobId: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
-  ): Promise<any> {
-    return this.withGateway(options, (client) => client.cronRun(jobId));
-  }
-}
-
-export class OpenClawProAgent extends OpenClawAgent {
-  static override fromDict(data: AgentHydrationData): OpenClawProAgent {
-    return new OpenClawProAgent({
-      ...agentStateFromDict(data),
-      gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
-      gatewayToken: null,
-    });
   }
 }
 
@@ -4782,8 +3658,6 @@ export class Deployments {
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
   private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'put' | 'patch' | 'delete'>;
-  public readonly openClawGateways: OpenClawGatewayConnectionManager;
-  private readonly openClawGatewayContextFlights = new Map<string, OpenClawGatewayContextFlight>();
 
   constructor(
     http: HTTPClient,
@@ -4791,117 +3665,12 @@ export class Deployments {
     agentApiBase?: string,
     agentsWsUrl?: string,
     requestTimeout?: number,
-    openClawGatewayOptions: OpenClawGatewayConnectionManagerOptions = {},
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
     this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
     const agentTimeout = requestTimeout ?? (http instanceof HTTPClient ? (http as any).timeout : undefined);
     this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey, agentTimeout) : http;
-    this.openClawGateways = new OpenClawGatewayConnectionManager(openClawGatewayOptions);
-  }
-
-  dispose(): void {
-    for (const flight of this.openClawGatewayContextFlights.values()) {
-      flight.controller.abort(new Error('Agent deployments client disposed'));
-    }
-    this.openClawGatewayContextFlights.clear();
-    this.openClawGateways.dispose();
-  }
-
-  async resolveOpenClawGatewayContext(
-    agent: OpenClawAgent,
-    options: GatewayContextWaitOptions = {},
-  ): Promise<AgentGatewayContext> {
-    if (options.signal?.aborted) {
-      if (options.signal.reason instanceof Error) throw options.signal.reason;
-      const error = new Error('OpenClaw gateway context wait cancelled');
-      error.name = 'AbortError';
-      throw error;
-    }
-    const generation = this.openClawGateways.generation(agent.id);
-    const tokenMode = options.forceGatewayTokenRefresh ? 'refresh' : 'retain';
-    const key = `${agent.id}:${generation}:${agent.launchEpoch}:${tokenMode}`;
-    let flight = this.openClawGatewayContextFlights.get(key);
-    if (!flight) {
-      const controller = new AbortController();
-      flight = {
-        deploymentId: agent.id,
-        controller,
-        promise: agent.waitForGatewayContext({
-          timeoutMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS,
-          retryIntervalMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS,
-          signal: controller.signal,
-          ...(options.forceGatewayTokenRefresh ? { forceGatewayTokenRefresh: true } : {}),
-        }),
-        waiters: 0,
-        settled: false,
-      };
-      this.openClawGatewayContextFlights.set(key, flight);
-      const settledFlight = flight;
-      flight.promise.then(
-        () => {
-          settledFlight.settled = true;
-          if (this.openClawGatewayContextFlights.get(key) === settledFlight) {
-            this.openClawGatewayContextFlights.delete(key);
-          }
-        },
-        () => {
-          settledFlight.settled = true;
-          if (this.openClawGatewayContextFlights.get(key) === settledFlight) {
-            this.openClawGatewayContextFlights.delete(key);
-          }
-        },
-      );
-    }
-
-    flight.waiters += 1;
-    const timeoutMs = options.timeoutMs ?? 30_000;
-    try {
-      return await new Promise<AgentGatewayContext>((resolve, reject) => {
-        let settled = false;
-        const finish = (callback: () => void) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          options.signal?.removeEventListener('abort', abort);
-          callback();
-        };
-        const abort = () => finish(() => {
-          if (options.signal?.reason instanceof Error) reject(options.signal.reason);
-          else {
-            const error = new Error('OpenClaw gateway context wait cancelled');
-            error.name = 'AbortError';
-            reject(error);
-          }
-        });
-        const timer = setTimeout(() => {
-          finish(() => reject(new Error('Timed out waiting for OpenClaw gateway context')));
-        }, Math.max(0, timeoutMs));
-        options.signal?.addEventListener('abort', abort, { once: true });
-        flight?.promise.then(
-          (context) => finish(() => resolve(context)),
-          (error) => finish(() => reject(error)),
-        );
-      });
-    } finally {
-      flight.waiters = Math.max(0, flight.waiters - 1);
-      if (flight.waiters === 0 && !flight.settled) {
-        if (this.openClawGatewayContextFlights.get(key) === flight) {
-          this.openClawGatewayContextFlights.delete(key);
-        }
-        flight.controller.abort(new Error('OpenClaw gateway context has no waiters'));
-      }
-    }
-  }
-
-  invalidateOpenClawGateway(agentId: string): void {
-    for (const [key, flight] of this.openClawGatewayContextFlights) {
-      if (flight.deploymentId !== agentId) continue;
-      flight.controller.abort(new Error(`OpenClaw gateway context for ${agentId} was invalidated`));
-      this.openClawGatewayContextFlights.delete(key);
-    }
-    this.openClawGateways.invalidate(agentId);
   }
 
   get agentApiKey(): string {
@@ -4913,31 +3682,17 @@ export class Deployments {
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
-    let agent: Agent;
-    if (data.runtime === 'hermes-agent') {
-      agent = HermesAgent.fromDict(data);
-    } else if (data.runtime === 'buzz-agent') {
-      agent = BuzzAgent.fromDict(data);
-    } else if (data.runtime === 'opencode') {
-      agent = OpenCodeAgent.fromDict(data);
-    } else if (data.runtime === 'codex') {
-      agent = CodexAgent.fromDict(data);
-    } else if (data.runtime === 'claude-code') {
-      agent = ClaudeCodeAgent.fromDict(data);
-    } else if (data.runtime === 'goose') {
-      agent = GooseAgent.fromDict(data);
-    } else if (data.runtime === 'kimi-code') {
-      agent = KimiCodeAgent.fromDict(data);
-    } else if (data.runtime === 'pi') {
-      agent = PiAgent.fromDict(data);
-    } else if (data.runtime === 'openclaw-pro' || isOpenClawProHydrationData(data)) {
-      agent = OpenClawProAgent.fromDict(data);
-    } else if (isOpenClawHydrationData(data)) {
-      agent = OpenClawAgent.fromDict(data);
-    } else {
-      agent = Agent.fromDict(data);
+    if (data.runtime === 'hermes-agent' || data.runtime === 'hermes_acp') {
+      return bindAgent(new CodingAgent(agentStateFromDict(data)), this);
     }
-    return bindAgent(agent, this);
+    if (
+      (data.runtime !== undefined && data.runtime !== null && HYPER_ACP_RUNTIMES.has(data.runtime))
+      || isOpenClawProHydrationData(data)
+      || isOpenClawHydrationData(data)
+    ) {
+      return bindAgent(CodingAgent.fromDict(data), this);
+    }
+    return bindAgent(Agent.fromDict(data), this);
   }
 
   private async getById(agentId: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
@@ -5143,44 +3898,53 @@ export class Deployments {
    * incomplete env in between; the returned Agent carries the complete set.
    */
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    const prepared = prepareOpenClawLaunch(options, true, this.agentApiBase);
+    const prepared = prepareOpenClawLaunch(options, this.agentApiBase);
+    const runtime = options.runtime ?? 'openclaw';
+    const pro = runtime === 'openclaw-pro';
     const effectiveOptions: CreateAgentOptions = {
       ...options,
-      runtime: options.runtime ?? 'openclaw',
+      runtime,
       secrets: prepared.secrets,
     };
     delete (effectiveOptions as { config?: unknown }).config;
     delete (effectiveOptions as { slack?: unknown }).slack;
     effectiveOptions.env = {
-      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      // openclaw-pro is the same launch shape with the desktop leg on.
+      ...(pro ? { HYPER_DESKTOP_ENABLED: '1' } : null),
+      ...buildWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawCronEnv(options.cronEnabled ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...DEFAULT_OPENCLAW_MODEL_ENV,
       ...prepared.env,
     };
+    const openClawRoutes: OpenClawRouteOptions = pro
+      ? { includeDesktop: true, ...(options.openClawRoutes ?? {}) }
+      : (options.openClawRoutes ?? {});
     effectiveOptions.routes = options.routes === undefined
-      ? buildOpenClawRoutes(options.openClawRoutes ?? {})
+      ? buildOpenClawRoutes(openClawRoutes)
       : withOpenClawGatewayRoute(options.routes);
-    effectiveOptions.image = defaultOpenClawImage(options.image);
+    effectiveOptions.image = defaultOpenClawImage(runtime, options.image);
+    if (pro && options.runtimeScopes === undefined) {
+      effectiveOptions.runtimeScopes = DEFAULT_AGENT_RUNTIME_SCOPES;
+    }
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (options.syncInclude === undefined && options.syncExclude === undefined) {
       effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
     }
     const agent = await this.create(effectiveOptions);
-    if (agent instanceof OpenClawAgent) agent.gatewayToken = prepared.gatewayToken;
     if (!prepared.slack.enabled || prepared.slack.gatewayId || !prepared.slack.relayBaseUrl) return agent;
-    return this.applyHostedSlackLaunchConfig(agent, prepared.slack.relayBaseUrl, prepared.gatewayToken);
+    return this.applyHostedSlackLaunchConfig(agent, prepared.slack.relayBaseUrl);
   }
 
   /** Complete the ID-dependent hosted Slack launch contract on a stopped Agent. */
   async ensureOpenClawHostedSlack(agentIdOrName: string, relayBaseUrl?: string): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const agent = await this.get(agentId);
-    if (!(agent instanceof OpenClawAgent)) {
+    if (!isOpenClawRuntime(agent.runtime, agent.routes)) {
       throw new Error(`Agent ${agentId} is not an OpenClaw deployment`);
     }
     const resolvedRelayBaseUrl = resolveHostedSlackRelayBaseUrl(relayBaseUrl, this.agentApiBase);
-    return this.applyHostedSlackLaunchConfig(agent, resolvedRelayBaseUrl, agent.gatewayToken);
+    return this.applyHostedSlackLaunchConfig(agent, resolvedRelayBaseUrl);
   }
 
   /**
@@ -5196,7 +3960,7 @@ export class Deployments {
   async disableOpenClawHostedSlack(agentIdOrName: string): Promise<AgentEnvMutationResponse> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const agent = await this.get(agentId);
-    if (!(agent instanceof OpenClawAgent)) {
+    if (!isOpenClawRuntime(agent.runtime, agent.routes)) {
       throw new Error(`Agent ${agentId} is not an OpenClaw deployment`);
     }
     return this.setEnv(agentId, HOSTED_SLACK_APP_ENABLED_ENV, '0');
@@ -5213,7 +3977,6 @@ export class Deployments {
   private async applyHostedSlackLaunchConfig(
     agent: Agent,
     relayBaseUrl: string,
-    gatewayToken: string | null,
   ): Promise<Agent> {
     // Launch updates are rejected while the Agent is CREATING.
     const ready = agent.state === 'STOPPED'
@@ -5245,36 +4008,23 @@ export class Deployments {
         `Agent ${updated.id} did not store the hosted Slack launch env (missing ${missing.join(', ')})`,
       );
     }
-    if (updated instanceof OpenClawAgent) updated.gatewayToken = gatewayToken;
     return updated;
   }
 
-  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
-    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
+  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<CodingAgent> {
     const env: Record<string, string> = {
       ...buildHermesCronEnv(options.cronEnabled ?? null),
       ...DEFAULT_HERMES_MODEL_ENV,
       ...(options.env ?? {}),
     };
-    delete env.API_SERVER_KEY;
-    const corsOrigins = [
-      ...(env.API_SERVER_CORS_ORIGINS ?? '').split(','),
-      ...(options.corsOrigins ?? []),
-    ]
+    const corsOrigins = [...(options.corsOrigins ?? [])]
       .map((origin) => origin.trim())
       .filter((origin) => origin.length > 0);
-    if (corsOrigins.length > 0) {
-      env.API_SERVER_CORS_ORIGINS = [...new Set(corsOrigins)].join(',');
-    }
-    const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime: 'hermes-agent',
       env,
-      secrets,
-      // Both layers: the pod env gates origins inside the Hermes API server,
-      // the launch-config cors drives the route-plane middleware (which alone
-      // can stamp CORS headers on SSE responses).
+      secrets: options.secrets,
       cors: options.cors !== undefined
         ? options.cors
         : corsOrigins.length > 0
@@ -5293,31 +4043,23 @@ export class Deployments {
         : options.routes,
     };
     const agent = await this.create(effectiveOptions);
-    if (!(agent instanceof HermesAgent)) {
+    if (
+      !(agent instanceof CodingAgent)
+      || (agent.runtime !== 'hermes-agent' && agent.runtime !== 'hermes_acp')
+    ) {
       throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
-    }
-    agent.apiServerKey = apiServerKey;
-    if (agent.launchConfig?.env && typeof agent.launchConfig.env === 'object') {
-      agent.launchConfig = structuredClone(agent.launchConfig);
-      delete agent.launchConfig.env.API_SERVER_KEY;
     }
     return agent;
   }
 
-  async createOpenClawPro(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    return this.createOpenClaw({
-      ...options,
-      runtime: 'openclaw-pro',
-      env: { HYPER_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
-      image: defaultOpenClawProImage(options.image),
-      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
-      openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
-    });
-  }
-
-  private async createCodingAgent(
+  /**
+   * Create an ACP-fronted coding agent. All coding runtimes share one launch
+   * contract; `runtime` selects the default image, sync includes, and harness
+   * env (`pi` gets `HYPER_RUNTIME_HOME`), nothing else.
+   */
+  async createCodingAgent(
     runtime: CodingAgentRuntime,
-    options: CodingAgentCreateOptions,
+    options: CodingAgentCreateOptions = {},
   ): Promise<CodingAgent> {
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
@@ -5330,7 +4072,8 @@ export class Deployments {
       throw new Error("Buzz coding agents require size='large' or 'medium'");
     }
     const effectiveEnv: Record<string, string> = {
-      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...buildWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...(runtime === 'pi' ? DEFAULT_PI_ENV : null),
       ...(options.env ?? {}),
     };
     effectiveEnv.HYPER_ACP_PERMISSIONS ??= buildPermissionsJson(options.permissionMode ?? 'default');
@@ -5391,7 +4134,7 @@ export class Deployments {
       syncInclude = undefined;
       syncExclude = undefined;
     } else {
-      const defaultInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
+      const defaultInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime];
       syncInclude = defaultInclude ?? undefined;
       syncExclude = defaultInclude === null ? [] : undefined;
     }
@@ -5417,39 +4160,11 @@ export class Deployments {
       restart: buzzLaunch ? false : options.restart,
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
-    const agent = await this.create(effectiveOptions) as CodingAgent;
+    const agent = await this.create(effectiveOptions);
+    if (!(agent instanceof CodingAgent)) {
+      throw new Error(`Deployment response did not identify runtime '${runtime}'`);
+    }
     return agent;
-  }
-
-  async createOpenCode(options: CodingAgentCreateOptions = {}): Promise<OpenCodeAgent> {
-    return await this.createCodingAgent('opencode', options) as OpenCodeAgent;
-  }
-
-  async createBuzzAgent(options: CodingAgentCreateOptions = {}): Promise<BuzzAgent> {
-    return await this.createCodingAgent('buzz-agent', options) as BuzzAgent;
-  }
-
-  async createCodex(options: CodingAgentCreateOptions = {}): Promise<CodexAgent> {
-    return await this.createCodingAgent('codex', options) as CodexAgent;
-  }
-
-  async createClaudeCode(options: CodingAgentCreateOptions = {}): Promise<ClaudeCodeAgent> {
-    return await this.createCodingAgent('claude-code', options) as ClaudeCodeAgent;
-  }
-
-  async createGoose(options: CodingAgentCreateOptions = {}): Promise<GooseAgent> {
-    return await this.createCodingAgent('goose', options) as GooseAgent;
-  }
-
-  async createKimiCode(options: CodingAgentCreateOptions = {}): Promise<KimiCodeAgent> {
-    return await this.createCodingAgent('kimi-code', options) as KimiCodeAgent;
-  }
-
-  async createPi(options: CodingAgentCreateOptions = {}): Promise<PiAgent> {
-    return await this.createCodingAgent('pi', {
-      ...options,
-      env: { ...DEFAULT_PI_ENV, ...(options.env ?? {}) },
-    }) as PiAgent;
   }
 
   async budget(): Promise<Record<string, any>> {
@@ -6045,7 +4760,7 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const suppliedOptions = options as Record<string, unknown> | undefined;
     const mutationOptions = suppliedOptions
-      ? ['launchConfig', 'registryAuth'].filter((key) => Object.prototype.hasOwnProperty.call(suppliedOptions, key))
+      ? ['launchConfig', 'trustedProxies', 'registryAuth'].filter((key) => Object.prototype.hasOwnProperty.call(suppliedOptions, key))
       : [];
     if (mutationOptions.length > 0) {
       throw new Error(
@@ -6060,49 +4775,7 @@ export class Deployments {
       Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
-  }
-
-  private async startOpenClawInternal(
-    agentIdOrName: string,
-    options: OpenClawStartAgentOptions = {},
-  ): Promise<Agent> {
-    const mutationOptions = [
-      'launchConfig',
-      'gatewayToken',
-      'trustedProxies',
-      'registryAuth',
-    ].filter((key) => Object.prototype.hasOwnProperty.call(options as Record<string, unknown>, key));
-    if (mutationOptions.length > 0) {
-      throw new Error(
-        `startOpenClaw no longer accepts launch mutation options: ${mutationOptions.join(', ')}; `
-        + 'update launchConfig before starting',
-      );
-    }
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.start(agentId, {
-      dryRun: options.dryRun,
-    });
-  }
-
-  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
-    return this.startOpenClawInternal(agentIdOrName, options);
-  }
-
-  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    const agent = await this.start(agentId, {
-      dryRun: options.dryRun,
-    });
-    if (!(agent instanceof HermesAgent)) {
-      throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
-    }
-    return agent;
-  }
-
-  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
-    return this.startOpenClawInternal(agentIdOrName, options);
   }
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
@@ -6143,11 +4816,11 @@ export class Deployments {
       },
     );
     const droppedLaunchKeys = droppedLaunchConfigKeys(resetData);
-    if (options.runtime === 'openclaw' || options.runtime === 'openclaw-pro') {
+    if (options.runtime === 'openclaw' || options.runtime === 'openclaw-pro' || options.runtime === 'openclaw_acp') {
       await this.setRoute(agentId, 'openclaw', buildOpenClawRoutes({}).openclaw);
       await this.setEnv(agentId, 'OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
       await this.fileDelete(agentId, '.openclaw/openclaw.json').catch(() => undefined);
-    } else if (options.runtime === 'hermes-agent') {
+    } else if (options.runtime === 'hermes-agent' || options.runtime === 'hermes_acp') {
       await this.setRoute(agentId, 'hermes', buildHermesAgentRoutes({}).hermes);
       await this.fileDelete(agentId, '.hermes/config.yaml').catch(() => undefined);
       await this.fileDelete(agentId, '.hermes/mem0.json').catch(() => undefined);
@@ -6200,7 +4873,6 @@ export class Deployments {
       Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -6219,7 +4891,6 @@ export class Deployments {
       Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -6238,7 +4909,6 @@ export class Deployments {
       Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -6336,7 +5006,6 @@ export class Deployments {
     const result = options?.dryRun
       ? await this.agentHttp.delete<Record<string, any>>(path, { dry_run: true })
       : await this.agentHttp.delete<Record<string, any>>(path);
-    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return result;
   }
 
@@ -6474,7 +5143,6 @@ export class Deployments {
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
       { value },
     );
-    this.invalidateOpenClawGateway(agentId);
     return result;
   }
 
@@ -6487,7 +5155,6 @@ export class Deployments {
     const result = await this.agentHttp.delete<AgentSecretMutationResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
     );
-    this.invalidateOpenClawGateway(agentId);
     return result;
   }
 

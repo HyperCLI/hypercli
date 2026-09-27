@@ -79,6 +79,9 @@ const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
   openclaw: '.openclaw/skills',
   'openclaw-pro': '.openclaw/skills',
   'hermes-agent': '.hermes/skills',
+  // *_acp successors inherit the legacy pod layout (evidence rows above).
+  openclaw_acp: '.openclaw/skills',
+  hermes_acp: '.hermes/skills',
   opencode: '.agents/skills',
   'buzz-agent': '.agents/skills',
   goose: '.goose/skills',
@@ -96,6 +99,8 @@ const SYNC_ROOT_BY_RUNTIME: Readonly<Record<string, string>> = {
   openclaw: '/home/node',
   'openclaw-pro': '/home/node',
   'hermes-agent': '/home/hermes',
+  openclaw_acp: '/home/node',
+  hermes_acp: '/home/hermes',
   opencode: '/home/node',
   'buzz-agent': '/home/node',
   codex: '/home/node',

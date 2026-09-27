@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { OpenClawAgent } from '../src/agents.js';
+import { CodingAgent } from '../src/agents.js';
 
 function makeAgent() {
   const deployments = {
@@ -12,7 +12,7 @@ function makeAgent() {
     fileWrite: vi.fn().mockResolvedValue({ ok: true }),
     fileDelete: vi.fn().mockResolvedValue({ ok: true }),
   };
-  const agent = OpenClawAgent.fromDict({
+  const agent = CodingAgent.fromDict({
     id: 'agent-123',
     user_id: 'user-456',
     state: 'STOPPED',
@@ -38,12 +38,5 @@ describe('Reef-only sync-root file client', () => {
     expect(deployments.fileWrite).toHaveBeenCalledWith(agent, 'notes/todo.md', 'x');
     expect(deployments.fileWriteBytes).toHaveBeenCalledWith(agent, 'data.bin', new Uint8Array([1]));
     expect(deployments.fileDelete).toHaveBeenCalledWith(agent, 'notes', { recursive: true });
-  });
-
-  it('keeps gateway file RPCs explicit', () => {
-    const { agent } = makeAgent();
-    expect(agent.workspaceFiles).toBeTypeOf('function');
-    expect(agent.fileGet).toBeTypeOf('function');
-    expect(agent.fileSet).toBeTypeOf('function');
   });
 });

@@ -9,6 +9,12 @@
  * self-close makes the pool forget the entry so the next `acquire()` dials
  * fresh. Update fan-out across subscribers is handled by
  * `client.addUpdateListener(...)`.
+ *
+ * Protocol-version awareness: negotiation happens per connection — every key
+ * negotiates independently (a mixed pool of v1 and v2 agents is supported),
+ * and the negotiated version is read off the lease's client
+ * (`lease.client.negotiatedProtocolVersion`). Pool bookkeeping itself
+ * (refcounts, close discipline) is version-agnostic.
  */
 import {
   CodingAgentAcpClient,
@@ -105,6 +111,18 @@ export class CodingAgentAcpPool {
     this.entries.delete(key);
     entry.forgotten = true;
     entry.client?.close();
+  }
+
+  /**
+   * Force-close every connection whose key starts with `prefix` and forget
+   * them. Pair with key builders that namespace sub-connections under a
+   * parent id (e.g. `agentId` / `agentId#sessionId`) so tearing down the
+   * parent reaps the pinned children too.
+   */
+  dropPrefix(prefix: string): void {
+    for (const key of [...this.entries.keys()]) {
+      if (key.startsWith(prefix)) this.drop(key);
+    }
   }
 
   /** Drop every pooled connection. */

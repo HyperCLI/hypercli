@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { authStorePath } from '../src/core/auth-store.js';
 import { cliConfigDir, cliConfigFile, loadCliConfigFile } from '../src/core/config-file.js';
 
 describe('HYPER_HOME paths', () => {
@@ -32,7 +31,6 @@ describe('HYPER_HOME paths', () => {
     expect(cliConfigDir()).toBe(hyperHome);
     expect(cliConfigFile()).toBe(join(hyperHome, 'config'));
     expect(loadCliConfigFile().HYPER_API_KEY).toBe('hyper_api_home');
-    expect(authStorePath()).toBe(join(hyperHome, 'auth.json'));
   });
 
   it('treats empty HYPER_HOME as unset', () => {

@@ -122,101 +122,6 @@ async def test_jobs_shell_connect(monkeypatch):
     assert captured["url"] == "wss://api.hypercli.com/orchestra/ws/shell/job-1?token=job-key-123&shell=/bin/sh"
 
 
-class FakeAsyncMetricsWebSocket:
-    def __init__(self, frames):
-        self.frames = list(frames)
-        self.closed = False
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        self.closed = True
-        return False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if not self.frames:
-            raise StopAsyncIteration
-        return self.frames.pop(0)
-
-
-def test_jobs_metrics_uses_websocket_snapshot(monkeypatch):
-    http = DummyHTTP()
-    jobs = Jobs(http)
-    captured = {}
-
-    async def fake_connect(url, **kwargs):
-        captured["url"] = url
-        captured["kwargs"] = kwargs
-        return FakeAsyncMetricsWebSocket([
-            json.dumps({
-                "event": "metrics_snapshot",
-                "data": {
-                    "gpus": [{"index": 0, "name": "L40S", "utilization_gpu_percent": 12}],
-                    "system": {"cpu_percent": 3, "memory_used_mb": 128},
-                },
-            })
-        ])
-
-    monkeypatch.setattr("websockets.connect", fake_connect)
-
-    metrics = jobs.metrics("job-1")
-
-    assert metrics.gpus[0].name == "L40S"
-    assert captured["url"] == "wss://api.hypercli.com/orchestra/ws/metrics/jobs/job-key-123?interval=60.0"
-    assert "additional_headers" not in captured["kwargs"]
-    assert "extra_headers" not in captured["kwargs"]
-
-
-@pytest.mark.asyncio
-async def test_jobs_metrics_stream_raises_metrics_error(monkeypatch):
-    jobs = Jobs(DummyHTTP())
-
-    async def fake_connect(url, **kwargs):
-        return FakeAsyncMetricsWebSocket([
-            json.dumps({"event": "metrics_error", "detail": "not running"})
-        ])
-
-    monkeypatch.setattr("websockets.connect", fake_connect)
-
-    with pytest.raises(RuntimeError, match="not running"):
-        async for _metrics in jobs.metrics_stream("job-1"):
-            pass
-
-
-@pytest.mark.asyncio
-async def test_jobs_lifecycle_stream_uses_job_key_websocket(monkeypatch):
-    jobs = Jobs(DummyHTTP())
-    captured = {}
-
-    def fake_connect(url, **kwargs):
-        captured["url"] = url
-        captured["kwargs"] = kwargs
-        return FakeAsyncMetricsWebSocket([
-            json.dumps({
-                "event": "runtime_extended",
-                "job_id": "job-1",
-                "runtime": 900,
-            })
-        ])
-
-    monkeypatch.setattr("websockets.connect", fake_connect)
-
-    events = []
-    async for event in jobs.lifecycle_stream("job-1"):
-        events.append(event)
-
-    assert events[0].event == "runtime_extended"
-    assert events[0].job_id == "job-1"
-    assert events[0].runtime == 900
-    assert captured["url"] == "wss://api.hypercli.com/orchestra/ws/lifecycle/job-key-123"
-    assert "additional_headers" not in captured["kwargs"]
-    assert "extra_headers" not in captured["kwargs"]
-
-
 def _closed(code=1000, reason=""):
     from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
     from websockets.frames import Close
@@ -580,32 +485,6 @@ async def test_agents_logs_stream_ws_rejects_legacy_jwt_key(monkeypatch):
     with pytest.raises(ValueError, match="invalid Agent logs token response"):
         async for _line in agents.logs_stream_ws("agent-1"):
             pass
-
-
-@pytest.mark.asyncio
-async def test_agents_logs_stream_ws_falls_back_to_persisted_tail_when_stopped(monkeypatch):
-    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
-
-    def stopped_token(agent_id):
-        raise APIError(409, "Agent is not running")
-
-    monkeypatch.setattr(agents, "logs_token", stopped_token)
-    monkeypatch.setattr(
-        agents,
-        "_get",
-        lambda path: {"agent_id": "agent-1", "logs": "one\ntwo\nthree"},
-    )
-
-    lines = [
-        line
-        async for line in agents.logs_stream_ws(
-            "agent-1",
-            tail_lines=2,
-            follow=False,
-        )
-    ]
-
-    assert lines == ["two", "three"]
 
 
 @pytest.mark.asyncio

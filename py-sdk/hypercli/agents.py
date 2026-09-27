@@ -1,9 +1,8 @@
 """
-HyperClaw Deployments API — runtime management for OpenClaw agent containers.
+Deployments API — managed agent runtimes.
 
-Client for HyperClaw backend deployment endpoints. Manages the
-`hypercli-openclaw` container image and arbitrary agent runtimes via the
-authenticated backend API.
+Client for the authenticated backend deployment endpoints that provision,
+hydrate, and operate hosted agent runtimes.
 """
 
 from __future__ import annotations
@@ -18,16 +17,13 @@ import copy
 import inspect
 import json
 import mimetypes
-import os
 import re
 import secrets
 import shlex
 import time
 from typing import (
-    TYPE_CHECKING,
     Awaitable,
     Callable,
-    ClassVar,
     Literal,
     Optional,
     Any,
@@ -38,18 +34,12 @@ from typing import (
     cast,
 )
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
-from contextlib import asynccontextmanager
 from uuid import UUID
 
 import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
-from .openclaw.gateway import create_openclaw_sdk_session_key
-
-if TYPE_CHECKING:
-    from .hermes import HermesApiClient
-    from .openclaw.gateway import ChatEvent, GatewayClient
 
 
 AGENTS_API_BASE = "https://api.hypercli.com/agents"
@@ -74,10 +64,6 @@ DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = DEFAULT_CLAUDE_CODE_IMAGE
 DEFAULT_BUZZ_GOOSE_IMAGE = DEFAULT_GOOSE_IMAGE
 DEFAULT_BUZZ_KIMI_CODE_IMAGE = DEFAULT_KIMI_CODE_IMAGE
 DEFAULT_BUZZ_PI_IMAGE = DEFAULT_PI_IMAGE
-
-
-def _new_application_secret() -> str:
-    return secrets.token_hex(32)
 
 
 DEFAULT_AGENT_RUNTIME_SCOPES = [
@@ -105,29 +91,10 @@ OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
 OPENCLAW_CRON_ENV_DEFAULTS = {
     "OPENCLAW_CRON_ENABLED": "1",
 }
-OPENCLAW_MODEL_ENV_DEFAULTS = {
-    "HYPER_MODELS": "default-anthropic",
-    "HYPER_EMBEDDING_MODELS": "qwen3-embedding-4b",
-}
-OPENCLAW_GATEWAY_ENV_DEFAULTS = {
-    "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN": "*",
-}
 OPENCLAW_TRUSTED_PROXIES_ENV = "OPENCLAW_TRUSTED_PROXIES"
 HERMES_CRON_ENV_DEFAULTS = {
     "HERMES_CRON_ENABLED": "1",
 }
-HERMES_MODEL_ENV_DEFAULTS = dict(OPENCLAW_MODEL_ENV_DEFAULTS)
-DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
-    "shared/**",
-    ".openclaw/npm/**/node_modules/**",
-    ".openclaw/agents/**/agent/*.sqlite.memory-reindex-*",
-    ".openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*",
-    ".openclaw/browser/**/Code Cache/**",
-    ".openclaw/browser/**/GPUCache/**",
-    ".openclaw/browser/**/ShaderCache/**",
-    ".openclaw/browser/**/GrShaderCache/**",
-    ".openclaw/browser/**/optimization_guide_model_store/**",
-)
 DEFAULT_HERMES_AGENT_SYNC_EXCLUDE = ("shared/**",)
 LAUNCH_CONFIG_KEYS = frozenset(
     {
@@ -151,7 +118,6 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "docker",
     }
 )
-DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 DEFAULT_HERMES_AGENT_SYNC_ROOT = "/home/hermes"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
@@ -234,6 +200,8 @@ ManagedAgentRuntime = Literal[
     "openclaw",
     "openclaw-pro",
     "hermes-agent",
+    "openclaw_acp",
+    "hermes_acp",
     "buzz-agent",
     "opencode",
     "codex",
@@ -242,6 +210,24 @@ ManagedAgentRuntime = Literal[
     "kimi-code",
     "pi",
 ]
+# Runtime labels whose pods front hyper-acp and hydrate to the single
+# CodingAgent facade.
+_HYPER_ACP_RUNTIMES = frozenset(
+    {
+        "openclaw",
+        "openclaw-pro",
+        "hermes-agent",
+        "openclaw_acp",
+        "hermes_acp",
+        "buzz-agent",
+        "opencode",
+        "codex",
+        "claude-code",
+        "goose",
+        "kimi-code",
+        "pi",
+    }
+)
 AgentSize = Literal["small", "medium", "large"]
 _AGENT_SIZES = frozenset({"small", "medium", "large"})
 
@@ -289,186 +275,8 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
 }
 
 
-@dataclass(frozen=True)
-class _BuzzRuntimeLaunchSpec:
-    command: str
-    args: tuple[str, ...] = ()
-    mcp_command: str = ""
-    claude_code_executable: str | None = None
-
-    def apply_reply_env(self, env: dict[str, str], *, require_reply: bool) -> None:
-        del env, require_reply
-
-
-@dataclass(frozen=True)
-class _NativeBuzzAgentLaunchSpec(_BuzzRuntimeLaunchSpec):
-    def apply_reply_env(self, env: dict[str, str], *, require_reply: bool) -> None:
-        env["BUZZ_AGENT_REQUIRE_REPLY"] = "1" if require_reply else "0"
-
-
-_BUZZ_RUNTIME_SPECS: dict[CodingAgentRuntime, _BuzzRuntimeLaunchSpec] = {
-    "buzz-agent": _NativeBuzzAgentLaunchSpec(
-        "/usr/local/bin/buzz-agent",
-        mcp_command="/usr/local/bin/buzz-dev-mcp",
-    ),
-    "opencode": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/opencode", ("acp",)),
-    "codex": _BuzzRuntimeLaunchSpec(
-        "/opt/hypercli/bin/codex-acp",
-        mcp_command="/usr/local/lib/acp/buzz/sprig",
-    ),
-    "claude-code": _BuzzRuntimeLaunchSpec(
-        "/opt/hypercli/bin/claude-agent-acp",
-        claude_code_executable="/opt/hypercli/bin/claude",
-    ),
-    "goose": _BuzzRuntimeLaunchSpec("/usr/local/bin/goose", ("acp",)),
-    "kimi-code": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/kimi", ("acp",)),
-    "pi": _BuzzRuntimeLaunchSpec("/opt/hypercli/bin/pi-acp"),
-}
-DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
-BUZZ_RESERVED_ENV_KEYS = frozenset(
-    {
-        "BUZZ_PRIVATE_KEY",
-        "NOSTR_PRIVATE_KEY",
-        "BUZZ_AUTH_TAG",
-        "BUZZ_API_TOKEN",
-        "BUZZ_ACP_PRIVATE_KEY",
-        "BUZZ_ACP_API_TOKEN",
-        "BUZZ_RELAY_URL",
-        "BUZZ_ACP_AGENT_OWNER",
-        "BUZZ_ACP_AGENT_COMMAND",
-        "BUZZ_ACP_AGENT_ARGS",
-        "BUZZ_ACP_MCP_COMMAND",
-        "BUZZ_ACP_LAZY_POOL",
-        "BUZZ_ACP_RELAY_OBSERVER",
-        "BUZZ_ACP_DISPLAY_NAME",
-        "BUZZ_ACP_TEXT_MENTIONS",
-        "BUZZ_ACP_REQUIRE_REPLY",
-        "BUZZ_AGENT_REQUIRE_REPLY",
-        "CLAUDE_CODE_EXECUTABLE",
-        "BUZZ_ACP_SESSION_TITLE",
-        "BUZZ_ACP_SYSTEM_PROMPT",
-        "BUZZ_ACP_MODEL",
-        "BUZZ_ACP_IDLE_TIMEOUT",
-        "BUZZ_ACP_MAX_TURN_DURATION",
-        "BUZZ_ACP_AGENTS",
-        "BUZZ_ACP_RESPOND_TO",
-        "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
-        "BUZZ_ACP_MULTIPLE_EVENT_HANDLING",
-        "BUZZ_ACP_DEDUP",
-        "BUZZ_ACP_SETUP_PAYLOAD",
-        "BUZZ_MANAGED_AGENT",
-        "HYPER_ACP_WS_URL",
-        "HYPER_ACP_AGENT_COMMAND",
-        "HYPER_ACP_AGENT_ARGS",
-        "HYPER_ACP_WS_LISTEN",
-        "HYPER_ACP_LOG",
-        "HYPER_ACP_WS_TOKEN",
-        "HYPER_ACP_AUTO_APPROVE_PERMISSION",
-        # No longer minted by the SDK; kept listed so caller-supplied values are stripped.
-        "BUZZ_MANAGED_AGENT_START_NONCE",
-    }
-)
-
-
-@dataclass(repr=False)
-class BuzzLaunchConfig:
-    """Typed Buzz ACP launch settings for a hosted coding runtime.
-
-    The private key is intentionally excluded from ``repr``. Buzz-owned
-    launch values are rendered last so generic ``env`` and ``secrets``
-    mappings cannot replace identity or harness configuration.
-    """
-
-    private_key_nsec: str
-    relay_url: str
-    auth_tag: str | None = None
-    system_prompt: str | None = None
-    model: str | None = None
-    idle_timeout_seconds: int | None = None
-    max_turn_duration_seconds: int | None = None
-    parallelism: int = 1
-    respond_to: str | None = None
-    respond_to_allowlist: list[str] = field(default_factory=list)
-    display_name: str | None = None
-    text_mentions: bool = False
-    require_reply: bool = True
-    session_title: str | None = None
-    rust_log: str | None = None
-
-    def environment(
-        self,
-        runtime: CodingAgentRuntime,
-        *,
-        default_session_title: str | None = None,
-    ) -> dict[str, str]:
-        if not self.private_key_nsec.strip():
-            raise ValueError("buzz.private_key_nsec is required")
-        if not self.relay_url.strip():
-            raise ValueError("buzz.relay_url is required")
-        if not 1 <= self.parallelism <= 32:
-            raise ValueError("buzz.parallelism must be between 1 and 32")
-
-        spec = _BUZZ_RUNTIME_SPECS[runtime]
-        env = {
-            "BUZZ_RELAY_URL": self.relay_url,
-            "BUZZ_ACP_AGENT_COMMAND": spec.command,
-            "BUZZ_ACP_AGENT_ARGS": ",".join(spec.args),
-            "BUZZ_ACP_MCP_COMMAND": spec.mcp_command,
-            "BUZZ_ACP_LAZY_POOL": "true",
-            "BUZZ_ACP_RELAY_OBSERVER": "true",
-            "BUZZ_ACP_AGENTS": str(self.parallelism),
-            "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
-            "BUZZ_ACP_DEDUP": "queue",
-        }
-        if spec.claude_code_executable:
-            env["CLAUDE_CODE_EXECUTABLE"] = spec.claude_code_executable
-        optional = {
-            "BUZZ_ACP_DISPLAY_NAME": self.display_name,
-            "BUZZ_ACP_SESSION_TITLE": self.session_title or default_session_title,
-            "BUZZ_ACP_SYSTEM_PROMPT": self.system_prompt,
-            "BUZZ_ACP_MODEL": self.model,
-            "BUZZ_ACP_IDLE_TIMEOUT": (
-                str(self.idle_timeout_seconds) if self.idle_timeout_seconds is not None else None
-            ),
-            "BUZZ_ACP_MAX_TURN_DURATION": (
-                str(self.max_turn_duration_seconds)
-                if self.max_turn_duration_seconds is not None
-                else None
-            ),
-            "BUZZ_ACP_RESPOND_TO": self.respond_to,
-            "BUZZ_ACP_RESPOND_TO_ALLOWLIST": (
-                ",".join(self.respond_to_allowlist) if self.respond_to_allowlist else None
-            ),
-        }
-        env.update({key: value for key, value in optional.items() if value})
-        if self.text_mentions:
-            env["BUZZ_ACP_TEXT_MENTIONS"] = "true"
-        if self.require_reply:
-            env["BUZZ_ACP_REQUIRE_REPLY"] = "true"
-        spec.apply_reply_env(env, require_reply=self.require_reply)
-        if self.rust_log:
-            env["RUST_LOG"] = self.rust_log
-        return env
-
-    def secrets(self) -> dict[str, str]:
-        if not self.private_key_nsec.strip():
-            raise ValueError("buzz.private_key_nsec is required")
-        secrets = {
-            "BUZZ_PRIVATE_KEY": self.private_key_nsec,
-            "NOSTR_PRIVATE_KEY": self.private_key_nsec,
-        }
-        # The NIP-OA attestation is a bearer credential: keep it in the
-        # k8s-backed secrets projection (unrolled to env at launch) rather
-        # than plaintext env.
-        if self.auth_tag:
-            secrets["BUZZ_AUTH_TAG"] = self.auth_tag
-        return secrets
-
-
 # Public file access uses backend discovery for Reef or native runner transport. S3 is reserved
-# for archive/restore internals and gateway RPCs remain available through the
-# explicit gateway client instead of being multiplexed into these methods.
-OPENCLAW_SYNC_ROOT = "/home/node"
+# for archive/restore internals.
 # Retained for callers that want to address the conventional OpenClaw workspace;
 # the generic files API no longer applies this prefix implicitly.
 OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace"
@@ -624,12 +432,6 @@ def _routes_config_body(routes: dict | None) -> dict:
     return {str(name): _route_config_body(dict(route)) for name, route in (routes or {}).items()}
 
 
-def _with_openclaw_gateway_route(routes: dict | None) -> dict:
-    prepared = copy.deepcopy(routes or {})
-    prepared["openclaw"] = build_openclaw_routes()["openclaw"]
-    return prepared
-
-
 def build_hermes_agent_routes(
     *,
     port: int = 8642,
@@ -644,108 +446,6 @@ def build_hermes_agent_routes(
             "prefix": str(prefix),
         }
     }
-
-
-def _resolve_hermes_agent_routes(
-    routes: dict | None,
-    *,
-    hermes_routes: dict | None = None,
-    hermes_route_options: dict | None = None,
-) -> dict:
-    if routes is not None:
-        return routes
-    if hermes_routes is not None:
-        return hermes_routes
-    return build_hermes_agent_routes(**dict(hermes_route_options or {}))
-
-
-def _inject_hermes_api_server_key(
-    env: dict | None,
-    secret_env: dict | None,
-    api_server_key: str | None,
-) -> tuple[dict[str, Any], dict[str, Any], str]:
-    env_map: dict[str, Any] = dict(env or {})
-    secret_map: dict[str, Any] = dict(secret_env or {})
-    public_key = env_map.pop("API_SERVER_KEY", None)
-    stored_key = secret_map.get("API_SERVER_KEY")
-    supplied_keys = {
-        str(value).strip()
-        for value in (api_server_key, stored_key, public_key)
-        if value is not None and str(value).strip()
-    }
-    if len(supplied_keys) > 1:
-        raise ValueError("Hermes API_SERVER_KEY conflicts between inputs")
-    effective_key = next(iter(supplied_keys), "")
-    if not effective_key:
-        effective_key = secrets.token_urlsafe(32)
-    secret_map["API_SERVER_KEY"] = effective_key
-    return env_map, secret_map, effective_key
-
-
-def _resolve_hermes_cors(
-    env: dict[str, Any],
-    cors_origins: list[str] | tuple[str, ...] | set[str] | None,
-    cors: AgentCorsConfig | dict | None | object,
-) -> tuple[dict[str, Any], AgentCorsConfig | dict | None | object]:
-    origins = [
-        item.strip()
-        for source in (
-            str(env.get("API_SERVER_CORS_ORIGINS") or "").split(","),
-            list(cors_origins or []),
-        )
-        for item in source
-        if str(item).strip()
-    ]
-    if not origins:
-        return env, cors
-
-    deduped = list(dict.fromkeys(origins))
-    prepared_env = dict(env)
-    prepared_env["API_SERVER_CORS_ORIGINS"] = ",".join(deduped)
-    if cors is not _UNSET:
-        return prepared_env, cors
-    return prepared_env, {"allowed_origins": deduped}
-
-
-def _inject_openclaw_gateway_token(
-    env: dict | None,
-    secret_env: dict | None,
-    gateway_token: str | None,
-    *,
-    generate: bool,
-) -> tuple[dict[str, Any], dict[str, Any], str | None]:
-    env_map: dict[str, Any] = dict(env or {})
-    secret_map: dict[str, Any] = dict(secret_env or {})
-    env_secret_keys = sorted(OPENCLAW_SECRET_ONLY_ENV_KEYS.intersection(env_map.keys()))
-    if env_secret_keys:
-        raise ValueError(
-            ", ".join(env_secret_keys) + " must be supplied through secrets, not env"
-        )
-    stored_token = str(secret_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
-    explicit_token = str(gateway_token).strip() if gateway_token is not None else ""
-    if gateway_token is not None and not explicit_token:
-        raise ValueError("gateway_token must not be blank")
-    if explicit_token and stored_token and explicit_token != stored_token:
-        raise ValueError("gateway_token conflicts with secrets.OPENCLAW_GATEWAY_TOKEN")
-    effective_token = explicit_token or stored_token
-    if not effective_token and generate:
-        effective_token = _new_application_secret()
-    if effective_token:
-        secret_map["OPENCLAW_GATEWAY_TOKEN"] = effective_token
-    return env_map, secret_map, effective_token or None
-
-
-def _resolve_openclaw_routes(
-    routes: dict | None,
-    *,
-    openclaw_routes: dict | None = None,
-    openclaw_route_options: dict | None = None,
-) -> dict | None:
-    if routes is not None:
-        return _with_openclaw_gateway_route(routes)
-    if openclaw_routes is not None:
-        return _with_openclaw_gateway_route(openclaw_routes)
-    return build_openclaw_routes(**dict(openclaw_route_options or {}))
 
 
 def _env_bool(value: object) -> str:
@@ -846,34 +546,6 @@ def build_openclaw_workspaces_sync_env(
     return env
 
 
-def _default_gateway_timeout() -> float | None:
-    raw = (
-        os.environ.get("HYPERCLI_GATEWAY_TIMEOUT") or os.environ.get("AGENT_GATEWAY_TIMEOUT") or ""
-    ).strip()
-    if not raw:
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
-
-def _default_gateway_chat_timeout() -> float | None:
-    raw = (
-        os.environ.get("HYPERCLI_GATEWAY_CHAT_TIMEOUT")
-        or os.environ.get("AGENT_GATEWAY_CHAT_TIMEOUT")
-        or ""
-    ).strip()
-    if not raw:
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        return None
-    return value if value > 0 else None
-
-
 def _to_ws_base_url(base_url: str) -> str:
     base = (base_url or "").rstrip("/")
     if not base:
@@ -953,36 +625,7 @@ def _default_agents_ws_url(api_base: str) -> str:
     return _normalize_agents_ws_url(raw)
 
 
-def _default_hyper_acp_ws_url(api_base: str) -> str:
-    raw = _normalize_agents_api_base(api_base)
-    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    host = parsed.netloc.lower()
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
-        return AGENTS_WS_URL
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
-        return DEV_AGENTS_WS_URL
-    base = raw.rstrip("/")
-    if base.endswith("/agents"):
-        base = base[: -len("/agents")]
-    return _normalize_agents_ws_url(base)
-
-
 MAX_SYNC_OWNER_ID = 4_294_967_294
-OPENCLAW_SECRET_ONLY_ENV_KEYS = frozenset(
-    {
-        "OPENCLAW_GATEWAY_TOKEN",
-        "SLACK_BOT_TOKEN",
-        "SLACK_APP_TOKEN",
-        "SLACK_USER_TOKEN",
-        "SLACK_SIGNING_SECRET",
-        "SLACK_RELAY_AUTH_TOKEN",
-    }
-)
 REQUIRED_START_LAUNCH_CONFIG_KEYS = frozenset(
     {
         "image",
@@ -1249,50 +892,6 @@ def build_agent_config(
     )
 
 
-def _default_openclaw_image(image: str | None) -> str | None:
-    if image is not None:
-        return image
-    return DEFAULT_OPENCLAW_IMAGE
-
-
-def _resolve_coding_agent_sync_policy(
-    runtime: CodingAgentRuntime,
-    *,
-    sync_include: list[str] | None | object,
-    sync_exclude: list[str] | None | object,
-) -> tuple[list[str] | object, list[str] | object]:
-    if sync_include is not _UNSET and sync_include is not None:
-        return list(sync_include), _UNSET
-    if sync_exclude is not _UNSET:
-        if sync_exclude is None:
-            return _UNSET, _UNSET
-        return _UNSET, list(sync_exclude)
-    if sync_include is None:
-        return _UNSET, _UNSET
-    default_include = _CODING_AGENT_CLASSES[runtime].default_sync_include
-    if default_include:
-        return list(default_include), _UNSET
-    return _UNSET, []
-
-
-def _resolve_openclaw_sync_policy(
-    *,
-    sync_include: list[str] | None | object,
-    sync_exclude: list[str] | None | object,
-) -> tuple[list[str] | None | object, list[str] | None | object]:
-    if sync_include is not _UNSET:
-        return (None if sync_include is None else list(sync_include)), _UNSET
-    if sync_exclude is not _UNSET:
-        return _UNSET, (None if sync_exclude is None else list(sync_exclude))
-    return _UNSET, list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
-
-
-def _default_openclaw_pro_image(image: str | None) -> str | None:
-    if image is not None:
-        return image
-    return DEFAULT_OPENCLAW_PRO_IMAGE
-
-
 def _truthy_env(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
@@ -1520,18 +1119,6 @@ def _is_openclaw_agent_data(data: dict) -> bool:
     if isinstance(launch_config, dict):
         launch_routes = launch_config.get("routes")
         if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
-            return True
-    return False
-
-
-def _is_hermes_agent_data(data: dict) -> bool:
-    routes = data.get("routes")
-    if isinstance(routes, dict) and routes.get("hermes"):
-        return True
-    launch_config = data.get("launch_config")
-    if isinstance(launch_config, dict):
-        launch_routes = launch_config.get("routes")
-        if isinstance(launch_routes, dict) and launch_routes.get("hermes"):
             return True
     return False
 
@@ -2509,694 +2096,9 @@ class Agent:
 class CodingAgent(Agent):
     """Canonical hosted coding runtime with native authentication helpers."""
 
-    default_sync_include: ClassVar[tuple[str, ...] | None] = None
-
     @property
     def auth(self) -> RuntimeAuthClient:
         return RuntimeAuthClient(self)
-
-
-@dataclass
-class BuzzAgent(CodingAgent):
-    """Native Buzz ACP runtime with the bundled developer MCP tools."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["buzz-agent"]
-
-
-@dataclass
-class OpenCodeAgent(CodingAgent):
-    """OpenCode runtime hosted behind Buzz ACP."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["opencode"]
-
-
-@dataclass
-class CodexAgent(CodingAgent):
-    """Codex runtime hosted behind the Codex ACP adapter."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["codex"]
-
-
-@dataclass
-class ClaudeCodeAgent(CodingAgent):
-    """Claude Code runtime hosted behind the Claude ACP adapter."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["claude-code"]
-
-
-@dataclass
-class GooseAgent(CodingAgent):
-    """Goose native ACP runtime using the hosted Anthropic-compatible route."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["goose"]
-
-
-@dataclass
-class KimiCodeAgent(CodingAgent):
-    """Kimi Code native ACP runtime using Moonshot's upstream authentication."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["kimi-code"]
-
-
-@dataclass
-class PiAgent(CodingAgent):
-    """Pi runtime hosted behind the ordinary Pi ACP adapter."""
-
-    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["pi"]
-
-
-_CODING_AGENT_CLASSES: dict[CodingAgentRuntime, type[CodingAgent]] = {
-    "buzz-agent": BuzzAgent,
-    "opencode": OpenCodeAgent,
-    "codex": CodexAgent,
-    "claude-code": ClaudeCodeAgent,
-    "goose": GooseAgent,
-    "kimi-code": KimiCodeAgent,
-    "pi": PiAgent,
-}
-
-
-@dataclass
-class HermesAgent(Agent):
-    """Hermes-backed agent with access to its stable API Server surface."""
-
-    api_server_key: Optional[str] = field(default=None, repr=False, compare=False)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HermesAgent":
-        # API_SERVER_KEY is write-only launch material. It is retained only on
-        # the instance returned by create/start, never hydrated from API data.
-        kwargs = _agent_kwargs_from_dict(data)
-        launch_config = kwargs.get("launch_config")
-        if isinstance(launch_config, dict):
-            launch_config = copy.deepcopy(launch_config)
-            if isinstance(launch_config.get("env"), dict):
-                launch_config["env"].pop("API_SERVER_KEY", None)
-            kwargs["launch_config"] = launch_config
-        return cls(**kwargs, api_server_key=None)
-
-    @property
-    def api_url(self) -> Optional[str]:
-        return self.route_url("hermes", default_prefix="")
-
-    @property
-    def openai_base_url(self) -> Optional[str]:
-        return f"{self.api_url.rstrip('/')}/v1" if self.api_url else None
-
-    def api(self, **kwargs: Any) -> "HermesApiClient":
-        """Create a client for this Hermes agent's API Server."""
-        from .hermes import HermesApiClient
-
-        if not self.api_url:
-            raise ValueError("Agent has no Hermes API URL")
-        if not self.api_server_key:
-            raise ValueError(
-                "Hermes API key is unavailable; use the HermesAgent returned by "
-                "create_hermes_agent() or start_hermes_agent()"
-            )
-        return HermesApiClient(self.api_url, self.api_server_key, **kwargs)
-
-    def wait_running(
-        self,
-        timeout: float = 300.0,
-        poll_interval: float = 5.0,
-    ) -> "HermesAgent":
-        api_server_key = self.api_server_key
-        super().wait_running(timeout=timeout, poll_interval=poll_interval)
-        self.api_server_key = api_server_key
-        return self
-
-    def update(
-        self,
-        *,
-        name: str | None = None,
-        size: str | None = None,
-        launch_config: dict | None = None,
-        handle: str | None = None,
-        runtime: ManagedAgentRuntime | None = None,
-        reset_image: bool | None = None,
-    ) -> "HermesAgent":
-        api_server_key = self.api_server_key
-        super().update(
-            name=name,
-            size=size,
-            launch_config=launch_config,
-            handle=handle,
-            runtime=runtime,
-            reset_image=reset_image,
-        )
-        self.api_server_key = api_server_key
-        return self
-
-
-@dataclass
-class OpenClawAgent(Agent):
-    """OpenClaw-backed agent with Gateway connection helpers."""
-
-    gateway_url: Optional[str] = None
-    gateway_token: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "OpenClawAgent":
-        return cls(
-            **_agent_kwargs_from_dict(data),
-            gateway_url=None,
-            gateway_token=None,
-        )
-
-    def wait_for_gateway_context(
-        self, timeout: float = 30.0, retry_interval: float = 1.0
-    ) -> dict[str, Any]:
-        """Wait for RUNNING while retaining only caller-known gateway material."""
-        if not self.gateway_token:
-            raise ValueError(
-                "OpenClaw gateway token is unavailable; retain the object returned "
-                "by create_openclaw or pass gateway_token explicitly"
-            )
-        deadline = time.monotonic() + timeout
-        last_error: Exception | None = None
-        while True:
-            try:
-                deployments = self._require_deployments()
-                current = deployments.get(self.id)
-                if int(current.launch_epoch or 0) < int(self.launch_epoch or 0):
-                    raise RuntimeError("agent snapshot belongs to an older launch epoch")
-                if str(current.state or "").upper() != "RUNNING":
-                    raise RuntimeError("agent gateway is not running")
-                hostname = str(current.hostname or "").strip()
-                confirmed = deployments.get(self.id)
-                if (
-                    int(confirmed.launch_epoch or 0) != int(current.launch_epoch or 0)
-                    or str(confirmed.state or "").upper() != "RUNNING"
-                ):
-                    raise RuntimeError("gateway context changed while it was resolved")
-                if hostname:
-                    gateway_url = f"wss://{hostname}"
-                    confirmed.gateway_url = gateway_url
-                    confirmed.gateway_token = self.gateway_token
-                    confirmed._deployments = deployments
-                    self.__dict__.update(confirmed.__dict__)
-                    self.gateway_url = gateway_url
-                    return {
-                        "agent_id": self.id,
-                        "gateway_url": gateway_url,
-                        "gateway_token": self.gateway_token,
-                        "launch_epoch": self.launch_epoch,
-                    }
-                else:
-                    last_error = RuntimeError("missing gateway context")
-            except Exception as exc:
-                last_error = exc
-            if time.monotonic() >= deadline:
-                if last_error is not None:
-                    raise last_error
-                raise RuntimeError("Timed out waiting for OpenClaw gateway context")
-            time.sleep(retry_interval)
-
-    def gateway(self, **kwargs) -> "GatewayClient":
-        """Create a GatewayClient for this OpenClaw agent."""
-        from .gateway import GatewayClient
-
-        if "gateway_token" not in kwargs:
-            if not self.gateway_token:
-                raise ValueError("gateway_token is required on hydrated OpenClaw agents")
-            kwargs["gateway_token"] = self.gateway_token
-        if not self.gateway_url:
-            self.wait_for_gateway_context()
-        if not self.gateway_url:
-            raise ValueError("Agent has no OpenClaw gateway URL")
-        deployments = self._require_deployments()
-        kwargs.setdefault("deployment_id", self.id)
-        kwargs.setdefault("api_key", deployments._api_key)
-        kwargs.setdefault("api_base", deployments._api_base)
-        kwargs.setdefault("auto_approve_pairing", True)
-        timeout = _default_gateway_timeout()
-        if timeout is not None:
-            kwargs.setdefault("timeout", timeout)
-        chat_timeout = _default_gateway_chat_timeout()
-        if chat_timeout is not None:
-            kwargs.setdefault("chat_timeout", chat_timeout)
-        return GatewayClient(url=self.gateway_url, token=None, **kwargs)
-
-    @asynccontextmanager
-    async def connect(self, **kwargs):
-        """Open a temporary OpenClaw gateway session."""
-        gw = self.gateway(**kwargs)
-        async with gw:
-            yield gw
-
-    def _with_gateway(self, op: Callable[["GatewayClient"], Any]) -> Any:
-        """Run an async gateway op from the sync file API (connect → op → close)."""
-
-        async def _invoke() -> Any:
-            async with self.connect() as gw:
-                return await op(gw)
-
-        return _run_sync(
-            _invoke,
-            running_loop_error=(
-                "gateway file operations are synchronous and cannot run inside an "
-                "active event loop; call them from sync code or use the async "
-                "file_get/file_set/workspace_files helpers."
-            ),
-        )
-
-    # The in-gateway agent id for `agents.files.*` — NOT the deployment id. A
-    # deployment's gateway hosts an agent named "main" (or a named agent);
-    # matches the existing file_get/file_set/workspace_files convention.
-    async def gateway_status(self, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.status()
-
-    async def wait_ready(
-        self,
-        timeout: float = 300.0,
-        retry_interval: float = 5.0,
-        probe: str = "config",
-        **kwargs,
-    ) -> dict:
-        gw = self.gateway(**kwargs)
-        try:
-            return await gw.wait_ready(timeout=timeout, retry_interval=retry_interval, probe=probe)
-        finally:
-            await gw.close()
-
-    async def config_get(self, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.config_get()
-
-    async def config_schema(self, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.config_schema()
-
-    async def config_patch(self, patch: dict, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.config_patch(patch)
-
-    async def configure_slack_relay(
-        self,
-        *,
-        url: str,
-        gateway_id: str | None = None,
-        auth_token_env: str = "HYPER_AGENTS_API_KEY",
-        account_id: str | None = None,
-        bot_token: Any | None = None,
-        config: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.configure_slack_relay(
-                url=url,
-                gateway_id=gateway_id or self.gateway_id or f"agent:{self.id}",
-                auth_token_env=auth_token_env,
-                account_id=account_id,
-                bot_token=bot_token,
-                config=config,
-            )
-
-    async def configure_slack_socket(
-        self,
-        *,
-        bot_token: Any,
-        app_token: Any,
-        socket_mode: dict[str, Any] | None = None,
-        account_id: str | None = None,
-        config: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.configure_slack_socket(
-                bot_token=bot_token,
-                app_token=app_token,
-                socket_mode=socket_mode,
-                account_id=account_id,
-                config=config,
-            )
-
-    async def configure_whatsapp(
-        self,
-        config: dict[str, Any] | None = None,
-        *,
-        account_id: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.configure_whatsapp(config, account_id=account_id)
-
-    async def config_apply(self, config: dict, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.config_apply(config)
-
-    async def models_list(self, **kwargs) -> list[dict]:
-        async with self.connect(**kwargs) as gw:
-            return await gw.models_list()
-
-    async def channels_status(
-        self,
-        *,
-        probe: bool = False,
-        timeout_ms: int | None = None,
-        channel: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.channels_status(probe=probe, timeout_ms=timeout_ms, channel=channel)
-
-    async def channels_start(
-        self,
-        channel: str,
-        *,
-        account_id: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.channels_start(channel, account_id=account_id)
-
-    async def channels_stop(
-        self,
-        channel: str,
-        *,
-        account_id: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.channels_stop(channel, account_id=account_id)
-
-    async def channels_logout(
-        self,
-        channel: str,
-        *,
-        account_id: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.channels_logout(channel, account_id=account_id)
-
-    async def web_login_start(
-        self,
-        *,
-        force: bool = False,
-        timeout_ms: int | None = None,
-        verbose: bool = False,
-        account_id: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.web_login_start(
-                force=force,
-                timeout_ms=timeout_ms,
-                verbose=verbose,
-                account_id=account_id,
-            )
-
-    async def web_login_wait(
-        self,
-        *,
-        timeout_ms: int | None = None,
-        account_id: str | None = None,
-        current_qr_data_url: str | None = None,
-        **kwargs,
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.web_login_wait(
-                timeout_ms=timeout_ms,
-                account_id=account_id,
-                current_qr_data_url=current_qr_data_url,
-            )
-
-    async def workspace_files(self, **kwargs) -> tuple[str, list[dict]]:
-        async with self.connect(**kwargs) as gw:
-            agents = await gw.agents_list()
-            agent_id = agents[0]["id"] if agents else "main"
-            files = await gw.files_list(agent_id)
-            return agent_id, files
-
-    async def file_get(self, name: str, agent_id: str | None = None, **kwargs) -> str:
-        async with self.connect(**kwargs) as gw:
-            resolved_agent_id = agent_id
-            if resolved_agent_id is None:
-                agents = await gw.agents_list()
-                resolved_agent_id = agents[0]["id"] if agents else "main"
-            return await gw.file_get(resolved_agent_id, name)
-
-    async def file_set(
-        self, name: str, content: str, agent_id: str | None = None, **kwargs
-    ) -> dict:
-        async with self.connect(**kwargs) as gw:
-            resolved_agent_id = agent_id
-            if resolved_agent_id is None:
-                agents = await gw.agents_list()
-                resolved_agent_id = agents[0]["id"] if agents else "main"
-            return await gw.file_set(resolved_agent_id, name, content)
-
-    async def sessions_list(self, limit: int = 20, **kwargs) -> list[dict]:
-        async with self.connect(**kwargs) as gw:
-            return await gw.sessions_list(limit=limit)
-
-    async def cron_list(self, **kwargs) -> list[dict]:
-        async with self.connect(**kwargs) as gw:
-            return await gw.cron_list()
-
-    async def cron_add(self, job: dict, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.cron_add(job)
-
-    async def cron_remove(self, job_id: str, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.cron_remove(job_id)
-
-    async def cron_run(self, job_id: str, **kwargs) -> dict:
-        async with self.connect(**kwargs) as gw:
-            return await gw.cron_run(job_id)
-
-    async def chat_history(
-        self,
-        session_key: str | None = None,
-        limit: int = 50,
-        **kwargs,
-    ) -> list[dict]:
-        async with self.connect(**kwargs) as gw:
-            return await gw.chat_history(session_key=session_key, limit=limit)
-
-    async def chat_send_message(
-        self,
-        message: str,
-        *,
-        session_key: str | None = None,
-        agent_id: str | None = None,
-        idempotency_key: str | None = None,
-        timeout: float = 30,
-        **kwargs,
-    ) -> dict:
-        params: dict[str, Any] = {"message": message}
-        params["sessionKey"] = session_key or create_openclaw_sdk_session_key()
-        if agent_id:
-            params["agentId"] = agent_id
-        if idempotency_key:
-            params["idempotencyKey"] = idempotency_key
-        async with self.connect(**kwargs) as gw:
-            return await gw.call("chat.send", params, timeout=timeout)
-
-    async def chat_send(
-        self,
-        message: str,
-        *,
-        session_key: str | None = None,
-        agent_id: str | None = None,
-        **kwargs,
-    ) -> AsyncIterator["ChatEvent"]:
-        async with self.connect(**kwargs) as gw:
-            async for event in gw.chat_send(message, session_key=session_key, agent_id=agent_id):
-                yield event
-
-    async def _config_with_mutation(self, mutator, **kwargs) -> dict:
-        config = copy.deepcopy(await self.config_get(**kwargs))
-        mutator(config)
-        await self.config_apply(config, **kwargs)
-        return config
-
-    async def provider_upsert(
-        self,
-        provider_id: str,
-        *,
-        api: str,
-        base_url: str,
-        api_key: str | None = None,
-        models: list[dict] | None = None,
-        **extra: Any,
-    ) -> dict:
-        def mutate(config: dict) -> None:
-            models_cfg = config.setdefault("models", {})
-            providers = models_cfg.setdefault("providers", {})
-            provider = dict(providers.get(provider_id) or {})
-            provider["api"] = api
-            provider["baseUrl"] = base_url
-            if api_key is not None:
-                provider["apiKey"] = api_key
-            if models is not None:
-                provider["models"] = copy.deepcopy(models)
-            provider.update(extra)
-            providers[provider_id] = provider
-
-        config = await self._config_with_mutation(mutate)
-        return ((config.get("models") or {}).get("providers") or {}).get(provider_id, {})
-
-    async def provider_remove(self, provider_id: str) -> dict:
-        def mutate(config: dict) -> None:
-            providers = (config.setdefault("models", {})).setdefault("providers", {})
-            providers.pop(provider_id, None)
-
-        config = await self._config_with_mutation(mutate)
-        return (config.get("models") or {}).get("providers") or {}
-
-    async def model_upsert(
-        self,
-        provider_id: str,
-        model_id: str,
-        *,
-        name: str | None = None,
-        reasoning: bool | None = None,
-        context_window: int | None = None,
-        max_tokens: int | None = None,
-        input_types: list[str] | None = None,
-        **extra: Any,
-    ) -> dict:
-        def mutate(config: dict) -> None:
-            providers = (config.setdefault("models", {})).setdefault("providers", {})
-            provider = dict(providers.get(provider_id) or {})
-            models = [dict(model) for model in provider.get("models") or []]
-            next_model = next((model for model in models if model.get("id") == model_id), None)
-            if next_model is None:
-                next_model = {"id": model_id}
-                models.append(next_model)
-            if name is not None:
-                next_model["name"] = name
-            if reasoning is not None:
-                next_model["reasoning"] = reasoning
-            if context_window is not None:
-                next_model["contextWindow"] = context_window
-            if max_tokens is not None:
-                next_model["maxTokens"] = max_tokens
-            if input_types is not None:
-                next_model["input"] = list(input_types)
-            next_model.update(extra)
-            provider["models"] = models
-            providers[provider_id] = provider
-
-        config = await self._config_with_mutation(mutate)
-        models = (((config.get("models") or {}).get("providers") or {}).get(provider_id) or {}).get(
-            "models"
-        ) or []
-        return next((model for model in models if model.get("id") == model_id), {})
-
-    async def model_remove(self, provider_id: str, model_id: str) -> list[dict]:
-        def mutate(config: dict) -> None:
-            providers = (config.setdefault("models", {})).setdefault("providers", {})
-            provider = dict(providers.get(provider_id) or {})
-            provider["models"] = [
-                dict(model) for model in provider.get("models") or [] if model.get("id") != model_id
-            ]
-            providers[provider_id] = provider
-
-        config = await self._config_with_mutation(mutate)
-        return (((config.get("models") or {}).get("providers") or {}).get(provider_id) or {}).get(
-            "models"
-        ) or []
-
-    async def set_default_model(self, provider_id: str, model_id: str) -> str:
-        primary = f"{provider_id}/{model_id}"
-
-        def mutate(config: dict) -> None:
-            defaults = (config.setdefault("agents", {})).setdefault("defaults", {})
-            model_cfg = defaults.setdefault("model", {})
-            model_cfg["primary"] = primary
-
-        await self._config_with_mutation(mutate)
-        return primary
-
-    async def set_memory_search(
-        self,
-        *,
-        provider: str,
-        model: str,
-        base_url: str | None = None,
-        api_key: str | None = None,
-        **extra: Any,
-    ) -> dict:
-        def mutate(config: dict) -> None:
-            defaults = (config.setdefault("agents", {})).setdefault("defaults", {})
-            memory_search = dict(defaults.get("memorySearch") or {})
-            memory_search["provider"] = provider
-            memory_search["model"] = model
-            remote = dict(memory_search.get("remote") or {})
-            if base_url is not None:
-                remote["baseUrl"] = base_url
-            if api_key is not None:
-                remote["apiKey"] = api_key
-            if remote:
-                memory_search["remote"] = remote
-            memory_search.update(extra)
-            defaults["memorySearch"] = memory_search
-
-        config = await self._config_with_mutation(mutate)
-        return ((config.get("agents") or {}).get("defaults") or {}).get("memorySearch") or {}
-
-    async def channel_upsert(
-        self,
-        channel_id: str,
-        channel_config: dict[str, Any],
-        *,
-        account_id: str | None = None,
-    ) -> dict:
-        if account_id:
-            await self.config_patch({"channels": {channel_id: {"accounts": {account_id: None}}}})
-            await self.config_patch({"channels": {channel_id: {"accounts": {account_id: channel_config}}}})
-        else:
-            await self.config_patch({"channels": {channel_id: None}})
-            await self.config_patch({"channels": {channel_id: channel_config}})
-        config = await self.config_get()
-        channel = (config.get("channels") or {}).get(channel_id) or {}
-        if account_id:
-            return (channel.get("accounts") or {}).get(account_id) or {}
-        return channel
-
-    async def channel_patch(
-        self,
-        channel_id: str,
-        patch: dict,
-        *,
-        account_id: str | None = None,
-    ) -> dict:
-        return await self.channel_upsert(channel_id, patch, account_id=account_id)
-
-    async def telegram_upsert(
-        self,
-        channel_config: dict[str, Any],
-        *,
-        account_id: str | None = None,
-    ) -> dict:
-        return await self.channel_upsert("telegram", channel_config, account_id=account_id)
-
-    async def slack_upsert(
-        self,
-        channel_config: dict[str, Any],
-        *,
-        account_id: str | None = None,
-    ) -> dict:
-        return await self.channel_upsert("slack", channel_config, account_id=account_id)
-
-    async def discord_upsert(
-        self,
-        channel_config: dict[str, Any],
-        *,
-        account_id: str | None = None,
-    ) -> dict:
-        return await self.channel_upsert("discord", channel_config, account_id=account_id)
-
-
-@dataclass
-class OpenClawProAgent(OpenClawAgent):
-    """OpenClaw agent launched with the pro desktop/browser preset."""
 
 
 @dataclass
@@ -3355,26 +2257,12 @@ class Deployments:
 
     def _hydrate_agent(self, data: dict) -> Agent:
         runtime = str(data.get("runtime") or "").strip().lower()
-        if runtime == "buzz-agent":
-            agent = BuzzAgent.from_dict(data)
-        elif runtime == "opencode":
-            agent = OpenCodeAgent.from_dict(data)
-        elif runtime == "codex":
-            agent = CodexAgent.from_dict(data)
-        elif runtime == "claude-code":
-            agent = ClaudeCodeAgent.from_dict(data)
-        elif runtime == "goose":
-            agent = GooseAgent.from_dict(data)
-        elif runtime == "kimi-code":
-            agent = KimiCodeAgent.from_dict(data)
-        elif runtime == "pi":
-            agent = PiAgent.from_dict(data)
-        elif runtime == "hermes-agent" or _is_hermes_agent_data(data):
-            agent = HermesAgent.from_dict(data)
-        elif runtime == "openclaw-pro" or _is_openclaw_pro_agent_data(data):
-            agent = OpenClawProAgent.from_dict(data)
-        elif runtime == "openclaw" or _is_openclaw_agent_data(data):
-            agent = OpenClawAgent.from_dict(data)
+        if (
+            runtime in _HYPER_ACP_RUNTIMES
+            or _is_openclaw_pro_agent_data(data)
+            or _is_openclaw_agent_data(data)
+        ):
+            agent: Agent = CodingAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
         agent._deployments = self
@@ -3811,415 +2699,6 @@ class Deployments:
         agent.__dict__["_submitted_launch_config"] = complete_launch
         return agent
 
-    def create_openclaw(
-        self,
-        name: str = None,
-        handle: str = None,
-        size: str = None,
-        tags: list[str] = None,
-        env: dict = None,
-        secrets: dict = None,
-        routes: dict = None,
-        command: list[str] = None,
-        entrypoint: list[str] = None,
-        image: str = None,
-        sync_root: str = None,
-        sync_include: list[str] | None | object = _UNSET,
-        sync_exclude: list[str] | None | object = _UNSET,
-        sync_uid: int = None,
-        sync_gid: int = None,
-        registry_url: str = None,
-        registry_auth: dict = None,
-        runtime_scopes: list[str] | None = None,
-        gateway_token: str = None,
-        meta_ui: dict = None,
-        dry_run: bool = False,
-        openclaw_routes: dict | None = None,
-        openclaw_route_options: dict | None = None,
-        trusted_proxies: list[str] | tuple[str, ...] | None = None,
-        cron_enabled: bool | None = None,
-        memory_index: dict | None = None,
-        workspaces_sync: dict | bool | None = None,
-        runtime: ManagedAgentRuntime = "openclaw",
-    ) -> Agent:
-        """Create OpenClaw with retained ``/home/node`` and cache exclusions.
-
-        Unlike generic create, omitted sync policy arguments select the
-        OpenClaw cache/Workspace exclusion policy. Pass ``sync_include=None``
-        or ``sync_exclude=None`` to request whole-root persistence explicitly.
-        """
-        effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
-            sync_include=sync_include,
-            sync_exclude=sync_exclude,
-        )
-        effective_env, secret_map, effective_gateway_token = _inject_openclaw_gateway_token(
-            env,
-            secrets,
-            gateway_token,
-            generate=True,
-        )
-        effective_env = {
-            **build_openclaw_workspaces_sync_env(workspaces_sync),
-            **build_openclaw_cron_env(cron_enabled),
-            **build_openclaw_memory_index_env(memory_index),
-            **OPENCLAW_MODEL_ENV_DEFAULTS,
-            **OPENCLAW_GATEWAY_ENV_DEFAULTS,
-            **build_openclaw_trusted_proxies_env(trusted_proxies),
-            **effective_env,
-        }
-        agent = self.create(
-            name=name,
-            handle=handle,
-            size=size,
-            runtime=runtime,
-            tags=tags,
-            env=effective_env,
-            secrets=secret_map,
-            routes=_resolve_openclaw_routes(
-                routes,
-                openclaw_routes=openclaw_routes,
-                openclaw_route_options=openclaw_route_options,
-            ),
-            command=command,
-            entrypoint=entrypoint,
-            image=_default_openclaw_image(image),
-            sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
-            sync_include=effective_sync_include,
-            sync_exclude=effective_sync_exclude,
-            sync_uid=sync_uid,
-            sync_gid=sync_gid,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            runtime_scopes=runtime_scopes,
-            meta_ui=meta_ui,
-            dry_run=dry_run,
-        )
-        if isinstance(agent, OpenClawAgent):
-            agent.gateway_token = effective_gateway_token
-        return agent
-
-    def create_hermes_agent(
-        self,
-        name: str = None,
-        handle: str = None,
-        size: str = None,
-        tags: list[str] = None,
-        env: dict = None,
-        secrets: dict = None,
-        routes: dict = None,
-        cors: AgentCorsConfig | dict | None | object = _UNSET,
-        cors_origins: list[str] | tuple[str, ...] | set[str] | None = None,
-        command: list[str] = None,
-        entrypoint: list[str] = None,
-        image: str = None,
-        sync_root: str = None,
-        sync_include: list[str] | None | object = _UNSET,
-        sync_exclude: list[str] | None | object = _UNSET,
-        sync_uid: int = None,
-        sync_gid: int = None,
-        registry_url: str = None,
-        registry_auth: dict = None,
-        restart: bool = False,
-        runtime_scopes: list[str] | None = None,
-        api_server_key: str = None,
-        meta_ui: dict = None,
-        dry_run: bool = False,
-        hermes_routes: dict | None = None,
-        hermes_route_options: dict | None = None,
-        cron_enabled: bool | None = None,
-    ) -> HermesAgent:
-        """Create a first-class Hermes Agent runtime."""
-        effective_env, effective_secrets, effective_key = _inject_hermes_api_server_key(
-            env,
-            secrets,
-            api_server_key,
-        )
-        effective_env, effective_cors = _resolve_hermes_cors(
-            effective_env,
-            cors_origins,
-            cors,
-        )
-        effective_env = {
-            **build_hermes_cron_env(cron_enabled),
-            **HERMES_MODEL_ENV_DEFAULTS,
-            **effective_env,
-        }
-        agent = self.create(
-            name=name,
-            handle=handle,
-            size=size,
-            runtime="hermes-agent",
-            tags=tags,
-            env=effective_env,
-            secrets=effective_secrets,
-            routes=_resolve_hermes_agent_routes(
-                routes,
-                hermes_routes=hermes_routes,
-                hermes_route_options=hermes_route_options,
-            ),
-            cors=effective_cors,
-            command=command,
-            entrypoint=entrypoint,
-            image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
-            sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
-            sync_include=sync_include,
-            sync_exclude=(
-                list(DEFAULT_HERMES_AGENT_SYNC_EXCLUDE)
-                if sync_include is _UNSET and sync_exclude is _UNSET
-                else sync_exclude
-            ),
-            sync_uid=10000 if sync_uid is None else sync_uid,
-            sync_gid=10000 if sync_gid is None else sync_gid,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            restart=restart,
-            runtime_scopes=runtime_scopes,
-            meta_ui=meta_ui,
-            dry_run=dry_run,
-        )
-        if not isinstance(agent, HermesAgent):
-            raise TypeError("backend did not return a HermesAgent deployment")
-        agent.api_server_key = effective_key
-        return agent
-
-    def create_openclaw_pro(
-        self,
-        name: str = None,
-        handle: str = None,
-        size: str = None,
-        tags: list[str] = None,
-        env: dict = None,
-        secrets: dict = None,
-        routes: dict = None,
-        command: list[str] = None,
-        entrypoint: list[str] = None,
-        image: str = None,
-        sync_root: str = None,
-        sync_include: list[str] | None | object = _UNSET,
-        sync_exclude: list[str] | None | object = _UNSET,
-        sync_uid: int = None,
-        sync_gid: int = None,
-        registry_url: str = None,
-        registry_auth: dict = None,
-        runtime_scopes: list[str] | None = None,
-        gateway_token: str = None,
-        meta_ui: dict = None,
-        dry_run: bool = False,
-        openclaw_routes: dict | None = None,
-        openclaw_route_options: dict | None = None,
-        trusted_proxies: list[str] | tuple[str, ...] | None = None,
-        cron_enabled: bool | None = None,
-        memory_index: dict | None = None,
-        workspaces_sync: dict | bool | None = None,
-    ) -> Agent:
-        effective_env = {"HYPER_DESKTOP_ENABLED": "1", **dict(env or {})}
-        effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
-        return self.create_openclaw(
-            name=name,
-            handle=handle,
-            size=size,
-            tags=tags,
-            env=effective_env,
-            secrets=secrets,
-            routes=routes,
-            command=command,
-            entrypoint=entrypoint,
-            image=_default_openclaw_pro_image(image),
-            sync_root=sync_root,
-            sync_include=sync_include,
-            sync_exclude=sync_exclude,
-            sync_uid=sync_uid,
-            sync_gid=sync_gid,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            runtime_scopes=(
-                list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
-            ),
-            gateway_token=gateway_token,
-            meta_ui=meta_ui,
-            dry_run=dry_run,
-            openclaw_routes=openclaw_routes,
-            openclaw_route_options=effective_route_options,
-            trusted_proxies=trusted_proxies,
-            cron_enabled=cron_enabled,
-            memory_index=memory_index,
-            workspaces_sync=workspaces_sync,
-            runtime="openclaw-pro",
-        )
-
-    def _create_coding_agent(
-        self,
-        *,
-        runtime: CodingAgentRuntime,
-        name: str | None = None,
-        handle: str | None = None,
-        size: str | None = None,
-        config: dict | None = None,
-        tags: list[str] | None = None,
-        env: dict | None = None,
-        secrets: dict | None = None,
-        routes: dict | None = None,
-        command: list[str] | None = None,
-        entrypoint: list[str] | None = None,
-        image: str | None = None,
-        sync_root: str | None = None,
-        sync_include: list[str] | None | object = _UNSET,
-        sync_exclude: list[str] | None | object = _UNSET,
-        sync_uid: int | None = None,
-        sync_gid: int | None = None,
-        registry_url: str | None = None,
-        registry_auth: dict | None = None,
-        restart: bool = False,
-        runtime_scopes: list[str] | None = None,
-        docker: dict | None | object = _UNSET,
-        executor: str | None = None,
-        meta_ui: dict | None = None,
-        dry_run: bool = False,
-        workspaces_sync: dict | bool | None = None,
-        buzz_enabled: bool = False,
-        buzz: BuzzLaunchConfig | None = None,
-        runner: dict | None = None,
-    ) -> Agent:
-        """Create a coding runtime with its runtime-specific include default.
-
-        An explicit nullable sync policy opts out of that helper default and
-        selects whole-root persistence. ``sync_include=[]`` is invalid.
-        """
-        if buzz_enabled and buzz is not None:
-            raise ValueError("buzz_enabled cannot be combined with buzz")
-        if (buzz_enabled or buzz is not None) and command is not None:
-            raise ValueError("Buzz launch cannot be combined with an explicit command")
-        buzz_launch = buzz_enabled or buzz is not None
-        if buzz_launch and size not in (None, "large"):
-            raise ValueError("Buzz coding agents require size='large'")
-        effective_env = {
-            **build_openclaw_workspaces_sync_env(workspaces_sync),
-            **dict(env or {}),
-        }
-        effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", "default")
-        effective_secrets = dict(secrets or {})
-        for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
-            value = effective_env.pop(key, None)
-            if value is not None:
-                existing = effective_secrets.get(key)
-                if existing is not None and existing != value:
-                    raise ValueError(f"{key} conflicts between env and secrets")
-                effective_secrets[key] = value
-        if buzz is not None:
-            for key in BUZZ_RESERVED_ENV_KEYS:
-                effective_env.pop(key, None)
-            effective_env.update(buzz.environment(runtime, default_session_title=name))
-            effective_secrets.update(buzz.secrets())
-        if buzz_launch:
-            effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
-            for key in (
-                "HYPER_ACP_WS_LISTEN",
-                "HYPER_ACP_LOG",
-                "HYPER_ACP_WS_TOKEN",
-                "HYPER_ACP_AGENT_COMMAND",
-                "HYPER_ACP_AGENT_ARGS",
-                "HYPER_ACP_AUTO_APPROVE_PERMISSION",
-            ):
-                effective_env.pop(key, None)
-            effective_secrets.pop("HYPER_ACP_WS_TOKEN", None)
-            effective_env["HYPER_ACP_WS_URL"] = _default_hyper_acp_ws_url(self._api_base)
-            effective_env["BUZZ_ACP_RELAY_OBSERVER"] = "true"
-        (
-            effective_sync_include,
-            effective_sync_exclude,
-        ) = _resolve_coding_agent_sync_policy(
-            runtime,
-            sync_include=sync_include,
-            sync_exclude=sync_exclude,
-        )
-        # Hosted Buzz shutdown is process-driven. Never let a generic coding
-        # launch override resurrect the adapter after `!shutdown`.
-        effective_restart = False if buzz_launch else restart
-        return self.create(
-            name=name,
-            handle=handle,
-            size="large" if buzz_launch else size,
-            runtime=runtime,
-            config=config,
-            tags=tags,
-            env=effective_env,
-            secrets=effective_secrets,
-            routes={} if buzz_launch or routes is None else routes,
-            command=(
-                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
-                if buzz_launch
-                else command if command is not None else ["/usr/local/bin/hyper-acp"]
-            ),
-            entrypoint=entrypoint,
-            image=image
-            or DEFAULT_CODING_AGENT_IMAGES[runtime],
-            sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
-            sync_include=effective_sync_include,
-            sync_exclude=effective_sync_exclude,
-            sync_uid=1000 if sync_uid is None else sync_uid,
-            sync_gid=1000 if sync_gid is None else sync_gid,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            restart=effective_restart,
-            runtime_scopes=(
-                list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
-            ),
-            docker=docker,
-            executor=executor,
-            meta_ui=meta_ui,
-            runner=runner,
-            dry_run=dry_run,
-        )
-
-    def create_opencode(self, **kwargs: Any) -> OpenCodeAgent:
-        """Create a hosted OpenCode ACP runtime with workspace boot sync."""
-        return self._create_coding_agent(
-            runtime="opencode",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_buzz_agent(self, **kwargs: Any) -> BuzzAgent:
-        """Create the native Buzz ACP runtime with workspace boot sync."""
-        return self._create_coding_agent(
-            runtime="buzz-agent",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_codex(self, **kwargs: Any) -> CodexAgent:
-        """Create a hosted Codex ACP runtime with workspace boot sync."""
-        return self._create_coding_agent(
-            runtime="codex",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_claude_code(self, **kwargs: Any) -> ClaudeCodeAgent:
-        """Create a hosted Claude Code ACP runtime with workspace boot sync."""
-        return self._create_coding_agent(
-            runtime="claude-code",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_goose(self, **kwargs: Any) -> GooseAgent:
-        """Create a hosted Goose native ACP runtime with workspace boot sync."""
-        return self._create_coding_agent(
-            runtime="goose",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_kimi_code(self, **kwargs: Any) -> KimiCodeAgent:
-        """Create a hosted Kimi Code ACP runtime using Moonshot upstream."""
-        return self._create_coding_agent(
-            runtime="kimi-code",
-            **kwargs,
-        )  # type: ignore[return-value]
-
-    def create_pi(self, **kwargs: Any) -> PiAgent:
-        """Create a hosted Pi ACP runtime with persisted native and adapter state."""
-        kwargs["env"] = {**DEFAULT_PI_ENV, **(kwargs.get("env") or {})}
-        return self._create_coding_agent(
-            runtime="pi",
-            **kwargs,
-        )  # type: ignore[return-value]
 
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.
@@ -4804,38 +3283,6 @@ class Deployments:
         data = self._post(path, json=body) if body else self._post(path)
         return self._hydrate_agent(data)
 
-    def start_hermes_agent(
-        self,
-        agent_id: str,
-        *,
-        dry_run: bool = False,
-    ) -> HermesAgent:
-        """Start Hermes using the Backend-stored launch configuration."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
-        agent = self.start(resolved_agent_id, dry_run=dry_run)
-        if not isinstance(agent, HermesAgent):
-            raise TypeError("backend did not return a HermesAgent deployment")
-        return agent
-
-    def start_openclaw(
-        self,
-        agent_id: str,
-        *,
-        dry_run: bool = False,
-    ) -> Agent:
-        resolved_agent_id = self.resolve_agent_id(agent_id)
-        return self.start(resolved_agent_id, dry_run=dry_run)
-
-    def start_openclaw_pro(
-        self,
-        agent_id: str,
-        *,
-        dry_run: bool = False,
-    ) -> Agent:
-        return self.start_openclaw(
-            agent_id,
-            dry_run=dry_run,
-        )
 
     def update(
         self,
@@ -5112,43 +3559,12 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
-    def purchase_entitlement_from_balance(
-        self,
-        plan_id: str,
-        *,
-        duration: int,
-        tags: list[str] | None = None,
-        extend_existing: bool | None = None,
-    ) -> dict:
-        payload: dict[str, Any] = {"duration": int(duration)}
-        if tags is not None:
-            payload["tags"] = list(tags)
-        if extend_existing is not None:
-            payload["extend_existing"] = bool(extend_existing)
-        return self._post(f"/billing/balance/{quote(str(plan_id), safe='')}", json=payload)
-
-    def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
-        payload: dict[str, Any] = {"code": str(code)}
-        if extend_existing is not None:
-            payload["extend_existing"] = bool(extend_existing)
-        return self._post("/billing/grants/redeem", json=payload)
 
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived token for backend log streaming."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
-    def logs_tail(self, agent_id: str, tail_lines: int = 100) -> str:
-        """Return the persisted log tail. Works in any agent state, including
-        stopped — unlike the streaming token, which the backend only mints for
-        running agents."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
-        data = self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs")
-        logs = str(data.get("logs") or "")
-        lines = logs.splitlines()
-        if tail_lines >= 0 and len(lines) > tail_lines:
-            logs = "\n".join(lines[-tail_lines:]) if tail_lines else ""
-        return logs
 
     def env(self, agent_id: str) -> dict[str, Any]:
         """Fetch the deployment's non-secret environment."""
@@ -5455,14 +3871,7 @@ class Deployments:
 
         # Get stream token
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        try:
-            token_data = self.logs_token(resolved_agent_id)
-        except APIError as error:
-            if follow or error.status_code != 409:
-                raise
-            for line in self.logs_tail(resolved_agent_id, tail_lines).splitlines():
-                yield line
-            return
+        token_data = self.logs_token(resolved_agent_id)
         if not isinstance(token_data, dict):
             raise ValueError("Backend returned an invalid Agent logs token response")
         token = token_data.get("token")

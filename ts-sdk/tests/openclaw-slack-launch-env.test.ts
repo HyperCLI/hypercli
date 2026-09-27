@@ -308,13 +308,13 @@ describe('hosted Slack launch env', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('startOpenClaw rejects launch env repair on start', async () => {
+  it('start rejects launch env repair on start', async () => {
     const patch = vi.fn();
     const post = vi.fn();
     const get = vi.fn().mockResolvedValue(createdAgentPayload({ state: 'STOPPED' }));
     const deployments = deploymentsWith({ patch, post, get });
 
-    await expect(deployments.startOpenClaw(AGENT_ID, {
+    await expect(deployments.start(AGENT_ID, {
       launchConfig: completeLaunchConfig({
         HYPER_SLACK_APP_ENABLED: '1',
         HYPER_SLACK_RELAY_URL: RELAY_WS,
@@ -327,12 +327,12 @@ describe('hosted Slack launch env', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('startOpenClaw does not validate launch env on start', async () => {
+  it('start does not validate launch env on start', async () => {
     const post = vi.fn();
     const get = vi.fn().mockResolvedValue(createdAgentPayload({ state: 'STOPPED' }));
     const deployments = deploymentsWith({ post, get });
 
-    await expect(deployments.startOpenClaw(AGENT_ID, {
+    await expect(deployments.start(AGENT_ID, {
       launchConfig: completeLaunchConfig({ HYPER_SLACK_APP_ENABLED: '1' }),
     } as any)).rejects.toThrow(/no longer accepts launch mutation options: launchConfig/);
     expect(get).not.toHaveBeenCalled();
