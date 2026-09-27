@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { CodingAgent, Deployments } from '../src/agents.js';
+import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import {
   ACP_TURN_STARTED_METHOD,
@@ -239,13 +239,13 @@ async function waitFor(condition: () => boolean, timeoutMs = 4_000): Promise<voi
   throw new Error('timed out waiting for condition');
 }
 
-function acpAgent(bridge: FakeAcpBridge): CodingAgent {
+function acpAgent(bridge: FakeAcpBridge): Agent {
   const deployments = new Deployments(
     {} as unknown as HTTPClient,
     'hyper_api_test',
     bridge.apiBase,
   );
-  const agent = CodingAgent.fromDict({
+  const agent = Agent.fromDict({
     id: AGENT_ID,
     user_id: 'user-1',
     state: 'RUNNING',
@@ -276,7 +276,7 @@ afterEach(async () => {
   for (const bridge of bridges.splice(0)) await bridge.close();
 });
 
-describe('CodingAgent.acpConnect', () => {
+describe('Agent.acpConnect', () => {
   it('dials the /ws/acp session proxy with token query auth and agent_id, then completes the initialize handshake', async () => {
     const bridge = await startBridge();
     const updates: string[] = [];
@@ -1011,7 +1011,7 @@ describe('CodingAgentAcpPool', () => {
   });
 });
 
-describe('CodingAgent.acpTurnDriver', () => {
+describe('Agent.acpTurnDriver', () => {
   it('returns a ready per-session driver on the pooled connection; the prompt response completes the turn', async () => {
     const bridge = await startBridge();
     const agent = acpAgent(bridge);

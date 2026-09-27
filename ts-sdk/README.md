@@ -209,9 +209,9 @@ for (const slot of capacity.agentSlots) {
 }
 ```
 
-`start()` and `startOpenClaw()` start the Backend-stored launch config. Change
+`start()` starts the Backend-stored launch config. Change
 launch settings through `update(..., { launchConfig })` before starting.
-OpenClaw start helpers do not accept launch mutation options such as
+`start()` does not accept launch mutation options such as
 `launchConfig`, `gatewayToken`, `controlUiAllowedOrigins`, or `trustedProxies`.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
@@ -260,7 +260,7 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.
 
-Use `createOpenClawPro(...)` or `update(..., { launchConfig })` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
+Use `createOpenClaw({ runtime: 'openclaw-pro' })` or `update(..., { launchConfig })` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
 
 For a running desktop-enabled agent, `client.deployments.desktopUrl(id)` returns
 a JWT-signed URL that logs straight into the noVNC page: it builds
@@ -290,11 +290,11 @@ array). The helpers in
 `normalizeControlUiOrigin()`, `parseControlUiAllowedOrigins()`, and
 `mergeControlUiAllowedOrigins()`. `normalizeControlUiOrigin()` is display-only;
 the launch env is user-controlled and is not scheme-validated by the SDK.
-`createOpenClawPro` defaults the replacement to `*` when no explicit env is
-provided. `startOpenClaw` parses stored legacy values and caller-supplied
-origins before writing a replacement so current callers retain broad access. A
-Node caller passing no origins has nothing to add, so a plain CLI `start` stays
-patch-free.
+The OpenClaw create path always writes the wildcard replacement
+(`OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN='*'`): every HyperCLI surface (desktop,
+console) drives the control UI from dynamic origins, and the wildcard is the
+only value that lands reliably. `resetRuntimeDefaults(...)` restores the same
+wildcard.
 
 `OPENCLAW_TRUSTED_PROXIES` is likewise a comma-separated full replacement for
 OpenClaw `gateway.trustedProxies`. Use `buildOpenClawTrustedProxiesEnv([...])`
@@ -320,7 +320,7 @@ advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
 ```typescript
-const agent = await client.deployments.createOpenCode({
+const agent = await client.deployments.createCodingAgent('opencode', {
   name: 'buzz-ci',
   buzz: {
     privateKeyNsec: agentNsec,
@@ -353,19 +353,16 @@ Goose uses its injected deployment credential; and Kimi Code uses the
 upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
 logout command through this SDK surface.
 
-The corresponding helpers are `createBuzzAgent(...)`, `createOpenCode(...)`, `createCodex(...)`,
-`createClaudeCode(...)`, `createGoose(...)`, and `createKimiCode(...)`. Set
+All seven runtimes launch through one helper, `createCodingAgent(runtime,
+...)` — `buzz-agent`, `opencode`, `codex`, `claude-code`, `goose`,
+`kimi-code`, and `pi`. Set
 the typed `buzz` object to derive the canonical child command, arguments, MCP
 command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
-Typed and compatibility Buzz launches select the matching `hypercli-buzz`
-image family (`buzz-agent`, `opencode`, `codex`, `claude`, `goose`, or
-`kimi-code`) by
-default. Ordinary coding-agent helpers without Buzz keep the generic
-`ghcr.io/hypercli/hypercli-<runtime>:latest` default, except native Buzz Agent,
-whose runtime image is already `hypercli-buzz-agent`. An explicit `image`
-continues to override either default.
+Buzz launches keep the runtime's normal default image; only native Buzz
+Agent's runtime image is already `hypercli-buzz-agent`. An explicit `image`
+continues to override the default.
 
 Buzz launches keep `/home/node` as the persistent Files API and credential
 root, reserve `/home/node/shared` for Workspace projections, and run
@@ -380,8 +377,9 @@ rejected later by `hyper-acp`. The Desktop provider also maps structured Goose
 model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct TypeScript SDK
 callers must set any Goose-specific environment themselves.
 
-Buzz launches leave size unset for live backend/provider slot selection;
-ordinary coding-agent helpers preserve a caller-provided size or the backend
+Buzz launches default `size` to `'large'` (only `'large'` or `'medium'` are
+accepted) and force `restart: false`;
+ordinary coding-agent launches preserve a caller-provided size or the backend
 default. Stock Buzz provider agents do not
 start on app launch and the current provider protocol has no stop callback.
 Editing a running agent does not replace its HyperCLI launch environment: stop
@@ -416,45 +414,7 @@ await agent.deleteSecret('SERVICE_TOKEN');
 
 Secret mutations return metadata only and never echo the secret value.
 
-### OpenClaw Gateway Chat Attachments
-
-```typescript
-import { GatewayClient } from '@hypercli.com/sdk/browser';
-
-const gateway = new GatewayClient({
-  url: 'wss://your-agent.dev.hyperclaw.app',
-  gatewayToken: 'gateway-token',
-});
-
-await gateway.connect();
-
-await gateway.sendChat("What's in this image?", "main", undefined, [
-  {
-    dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
-    mimeType: 'image/png',
-    fileName: 'screenshot.png',
-  },
-]);
-
-await gateway.sendChat('Already normalized', 'main', undefined, [
-  {
-    type: 'image',
-    mimeType: 'image/png',
-    content: 'iVBORw0KGgoAAAANSUhEUgAA...',
-    fileName: 'screenshot.png',
-  },
-]);
-```
-
-For managed Agents, prefer the `OpenClawAgent` connection helpers instead of
-copying the gateway Secret into application storage. The shared
-`OPENCLAW_GATEWAY_TOKEN` is in-memory bootstrap/auth material. Browser device
-identity is stored separately under `openclaw.device.auth.v1`, with device
-tokens and pending pairing scoped to the deployment and role.
-
 `client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
-
-Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 
 ### Renders (Managed AI Workflows)
 

@@ -202,7 +202,6 @@ Create/update launch options:
 - `syncGid`
 - `registryUrl`
 - `registryAuth`
-- `gatewayToken`
 
 `registryUrl`, `registryAuth`, `syncRoot`, and `restart` are generic launch
 options. They belong to the base deployment contract, not to OpenClaw
@@ -233,8 +232,8 @@ an explicit cold restore; ordinary start reuses the retained PVC. See
 and the complete lifecycle and full-PVC archive semantics.
 
 `env` and `secrets` are separate string records. A key cannot appear in both.
-The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gatewayToken` (or the
-same key in `secrets`) only when intentionally replacing it. Otherwise the
+`OPENCLAW_GATEWAY_TOKEN` is a secret-only key: the SDK rejects it in `env`, so
+supply it through `secrets` only when intentionally replacing it. Otherwise the
 Backend preserves the existing Secret.
 
 Public launch-config PATCH calls can preserve stored backend-redacted `secrets`
@@ -253,17 +252,17 @@ const agent = await client.deployments.createOpenClaw({
   tags: ["team=dev"],
 });
 await client.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
-await client.deployments.startOpenClaw(agent.id);
+await client.deployments.start(agent.id);
 ```
 
-`startOpenClaw(...)` starts the Backend-stored launch config. To change launch
+`start(...)` starts the Backend-stored launch config. To change launch
 settings, update them explicitly before START:
 
 ```ts
 const launchConfig = await client.deployments.storedLaunchConfig(agent.id);
 launchConfig.env.MY_FLAG = "1";
 await client.deployments.update(agent.id, { launchConfig });
-await client.deployments.startOpenClaw(agent.id);
+await client.deployments.start(agent.id);
 ```
 
 Hosted Slack gateway ids are finalized during create/update, not START.
@@ -311,19 +310,20 @@ canonical OpenClaw gateway is the only SDK default that strips a proxy header.
 `gateway.trustedProxies`; `buildOpenClawTrustedProxiesEnv([...])` builds that
 launch env.
 
-Use `createOpenClawPro(...)` for the desktop/browser flavor, or persist the same
-launch config through `update(...)` before a later start. The pro helpers inherit
-the same OpenClaw defaults, select the `hypercli-openclaw:pro-prod` image when no
-image is provided, set `OPENCLAW_DESKTOP_ENABLED=1`, and include the protected
+Pass `runtime: "openclaw-pro"` to `createOpenClaw(...)` for the desktop/browser
+flavor, or persist the same
+launch config through `update(...)` before a later start. The pro launch inherits
+the same OpenClaw defaults, selects the `hypercli-openclaw:pro-prod` image when no
+image is provided, sets `HYPER_DESKTOP_ENABLED=1`, and includes the protected
 noVNC route at `desktop-<agent>.hypercli.app`.
 
 OpenClaw helpers only add defaults on top of that generic launch surface:
 
 - `image`
-  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro helpers
+  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for `runtime: "openclaw-pro"`
 - `routes`
-  always includes the canonical `openclaw` gateway route; desktop/pro helpers
-  also include the protected `desktop` route
+  always includes the canonical `openclaw` gateway route; a pro launch
+  also includes the protected `desktop` route
 - `syncRoot`
   defaults to `/home/node`
 - `syncExclude`
@@ -337,7 +337,7 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   `HYPER_WORKSPACES_*` environment variables; there is no public
   `launch_config.workspacesSync` field
 
-Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)`, `createOpenClawPro(...)`, or an explicit `update(...)` before start:
+Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)` or an explicit `update(...)` before start:
 
 ```ts
 const agent = await client.deployments.createOpenClaw({
@@ -366,24 +366,25 @@ const agent = await client.deployments.createOpenClaw({
 
 ## Hosted Coding Agents
 
-The SDK has typed launch helpers for seven hosted coding runtimes:
+Seven hosted coding runtimes share one launch helper,
+`createCodingAgent(runtime, ...)`:
 
-| Runtime value | TypeScript helper | Generic default image |
-| --- | --- | --- |
-| `buzz-agent` | `createBuzzAgent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| `opencode` | `createOpenCode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
-| `codex` | `createCodex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| `claude-code` | `createClaudeCode()` | `ghcr.io/hypercli/hypercli-claude:latest` |
-| `goose` | `createGoose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
-| `kimi-code` | `createKimiCode()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
-| `pi` | `createPi()` | `ghcr.io/hypercli/hypercli-pi:latest` |
+| Runtime value | Generic default image |
+| --- | --- |
+| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
+| `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
+| `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+| `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
 
 These runtimes have no OpenClaw gateway and no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
 use the authenticated deployment API:
 
 ```ts
-const codex = await client.deployments.createCodex({ name: "codex" });
+const codex = await client.deployments.createCodingAgent("codex", { name: "codex" });
 const methods = await codex.auth.methods();
 const status = await codex.auth.status();
 const login = await codex.auth.login({ method: "device" });
@@ -414,7 +415,7 @@ inference, authentication, and selective-sync matrix.
 Pass the typed `buzz` object to render the identity and canonical ACP launch:
 
 ```ts
-const agent = await client.deployments.createOpenCode({
+const agent = await client.deployments.createCodingAgent("opencode", {
   name: "buzz-opencode",
   buzz: {
     privateKeyNsec: agentNsec,
@@ -434,8 +435,8 @@ inference path.
 
 A typed Buzz launch:
 
-- leaves size unset for live backend/provider slot selection and sets
-  `restart: false`;
+- defaults `size` to `"large"` (only `"large"` or `"medium"` are accepted) and
+  forces `restart: false`;
 - clears public routes and selects
   `command: ["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, preserving the image entrypoint;
 - derives the selected runtime's ACP child command and Buzz MCP command;
@@ -484,7 +485,7 @@ const agent = await client.deployments.create({
 ```ts
 await client.deployments.list();
 await client.deployments.get(agent.id);
-await client.deployments.startOpenClaw(agent.id);
+await client.deployments.start(agent.id);
 await client.deployments.stop(agent.id);
 await client.deployments.archive(agent.id);
 await client.deployments.restore(agent.id);
@@ -643,78 +644,29 @@ Shell token requests contain only the selected absolute `shell` path. The JWT
 is carried only in the WebSocket query string; there is no auth frame, header,
 cookie, or subprotocol.
 
-## `OpenClawAgent`
+## `CodingAgent`
 
-When gateway metadata exists, the SDK hydrates `OpenClawAgent`.
+Every managed runtime — `openclaw`, `openclaw-pro`, `hermes-agent`, and the
+coding-agent runtimes — boots its pod behind `hyper-acp` and hydrates as
+`CodingAgent`, the one ACP-facing facade. Chat, sessions, runtime auth, and
+turn driving all ride the same ACP bridge; runtimes differ only in the
+`runtime` label plus launch-config data (images, sync roots, harness env).
+Session protocol behavior is version-keyed (`negotiatedProtocolVersion`),
+never runtime-keyed.
 
-Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAgent`, which inherits the OpenClaw gateway helpers.
+Important additions over `Agent`:
 
-Important additions:
-
-- `gatewayUrl`
-- `gatewayToken`
-- `resolveGatewayToken()`
-- `gateway()`
-- `connect()`
-- `gatewayStatus()`
-- `waitReady()`
-- `configGet()`
-- `configSchema()`
-- `configPatch()`
-- `configApply()`
-- `modelsList()`
-- `sessionsList()`
-- `channelsStatus()`
-- `channelsLogout()`
-- `webLoginStart()`
-- `webLoginWait()`
-- `workspaceFiles()`
-- `fileGet()`
-- `fileSet()`
-- `chatHistory()`
-- `chatSendMessage()`
-- `providerUpsert()`
-- `providerRemove()`
-- `modelUpsert()`
-- `modelRemove()`
-- `setDefaultModel()`
-- `setMemorySearch()`
-- `channelUpsert()`
-- `channelPatch()`
-- `telegramUpsert()`
-- `slackUpsert()`
-- `discordUpsert()`
-- `cronList()`
-
-`providerUpsert()` intentionally tracks the upstream OpenClaw provider shape instead of inventing HyperCLI-specific wrappers. Use the same provider fields you would use in `models.providers.<id>` inside OpenClaw, including:
-
-- `baseUrl`
-- `apiKey`
-- `auth`
-- `api`
-- `headers`
-- `authHeader`
-- `injectNumCtxForOpenAICompat`
-- `models`
-
-`waitForGatewayContext()` waits for an exact Agent projection to become
-`RUNNING`, waits for the `openclaw` route status to report active DNS, reads
-`OPENCLAW_GATEWAY_TOKEN` once through `secret()`, and confirms the same Agent
-`launchEpoch` and route before returning. The Secret is canonical shared
-bootstrap configuration replayed across launches, so its response envelope
-does not need to match the current Agent epoch. Secret read and validation
-failures surface immediately rather than polling the sensitive endpoint. The
-resolved token is held on the live Agent instance only; it is not persisted to
-browser storage by this helper. There is no OpenClaw-specific REST
-gateway-context endpoint.
-
-Browser device auth is independent of that Secret. `GatewayClient` persists a
-single browser-origin device keypair plus deployment-and-role-scoped device
-tokens and pending pairing records under `openclaw.device.auth.v1`. Cold
-`PAIRING_REQUIRED` connections can be approved through trusted Agent exec and
-then reconnect; warm connections to the same deployment and role reuse device
-auth. Invalid-token repair removes only the affected scoped entry and preserves
-other Agents and the global device identity.
+- `auth` — the runtime-specific `RuntimeAuthClient`: `methods()`, `status()`,
+  `login()`, `logout()` (see Hosted Coding Agents above)
+- `acpConnect(options)` — a `CodingAgentAcpClient` over the backend session
+  proxy (`/ws/acp`, the session authority). The default proxy transport owns
+  session create/attach via `options.sessionId`; `transport: "direct"` dials
+  the agent-keyed `/ws` bridge and is infra/debug only.
+- `acpPool` — a lazily created `CodingAgentAcpPool`. The bridge rejects a
+  duplicate runtime attach, so all ACP consumers of one agent share the pool
+  via leases.
+- `acpTurnDriver(options)` — a per-session `AcpTurnDriver` bound to a pooled
+  lease; drivers are cheap (one per session) and ignore other sessions' frames.
 
 To mint a child key for one exact agent:
 
@@ -722,10 +674,3 @@ To mint a child key for one exact agent:
 const scoped = await client.deployments.createScopedKey(agent.id, "agent-client");
 console.log(scoped.api_key);
 ```
-
-### Gateway URL Semantics
-
-The gateway still uses the root-host route, but the SDK takes its canonical URL
-from the active `openclaw` route status rather than guessing readiness from an
-Agent hostname. `RUNNING` and route readiness are separate; connection and
-pairing readiness come later.

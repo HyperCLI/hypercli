@@ -21,6 +21,7 @@ import re
 import secrets
 import shlex
 import time
+import warnings
 from typing import (
     Awaitable,
     Callable,
@@ -119,6 +120,8 @@ LAUNCH_CONFIG_KEYS = frozenset(
     }
 )
 DEFAULT_HERMES_AGENT_SYNC_ROOT = "/home/hermes"
+DEFAULT_HERMES_AGENT_SYNC_UID = 10000
+DEFAULT_HERMES_AGENT_SYNC_GID = 10000
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 RUNNER_FILE_MAX_BYTES = 262_144
@@ -210,24 +213,6 @@ ManagedAgentRuntime = Literal[
     "kimi-code",
     "pi",
 ]
-# Runtime labels whose pods front hyper-acp and hydrate to the single
-# CodingAgent facade.
-_HYPER_ACP_RUNTIMES = frozenset(
-    {
-        "openclaw",
-        "openclaw-pro",
-        "hermes-agent",
-        "openclaw_acp",
-        "hermes_acp",
-        "buzz-agent",
-        "opencode",
-        "codex",
-        "claude-code",
-        "goose",
-        "kimi-code",
-        "pi",
-    }
-)
 AgentSize = Literal["small", "medium", "large"]
 _AGENT_SIZES = frozenset({"small", "medium", "large"})
 
@@ -1221,18 +1206,6 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     }
 
 
-def _is_openclaw_agent_data(data: dict) -> bool:
-    routes = data.get("routes")
-    if isinstance(routes, dict) and routes.get("openclaw"):
-        return True
-    launch_config = data.get("launch_config")
-    if isinstance(launch_config, dict):
-        launch_routes = launch_config.get("routes")
-        if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
-            return True
-    return False
-
-
 def _is_direct_agent_id_ref(value: str) -> bool:
     raw = str(value or "").strip()
     if not raw:
@@ -1250,16 +1223,6 @@ def _is_direct_agent_id_ref(value: str) -> bool:
 def _is_self_agent_ref(value: str) -> bool:
     """Return whether *value* is the reserved authenticated-agent selector."""
     return str(value or "").strip().lower() == "self"
-
-
-def _is_openclaw_pro_agent_data(data: dict) -> bool:
-    launch_config = data.get("launch_config")
-    if not isinstance(launch_config, dict):
-        return False
-    if launch_config_has_desktop(launch_config):
-        return True
-    image = str(launch_config.get("image") or "")
-    return "hypercli-openclaw:pro" in image or image.endswith("-pro")
 
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
@@ -1431,7 +1394,12 @@ class RuntimeLoginSession:
 
 
 class RuntimeAuthClient:
-    """Runtime-specific authentication over the existing protected exec/shell API."""
+    """Runtime-specific authentication over the existing protected exec/shell API.
+
+    OpenClaw/hermes pods have no in-pod login flow and carry no ``_COMMANDS``
+    entry; constructing one for an unlisted runtime raises ``ValueError`` —
+    the gate mirrors ts-sdk ``RUNTIME_AUTH_CONFIG``.
+    """
 
     _COMMANDS: dict[str, dict[str, Any]] = {
         "buzz-agent": {
@@ -1536,11 +1504,14 @@ class RuntimeAuthClient:
         },
     }
 
-    def __init__(self, agent: "CodingAgent"):
+    def __init__(self, agent: "Agent"):
         self.agent = agent
         self.runtime = str(agent.runtime or "")
         if self.runtime not in self._COMMANDS:
-            raise ValueError(f"Unsupported coding-agent runtime: {self.runtime}")
+            raise ValueError(
+                "Runtime authentication is not available for runtime "
+                f"'{self.runtime or 'generic'}'"
+            )
 
     @property
     def _config(self) -> dict[str, Any]:
@@ -2051,6 +2022,15 @@ class Agent:
             raise ValueError("Agent is not bound to a Deployments client")
         return self._deployments
 
+    @property
+    def auth(self) -> RuntimeAuthClient:
+        """Runtime auth flows for this agent's pod (coding runtimes only).
+
+        Raises ``ValueError`` when the runtime carries no auth config entry,
+        mirroring the ts-sdk ``RuntimeAuthClient`` construction gate.
+        """
+        return RuntimeAuthClient(self)
+
     def route_requires_auth(self, route_name: str, default: bool = True) -> bool:
         route = self.routes.get(route_name) or {}
         if "auth" not in route:
@@ -2202,13 +2182,18 @@ class Agent:
         return await self._require_deployments().shell_connect(self.id, shell=shell)
 
 
-@dataclass
-class CodingAgent(Agent):
-    """Canonical hosted coding runtime with native authentication helpers."""
-
-    @property
-    def auth(self) -> RuntimeAuthClient:
-        return RuntimeAuthClient(self)
+# Every managed runtime — openclaw, openclaw-pro, hermes-agent, and the
+# coding-agent runtimes — boots its pod behind hyper-acp, so runtime auth
+# rides the same exec/shell surface; the runtimes differ only in the
+# ``runtime`` label plus launch-config data (images, sync roots/uid/gid,
+# harness env). There is no per-runtime facade class: ``Agent`` carries the
+# auth member directly and gates it at call time through the ``_COMMANDS``
+# table, not by hydration class.
+#
+# .. deprecated:: every deployment hydrates to the single flat :class:`Agent`;
+#    use ``Agent`` in place of ``CodingAgent``. Kept importable as a pure
+#    alias, mirroring ts-sdk ``export type CodingAgent = Agent``.
+CodingAgent = Agent
 
 
 @dataclass
@@ -2366,15 +2351,9 @@ class Deployments:
         )
 
     def _hydrate_agent(self, data: dict) -> Agent:
-        runtime = str(data.get("runtime") or "").strip().lower()
-        if (
-            runtime in _HYPER_ACP_RUNTIMES
-            or _is_openclaw_pro_agent_data(data)
-            or _is_openclaw_agent_data(data)
-        ):
-            agent: Agent = CodingAgent.from_dict(data)
-        else:
-            agent = Agent.from_dict(data)
+        # One flat Agent for every runtime: capability gates at call time
+        # (Agent.auth and the RuntimeAuthClient table), not by hydration class.
+        agent = Agent.from_dict(data)
         agent._deployments = self
         return agent
 

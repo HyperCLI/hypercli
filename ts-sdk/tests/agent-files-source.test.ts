@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { CodingAgent } from '../src/agents.js';
+import { Agent } from '../src/agents.js';
 
 function makeAgent() {
   const deployments = {
@@ -12,7 +12,7 @@ function makeAgent() {
     fileWrite: vi.fn().mockResolvedValue({ ok: true }),
     fileDelete: vi.fn().mockResolvedValue({ ok: true }),
   };
-  const agent = CodingAgent.fromDict({
+  const agent = Agent.fromDict({
     id: 'agent-123',
     user_id: 'user-456',
     state: 'STOPPED',

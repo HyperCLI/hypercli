@@ -81,8 +81,7 @@ export {
 } from './acp-driver.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 // Activity-transport error classes, re-exported here so consumers can classify
-// failures without pulling the SDK root entry (and its optional x402 peers)
-// into their bundle.
+// failures without pulling the SDK root entry into their bundle.
 export {
   BuzzActivityGapError,
   BuzzActivityRouteUnavailableError,
@@ -146,10 +145,10 @@ export type ManagedAgentRuntime =
   | 'pi';
 export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' | 'pi'>;
 /**
- * Runtime labels whose pods front `hyper-acp` and hydrate to the single
- * {@link CodingAgent} facade. `generic` stays plain {@link Agent}; legacy
- * openclaw payloads without a runtime label are detected structurally
- * (`isOpenClawHydrationData`).
+ * Runtime labels whose pods front `hyper-acp`, so the ACP members on
+ * {@link Agent} (acpConnect/acpPool/acpTurnDriver/auth) accept them; the gate
+ * mirrors the old hydration gating — labeled runtimes by this set, legacy
+ * unlabeled openclaw payloads structurally (see Agent.requireAcpCapable).
  */
 const HYPER_ACP_RUNTIMES: ReadonlySet<string> = new Set<ManagedAgentRuntime>([
   'openclaw',
@@ -1182,7 +1181,15 @@ export interface OpenClawSlackOptions {
   gatewayId?: string | null;
 }
 
-export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'config'> {
+/**
+ * Folded create options for {@link Deployments.createAgent}: the generic
+ * launch contract plus every per-runtime facade knob
+ * (slack/openClawRoutes/trustedProxies/cronEnabled/memoryIndex/
+ * hermesRoute/corsOrigins/workspacesSync/permissionMode/buzz). A runtime's
+ * own launch branch reads the knobs it understands and ignores the rest,
+ * exactly as the old per-runtime facades ignored fields outside their type.
+ */
+export interface ManagedAgentCreateOptions extends CreateAgentOptions {
   /**
    * Enable hosted Slack. Pass `true` (or relay overrides) to state the intent;
    * the SDK owns the complete `HYPER_SLACK_*` launch env, including the gateway
@@ -1198,7 +1205,28 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
   cronEnabled?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: WorkspacesSyncOptions | boolean | null;
+  hermesRoute?: HermesAgentRouteOptions | null;
+  /** Browser origins allowed on the public route; drives the route-plane cors allowed_origins when `cors` is unset. */
+  corsOrigins?: string[] | null;
+  /**
+   * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
+   * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
+   * strip the key entirely (buzz-backend-provider owns that env surface).
+   */
+  permissionMode?: PermissionMode;
+  /** @deprecated Use the typed `buzz` launch contract. */
+  buzzEnabled?: boolean;
+  /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
+  buzz?: BuzzLaunchConfig | null;
+  /**
+   * @deprecated Hosted Buzz now always uses the raw outbound hyper-acp tunnel.
+   * The old observer route is no longer provisioned.
+   */
+  buzzActivity?: boolean;
 }
+
+/** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('openclaw' | 'openclaw-pro', options)`. */
+export type OpenClawCreateAgentOptions = Omit<ManagedAgentCreateOptions, 'config'>;
 
 interface PreparedHostedSlack {
   enabled: boolean;
@@ -1206,13 +1234,8 @@ interface PreparedHostedSlack {
   gatewayId: string | null;
 }
 
-export interface HermesAgentCreateOptions extends CreateAgentOptions {
-  hermesRoute?: HermesAgentRouteOptions | null;
-  /** Browser origins allowed on the public route; drives the route-plane cors allowed_origins when `cors` is unset. */
-  corsOrigins?: string[] | null;
-  /** Enable Hermes automatic cron dispatch for this launch. Defaults to true on create. */
-  cronEnabled?: boolean | null;
-}
+/** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('hermes-agent', options)`. */
+export type HermesAgentCreateOptions = ManagedAgentCreateOptions;
 
 /** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
 export type PermissionMode =
@@ -1304,24 +1327,8 @@ export function buildPermissionsJson(mode: PermissionMode, overrides?: Permissio
   return JSON.stringify(overrides ? { ...preset, ...overrides } : preset);
 }
 
-export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime'> {
-  workspacesSync?: WorkspacesSyncOptions | boolean | null;
-  /**
-   * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
-   * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
-   * strip the key entirely (buzz-backend-provider owns that env surface).
-   */
-  permissionMode?: PermissionMode;
-  /** @deprecated Use the typed `buzz` launch contract. */
-  buzzEnabled?: boolean;
-  /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
-  buzz?: BuzzLaunchConfig | null;
-  /**
-   * @deprecated Hosted Buzz now always uses the raw outbound hyper-acp tunnel.
-   * The old observer route is no longer provisioned.
-   */
-  buzzActivity?: boolean;
-}
+/** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent(runtime, options)`. */
+export type CodingAgentCreateOptions = Omit<ManagedAgentCreateOptions, 'runtime'>;
 
 export interface BuzzLaunchConfig {
   privateKeyNsec: string;
@@ -1510,11 +1517,6 @@ function nativeFilePath(path: string): string {
   }
   return path;
 }
-
-/** Public file access is Reef-backed and scoped to the agent's configured sync root. */
-export const OPENCLAW_SYNC_ROOT = '/home/node';
-/** Convenience path for callers that explicitly want the conventional OpenClaw workspace. */
-export const OPENCLAW_WORKSPACE_PREFIX = '.openclaw/workspace';
 
 function resolveSyncRootFilePath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
@@ -1843,10 +1845,7 @@ function isOpenClawRuntime(
     && (routes as Record<string, unknown>).openclaw);
 }
 
-function isOpenClawHydrationData(data: AgentHydrationData): boolean {
-  return isOpenClawRuntime(data.runtime, data.routes)
-    || isOpenClawRuntime(null, data.launch_config?.routes);
-}
+
 
 function isTruthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(String(value ?? '').trim().toLowerCase());
@@ -1982,13 +1981,12 @@ export function buildBrowserDesktopUrl(
   return url.toString();
 }
 
-function isOpenClawProHydrationData(data: AgentHydrationData): boolean {
-  const launchConfig = data.launch_config;
+function isOpenClawProLaunchConfig(launchConfig: unknown): boolean {
   if (!launchConfig || typeof launchConfig !== 'object' || Array.isArray(launchConfig)) return false;
   if (launchConfigHasDesktop(launchConfig)) {
     return true;
   }
-  const image = String(launchConfig.image ?? '');
+  const image = String((launchConfig as { image?: unknown }).image ?? '');
   return image.includes('hypercli-openclaw:pro') || image.endsWith('-pro');
 }
 
@@ -3047,6 +3045,130 @@ export class Agent {
     return this._deployments;
   }
 
+  /**
+   * ACP-capable gating, mirroring the old hydration class choice: a labeled
+   * runtime must front hyper-acp (HYPER_ACP_RUNTIMES); legacy payloads without
+   * a runtime label pass the structural openclaw / openclaw-pro detection the
+   * hydration gating used. Anything else has no ACP bridge to dial.
+   */
+  protected requireAcpCapable(): void {
+    const runtime = this.runtime;
+    if (runtime !== null && (HYPER_ACP_RUNTIMES as ReadonlySet<string>).has(runtime)) return;
+    if (
+      isOpenClawRuntime(runtime, this.routes)
+      || isOpenClawRuntime(null, this.launchConfig?.routes)
+      || isOpenClawProLaunchConfig(this.launchConfig)
+    ) return;
+    throw new Error(
+      `Agent runtime '${runtime ?? 'generic'}' does not front hyper-acp; ` +
+      'the ACP surface (acpConnect, acpPool, acpTurnDriver) is available on ACP-capable runtimes only',
+    );
+  }
+
+  /** Runtime auth flows for this agent's pod (coding runtimes only). */
+  get auth(): RuntimeAuthClient {
+    return new RuntimeAuthClient(this);
+  }
+
+  /**
+   * Connect to this agent's ACP surface through the backend session proxy.
+   *
+   * Default (`options.transport` unset): dials `/ws/acp` — the client-facing
+   * ACP session authority (sessions/README §14). The proxy owns the backend
+   * session record `{session_id → legs}`, fans runtime frames out to every
+   * attached session client, and answers `session/new` with the backend
+   * session id (backend-keyed, not the pod-side ACP id). Create-or-attach
+   * semantics key on `options.sessionId`:
+   *
+   * - omitted: the socket starts session-less; `newSession()` runs the
+   *   proxy's `session/new`, minting the backend session.
+   * - provided: the dial attaches to that session (`?session_id=...`),
+   *   joining its live tee first — attach BEFORE `loadSession`/
+   *   `resumeSession` so the replayed history stream reaches this
+   *   connection. An id the store does not hold fails the connect with
+   *   close code 4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
+   *
+   * `transport: 'direct'` dials the agent-keyed `/ws` bridge instead
+   * (`?agent_id&token`), the pre-proxy path. Infra/debug only: `/ws` is
+   * being hardened to runtime + backend-service identities, and combining
+   * it with `sessionId` throws (the bridge has no session binding).
+   *
+   * The ACP `initialize` handshake offers protocol version 2 by default and
+   * negotiates down to v1 for v1-only runtimes (see
+   * `client.negotiatedProtocolVersion`; through the proxy the answer is the
+   * min of the offer and the leg's version). The `cwd` default is the agent
+   * workspace root (the launch's sync root, `/home/node` for coding-agent
+   * runtimes, `/home/hermes` for hermes-agent).
+   */
+  async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
+    this.requireAcpCapable();
+    const deployments = this.requireDeployments();
+    const transport = options.transport ?? 'proxy';
+    if (transport === 'direct' && options.sessionId) {
+      throw new Error(
+        "acpConnect: sessionId is a proxy-transport option; the direct /ws bridge " +
+        "has no session binding (drop sessionId or use the default 'proxy' transport)",
+      );
+    }
+    const url = new URL(
+      transport === 'direct'
+        ? defaultHyperAcpWsUrl(deployments.agentApiBase)
+        : defaultAcpProxyWsUrl(deployments.agentApiBase),
+    );
+    url.searchParams.set('agent_id', this.id);
+    url.searchParams.set('token', deployments.agentApiKey);
+    if (options.sessionId) url.searchParams.set('session_id', options.sessionId);
+    const syncRoot = this.launchConfig?.sync_root;
+    return CodingAgentAcpClient.connect(
+      { url: url.toString(), token: '' },
+      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT) },
+    );
+  }
+
+  private acpPoolValue: CodingAgentAcpPool | null = null;
+
+  /**
+   * Lazily created connection pool for this agent's ACP surface. Two
+   * clients dialed to the same agent share one pod-side stdio session, so all
+   * ACP consumers (chat panes, session sweeps, turn drivers) must ride ONE
+   * pooled connection via leases instead of dialing their own — the bridge
+   * rejects a duplicate runtime attach. The pool closes the connection when
+   * the last lease releases, so a lease taken by a long-lived consumer (a
+   * turn driver) outlives callers that unmount (a chat pane) and vice versa.
+   *
+   * Under the default proxy transport the pooled connection dials session-less:
+   * prompting a session id the proxy has never seen (a stored id whose
+   * runtime was evicted backend-side) fails with an unknown-session error.
+   * Prompt against ids created through this proxy, or attach first with a
+   * dedicated `acpConnect({ sessionId })`.
+   */
+  get acpPool(): CodingAgentAcpPool {
+    this.requireAcpCapable();
+    if (this.acpPoolValue === null) {
+      this.acpPoolValue = new CodingAgentAcpPool({ connect: () => this.acpConnect() });
+    }
+    return this.acpPoolValue;
+  }
+
+  /**
+   * Acquire a lease on this agent's pooled ACP connection and return a ready
+   * per-session {@link AcpTurnDriver} bound to it. `options.sessionId` is the
+   * pinned ACP session id (the id the app persists, e.g. under
+   * `localStorage["acp-session:<agentId>"]`); drivers are cheap — one per
+   * session, all sharing the same lease-held connection — and turn frames for
+   * other sessions are ignored per-session. The driver holds its lease until
+   * `driver.close()`; the pooled connection stays up for other leaseholders.
+   */
+  async acpTurnDriver(options: AcpTurnDriverOptions): Promise<AcpTurnDriver> {
+    const lease = await this.acpPool.acquire(this.id);
+    try {
+      return new AcpTurnDriver(lease, options);
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
+  }
+
   routeRequiresAuth(routeName: string, defaultValue = true): boolean {
     const route = this.routes[routeName];
     if (!route || typeof route.auth === 'undefined') {
@@ -3416,7 +3538,7 @@ export class RuntimeLoginSession {
 export class RuntimeAuthClient {
   private readonly config: RuntimeAuthConfig;
 
-  constructor(public readonly agent: CodingAgent) {
+  constructor(public readonly agent: Agent) {
     const config = RUNTIME_AUTH_CONFIG[agent.runtime as CodingAgentRuntime];
     if (!config) {
       throw new Error(`Runtime authentication is not available for runtime '${agent.runtime ?? 'generic'}'`);
@@ -3537,121 +3659,21 @@ export class RuntimeAuthClient {
 }
 
 /**
- * The one ACP-facing managed-agent facade.
- *
  * Every managed runtime — openclaw, openclaw-pro, hermes-agent, and the
  * coding-agent runtimes — boots its pod behind `hyper-acp`, so chat,
  * sessions, runtime auth, and turn driving all ride the same ACP bridge; the
  * runtimes differ only in the `runtime` label plus launch-config data
  * (images, sync roots/uid/gid, harness env). Session protocol behavior is
  * version-keyed (`negotiatedProtocolVersion`), never runtime-keyed.
+ *
+ * There is no per-runtime facade class: `Agent` carries the ACP members
+ * directly and gates them at call time via `requireAcpCapable` and the
+ * runtime auth table.
+ *
+ * @deprecated Every deployment hydrates to the single flat {@link Agent};
+ * use `Agent` in place of `CodingAgent`.
  */
-export class CodingAgent extends Agent {
-  static override fromDict(data: AgentHydrationData): CodingAgent {
-    return new CodingAgent(agentStateFromDict(data));
-  }
-
-  get auth(): RuntimeAuthClient {
-    return new RuntimeAuthClient(this);
-  }
-
-  /**
-   * Connect to this agent's ACP surface through the backend session proxy.
-   *
-   * Default (`options.transport` unset): dials `/ws/acp` — the client-facing
-   * ACP session authority (sessions/README §14). The proxy owns the backend
-   * session record `{session_id → legs}`, fans runtime frames out to every
-   * attached session client, and answers `session/new` with the backend
-   * session id (backend-keyed, not the pod-side ACP id). Create-or-attach
-   * semantics key on `options.sessionId`:
-   *
-   * - omitted: the socket starts session-less; `newSession()` runs the
-   *   proxy's `session/new`, minting the backend session.
-   * - provided: the dial attaches to that session (`?session_id=...`),
-   *   joining its live tee first — attach BEFORE `loadSession`/
-   *   `resumeSession` so the replayed history stream reaches this
-   *   connection. An id the store does not hold fails the connect with
-   *   close code 4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
-   *
-   * `transport: 'direct'` dials the agent-keyed `/ws` bridge instead
-   * (`?agent_id&token`), the pre-proxy path. Infra/debug only: `/ws` is
-   * being hardened to runtime + backend-service identities, and combining
-   * it with `sessionId` throws (the bridge has no session binding).
-   *
-   * The ACP `initialize` handshake offers protocol version 2 by default and
-   * negotiates down to v1 for v1-only runtimes (see
-   * `client.negotiatedProtocolVersion`; through the proxy the answer is the
-   * min of the offer and the leg's version). The `cwd` default is the agent
-   * workspace root (the launch's sync root, `/home/node` for coding-agent
-   * runtimes, `/home/hermes` for hermes-agent).
-   */
-  async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
-    const deployments = this.requireDeployments();
-    const transport = options.transport ?? 'proxy';
-    if (transport === 'direct' && options.sessionId) {
-      throw new Error(
-        "acpConnect: sessionId is a proxy-transport option; the direct /ws bridge " +
-        "has no session binding (drop sessionId or use the default 'proxy' transport)",
-      );
-    }
-    const url = new URL(
-      transport === 'direct'
-        ? defaultHyperAcpWsUrl(deployments.agentApiBase)
-        : defaultAcpProxyWsUrl(deployments.agentApiBase),
-    );
-    url.searchParams.set('agent_id', this.id);
-    url.searchParams.set('token', deployments.agentApiKey);
-    if (options.sessionId) url.searchParams.set('session_id', options.sessionId);
-    const syncRoot = this.launchConfig?.sync_root;
-    return CodingAgentAcpClient.connect(
-      { url: url.toString(), token: '' },
-      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT) },
-    );
-  }
-
-  private acpPoolValue: CodingAgentAcpPool | null = null;
-
-  /**
-   * Lazily created connection pool for this agent's ACP surface. Two
-   * clients dialed to the same agent share one pod-side stdio session, so all
-   * ACP consumers (chat panes, session sweeps, turn drivers) must ride ONE
-   * pooled connection via leases instead of dialing their own — the bridge
-   * rejects a duplicate runtime attach. The pool closes the connection when
-   * the last lease releases, so a lease taken by a long-lived consumer (a
-   * turn driver) outlives callers that unmount (a chat pane) and vice versa.
-   *
-   * Under the default proxy transport the pooled connection dials session-less:
-   * prompting a session id the proxy has never seen (a stored id whose
-   * runtime was evicted backend-side) fails with an unknown-session error.
-   * Prompt against ids created through this proxy, or attach first with a
-   * dedicated `acpConnect({ sessionId })`.
-   */
-  get acpPool(): CodingAgentAcpPool {
-    if (this.acpPoolValue === null) {
-      this.acpPoolValue = new CodingAgentAcpPool({ connect: () => this.acpConnect() });
-    }
-    return this.acpPoolValue;
-  }
-
-  /**
-   * Acquire a lease on this agent's pooled ACP connection and return a ready
-   * per-session {@link AcpTurnDriver} bound to it. `options.sessionId` is the
-   * pinned ACP session id (the id the app persists, e.g. under
-   * `localStorage["acp-session:<agentId>"]`); drivers are cheap — one per
-   * session, all sharing the same lease-held connection — and turn frames for
-   * other sessions are ignored per-session. The driver holds its lease until
-   * `driver.close()`; the pooled connection stays up for other leaseholders.
-   */
-  async acpTurnDriver(options: AcpTurnDriverOptions): Promise<AcpTurnDriver> {
-    const lease = await this.acpPool.acquire(this.id);
-    try {
-      return new AcpTurnDriver(lease, options);
-    } catch (error) {
-      lease.release();
-      throw error;
-    }
-  }
-}
+export type CodingAgent = Agent;
 
 export class Deployments {
   private readonly apiKey: string;
@@ -3682,16 +3704,8 @@ export class Deployments {
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
-    if (data.runtime === 'hermes-agent' || data.runtime === 'hermes_acp') {
-      return bindAgent(new CodingAgent(agentStateFromDict(data)), this);
-    }
-    if (
-      (data.runtime !== undefined && data.runtime !== null && HYPER_ACP_RUNTIMES.has(data.runtime))
-      || isOpenClawProHydrationData(data)
-      || isOpenClawHydrationData(data)
-    ) {
-      return bindAgent(CodingAgent.fromDict(data), this);
-    }
+    // One flat Agent for every runtime: ACP capability is gated at call time
+    // (Agent.requireAcpCapable), not by hydration class.
     return bindAgent(Agent.fromDict(data), this);
   }
 
@@ -3888,6 +3902,33 @@ export class Deployments {
   }
 
   /**
+   * Create a managed agent for a runtime in one call.
+   *
+   * `runtime` selects the per-runtime launch defaults (image, sync root and
+   * include/exclude presets, uid/gid, env presets, routes, boot command) from
+   * the SDK's data tables; `options` folds the old per-runtime facade option
+   * types — each runtime family reads the knobs it understands and ignores
+   * the rest. `create()` stays the raw generic entry; `createAgent` is the
+   * typed one.
+   *
+   * - openclaw/openclaw-pro: OpenClaw gateway launch (hosted Slack lives on
+   *   the `slack` knob; see createOpenClaw's note below).
+   * - hermes-agent: Hermes launch with the hermes route and cron defaults.
+   * - buzz-agent/opencode/codex/claude-code/goose/kimi-code/pi: the shared
+   *   ACP coding-agent launch contract; `buzz` switches to the Buzz launch.
+   */
+  async createAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions = {}): Promise<Agent> {
+    if (runtime === 'generic') return this.create(options);
+    if (runtime === 'openclaw' || runtime === 'openclaw-pro' || runtime === 'openclaw_acp') {
+      return this.createOpenClawAgent(runtime, options);
+    }
+    if (runtime === 'hermes-agent' || runtime === 'hermes_acp') {
+      return this.createHermesAgentDeployment(runtime, options);
+    }
+    return this.createCodingAgentDeployment(runtime, options);
+  }
+
+  /**
    * Create a hosted OpenClaw Agent.
    *
    * With `slack` enabled the call also owns the hosted Slack launch env. The
@@ -3896,10 +3937,19 @@ export class Deployments {
    * after the record exists (and after it leaves CREATING, which rejects launch
    * updates). The Agent is not started by create, so nothing boots on the
    * incomplete env in between; the returned Agent carries the complete set.
+   *
+   * @deprecated Use {@link Deployments.createAgent} with 'openclaw' or
+   * 'openclaw-pro'.
    */
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
+    // The old facade read its label from options.runtime (default 'openclaw');
+    // delegating keeps that precedence: an explicit label wins, the same as
+    // createAgent's first argument.
+    return this.createAgent(options.runtime ?? 'openclaw', options);
+  }
+
+  private async createOpenClawAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions): Promise<Agent> {
     const prepared = prepareOpenClawLaunch(options, this.agentApiBase);
-    const runtime = options.runtime ?? 'openclaw';
     const pro = runtime === 'openclaw-pro';
     const effectiveOptions: CreateAgentOptions = {
       ...options,
@@ -4011,7 +4061,20 @@ export class Deployments {
     return updated;
   }
 
-  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<CodingAgent> {
+  /**
+   * @deprecated Use {@link Deployments.createAgent} with 'hermes-agent'; the
+   * folded entry takes the same options bag.
+   */
+  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<Agent> {
+    // The old facade always launched 'hermes-agent', ignoring options.runtime;
+    // the delegation now honors an explicit 'hermes_acp' relabel instead.
+    return this.createAgent(options.runtime ?? 'hermes-agent', options);
+  }
+
+  private async createHermesAgentDeployment(
+    runtime: 'hermes-agent' | 'hermes_acp',
+    options: ManagedAgentCreateOptions,
+  ): Promise<Agent> {
     const env: Record<string, string> = {
       ...buildHermesCronEnv(options.cronEnabled ?? null),
       ...DEFAULT_HERMES_MODEL_ENV,
@@ -4022,7 +4085,7 @@ export class Deployments {
       .filter((origin) => origin.length > 0);
     const effectiveOptions: CreateAgentOptions = {
       ...options,
-      runtime: 'hermes-agent',
+      runtime,
       env,
       secrets: options.secrets,
       cors: options.cors !== undefined
@@ -4043,10 +4106,7 @@ export class Deployments {
         : options.routes,
     };
     const agent = await this.create(effectiveOptions);
-    if (
-      !(agent instanceof CodingAgent)
-      || (agent.runtime !== 'hermes-agent' && agent.runtime !== 'hermes_acp')
-    ) {
+    if (agent.runtime !== 'hermes-agent' && agent.runtime !== 'hermes_acp') {
       throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
     }
     return agent;
@@ -4056,11 +4116,21 @@ export class Deployments {
    * Create an ACP-fronted coding agent. All coding runtimes share one launch
    * contract; `runtime` selects the default image, sync includes, and harness
    * env (`pi` gets `HYPER_RUNTIME_HOME`), nothing else.
+   *
+   * @deprecated Use {@link Deployments.createAgent} with the runtime label;
+   * the folded entry takes the same options bag.
    */
   async createCodingAgent(
     runtime: CodingAgentRuntime,
     options: CodingAgentCreateOptions = {},
-  ): Promise<CodingAgent> {
+  ): Promise<Agent> {
+    return this.createAgent(runtime, options);
+  }
+
+  private async createCodingAgentDeployment(
+    runtime: CodingAgentRuntime,
+    options: ManagedAgentCreateOptions,
+  ): Promise<Agent> {
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
     }
@@ -4161,7 +4231,7 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
     const agent = await this.create(effectiveOptions);
-    if (!(agent instanceof CodingAgent)) {
+    if (agent.runtime !== runtime) {
       throw new Error(`Deployment response did not identify runtime '${runtime}'`);
     }
     return agent;

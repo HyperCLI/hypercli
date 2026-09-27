@@ -138,18 +138,21 @@ Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the
 Cloudflare edge request-body cap on the agent hostname); split larger data
 across files or sync it via the agent's own tooling.
 File paths are relative to `sync_root`, and
-`files_list("")` lists the complete root, including dot-directories. The
-OpenClaw helpers always ensure the canonical `openclaw` gateway route
-(`prefix=""`, `port=18789`, `auth=False`, `remove_headers=["X-Forwarded-For"]`)
-and add concrete image,
-`sync_root=/home/node`, and cache/Workspace exclusions by default. Regular
-OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`; desktop/pro
-OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:pro-prod`. Coding
-helpers instead inject the runtime-specific include defaults documented in
+`files_list("")` lists the complete root, including dot-directories.
+`build_openclaw_routes()` builds the canonical `openclaw` gateway route
+(`prefix=""`, `port=18789`, `auth=False`, with the standard forwarded-header
+strip list) and can add the protected `desktop` route for pro launches; it only
+builds routes. The canonical images are
+`ghcr.io/hypercli/hypercli-openclaw:prod` for regular OpenClaw and
+`ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro OpenClaw — pass
+the image, `sync_root`, and exclusion choices explicitly in the launch config.
+`create_coding_agent` instead injects the runtime-specific include defaults documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
 nullable policy at create time to select the whole root.
-Both helper families default `HYPER_WORKSPACES_DIR` to `/home/node/shared` and
-preserve an explicit value supplied in the launch `env`.
+Workspaces boot sync defaults on through `build_openclaw_workspaces_sync_env()`
+— applied automatically by `create_coding_agent` — with
+`HYPER_WORKSPACES_DIR` defaulting to `/home/node/shared` unless the launch
+`env` supplies one.
 `build_openclaw_trusted_proxies_env([...])` builds the comma-separated
 `OPENCLAW_TRUSTED_PROXIES` env, a full replacement for OpenClaw
 `gateway.trustedProxies`.
@@ -177,10 +180,9 @@ for slot in capacity.agent_slots:
     print(slot.size, slot.plan_id, slot.agent_id)
 ```
 
-`start()` and `start_openclaw()` start the Backend-stored launch config. Change
-launch settings through `update(..., launch_config=...)` before starting.
-OpenClaw start helpers do not accept launch mutation options such as
-`launch_config`, `gateway_token`, or `trusted_proxies`.
+`start()` starts the Backend-stored launch config and does not accept launch
+mutation options. Change launch settings through
+`update(..., launch_config=...)` before starting.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
 HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in
@@ -230,9 +232,9 @@ carry open-string diagnostics: `reason` is the stable cause such as `start`,
 `api_stop`, `runtime_exit`, `timeout`, or `delete`, `error` is a failure code
 when the transition failed, and `message` is human-readable context.
 
-Use `create_openclaw_pro(...)` or `update(..., launch_config=...)` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
+Persist the desktop/browser launch through `create(...)` or `update(..., launch_config=...)` (build the payload with `build_agent_config`). The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through a protected `desktop` route (the `desktop-<agent>.hypercli.app` host, port 3000, `auth=True`), and sets `HYPER_DESKTOP_ENABLED=1`.
 
-Automatic memory indexing is off by default. Opt in with `memory_index={"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0}`.
+Automatic memory indexing is off by default. Opt in by merging `build_openclaw_memory_index_env({"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0})` into the launch `env`.
 
 ## Hosted Coding Agents
 
@@ -250,13 +252,19 @@ HyperCLI-model Codex Responses E2E remains unvalidated, so that path is not yet
 advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
+All coding runtimes share one launch contract, `create_coding_agent(runtime,
+...)`; `runtime` selects the default image, sync includes, and harness env, and
+the launch env always carries `HYPER_ACP_PERMISSIONS` (built from
+`permission_mode`). The accepted runtimes are `buzz-agent`, `opencode`,
+`codex`, `claude-code`, `goose`, `kimi-code`, and `pi`.
+
 ```python
-buzz_agent = client.deployments.create_buzz_agent(name="buzz-agent")
-agent = client.deployments.create_opencode(name="opencode")
-codex = client.deployments.create_codex(name="codex")
-claude = client.deployments.create_claude_code(name="claude")
-goose = client.deployments.create_goose(name="goose")
-kimi = client.deployments.create_kimi_code(name="kimi")
+buzz_agent = client.deployments.create_coding_agent("buzz-agent", name="buzz-agent")
+agent = client.deployments.create_coding_agent("opencode", name="opencode")
+codex = client.deployments.create_coding_agent("codex", name="codex")
+claude = client.deployments.create_coding_agent("claude-code", name="claude")
+goose = client.deployments.create_coding_agent("goose", name="goose")
+kimi = client.deployments.create_coding_agent("kimi-code", name="kimi")
 
 methods = codex.auth.methods()
 status = codex.auth.status()
@@ -280,72 +288,20 @@ Goose uses its injected deployment credential; and Kimi Code uses the
 upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
 logout command through this SDK surface.
 
-The images default to a long-lived direct shell/exec container. A Buzz provider
-launches one for a Buzz-managed identity with the typed launch contract:
+The images default to a long-lived direct shell/exec container. The managed
+platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the runtime; do
+not copy an account API key into the launch environment.
 
-```python
-from hypercli import BuzzLaunchConfig
+The typed Buzz launch contract (`BuzzLaunchConfig`) is TS-SDK-only:
+`create_coding_agent` accepts no `buzz=` option, and passing a `buzz` keyword
+raises `TypeError`. Use the TS SDK's `createCodingAgent(runtime, { buzz: ... })`
+for a Buzz-managed identity launch, or render the raw contract yourself over the
+generic launch surface: put `BUZZ_PRIVATE_KEY` (and optionally
+`NOSTR_PRIVATE_KEY`) in `env` — `create_coding_agent` promotes both to launch
+secrets — and pass the remaining `BUZZ_*` keys as launch environment for the
+managed image to parse at boot.
 
-agent = client.deployments.create_opencode(
-    name="buzz-opencode",
-    buzz=BuzzLaunchConfig(
-        private_key_nsec=agent_nsec,
-        relay_url=relay_url,
-        auth_tag=owner_signed_auth_tag,
-        parallelism=1,
-    ),
-)
-```
-
-The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
-runtime. Do not copy an account API key into the launch environment.
-
-The SDK defers to the image's `CMD` for the pod entrypoint (each provider
-image chains to `/usr/local/bin/hyper-acp`) and selects the runtime-specific
-child ACP command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
-observation, and persistent `/home/node` settings. `/home/node/shared`
-remains reserved for Workspace projections; the specialized image reconciles
-the Buzz nest after the home mount and runs the harness from
-`/home/node/.buzz`. OpenCode and Codex read its canonical `AGENTS.md`, while
-Claude Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` stays compiled
-into `hyper-acp`. Buzz-reserved environment keys are rendered from the typed
-object after caller environment values.
-`buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
-Typed and compatibility Buzz launches select the matching `hypercli-buzz`
-image family (`buzz-agent`, `opencode`, `codex`, `claude`, `goose`, or
-`kimi-code`) by
-default. Ordinary coding-agent helpers without Buzz keep the generic
-`ghcr.io/hypercli/hypercli-<runtime>:latest` default, except native Buzz Agent,
-whose runtime image is already `hypercli-buzz-agent`. An explicit `image=`
-continues to override either default.
-
-Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
-not duplicate the stock Desktop provider's validation; invalid combinations
-are rejected later by `hyper-acp`. The Desktop provider also maps structured
-Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
-SDK callers must set any Goose-specific environment themselves.
-Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;
-other Buzz-hosted coding runtimes do not receive that native-only variable.
-
-Buzz launches leave size unset for live backend/provider slot selection;
-ordinary coding-agent helpers preserve a caller-provided size or the backend
-default. Stock Buzz provider agents do not
-start on app launch and the current provider protocol has no stop callback.
-Editing a running agent does not replace its HyperCLI launch environment: stop
-the deployment through the authenticated HyperCLI API and deploy it again from
-Buzz to apply changes. A successfully delivered and accepted `!shutdown` can
-exit a new `restart=False` launch; the hosted terminal-state observer then
-reports `stopping`, completes runtime cleanup, marks the deployment `stopped`,
-and releases its slot. Desktop receives no provider acknowledgement and keeps
-its local deployed record.
-
-Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
-`agent_message_chunk` is activity telemetry rather than a channel reply. There
-is no plaintext fallback; a visible reply requires the agent to invoke the Buzz
-send command/tool. The six-runtime SDK coverage validates request rendering,
-not live launches.
-
-The agent nsec and caller environment become raw deployment environment values.
+Caller environment becomes raw deployment environment values.
 The HyperClaw backend currently persists them in `Agent.launch_config`, and
 authenticated deployment read, environment, or exec surfaces may expose them.
 The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
@@ -393,83 +349,6 @@ counterpart with the same policy; the Rust SDK ships `AcpClient` mirroring the
 Python module's framing, capability gate, and error classification (including
 terminal `AcpError::Closed` on explicit close, mirrored here by
 `ACPClosedError`).
-
-## OpenClaw Node Egress
-
-The Python SDK includes an experimental reference implementation for user-owned
-node egress in `hypercli.openclaw.node_proxy`. It uses the existing OpenClaw
-node model:
-
-- a node connects to the gateway with `role="node"`
-- the node declares explicit `egress.*` command names during the connect
-  handshake
-- an operator/client calls `GatewayClient.node_invoke(node_id, command, params)`
-- the gateway sends one `node.invoke.request` and waits for one
-  `node.invoke.result`
-
-This is not raw sockets over the gateway. It is node RPC with chunked payloads
-and gateway policy approval.
-
-Node side:
-
-```python
-from hypercli.openclaw import NodeEgressServer
-
-node = NodeEgressServer(
-    "wss://my-agent.hypercli.app",
-    "home-linux-egress",
-    gateway_token="...",
-)
-
-await node.connect()
-```
-
-The placeholder is the canonical shared `OPENCLAW_GATEWAY_TOKEN`; load it from
-a trusted secret source and keep it in memory. Device identity and scoped
-device tokens are separate from that shared credential. A managed Agent can
-auto-approve a cold not-paired response through trusted exec, while a warm
-connection reuses the device credential for the same deployment and role.
-
-Operator side:
-
-```python
-from hypercli.openclaw import EGRESS_COMMANDS, NodeEgressClient
-
-egress = NodeEgressClient(gateway, node_id="home-linux-egress")
-res = await egress.http_fetch("https://example.com/")
-```
-
-Commands:
-
-- `egress.http.fetch`: bounded HTTP(S) fetch, response body returned as base64
-  chunks
-- `egress.tcp.open/read/write/close`: experimental TCP tunnel primitives used
-  by `LoopbackNodeProxy` for HTTP `CONNECT`
-
-Security defaults:
-
-- local proxy binds to `127.0.0.1` by default
-- node id is explicit; no automatic node selection
-- RFC1918/private, loopback, link-local, multicast, reserved, and metadata IPs
-  are blocked by default unless explicitly allowed on the node
-- chunks are small and bounded; responses are not returned as one unbounded
-  base64 blob
-
-Pairing and policy:
-
-- the node must be device-paired
-- the node command surface must be approved
-- custom `egress.*` commands may need `gateway.nodes.allowCommands`
-
-Python/Linux is first because it is easiest to test in CI and the Python SDK
-already ships `NodeServer`. The portable contract is the command surface and
-payload shape, not the Python implementation. macOS Backseat Driver already
-proves the native node-host precedent; Android should eventually gain Kotlin
-`NodeRuntime` parity; the TS SDK can mirror operator/client types if useful.
-
-`LoopbackNodeProxy` can relay absolute-form HTTP requests and has experimental
-`CONNECT` support over polling/chunked `node.invoke`. Treat CONNECT as a
-feasibility prototype, not production-grade streaming.
 
 ## Error Handling
 

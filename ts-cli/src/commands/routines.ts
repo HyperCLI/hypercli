@@ -21,7 +21,7 @@
 import { createInterface } from 'node:readline/promises';
 import {
   APIError,
-  type CodingAgent,
+  type CodingAgentAcpClient,
   type Routine,
   type RoutineCreateOptions,
 } from '@hypercli.com/sdk';
@@ -445,20 +445,20 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
     // leg there. An id the proxy store does not hold rejects the connect
     // (4404); fall back to a session-less dial and mint a fresh session,
     // mirroring the load-failure fallback below.
-    let acp: Awaited<ReturnType<CodingAgent['acpConnect']>>;
+    let acp: CodingAgentAcpClient;
     let boundAttached = false;
     if (routine.sessionId) {
       try {
-        acp = await (agent as unknown as CodingAgent).acpConnect({ ...acpBase, sessionId: routine.sessionId });
+        acp = await agent.acpConnect({ ...acpBase, sessionId: routine.sessionId });
         boundAttached = true;
       } catch (err) {
         ctx.output.info(
           `could not attach bound session ${routine.sessionId} (${describeError(err)}); starting a new session`,
         );
-        acp = await (agent as unknown as CodingAgent).acpConnect(acpBase);
+        acp = await agent.acpConnect(acpBase);
       }
     } else {
-      acp = await (agent as unknown as CodingAgent).acpConnect(acpBase);
+      acp = await agent.acpConnect(acpBase);
     }
     try {
       closeActive = () => acp.close();

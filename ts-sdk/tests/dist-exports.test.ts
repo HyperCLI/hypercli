@@ -27,17 +27,25 @@ beforeAll(() => {
 // moves ahead without a rebuild, apps and their test suites silently run
 // stale code (missing exports, old behavior). This guard fails loudly.
 describe('dist export parity', () => {
-  it('exports the single CodingAgent facade and pi defaults from root and agents entry points', async () => {
+  it('exports the flat Agent surface and pi defaults from root and agents entry points', async () => {
     const root = await import('../dist/index.js');
     const agents = await import('../dist/agents.js');
-    expect(root.CodingAgent).toBe(agents.CodingAgent);
+    expect(root.Agent).toBe(agents.Agent);
+    // CodingAgent collapsed into Agent: no runtime export remains, only the
+    // deprecated type alias (types do not exist at runtime).
+    expect(root.CodingAgent).toBeUndefined();
+    expect(agents.CodingAgent).toBeUndefined();
     expect(root.DEFAULT_PI_IMAGE).toBe(agents.DEFAULT_CODING_AGENT_IMAGES.pi);
     expect(root.DEFAULT_PI_ENV).toBe(agents.DEFAULT_PI_ENV);
     expect(root.DEFAULT_PI_ENV).toEqual({ HYPER_RUNTIME_HOME: '/home/node/.pi/agent' });
-    const agent = root.CodingAgent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
-    expect(agent).toBeInstanceOf(root.CodingAgent);
+    const agent = root.Agent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
+    expect(agent).toBeInstanceOf(root.Agent);
     expect(agent.runtime).toBe('pi');
+    // The single flat factory plus the three deprecated facade aliases.
+    expect(root.Deployments.prototype.createAgent).toBeTypeOf('function');
     expect(root.Deployments.prototype.createCodingAgent).toBeTypeOf('function');
+    expect(root.Deployments.prototype.createOpenClaw).toBeTypeOf('function');
+    expect(root.Deployments.prototype.createHermesAgent).toBeTypeOf('function');
     expect(root.Deployments.prototype.createPi).toBeUndefined();
     expect(root.Deployments.prototype.createOpenCode).toBeUndefined();
     expect(root.Deployments.prototype.startOpenClaw).toBeUndefined();

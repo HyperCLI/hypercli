@@ -167,51 +167,20 @@ Important methods:
 - `logs_stream_ws()`
 - `shell_connect()`
 
-### `OpenClawAgent`
+### `CodingAgent`
 
-Adds:
+Returned by `create_coding_agent(...)`. Adds:
 
-- `gateway_url`
-- `gateway_token`
-- `resolve_gateway_token()`
-- `gateway()`
-- `connect()`
-- `gateway_status()`
-- `wait_ready()`
-- `config_get()`
-- `config_schema()`
-- `config_patch()`
-- `config_apply()`
-- `models_list()`
-- `sessions_list()`
-- `channels_status()`
-- `channels_logout()`
-- `web_login_start()`
-- `web_login_wait()`
-- `workspace_files()`
-- `file_get()`
-- `file_set()`
-- `chat_history()`
-- `chat_send_message()`
-- `chat_send()`
-- `provider_upsert()`
-- `provider_remove()`
-- `model_upsert()`
-- `model_remove()`
-- `set_default_model()`
-- `set_memory_search()`
-- `channel_upsert()`
-- `channel_patch()`
-- `telegram_upsert()`
-- `slack_upsert()`
-- `discord_upsert()`
-- `cron_list()`
+- `auth`
+  runtime-specific `RuntimeAuthClient`: `methods()`, `status()`, `login()`,
+  `logout()`
 
 ### `Deployments`
 
 Major methods:
 
 - `create()`
+- `create_coding_agent(runtime, ...)`
 - `budget()`
 - `metrics()`
 - `list()`
@@ -230,26 +199,8 @@ Major methods:
 - `file_delete()`
 - `cp_to()`
 - `cp_from()`
-- `logs_stream()`
 - `logs_stream_ws()`
-- `shell_token()`
 - `shell_connect()`
-
-## Gateway
-
-`GatewayClient` exposes:
-
-- lifecycle: `connect()`, `close()`, `wait_ready()`
-- config: `config_get()`, `config_schema()`, `config_patch()`, `config_set()`, `config_apply()`
-- chat: `chat_send()`, `send_chat()`, `chat_history()`, `chat_abort()`
-- sessions: `sessions_list()`, `sessions_preview()`, `sessions_reset()`
-- files: `files_list()`, `file_get()`, `file_set()`
-- channels: `channels_status()`, `channels_logout()`, `web_login_start()`, `web_login_wait()`
-- models: `models_list()`
-- cron: `cron_list()`, `cron_add()`, `cron_remove()`, `cron_run()`
-- approvals: `exec_approvals_get()`, `exec_approvals_set()`, `exec_approval_resolve()`
-- nodes: `nodes_list()`, `node_describe()`, `node_pair_list()`, `node_pair_approve()`, `node_pair_reject()`, `node_pair_remove()`, `node_rename()`, `node_invoke()`
-- raw events: `on_event()`
 
 ## Other Exports
 
@@ -263,13 +214,6 @@ Major methods:
 - `fetch_logs`
 - `ShellSession`
 - `shell_connect`
-- `GatewayClient`
 - `VoiceChunk`
 - `VoiceSession`
 - `VoiceStreamError`
-
-OpenClaw node helpers are available from the gateway/openclaw modules:
-
-- `hypercli.gateway.NodeServer`
-- `hypercli.gateway.serve_node`
-- `hypercli.openclaw.GatewayNodePairingRequired`

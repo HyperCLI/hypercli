@@ -207,7 +207,7 @@ It does not accept or repair `launch_config`; use `update(...,
 launch_config=...)` explicitly before starting when configuration must change.
 `self` is not accepted for lifecycle actions, delete, or key rotation.
 
-This generic path does not inject any routes. Use `create_openclaw(...)` when you want the standard root gateway and `desktop` routes.
+This generic path does not inject any routes. Pass `routes=build_openclaw_routes(...)` when you want the standard root gateway and `desktop` routes.
 
 Accepted create/update launch options:
 
@@ -229,8 +229,6 @@ Accepted create/update launch options:
 - `sync_gid`
 - `registry_url`
 - `registry_auth`
-- `gateway_token`
-- `start`
 
 `registry_url`, `registry_auth`, `sync_root`, and `restart`
 are generic launch options. They belong to the base deployment contract, not
@@ -261,8 +259,8 @@ an explicit cold restore; ordinary start reuses the retained PVC. See
 and the complete lifecycle and full-PVC archive semantics.
 
 `env` and `secrets` are separate string dictionaries. A key cannot appear in
-both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gateway_token`
-(or the same key in `secrets`) only when intentionally replacing it. Otherwise
+both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; supply it in `secrets`
+only when intentionally replacing it. Otherwise
 the Backend preserves the existing secret.
 
 Public launch-config PATCH calls can preserve stored backend-redacted `secrets`
@@ -270,86 +268,87 @@ when they are omitted. START does not accept launch config. Provisioned storage
 settings are retained after create; treat them as immutable for public
 launch-config patches.
 
-### OpenClaw Presets
+### OpenClaw Launch Shape
 
-Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw routes:
+The Python SDK has no OpenClaw-specific create/start helper; assemble the
+launch over the generic surface. `build_openclaw_routes()` supplies the
+standard OpenClaw routes:
 
 ```python
-agent = client.deployments.create_openclaw(
+from hypercli import build_openclaw_routes
+
+agent = client.deployments.create(
     name="docs-demo",
     tags=["team=dev"],
+    runtime="openclaw",
+    image="ghcr.io/hypercli/hypercli-openclaw:prod",
+    sync_root="/home/node",
+    routes=build_openclaw_routes(),
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start_openclaw(agent.id)
+agent = client.deployments.start(agent.id)
 ```
 
-`start_openclaw(...)` and generic `start(...)` start the Backend-stored launch
+`start(...)` starts the Backend-stored launch
 config. To change launch settings, call `update(..., launch_config=...)` first.
 
-Default OpenClaw routes are:
+`build_openclaw_routes()` defaults to the canonical gateway route:
 
 - `openclaw`
   - `prefix=""`
   - `port=18789`
   - `auth=False`
-  - `remove_headers=["X-Forwarded-For"]`
+  - `remove_headers` set to the standard forwarded-header strip list
+
+Pass `include_desktop=True` to add the protected desktop route:
+
 - `desktop`
   - `prefix="desktop"`
   - `port=3000`
   - `auth=True`
 
-OpenClaw create and start helpers always ensure the canonical `openclaw`
-gateway route. If `routes={}` or a non-empty route map is supplied, custom
-routes are preserved but the `openclaw` entry is replaced with
-`{"port": 18789, "auth": False, "prefix": "", "remove_headers": ["X-Forwarded-For"]}`.
-Remove or replace app routes after launch with the route replacement API; do
-not use OpenClaw create/start helpers to remove the gateway route.
-
-The same contract applies to `start_openclaw(...)`.
-
 Generic routes omit `remove_headers` when it is absent or an empty list. The
-canonical OpenClaw gateway is the only SDK default that strips a proxy header.
+canonical OpenClaw gateway route is the only SDK default that strips proxy
+headers.
 
 `OPENCLAW_TRUSTED_PROXIES` is a comma-separated full replacement for OpenClaw
 `gateway.trustedProxies`; `build_openclaw_trusted_proxies_env([...])` builds
 that launch env.
 
-Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser flavor. The pro helpers inherit the same OpenClaw defaults, select the `hypercli-openclaw:pro-prod` image when no image is provided, set `OPENCLAW_DESKTOP_ENABLED=1`, and include the protected noVNC route at `desktop-<agent>.hypercli.app`.
+The desktop/browser ("pro") flavor is the same launch shape with explicit
+fields: `image="ghcr.io/hypercli/hypercli-openclaw:pro-prod"`,
+`routes=build_openclaw_routes(include_desktop=True)`, and
+`HYPER_DESKTOP_ENABLED=1` in `env`. The protected noVNC route answers at
+`desktop-<agent>.hypercli.app`.
 
-OpenClaw helpers only add defaults on top of that generic launch surface:
+Everything else stays explicit on the generic launch surface:
 
-- `image`
-  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro helpers
-- `routes`
-  always includes the canonical `openclaw` gateway route; desktop/pro helpers
-  also include the protected `desktop` route
 - `sync_root`
-  defaults to `/home/node`
-- `sync_exclude`
-  defaults to the OpenClaw cache policy: Workspace projections under
-  `shared/**`, nested package caches, memory-reindex scratch files, and browser
-  caches are excluded
-- `HYPER_WORKSPACES_DIR`
-  defaults to `/home/node/shared`; an explicit launch `env` value is preserved
+  a nonblank value (OpenClaw convention: `/home/node`) is the sole persistence
+  switch; no separate sync boolean is serialized
 - Workspaces boot sync
-  is rendered through `workspaces_sync` typed helper options and
-  `HYPER_WORKSPACES_*` environment variables; there is no public
+  defaults on through `build_openclaw_workspaces_sync_env()`, which emits the
+  `HYPER_WORKSPACES_*` launch env (`HYPER_WORKSPACES_DIR` defaults to
+  `/home/node/shared`; an explicit launch `env` value wins); there is no public
   `launch_config.workspacesSync` field
-- no separate sync boolean is serialized; normalized `sync_root` is the sole
-  persistence switch
 
-Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memory_index` on `create_openclaw(...)`, `create_openclaw_pro(...)`, `start_openclaw(...)`, or `start_openclaw_pro(...)`:
+Memory search is configured by default, but automatic indexing is off unless you opt in with `build_openclaw_memory_index_env(...)`:
 
 ```python
-agent = client.deployments.create_openclaw(
+from hypercli import build_openclaw_memory_index_env
+
+agent = client.deployments.create(
     name="indexed-agent",
-    memory_index={
+    runtime="openclaw",
+    image="ghcr.io/hypercli/hypercli-openclaw:prod",
+    sync_root="/home/node",
+    env=build_openclaw_memory_index_env({
         "on_session_start": True,
         "on_search": True,
         "watch": True,
         "watch_debounce_ms": 30000,
         "interval_minutes": 0,
-    },
+    }),
 )
 ```
 
@@ -358,8 +357,11 @@ Supported fields are `enabled`, `on_session_start`, `on_search`, `watch`, `watch
 Registry fields are still inherited from the generic deployment API:
 
 ```python
-agent = client.deployments.create_openclaw(
+agent = client.deployments.create(
     name="private-image-demo",
+    runtime="openclaw",
+    image="ghcr.io/example/agent:latest",
+    sync_root="/home/node",
     registry_url="registry.example.com",
     registry_auth={"username": "ci", "password": "token"},
 )
@@ -367,24 +369,25 @@ agent = client.deployments.create_openclaw(
 
 ### Hosted Coding Agents
 
-The SDK has typed launch helpers for seven hosted coding runtimes:
+Seven hosted coding runtimes share one launch helper,
+`create_coding_agent(runtime, ...)`:
 
-| Runtime value | Python helper | Generic default image |
-| --- | --- | --- |
-| `buzz-agent` | `create_buzz_agent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| `opencode` | `create_opencode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
-| `codex` | `create_codex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude:latest` |
-| `goose` | `create_goose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
-| `kimi-code` | `create_kimi_code()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
-| `pi` | `create_pi()` | `ghcr.io/hypercli/hypercli-pi:latest` |
+| Runtime value | Generic default image |
+| --- | --- |
+| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
+| `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
+| `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+| `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
 
 These runtimes have no OpenClaw gateway and no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
 use the authenticated deployment API:
 
 ```python
-codex = client.deployments.create_codex(name="codex")
+codex = client.deployments.create_coding_agent("codex", name="codex")
 methods = codex.auth.methods()
 status = codex.auth.status()
 
@@ -410,23 +413,31 @@ API key on the command line; runtime credentials persist under `/home/node`.
 See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
 inference, authentication, and selective-sync matrix.
 
-#### Typed Buzz launches
+#### Buzz-managed identity launches
 
-Pass `BuzzLaunchConfig` to render the identity and canonical ACP launch:
+The typed Buzz launch contract is TypeScript-SDK-only
+(`createCodingAgent(runtime, { buzz: ... })`); the Python SDK's
+`create_coding_agent` accepts no `buzz` option, and passing a `buzz` keyword
+raises `TypeError`. From Python, render the raw contract over the generic
+launch surface:
 
 ```python
-from hypercli import BuzzLaunchConfig
-
-agent = client.deployments.create_opencode(
+agent = client.deployments.create_coding_agent(
+    "opencode",
     name="buzz-opencode",
-    buzz=BuzzLaunchConfig(
-        private_key_nsec=agent_nsec,
-        relay_url=relay_url,
-        auth_tag=owner_signed_auth_tag,
-        model="hypercli/kimi-k2.6-anthropic",
-    ),
+    env={
+        "BUZZ_RELAY_URL": relay_url,
+        "BUZZ_PRIVATE_KEY": agent_nsec,  # promoted to launch secrets
+    },
 )
 ```
+
+`BUZZ_PRIVATE_KEY` and `NOSTR_PRIVATE_KEY` in `env` are promoted to launch
+secrets; the remaining `BUZZ_*` keys pass through as launch environment, and
+the managed image parses them at boot. The canonical ACP elements — command
+`["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, the runtime's ACP child
+command, empty public routes, and `restart=False` — are the caller's
+responsibility in a raw Python launch; the TS typed renderer owns them there.
 
 A managed launch receives its agent-scoped inference credential from the
 platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
@@ -435,29 +446,13 @@ into the runtime environment.
 Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
 inference path.
 
-A typed Buzz launch:
-
-- leaves size unset for live backend/provider slot selection and sets
-  `restart=False`;
-- clears public routes and selects
-  `command=["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, preserving the image entrypoint;
-- derives the selected runtime's ACP child command and Buzz MCP command;
-- selects the normal coding runtime image; only native Buzz Agent uses
-  `hypercli-buzz-agent`;
-- keeps `sync_root=/home/node` and reserves `/home/node/shared` for
-  Workspace projections;
-- runs from the image-managed `/home/node/.buzz` nest.
-
+Buzz launches keep `sync_root=/home/node` and reserve `/home/node/shared` for
+Workspace projections, and run from the image-managed `/home/node/.buzz` nest.
 The nest is reconciled after the persistent home mount, but prompt delivery
 stays in the ACP session path. `base_prompt.md` remains compiled into the Buzz
-ACP plugin.
-An explicit `image=` overrides the default. `buzz_enabled=True` is the
-deprecated raw-environment compatibility path and cannot be combined with a
-typed `buzz` value or explicit `command`.
+ACP plugin. An explicit `image=` overrides the default.
 
-The typed SDK renderer checks required identity fields and parallelism but does
-not duplicate every stock Desktop cross-field validation. The Desktop provider
-also maps structured Goose model/provider fields to
+The Desktop provider maps structured Goose model/provider fields to
 `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
 environment when needed.
 
@@ -504,7 +499,7 @@ terminal, and normally absent from user reads.
 agents = client.deployments.list()
 current = client.deployments.get(agent.id)
 
-agent = client.deployments.start_openclaw(agent.id)
+agent = client.deployments.start(agent.id)
 agent = client.deployments.stop(agent.id)
 agent = client.deployments.archive(agent.id)
 agent = client.deployments.restore(agent.id)
@@ -684,56 +679,7 @@ Shell token requests contain only the selected absolute `shell` path. The JWT
 is carried only in the WebSocket query string; there is no auth frame, header,
 cookie, or subprotocol.
 
-## `OpenClawAgent`
-
-When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
-
-Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAgent`, which inherits the OpenClaw gateway helpers.
-
-`OpenClawAgent` adds:
-
-- `gateway_url`
-- `gateway_token`
-- `resolve_gateway_token()`
-- `gateway()`
-- `connect()`
-- `gateway_status()`
-- `wait_ready()`
-- `config_get()`
-- `config_schema()`
-- `config_patch()`
-- `config_apply()`
-- `models_list()`
-- `sessions_list()`
-- `channels_status()`
-- `channels_logout()`
-- `web_login_start()`
-- `web_login_wait()`
-- `workspace_files()`
-- `file_get()`
-- `file_set()`
-- `chat_history()`
-- `chat_send_message()`
-- `chat_send()`
-- `provider_upsert()`
-- `provider_remove()`
-- `model_upsert()`
-- `model_remove()`
-- `set_default_model()`
-- `set_memory_search()`
-- `channel_upsert()`
-- `channel_patch()`
-- `telegram_upsert()`
-- `slack_upsert()`
-- `discord_upsert()`
-- `cron_list()`
-
-`resolve_gateway_token()` refreshes the Agent, derives `wss://{hostname}`, and
-fetches only `OPENCLAW_GATEWAY_TOKEN` through the exact-key secret endpoint.
-That Secret is canonical shared/bootstrap auth, not a browser device token; the
-SDK holds the resolved value on the live Agent instance. Keep it out of URLs,
-logs, and persistent application storage. Generic deployments also expose
-`env()`, `secret_names()`, and `secret(key)`.
+Generic deployments expose `env()`, `secret_names()`, and `secret(key)`.
 
 To mint a child key for one exact agent:
 
@@ -741,34 +687,3 @@ To mint a child key for one exact agent:
 scoped = client.deployments.create_scoped_key(agent.id, name="agent-client")
 print(scoped["api_key"])
 ```
-
-### Gateway URL Semantics
-
-The SDK treats the root host as the default gateway host.
-
-`OpenClawAgent` now derives gateway connection context from:
-
-```python
-f"wss://{agent.hostname}"
-```
-
-An Agent reporting `RUNNING` does not prove that public DNS, the route, device
-pairing, or the authenticated gateway hello is ready. Use the gateway readiness
-and connection helpers for those later boundaries.
-
-## Gateway Example
-
-```python
-agent = client.deployments.get("agent-id")
-assert hasattr(agent, "gateway")
-
-gw = agent.gateway()
-
-async def main():
-    async with gw:
-        await gw.wait_ready(timeout=300)
-        cfg = await gw.config_get()
-        print(cfg)
-```
-
-See [Gateway Client SDK](/sdk/gateway) for the low-level RPC surface.

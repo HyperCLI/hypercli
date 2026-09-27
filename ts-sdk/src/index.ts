@@ -16,14 +16,12 @@ export {
   getAgentsApiBaseUrl,
   getAgentsWsUrl,
   getWsUrl,
-  GHCR_IMAGES,
   COMFYUI_IMAGE,
   DEFAULT_API_URL,
   DEFAULT_AGENTS_API_BASE_URL,
   DEFAULT_AGENTS_WS_URL,
   DEV_AGENTS_API_BASE_URL,
   DEV_AGENTS_WS_URL,
-  DEFAULT_WS_URL,
 } from './config.js';
 
 // Errors
@@ -241,7 +239,6 @@ export {
   type HyperAgentStripeBillingPortalSessionResponse,
   type HyperAgentX402CheckoutRequest,
   type HyperAgentX402CheckoutResponse,
-  type HyperAgentBrowserX402PurchaseRequest,
   type HyperAgentX402PurchaseRequest,
   type HyperAgentX402PurchaseResponse,
 } from './agent.js';
@@ -279,7 +276,6 @@ export {
   AGENT_EXEC_STDIN_MAX_BYTES,
   Deployments,
   Agent,
-  CodingAgent,
   RuntimeAuthClient,
   RuntimeLoginSession,
   OPENCLAW_TRUSTED_PROXIES_ENV,
@@ -348,6 +344,8 @@ export {
   type BuildAgentConfigOptions,
   type ManagedAgentRuntime,
   type CodingAgentRuntime,
+  type CodingAgent,
+  type ManagedAgentCreateOptions,
   type CodingAgentCreateOptions,
   type RuntimeAuthMethod,
   type RuntimeAuthStatus,
@@ -533,15 +531,4 @@ export {
   GradioJob,
   type GradioJobOptions,
 } from './job/gradio.js';
-
-// x402 pay-per-use
-export {
-  X402Client,
-  type X402Signer,
-  type X402JobLaunch,
-  type X402FlowCreate,
-  type FlowCatalogItem,
-  type X402CreateJobOptions,
-  type X402CreateFlowOptions,
-} from './x402.js';
 

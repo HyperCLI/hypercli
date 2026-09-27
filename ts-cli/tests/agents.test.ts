@@ -194,6 +194,7 @@ function createMockDeploymentsApi(
     createHermesAgent: vi.fn(async () => stateful('new-hermes', 'STOPPED')),
     create: vi.fn(async () => stateful('new-generic', 'STOPPED')),
     createCodingAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
+    createAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
     update: vi.fn(async (id: string) => byId(id)),
   };
   return { ...base, ...overrides };
@@ -537,7 +538,7 @@ describe('hyper agents create', () => {
 
     const payload = JSON.parse(stdout()) as Record<string, any>;
     expect(payload.runtime).toBe('openclaw');
-    expect(payload.method).toBe('createOpenClaw');
+    expect(payload.method).toBe('createAgent');
     expect(payload.options).toMatchObject({ name: 'demo', dryRun: true, env: { FOO: 'bar' } });
     expect(clientFactory).not.toHaveBeenCalled();
     for (const fn of Object.values(d)) {
@@ -557,46 +558,44 @@ describe('hyper agents create', () => {
     }
   });
 
-  it('dispatches per runtime: hermes -> createHermesAgent, buzz -> createCodingAgent', async () => {
+  it('dispatches per runtime through createAgent: hermes -> hermes-agent, buzz -> buzz-agent', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['create', 'h1', '--runtime', 'hermes', '--model', 'm-x']);
-    expect(d.createHermesAgent).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
+      'hermes-agent',
       expect.objectContaining({ name: 'h1', dryRun: false, config: { model: 'm-x' } }),
     );
-    expect(d.createOpenClaw).not.toHaveBeenCalled();
 
     await agents.run(ctx, ['create', 'b1', '--runtime', 'buzz']);
-    expect(d.createCodingAgent).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
       'buzz-agent',
       expect.objectContaining({ name: 'b1', dryRun: false }),
     );
   });
 
-  it('dispatches the coding runtimes through the single createCodingAgent facade', async () => {
+  it('dispatches the coding runtimes through the single createAgent entry', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['create', 'cx', '--runtime', 'codex']);
-    expect(d.createCodingAgent).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
       'codex',
       expect.objectContaining({ name: 'cx', dryRun: false }),
     );
 
     await agents.run(ctx, ['create', 'cc', '--runtime', 'claude-code']);
-    expect(d.createCodingAgent).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
       'claude-code',
       expect.objectContaining({ name: 'cc', dryRun: false }),
     );
 
     await agents.run(ctx, ['create', 'kc', '--runtime', 'kimi-code']);
-    expect(d.createCodingAgent).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
       'kimi-code',
       expect.objectContaining({ name: 'kc', dryRun: false }),
     );
-    expect(d.createOpenClaw).not.toHaveBeenCalled();
-    expect(d.createHermesAgent).not.toHaveBeenCalled();
   });
 
   it('--model on openclaw is a usage error (no silent drop of the config bag)', async () => {
@@ -608,7 +607,7 @@ describe('hyper agents create', () => {
     expect((err as Error).message).toContain('--model');
   });
 
-  it('--runtime generic dispatches d.create with the launch-contract flags', async () => {
+  it('--runtime generic dispatches createAgent with the launch-contract flags', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
@@ -624,7 +623,8 @@ describe('hyper agents create', () => {
       '--no-restart',
     ]);
 
-    expect(d.create).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
+      'generic',
       expect.objectContaining({
         name: 'g1',
         size: 'small',
@@ -639,8 +639,10 @@ describe('hyper agents create', () => {
         dryRun: false,
       }),
     );
+    expect(d.create).not.toHaveBeenCalled();
     expect(d.createOpenClaw).not.toHaveBeenCalled();
     expect(d.createCodingAgent).not.toHaveBeenCalled();
+    expect(d.createHermesAgent).not.toHaveBeenCalled();
   });
 
   it('the command argv after -- passes through verbatim (no shell join)', async () => {
@@ -652,7 +654,8 @@ describe('hyper agents create', () => {
       '--', 'sh', '-c', 'echo hi && exec sleep 9',
     ]);
 
-    expect(d.create).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
+      'generic',
       expect.objectContaining({ command: ['sh', '-c', 'echo hi && exec sleep 9'] }),
     );
   });
@@ -669,7 +672,8 @@ describe('hyper agents create', () => {
       '--sync-include', '.openclaw/workspace',
     ]);
 
-    expect(d.createOpenClaw).toHaveBeenCalledWith(
+    expect(d.createAgent).toHaveBeenCalledWith(
+      'openclaw',
       expect.objectContaining({
         name: 'oc1',
         image: 'registry.example/org/hypercli-openclaw:sha',
@@ -680,6 +684,7 @@ describe('hyper agents create', () => {
       }),
     );
     expect(d.create).not.toHaveBeenCalled();
+    expect(d.createOpenClaw).not.toHaveBeenCalled();
   });
 
   it('--restart set reaffirms the policy; conflicts with --no-restart', async () => {
@@ -687,7 +692,7 @@ describe('hyper agents create', () => {
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['create', 'g3', '--runtime', 'generic', '--restart']);
-    expect(d.create).toHaveBeenCalledWith(expect.objectContaining({ restart: true }));
+    expect(d.createAgent).toHaveBeenCalledWith('generic', expect.objectContaining({ restart: true }));
 
     const err = await runErr(ctx, ['create', 'g4', '--runtime', 'generic', '--restart', '--no-restart']);
     expect(err).toBeInstanceOf(UsageError);
@@ -708,7 +713,7 @@ describe('hyper agents create', () => {
       expect(err).toBeInstanceOf(UsageError);
       expect(exitCodeFor(err)).toBe(2);
     }
-    expect(d.create).not.toHaveBeenCalled();
+    expect(d.createAgent).not.toHaveBeenCalled();
   });
 
   it('a command argv on coding runtimes is refused client-side', async () => {
@@ -719,7 +724,7 @@ describe('hyper agents create', () => {
 
     expect(err).toBeInstanceOf(UsageError);
     expect((err as Error).message).toContain('owns its boot command');
-    expect(d.createCodingAgent).not.toHaveBeenCalled();
+    expect(d.createAgent).not.toHaveBeenCalled();
   });
 
   it('--dry-run masks secret values and the registry password', async () => {
@@ -734,7 +739,7 @@ describe('hyper agents create', () => {
 
     const out = stdout();
     const payload = JSON.parse(out) as Record<string, any>;
-    expect(payload.method).toBe('create');
+    expect(payload.method).toBe('createAgent');
     expect(payload.options.secrets).toEqual({ TOKEN: '****' });
     expect(payload.options.registryAuth).toEqual({ username: 'u', password: '****' });
     expect(out).not.toContain('supersecret');

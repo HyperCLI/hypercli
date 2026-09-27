@@ -6,7 +6,6 @@
  */
 import { responseAPIError, type HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
-import type { X402Signer } from './x402.js';
 import { agentSlotFromDict, type AgentSlot } from './agent-slots.js';
 
 function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
@@ -517,56 +516,6 @@ export interface HyperAgentLegacyBundlePurchaseRequest {
 }
 
 export type HyperAgentX402PurchaseResponse = HyperAgentX402CheckoutResponse;
-
-export interface HyperAgentBrowserX402PurchaseRequest extends HyperAgentX402PurchaseRequest {
-  amountUsd: number;
-  signer: X402Signer;
-}
-
-async function controlPostWithX402Middleware(
-  controlBaseUrl: string,
-  apiKey: string,
-  path: string,
-  body: Record<string, any>,
-  signer: X402Signer,
-  amountUsd: number,
-): Promise<any> {
-  let axiosMod: any;
-  let x402AxiosMod: any;
-  let evmMod: any;
-  try {
-    axiosMod = await import('axios');
-    x402AxiosMod = await import('@x402/axios');
-    evmMod = await import('@x402/evm');
-  } catch {
-    throw new Error(
-      'x402 browser dependencies missing. Install with: npm install axios @x402/axios @x402/evm'
-    );
-  }
-
-  const axios = axiosMod.default ?? axiosMod;
-  const { wrapAxiosWithPayment, x402Client } = x402AxiosMod;
-  const { ExactEvmScheme } = evmMod;
-
-  const client = new x402Client();
-  client.register('eip155:*', new ExactEvmScheme(signer));
-
-  const instance = axios.create({
-    baseURL: controlBaseUrl,
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  const api = wrapAxiosWithPayment(instance, client);
-  const response = await api.post(path, body, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    params: {
-      amount: amountUsd.toFixed(2),
-    },
-  });
-  return response.data;
-}
 
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   const agents = Number(data.agents ?? 0);
@@ -1572,19 +1521,6 @@ export class HyperAgent {
     );
   }
 
-  /**
-   * @deprecated The backend trial-claim endpoint (`/agents/plans/trial`) does not
-   * exist and is being removed from the SDKs. Use createStripeTrialCheckout()
-   * instead. This stub always throws.
-   */
-  async claimTrialEntitlement(): Promise<HyperAgentEntitlement> {
-    const message =
-      'claimTrialEntitlement is deprecated: the backend has no /agents/plans/trial endpoint. ' +
-      'Use createStripeTrialCheckout() to start the Stripe-backed trial instead.';
-    console.warn(`[hypercli] ${message}`);
-    throw new Error(message);
-  }
-
   async createStripeBillingPortalSession(
     request: HyperAgentStripeBillingPortalSessionRequest,
   ): Promise<HyperAgentStripeBillingPortalSessionResponse> {
@@ -1611,47 +1547,13 @@ export class HyperAgent {
     );
   }
 
-  async purchaseViaX402WithSigner(
-    planId: string,
-    request: HyperAgentBrowserX402PurchaseRequest,
-  ): Promise<HyperAgentX402PurchaseResponse> {
-    if ((request as HyperAgentBrowserX402PurchaseRequest & { bundle?: unknown }).bundle != null) {
-      throw new Error('Arbitrary slot bundles are no longer supported; purchase a canonical plan');
-    }
-    const payload = {
-      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-    };
-    return hyperAgentX402CheckoutResponseFromDict(
-      await controlPostWithX402Middleware(
-        this.controlBaseUrl,
-        this.apiKey,
-        `/x402/${encodeURIComponent(planId)}`,
-        payload,
-        request.signer,
-        request.amountUsd,
-      ),
-    );
-  }
-
   async purchaseBundleViaX402(
     _request: HyperAgentLegacyBundlePurchaseRequest = {},
   ): Promise<HyperAgentX402PurchaseResponse> {
     throw new Error('Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan');
   }
 
-  async purchaseBundleViaX402WithSigner(
-    _request: HyperAgentBrowserX402PurchaseRequest,
-  ): Promise<HyperAgentX402PurchaseResponse> {
-    throw new Error('Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan');
-  }
-
   async createX402Checkout(_request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
     throw new Error('A canonical plan ID is required; use purchaseViaX402(planId, request)');
-  }
-
-  async createX402CheckoutWithSigner(
-    _request: HyperAgentBrowserX402PurchaseRequest,
-  ): Promise<HyperAgentX402CheckoutResponse> {
-    throw new Error('A canonical plan ID is required; use purchaseViaX402WithSigner(planId, request)');
   }
 }

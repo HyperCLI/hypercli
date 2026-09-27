@@ -11,7 +11,7 @@ const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 const AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.hypercli.com/ws/acp';
 const DEV_AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.dev.hypercli.com/ws/acp';
 
-export function toWsBaseUrl(baseUrl: string): string {
+function toWsBaseUrl(baseUrl: string): string {
   const base = (baseUrl || '').replace(/\/+$/, '');
   if (!base) return '';
   if (base.startsWith('https://')) return `wss://${base.slice('https://'.length)}`;
