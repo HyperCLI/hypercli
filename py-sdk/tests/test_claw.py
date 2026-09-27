@@ -873,6 +873,317 @@ class TestHyperAgentClient:
             agent.create_x402_checkout(quantity=1, bundle={"medium": 1})
         mock_http._session.post.assert_not_called()
 
+    def test_redeem_grant_code_posts_and_parses_redemption(self, mock_http):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "grant": {
+                "id": "grant-1",
+                "type": "ACTIVATION_CODE",
+                "code": "promo-123",
+                "plan_id": "solo",
+                "duration": 3600,
+                "tags": ["customer=acme"],
+            },
+            "entitlement": {
+                "id": "ent-1",
+                "user_id": "user-1",
+                "subscription_id": None,
+                "plan_id": "solo",
+                "plan_name": "Solo",
+                "provider": "ACTIVATION_CODE",
+                "status": "ACTIVE",
+                "starts_at": "2026-04-19T12:00:00Z",
+                "expires_at": "2026-04-19T13:00:00Z",
+                "tpm_limit": 1000,
+                "rpm_limit": 10,
+                "tpd_limit": 1000000,
+                "agent_tier": "small",
+                "features": {},
+                "tags": ["customer=acme"],
+            },
+        }
+        mock_http._session.post.return_value = mock_response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        result = agent.redeem_grant_code("promo-123")
+
+        assert result.grant.code == "promo-123"
+        assert result.grant.type == "ACTIVATION_CODE"
+        assert result.grant.tags == ["customer=acme"]
+        assert result.entitlement.provider == "ACTIVATION_CODE"
+        assert result.entitlement.starts_at.isoformat() == "2026-04-19T12:00:00+00:00"
+        assert result.payment is None
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/billing/grants/redeem",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"code": "promo-123"},
+        )
+
+    def test_redeem_grant_code_can_request_extension(self, mock_http):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123"},
+            "entitlement": {"id": "ent-1", "plan_id": "solo", "provider": "ACTIVATION_CODE"},
+        }
+        mock_http._session.post.return_value = mock_response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        agent.redeem_grant_code("promo-123", extend_existing=True)
+
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/billing/grants/redeem",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"code": "promo-123", "extend_existing": True},
+        )
+
+    def test_purchase_entitlement_from_balance_posts_and_parses_redemption(self, mock_http):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "grant": {
+                "id": "grant-1",
+                "type": "BALANCE",
+                "plan_id": "solo",
+                "duration": 3600,
+                "tags": ["customer=acme"],
+            },
+            "entitlement": {
+                "id": "ent-1",
+                "user_id": "user-1",
+                "subscription_id": None,
+                "plan_id": "solo",
+                "plan_name": "Solo",
+                "provider": "BALANCE",
+                "status": "ACTIVE",
+                "starts_at": "2026-04-19T12:00:00Z",
+                "expires_at": "2026-04-19T13:00:00Z",
+                "tpm_limit": 1000,
+                "rpm_limit": 10,
+                "tpd_limit": 1000000,
+                "agent_tier": "small",
+                "features": {},
+                "tags": ["customer=acme"],
+                "slot_grants": {"small": 1, "medium": 0, "large": 0},
+                "active_agent_count": 0,
+                "active_agent_ids": [],
+            },
+            "payment": {
+                "id": "pay-1",
+                "user_id": "user-1",
+                "provider": "BALANCE",
+                "status": "SUCCEEDED",
+                "amount": "10000",
+                "currency": "usdc",
+                "external_payment_id": "tx-1",
+            },
+        }
+        mock_http._session.post.return_value = mock_response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        result = agent.purchase_entitlement_from_balance(
+            "solo", duration=3600, tags=["customer=acme"]
+        )
+
+        assert result.grant.type == "BALANCE"
+        assert result.grant.duration == 3600
+        assert result.entitlement.starts_at.isoformat() == "2026-04-19T12:00:00+00:00"
+        assert result.payment is not None
+        assert result.payment.provider == "BALANCE"
+        assert result.payment.external_payment_id == "tx-1"
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/billing/balance/solo",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"duration": 3600, "tags": ["customer=acme"]},
+        )
+
+    def test_purchase_entitlement_from_balance_can_request_extension(self, mock_http):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "BALANCE", "plan_id": "solo", "duration": 3600},
+            "entitlement": {"id": "ent-1", "plan_id": "solo", "provider": "BALANCE", "tags": []},
+        }
+        mock_http._session.post.return_value = mock_response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        agent.purchase_entitlement_from_balance("solo", duration=3600, extend_existing=True)
+
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/billing/balance/solo",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"duration": 3600, "extend_existing": True},
+        )
+
+    def test_usage_report_combines_sections_and_degrades_tolerantly(self, mock_http):
+        def make_response(payload):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = payload
+            return response
+
+        def fake_get(url, headers=None, params=None):
+            if url.endswith("/usage/history"):
+                return make_response(
+                    {
+                        "history": [
+                            {
+                                "date": "2026-04-19",
+                                "total_tokens": 10,
+                                "prompt_tokens": 6,
+                                "completion_tokens": 4,
+                                "requests": 2,
+                            }
+                        ],
+                        "days": params["days"],
+                    }
+                )
+            if url.endswith("/usage/keys"):
+                failing = Mock()
+                failing.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "forbidden",
+                    request=httpx.Request("GET", url),
+                    response=httpx.Response(403, request=httpx.Request("GET", url)),
+                )
+                return failing
+            if url.endswith("/usage/agents"):
+                return make_response(
+                    {
+                        "agents": [
+                            {
+                                "agent_id": "agent-1",
+                                "name": "alpha",
+                                "managed": True,
+                                "avatar_url": None,
+                                "total_tokens": 7,
+                                "prompt_tokens": 5,
+                                "completion_tokens": 2,
+                                "requests": 1,
+                            }
+                        ],
+                        "unattributed": {
+                            "total_tokens": 3,
+                            "prompt_tokens": 1,
+                            "completion_tokens": 2,
+                            "requests": 1,
+                        },
+                        "days": params["days"],
+                    }
+                )
+            raise AssertionError(f"unexpected url: {url}")
+
+        mock_http._session.get.side_effect = fake_get
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        report = agent.usage_report(days=120)
+
+        assert report.days == 90
+        assert report.history is not None
+        assert report.history[0].total_tokens == 10
+        assert report.keys is None
+        assert report.agents is not None
+        assert report.agents[0].agent_id == "agent-1"
+        assert report.agents[0].managed is True
+        assert report.unattributed.total_tokens == 3
+
+    def test_billing_history_reports_subscription_and_payment_counts(self, mock_http):
+        def make_response(payload):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = payload
+            return response
+
+        def fake_get(url, headers=None, params=None):
+            if url.endswith("/subscriptions"):
+                return make_response(
+                    {
+                        "items": [
+                            {
+                                "id": "sub-1",
+                                "user_id": "user-1",
+                                "plan_id": "solo",
+                                "plan_name": "Solo",
+                                "provider": "STRIPE",
+                                "status": "ACTIVE",
+                                "quantity": 1,
+                            }
+                        ]
+                    }
+                )
+            if url.endswith("/billing/payments"):
+                assert params == {"limit": 1}
+                return make_response(
+                    {
+                        "items": [
+                            {
+                                "id": "pay-1",
+                                "user_id": "user-1",
+                                "provider": "STRIPE",
+                                "status": "SUCCEEDED",
+                                "amount": "1000",
+                                "currency": "usd",
+                            }
+                        ]
+                    }
+                )
+            raise AssertionError(f"unexpected url: {url}")
+
+        mock_http._session.get.side_effect = fake_get
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        history = agent.billing_history()
+
+        assert history.has_billing_history is True
+        assert history.subscription_count == 1
+        assert history.payment_count == 1
+
+    def test_billing_history_is_false_for_fresh_account(self, mock_http):
+        def make_response(payload):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = payload
+            return response
+
+        mock_http._session.get.side_effect = lambda url, headers=None, params=None: (
+            make_response({"items": []})
+        )
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        history = agent.billing_history()
+
+        assert history.has_billing_history is False
+        assert history.subscription_count == 0
+        assert history.payment_count == 0
+
 class TestHyperAgentIntegration:
     """Integration tests for HyperAgent client (require running service)."""
 

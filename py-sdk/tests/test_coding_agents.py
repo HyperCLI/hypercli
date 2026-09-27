@@ -9,6 +9,7 @@ import pytest
 
 from hypercli.agents import (
     CodingAgent,
+    DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_BUZZ_AGENT_IMAGE,
     DEFAULT_BUZZ_CODING_AGENT_IMAGES,
     DEFAULT_BUZZ_OPENCODE_IMAGE,
@@ -17,11 +18,14 @@ from hypercli.agents import (
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
+    DEFAULT_PI_ENV,
     DEFAULT_PI_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
+    Deployments,
     ExecResult,
     RuntimeAuthClient,
     RuntimeAuthMethod,
+    build_permissions_json,
 )
 
 
@@ -363,3 +367,264 @@ def test_claude_status_parses_current_unauthenticated_cli_shape():
     assert status.authenticated is False
     assert status.provider == "firstParty"
     assert status.method == "none"
+
+
+def _created_agent_payload(runtime: str) -> dict:
+    return {
+        "id": "agent-1",
+        "user_id": "user-1",
+        "state": "CREATING",
+        "runtime": runtime,
+    }
+
+
+def _capture_create(monkeypatch, runtime: str = "opencode"):
+    http = Mock()
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
+    posts = []
+
+    def fake_post(path, json=None):
+        posts.append((path, json))
+        return _created_agent_payload(runtime)
+
+    monkeypatch.setattr(deployments, "_post", fake_post)
+    return deployments, posts
+
+
+class TestCreateCodingAgent:
+    """ts createCodingAgent parity: one launch contract, runtime-keyed defaults."""
+
+    @pytest.mark.parametrize(
+        "runtime",
+        ["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code", "pi"],
+    )
+    def test_runtime_keyed_default_launch_shape(self, monkeypatch, runtime):
+        deployments, posts = _capture_create(monkeypatch, runtime)
+
+        agent = deployments.create_coding_agent(runtime)
+
+        assert isinstance(agent, CodingAgent)
+        assert agent.id == "agent-1"
+        assert posts[0][0] == "/deployments"
+        body = posts[0][1]
+        assert body["runtime"] == runtime
+        assert body["image"] == DEFAULT_CODING_AGENT_IMAGES[runtime]
+        assert body["command"] == ["/usr/local/bin/hyper-acp"]
+        assert body["sync_root"] == "/home/node"
+        assert body["sync_uid"] == 1000
+        assert body["sync_gid"] == 1000
+        assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
+        assert body["routes"] == {}
+        env = body["env"]
+        assert env["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert env["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
+        assert env["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
+        assert env["HYPER_ACP_PERMISSIONS"] == '{"*":"allow"}'
+        assert "HYPER_ACP_PERMISSION_MODE" not in env
+
+    @pytest.mark.parametrize(
+        "runtime",
+        ["opencode", "codex", "claude-code", "goose", "kimi-code", "pi"],
+    )
+    def test_default_sync_policy_uses_runtime_include(self, monkeypatch, runtime):
+        deployments, posts = _capture_create(monkeypatch, runtime)
+
+        deployments.create_coding_agent(runtime)
+
+        body = posts[0][1]
+        assert "sync_exclude" not in body
+        assert body["sync_include"][-2:] == [".hypercli/USER.md", ".hypercli/SOUL.md"] or runtime in (
+            "opencode",
+            "pi",
+        )
+
+    def test_buzz_runtime_defaults_to_whole_root_with_empty_exclude(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "buzz-agent")
+
+        deployments.create_coding_agent("buzz-agent")
+
+        body = posts[0][1]
+        assert "sync_include" not in body
+        assert body["sync_exclude"] == []
+
+    def test_opencode_default_include_is_pinned(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode")
+
+        assert posts[0][1]["sync_include"] == [
+            ".hypercli/USER.md",
+            ".hypercli/SOUL.md",
+            ".config/opencode",
+            ".local/share/opencode",
+            ".local/state/opencode",
+            ".cache/opencode",
+        ]
+
+    def test_pi_gets_hyper_runtime_home_and_caller_env_wins(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "pi")
+
+        deployments.create_coding_agent("pi", env={"HYPER_RUNTIME_HOME": "/custom", "X": "1"})
+
+        env = posts[0][1]["env"]
+        assert DEFAULT_PI_ENV["HYPER_RUNTIME_HOME"] == "/home/node/.pi/agent"
+        assert env["HYPER_RUNTIME_HOME"] == "/custom"
+        assert env["X"] == "1"
+
+    def test_non_pi_runtimes_have_no_hyper_runtime_home(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode")
+
+        assert "HYPER_RUNTIME_HOME" not in posts[0][1]["env"]
+
+    def test_explicit_sync_include_wins_and_drops_exclude(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent(
+            "opencode", sync_include=[".config/opencode"], sync_exclude=["ignored/**"]
+        )
+
+        body = posts[0][1]
+        assert body["sync_include"] == [".config/opencode"]
+        assert "sync_exclude" not in body
+
+    def test_null_sync_include_selects_whole_root(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode", sync_include=None)
+
+        body = posts[0][1]
+        assert "sync_include" not in body
+        assert "sync_exclude" not in body
+
+    def test_explicit_sync_exclude_replaces_runtime_default(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode", sync_exclude=[".cache/**"])
+
+        body = posts[0][1]
+        assert "sync_include" not in body
+        assert body["sync_exclude"] == [".cache/**"]
+
+    def test_permission_mode_serializes_preset_and_legacy_mode_var(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode", permission_mode="plan")
+
+        env = posts[0][1]["env"]
+        assert env["HYPER_ACP_PERMISSIONS"] == build_permissions_json("plan")
+        assert env["HYPER_ACP_PERMISSION_MODE"] == "plan"
+        assert json.loads(env["HYPER_ACP_PERMISSIONS"])["bash"] == "deny"
+
+    def test_caller_permission_env_wins_over_preset(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent(
+            "opencode",
+            permission_mode="plan",
+            env={"HYPER_ACP_PERMISSIONS": "custom", "HYPER_ACP_PERMISSION_MODE": "custom-mode"},
+        )
+
+        env = posts[0][1]["env"]
+        assert env["HYPER_ACP_PERMISSIONS"] == "custom"
+        assert env["HYPER_ACP_PERMISSION_MODE"] == "custom-mode"
+
+    @pytest.mark.parametrize("key", ["BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"])
+    def test_private_key_env_is_promoted_to_secrets(self, monkeypatch, key):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        deployments.create_coding_agent("opencode", env={key: "nsec-value"})
+
+        body = posts[0][1]
+        assert key not in body["env"]
+        assert body["secrets"][key] == "nsec-value"
+
+    def test_private_key_conflict_between_env_and_secrets_rejected(self, monkeypatch):
+        deployments, _ = _capture_create(monkeypatch, "opencode")
+
+        with pytest.raises(ValueError, match="BUZZ_PRIVATE_KEY conflicts between env and secrets"):
+            deployments.create_coding_agent(
+                "opencode",
+                env={"BUZZ_PRIVATE_KEY": "env-value"},
+                secrets={"BUZZ_PRIVATE_KEY": "other-value"},
+            )
+
+    def test_unknown_runtime_rejected_with_valid_list(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        with pytest.raises(ValueError, match="runtime must be one of"):
+            deployments.create_coding_agent("not-a-runtime")
+        assert posts == []
+
+    def test_non_coding_backend_response_rejected(self, monkeypatch):
+        deployments, _ = _capture_create(monkeypatch, "generic")
+
+        with pytest.raises(TypeError, match="did not identify runtime"):
+            deployments.create_coding_agent("opencode")
+
+    def test_overrides_flow_through_create(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "opencode")
+
+        agent = deployments.create_coding_agent(
+            "opencode",
+            name="custom",
+            size="medium",
+            image="registry/image:tag",
+            command=["/bin/custom"],
+            sync_root="/data",
+            sync_uid=2000,
+            sync_gid=2001,
+            restart=True,
+            tags=["scope=test"],
+            executor="docker",
+            runner={"runner_id": "runner-1"},
+            dry_run=True,
+        )
+
+        body = posts[0][1]
+        assert agent.id == "agent-1"
+        assert body["dry_run"] is True
+        assert body["name"] == "custom"
+        assert body["size"] == "medium"
+        assert body["image"] == "registry/image:tag"
+        assert body["command"] == ["/bin/custom"]
+        assert body["sync_root"] == "/data"
+        assert body["sync_uid"] == 2000
+        assert body["sync_gid"] == 2001
+        assert body["restart"] is True
+        assert body["tags"] == ["scope=test"]
+        assert body["executor"] == "docker"
+        assert body["runner"] == {"runner_id": "runner-1"}
+
+
+class TestBuildPermissionsJson:
+    def test_serialized_bytes_match_ts_preset_order(self):
+        assert build_permissions_json("default") == '{"*":"allow"}'
+        assert build_permissions_json("accept-edits") == (
+            '{"read":"allow","glob":"allow","grep":"allow","list":"allow",'
+            '"edit":"allow","todowrite":"allow","*":"ask"}'
+        )
+
+    def test_buzz_hosted_preset_is_byte_pinned(self):
+        assert build_permissions_json("buzz-hosted") == (
+            '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",'
+            '"todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny",'
+            '"external_directory":"allow","bash":{"sprig *":"allow","sprig":"allow",'
+            '"buzz *":"allow","buzz":"allow","hyper *":"allow","git *":"allow","*":"deny"},'
+            '"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}'
+        )
+
+    def test_unknown_mode_falls_back_to_default(self):
+        assert build_permissions_json("unknown") == '{"*":"allow"}'
+
+    def test_overrides_layer_on_preset(self):
+        assert build_permissions_json("plan", {"webfetch": "allow"}) == (
+            '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",'
+            '"question":"allow","edit":"deny","bash":"deny","task":"deny",'
+            '"external_directory":"deny","skill":"deny","webfetch":"allow","websearch":"deny",'
+            '"*":"deny"}'
+        )

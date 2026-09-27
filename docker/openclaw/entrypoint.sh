@@ -33,20 +33,8 @@ if [[ -n "${HYPER_API_KEY:-}" ]]; then
   export HYPER_AGENTS_API_KEY="${HYPER_API_KEY}"
 fi
 
-# The Slack plugin resolves botToken from the gateway process env, so the
-# derivation must be exported here (slack.ts validates the same preconditions
-# while reconciling the config, but child-process env cannot reach the exec'd
-# gateway).
-case "$(printf '%s' "${HYPER_SLACK_APP_ENABLED:-0}" | tr '[:upper:]' '[:lower:]')" in
-  1|true|yes|on|enabled)
-    export SLACK_BOT_TOKEN="${SLACK_BOT_TOKEN:-${HYPER_AGENTS_API_KEY:-}}"
-    export SLACK_API_URL="${SLACK_API_URL:-${HYPER_SLACK_API_URL:-}}"
-    ;;
-esac
-
 /opt/hypercli-openclaw/init.sh
 CONFIG_PATH="${OPENCLAW_CONFIG_PATH}" node /opt/hypercli-openclaw/config.ts
-CONFIG_PATH="${OPENCLAW_CONFIG_PATH}" node /opt/hypercli-openclaw/slack.ts
 
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-/tmp/openclaw-npm-cache}"
 export npm_config_cache="${npm_config_cache:-${NPM_CONFIG_CACHE}}"
@@ -56,6 +44,8 @@ find "${OPENCLAW_STATE_DIR}/extensions" -maxdepth 1 -type d \
   -exec rm -rf {} + 2>/dev/null || true
 
 if [[ -n "${OPENCLAW_BUNDLED_PLUGINS_DIR:-}" ]]; then
+  # slack is no longer bundled but stays listed: purge legacy installs retained
+  # in agent state dirs.
   for bundled_plugin_id in brave slack whatsapp; do
     rm -rf "${OPENCLAW_STATE_DIR}/extensions/${bundled_plugin_id}" 2>/dev/null || true
   done

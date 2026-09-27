@@ -50,7 +50,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime openclaw|hermes|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--param k=v ...] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--dry-run]',
+  'hyper agents create <name> --runtime openclaw|hermes|generic|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--env K=V ...] [--param k=v ...] [--secret K=V ...] [--image IMG] [--sh SCRIPT] [--sync-root P] [--sync-include P ... | --sync-exclude G ...] [--registry-url U --registry-username U --registry-password P] [--restart | --no-restart] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--dry-run] [-- CMD [ARGS...]]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
@@ -74,6 +74,7 @@ const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes'];
 const RUNTIME_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['openclaw', 'createOpenClaw'],
   ['hermes', 'createHermesAgent'],
+  ['generic', 'create'],
   ['goose', 'createCodingAgent'],
   ['opencode', 'createCodingAgent'],
   ['codex', 'createCodingAgent'],
@@ -460,6 +461,73 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
 // create
 // ---------------------------------------------------------------------------
 
+/**
+ * Launch-contract flags shared by every runtime (--image, --sh, trailing
+ * `--` command argv, --secret, --sync-root/--sync-include/--sync-exclude,
+ * --registry-*, --restart). They map straight onto the SDK create options
+ * bag (BuildAgentConfigOptions), which every create entry honors; the
+ * Backend rejects combinations a runtime does not support.
+ */
+function launchOptionsFromCreateFlags(
+  parsed: ParsedCommand,
+  commandArgv: readonly string[],
+): Record<string, unknown> {
+  const image = str(parsed, 'image');
+  const shScript = str(parsed, 'sh');
+  if (commandArgv.length > 0 && shScript !== undefined) {
+    throw new UsageError('pass only one of --sh SCRIPT or the command argv after --');
+  }
+  const syncRoot = str(parsed, 'sync-root');
+  const syncInclude = strList(parsed, 'sync-include');
+  const syncExclude = strList(parsed, 'sync-exclude');
+  if (syncInclude.length > 0 && syncExclude.length > 0) {
+    throw new UsageError('pass only one of --sync-include or --sync-exclude');
+  }
+  const registryUrl = str(parsed, 'registry-url');
+  const registryUsername = str(parsed, 'registry-username');
+  const registryPassword = str(parsed, 'registry-password');
+  if ((registryUsername === undefined) !== (registryPassword === undefined)) {
+    throw new UsageError('--registry-username and --registry-password must be given together');
+  }
+  const restartFlag = parsed.values.restart === true;
+  const noRestart = parsed.values['no-restart'] === true;
+  if (restartFlag && noRestart) {
+    throw new UsageError('pass only one of --restart or --no-restart');
+  }
+
+  const secrets = parseParams(strList(parsed, 'secret'));
+  const launch: Record<string, unknown> = {};
+  if (image) launch.image = image;
+  if (commandArgv.length > 0) launch.command = commandArgv;
+  if (shScript !== undefined) launch.command = ['sh', '-c', shScript];
+  if (Object.keys(secrets).length > 0) launch.secrets = secrets;
+  if (syncRoot) launch.syncRoot = syncRoot;
+  if (syncInclude.length > 0) launch.syncInclude = syncInclude;
+  if (syncExclude.length > 0) launch.syncExclude = syncExclude;
+  if (registryUrl) launch.registryUrl = registryUrl;
+  if (registryUsername !== undefined && registryPassword !== undefined) {
+    launch.registryAuth = { username: registryUsername, password: registryPassword };
+  }
+  if (noRestart) launch.restart = false;
+  if (restartFlag) launch.restart = true;
+  return launch;
+}
+
+/** Dry-run prints the resolved payload; secrets and registry passwords never print. */
+function maskCreatePayloadSecrets(payload: Record<string, unknown>): Record<string, unknown> {
+  const masked = { ...payload };
+  if (masked.secrets && typeof masked.secrets === 'object') {
+    masked.secrets = Object.fromEntries(
+      Object.keys(masked.secrets as Record<string, unknown>).map((key) => [key, '****']),
+    );
+  }
+  if (masked.registryAuth && typeof masked.registryAuth === 'object') {
+    const auth = masked.registryAuth as Record<string, unknown>;
+    masked.registryAuth = { ...auth, password: '****' };
+  }
+  return masked;
+}
+
 async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, {
     runtime: { type: 'string' },
@@ -468,13 +536,28 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     size: { type: 'string' },
     env: { type: 'string', multiple: true },
     param: { type: 'string', multiple: true },
+    secret: { type: 'string', multiple: true },
+    image: { type: 'string' },
+    sh: { type: 'string' },
+    'sync-root': { type: 'string' },
+    'sync-include': { type: 'string', multiple: true },
+    'sync-exclude': { type: 'string', multiple: true },
+    'registry-url': { type: 'string' },
+    'registry-username': { type: 'string' },
+    'registry-password': { type: 'string' },
+    restart: { type: 'boolean', default: false },
+    'no-restart': { type: 'boolean', default: false },
     'runner-tags': { type: 'string' },
     'runner-id': { type: 'string' },
     executor: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
   });
   if (parsed.help) return printHelp();
-  const agentName = onePositional(parsed, 'agent name');
+  // `hyper agents create <name> [flags] [-- CMD [ARGS...]]` — the argv after
+  // the agent name (typically after --) is the pod command, mirroring
+  // `agents exec <id> -- CMD`.
+  const [agentName, ...commandArgv] = parsed.positionals;
+  if (!agentName) throw new UsageError('missing agent name');
   const runtime = str(parsed, 'runtime')?.toLowerCase();
   if (!runtime) {
     throw new UsageError(`--runtime is required (one of: ${[...RUNTIME_COMMANDS.keys()].join(', ')})`);
@@ -532,12 +615,21 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
 
   const mergedEnv = { ...env, ...(runtime === 'openclaw' ? params : {}) };
   const configBag = runtime === 'openclaw' ? {} : { ...(model ? { model } : {}), ...params };
+  // Coding runtimes own their pod boot command; a caller command there would
+  // replace the ACP entrypoint silently. openclaw/generic/hermes honor it.
+  if (commandArgv.length > 0 && codingRuntime) {
+    throw new UsageError(
+      `a command argv is not supported for coding runtime '${runtime}'; the runtime owns its boot command`,
+    );
+  }
+  const launch = launchOptionsFromCreateFlags(parsed, commandArgv);
   const payload: Record<string, unknown> = {
     name: agentName,
     ...(size ? { size } : {}),
     ...(tags ? { tags } : {}),
     ...(runner ? { runner } : {}),
     ...(executor ? { executor } : {}),
+    ...launch,
     ...(Object.keys(mergedEnv).length > 0 ? { env: mergedEnv } : {}),
     ...(Object.keys(configBag).length > 0 ? { config: configBag } : {}),
     dryRun,
@@ -545,7 +637,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
 
   if (dryRun) {
     // Print the resolved payload, call nothing (not even ctx.client()).
-    const printable = { runtime, method, options: payload };
+    const printable = { runtime, method, options: maskCreatePayloadSecrets(payload) };
     ctx.output.result(printable, JSON.stringify(printable, null, 2));
     return;
   }

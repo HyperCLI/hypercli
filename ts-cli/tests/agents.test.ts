@@ -192,6 +192,7 @@ function createMockDeploymentsApi(
     removeRoute: vi.fn(async (id: string) => ({ agentId: id, routes: {}, cors: null, routeStatuses: {} })),
     createOpenClaw: vi.fn(async () => stateful('new-openclaw', 'STOPPED')),
     createHermesAgent: vi.fn(async () => stateful('new-hermes', 'STOPPED')),
+    create: vi.fn(async () => stateful('new-generic', 'STOPPED')),
     createCodingAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
     update: vi.fn(async (id: string) => byId(id)),
   };
@@ -605,6 +606,140 @@ describe('hyper agents create', () => {
 
     expect(err).toBeInstanceOf(UsageError);
     expect((err as Error).message).toContain('--model');
+  });
+
+  it('--runtime generic dispatches d.create with the launch-contract flags', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, [
+      'create', 'g1', '--runtime', 'generic', '--size', 'small',
+      '--image', 'python:3.12-alpine',
+      '--sh', 'exec sleep 3600',
+      '--secret', 'OPENCLAW_GATEWAY_TOKEN=abc',
+      '--sync-root', '/state',
+      '--sync-exclude', 'cache/**',
+      '--registry-url', 'registry.example/org',
+      '--registry-username', 'u1', '--registry-password', 'p1',
+      '--no-restart',
+    ]);
+
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'g1',
+        size: 'small',
+        image: 'python:3.12-alpine',
+        command: ['sh', '-c', 'exec sleep 3600'],
+        secrets: { OPENCLAW_GATEWAY_TOKEN: 'abc' },
+        syncRoot: '/state',
+        syncExclude: ['cache/**'],
+        registryUrl: 'registry.example/org',
+        registryAuth: { username: 'u1', password: 'p1' },
+        restart: false,
+        dryRun: false,
+      }),
+    );
+    expect(d.createOpenClaw).not.toHaveBeenCalled();
+    expect(d.createCodingAgent).not.toHaveBeenCalled();
+  });
+
+  it('the command argv after -- passes through verbatim (no shell join)', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, [
+      'create', 'g2', '--runtime', 'generic',
+      '--', 'sh', '-c', 'echo hi && exec sleep 9',
+    ]);
+
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({ command: ['sh', '-c', 'echo hi && exec sleep 9'] }),
+    );
+  });
+
+  it('launch flags pass through to openclaw create unchanged', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, [
+      'create', 'oc1', '--runtime', 'openclaw',
+      '--image', 'registry.example/org/hypercli-openclaw:sha',
+      '--secret', 'OPENCLAW_GATEWAY_TOKEN=deadbeef',
+      '--env', 'HOME=/home/node',
+      '--sync-include', '.openclaw/workspace',
+    ]);
+
+    expect(d.createOpenClaw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'oc1',
+        image: 'registry.example/org/hypercli-openclaw:sha',
+        secrets: { OPENCLAW_GATEWAY_TOKEN: 'deadbeef' },
+        env: { HOME: '/home/node' },
+        syncInclude: ['.openclaw/workspace'],
+        dryRun: false,
+      }),
+    );
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
+  it('--restart set reaffirms the policy; conflicts with --no-restart', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['create', 'g3', '--runtime', 'generic', '--restart']);
+    expect(d.create).toHaveBeenCalledWith(expect.objectContaining({ restart: true }));
+
+    const err = await runErr(ctx, ['create', 'g4', '--runtime', 'generic', '--restart', '--no-restart']);
+    expect(err).toBeInstanceOf(UsageError);
+  });
+
+  it('mutually exclusive launch flags fail before touching the API', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const cases: string[][] = [
+      ['--sh', 'sleep 1', '--', 'sh', '-c', 'sleep 1'],
+      ['--sync-include', 'a', '--sync-exclude', 'b/**'],
+      ['--registry-username', 'u-only'],
+      ['--registry-password', 'p-only'],
+    ];
+    for (const extra of cases) {
+      const err = await runErr(ctx, ['create', 'gx', '--runtime', 'generic', ...extra]);
+      expect(err).toBeInstanceOf(UsageError);
+      expect(exitCodeFor(err)).toBe(2);
+    }
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
+  it('a command argv on coding runtimes is refused client-side', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['create', 'cx', '--runtime', 'codex', '--', 'sh', '-c', 'sleep 1']);
+
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('owns its boot command');
+    expect(d.createCodingAgent).not.toHaveBeenCalled();
+  });
+
+  it('--dry-run masks secret values and the registry password', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'json');
+
+    await agents.run(ctx, [
+      'create', 'g5', '--runtime', 'generic', '--dry-run',
+      '--secret', 'TOKEN=supersecret',
+      '--registry-username', 'u', '--registry-password', 'passphrase',
+    ]);
+
+    const out = stdout();
+    const payload = JSON.parse(out) as Record<string, any>;
+    expect(payload.method).toBe('create');
+    expect(payload.options.secrets).toEqual({ TOKEN: '****' });
+    expect(payload.options.registryAuth).toEqual({ username: 'u', password: '****' });
+    expect(out).not.toContain('supersecret');
+    expect(out).not.toContain('passphrase');
+    expect(d.create).not.toHaveBeenCalled();
   });
 });
 
