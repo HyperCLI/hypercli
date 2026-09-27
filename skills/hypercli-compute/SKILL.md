@@ -23,7 +23,7 @@ quote remembered values.
 | Inspect | `hyper jobs list`, `hyper jobs get`, `hyper jobs logs` |
 | Control | `hyper jobs cancel` |
 | Hidden power | `hyper jobs extend`, `hyper jobs exec` |
-| Instances | `hyper instances`, root shortcut `hyper launch <image>` |
+| Instances | `hyper instances gpus`, `hyper instances launch`; root shortcut `hyper launch <image>` |
 
 ## Browse the catalog
 
