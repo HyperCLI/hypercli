@@ -98,7 +98,7 @@ SKILL_POLICY_EXCLUDED_ROOTS = {"comfyui"}
 EXPECTED_SKILL_LEAF_COUNTS = {
     "hypercli": 3,
     "hypercli-account": 24,
-    "hypercli-agents": 36,
+    "hypercli-agents": 26,
     "hypercli-auth": 4,
     "hypercli-compute": 14,
     "hypercli-flows": 14,

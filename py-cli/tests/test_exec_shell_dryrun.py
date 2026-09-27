@@ -327,7 +327,7 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -345,11 +345,11 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--name", "demo"])
 
     assert result.exit_code == 0
+    assert captured["runtime"] == "openclaw"
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "0"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
-    assert captured["cron_enabled"] is None
-    assert captured["openclaw_route_options"] == {"include_desktop": False}
-    assert "start" not in captured
+    assert "desktop" not in captured["routes"]
+    assert list(captured["secrets"]) == ["OPENCLAW_GATEWAY_TOKEN"]
     assert "Desktop:  disabled" in result.stdout
 
 
@@ -376,7 +376,7 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw_pro(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -394,9 +394,10 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--desktop", "--name", "demo"])
 
     assert result.exit_code == 0
+    assert captured["runtime"] == "openclaw-pro"
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "1"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
-    assert captured["openclaw_route_options"] == {"include_desktop": True}
+    assert captured["routes"]["desktop"]["port"] == 3000
     assert captured["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
     assert "https://desktop-demo.hypercli.app" in result.stdout
 
@@ -405,7 +406,7 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw_pro(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -426,16 +427,18 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
     )
 
     assert result.exit_code == 0
+    assert captured["runtime"] == "openclaw-pro"
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "True"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
-    assert captured["openclaw_route_options"] == {"include_desktop": True}
+    assert captured["routes"]["desktop"]["port"] == 3000
 
 
 def test_agents_create_respects_openclaw_cron_env_and_flag(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw(self, **kwargs):
+        def create(self, **kwargs):
+            captured.clear()
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -457,7 +460,6 @@ def test_agents_create_respects_openclaw_cron_env_and_flag(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
-    assert captured["cron_enabled"] is None
 
     result = runner.invoke(
         app,
@@ -466,14 +468,13 @@ def test_agents_create_respects_openclaw_cron_env_and_flag(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "0"
-    assert captured["cron_enabled"] is False
 
 
 def test_agents_create_accepts_memory_index_flags(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -505,20 +506,19 @@ def test_agents_create_accepts_memory_index_flags(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert captured["memory_index"] == {
-        "on_session_start": True,
-        "on_search": True,
-        "watch": True,
-        "watch_debounce_ms": 60000,
-        "interval_minutes": 120,
-    }
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_ENABLED"] == "1"
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START"] == "1"
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH"] == "1"
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH"] == "1"
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS"] == "60000"
+    assert captured["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES"] == "120"
 
 
 def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -563,7 +563,7 @@ def test_agents_create_rejects_removed_sync_all_option(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_openclaw(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
@@ -588,7 +588,7 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_hermes_agent(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-hermes-dryrun",
@@ -596,7 +596,7 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
                 cpu=2,
                 memory=2,
                 state="validated",
-                api_url="https://hermes-demo.hypercli.app",
+                route_url=lambda _name: "https://hermes-demo.hypercli.app",
                 dry_run=True,
                 shell_url=None,
             )
@@ -617,11 +617,13 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
     )
 
     assert result.exit_code == 0
+    assert captured["runtime"] == "hermes-agent"
     assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert captured["env"] == {"HERMES_CRON_ENABLED": "1"}
-    assert captured["api_server_key"] is None
-    assert "sync_include" not in captured
-    assert "sync_exclude" not in captured
+    assert captured["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
+    assert captured["sync_root"] == "/home/hermes"
+    assert captured["sync_exclude"] == ["shared/**"]
+    assert (captured["sync_uid"], captured["sync_gid"]) == (10000, 10000)
     assert "https://hermes-demo.hypercli.app" in result.stdout
     assert "Desktop" not in result.stdout
 
@@ -643,7 +645,7 @@ def test_agents_create_hermes_accepts_no_cron(monkeypatch):
     captured = {}
 
     class FakeDeployments:
-        def create_hermes_agent(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-hermes-dryrun",
@@ -651,7 +653,7 @@ def test_agents_create_hermes_accepts_no_cron(monkeypatch):
                 cpu=2,
                 memory=2,
                 state="validated",
-                api_url="https://hermes-demo.hypercli.app",
+                route_url=lambda _name: None,
                 dry_run=True,
                 shell_url=None,
             )
@@ -672,7 +674,6 @@ def test_agents_create_hermes_accepts_no_cron(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"] == {"HERMES_CRON_ENABLED": "0"}
-    assert captured["cron_enabled"] is False
 
 
 def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_policy(monkeypatch):
@@ -704,13 +705,13 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     class FakeDeployments:
         def get(self, agent_ref):
             assert agent_ref == agent_id
-            return SimpleNamespace(id=agent_id, launch_config=None, gateway_token=None)
+            return SimpleNamespace(id=agent_id, launch_config=None)
 
         def update(self, agent_id_arg, *, launch_config):
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_openclaw(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             return SimpleNamespace(
@@ -775,7 +776,6 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
             assert agent_ref == agent_id
             return SimpleNamespace(
                 id=agent_id,
-                gateway_token=None,
                 launch_config={
                     "env": {"HYPER_DESKTOP_ENABLED": "0"},
                     "sync_include": ["workspace"],
@@ -786,7 +786,7 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_openclaw(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             return SimpleNamespace(
@@ -827,7 +827,6 @@ def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch
             assert agent_ref == agent_id
             return SimpleNamespace(
                 id=agent_id,
-                gateway_token=None,
                 launch_config={
                     "env": {"HYPER_DESKTOP_ENABLED": "0"},
                     "sync_include": ["workspace"],
@@ -838,7 +837,7 @@ def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_openclaw(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             return SimpleNamespace(
@@ -872,7 +871,6 @@ def test_agents_start_can_override_openclaw_cron(monkeypatch):
             assert agent_ref == agent_id
             return SimpleNamespace(
                 id=agent_id,
-                gateway_token=None,
                 launch_config={
                     "env": {
                         "HYPER_DESKTOP_ENABLED": "0",
@@ -885,7 +883,7 @@ def test_agents_start_can_override_openclaw_cron(monkeypatch):
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_openclaw(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             return SimpleNamespace(
@@ -924,13 +922,13 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
     class FakeDeployments:
         def get(self, agent_ref):
             assert agent_ref == "clear-window-works"
-            return SimpleNamespace(id=canonical_id, launch_config=None, gateway_token=None)
+            return SimpleNamespace(id=canonical_id, launch_config=None)
 
         def update(self, agent_id_arg, *, launch_config):
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_openclaw(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             return SimpleNamespace(id=agent_id_arg, name="agent", dry_run=True, vnc_url=None)
@@ -946,14 +944,13 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
     assert captured["start_kwargs"] == {"dry_run": True}
 
 
-def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
+def test_agents_start_hermes_reuses_saved_launch_fields(monkeypatch):
     captured = {}
     agent_id = "22222222-2222-4222-8222-222222222222"
     saved_state = {
         agent_id: {
             "id": agent_id,
             "runtime": "hermes-agent",
-            "api_server_key": "saved-api-server-key",
             "launch_config": {
                 "config": {"model": {"default": "hyper/model"}},
                 "env": {"SAVED": "1"},
@@ -974,18 +971,22 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
                 id=agent_id,
                 runtime="hermes-agent",
                 launch_config=None,
-                api_server_key=None,
             )
 
         def update(self, agent_id_arg, *, launch_config):
             captured["updated_agent_id"] = agent_id_arg
             captured.update(launch_config)
 
-        def start_hermes_agent(self, agent_id_arg, **kwargs):
+        def start(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured["start_kwargs"] = kwargs
             captured.update(kwargs)
-            return SimpleNamespace(id=agent_id_arg, name="hermes", dry_run=True, api_url=None)
+            return SimpleNamespace(
+                id=agent_id_arg,
+                name="hermes",
+                dry_run=True,
+                route_url=lambda _name: None,
+            )
 
     monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
