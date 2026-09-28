@@ -88,15 +88,7 @@ export {
 } from './buzz-activity.js';
 import { APIError } from './errors.js';
 import { HTTPClient, type RequestOverrides } from './http.js';
-import {
-  HOSTED_SLACK_APP_ENABLED_ENV,
-  HOSTED_SLACK_GATEWAY_ID_ENV,
-  HOSTED_SLACK_LAUNCH_ENV_KEYS,
-  HostedSlackLaunchEnv,
-  normalizeSlackRelayBaseUrl,
-} from './channels.js';
-
-const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
+import { normalizeSlackRelayBaseUrl } from './channels.js';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
@@ -1157,37 +1149,19 @@ function droppedLaunchConfigKeys(data: { warnings?: unknown }): string[] {
     ));
 }
 
-export interface OpenClawSlackOptions {
-  /**
-   * Hosted Slack relay base URL. Resolved from `HYPER_SLACK_RELAY_BASE_URL`,
-   * `SLACK_RELAY_BASE_URL`, or the client's agents API base when omitted.
-   */
-  relayBaseUrl?: string | null;
-  /**
-   * Gateway id override. Normally left unset: the Backend assigns the Agent id
-   * at create time and the gateway id is derived from it.
-   */
-  gatewayId?: string | null;
-}
-
 /**
  * Folded create options for {@link Deployments.createAgent}: the generic
  * launch contract plus every per-runtime facade knob
- * (slack/openClawRoutes/trustedProxies/cronEnabled/memoryIndex/
+ * (openClawRoutes/trustedProxies/cronEnabled/memoryIndex/
  * workspacesSync/permissionMode/buzz). A runtime's
  * own launch branch reads the knobs it understands and ignores the rest,
  * exactly as the old per-runtime facades ignored fields outside their type.
+ *
+ * There is no Slack knob: hosted Slack is relay-attached after create
+ * (`attachSlackRelayAgent`); the agents never dial a channel relay, so no
+ * Slack launch env exists to set here.
  */
 export interface ManagedAgentCreateOptions extends CreateAgentOptions {
-  /**
-   * Enable hosted Slack. Pass `true` (or relay overrides) to state the intent;
-   * the SDK owns the complete `HYPER_SLACK_*` launch env, including the gateway
-   * id, which it can only know once the Agent record exists. Pass `false` to
-   * disable explicitly: the SDK writes `HYPER_SLACK_APP_ENABLED=0`, which the
-   * container boot parses as false and uses to remove the hosted Slack channel
-   * config. Omit (or pass `null`) to leave the Slack launch env untouched.
-   */
-  slack?: OpenClawSlackOptions | boolean | null;
   openClawRoutes?: OpenClawRouteOptions | null;
   /** Trusted proxies written as OPENCLAW_TRUSTED_PROXIES, replacing gateway.trustedProxies. */
   trustedProxies?: string[] | null;
@@ -1213,12 +1187,6 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
 
 /** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('openclaw' | 'openclaw-pro', options)`. */
 export type OpenClawCreateAgentOptions = Omit<ManagedAgentCreateOptions, 'config'>;
-
-interface PreparedHostedSlack {
-  enabled: boolean;
-  relayBaseUrl: string | null;
-  gatewayId: string | null;
-}
 
 /** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('hermes-agent', options)`. */
 export type HermesAgentCreateOptions = ManagedAgentCreateOptions;
@@ -2454,46 +2422,11 @@ function defaultHermesAgentImage(image: string | null | undefined): string {
   return DEFAULT_HERMES_AGENT_IMAGE;
 }
 
-function normalizeHostedSlackOption(
-  slack: OpenClawCreateAgentOptions['slack'],
-): OpenClawSlackOptions | null {
-  if (slack === undefined || slack === null || slack === false) return null;
-  if (slack === true) return {};
-  return slack;
-}
-
-/**
- * Resolve the hosted Slack relay base.
- *
- * An SDK caller has no dashboard module constant, so the base comes from an
- * explicit option, the same config keys the CLI reads, or the client's agents
- * API base (`normalizeSlackRelayBaseUrl` maps `api.agents.*` onto the relay
- * host). Anything unusable throws rather than shipping a half-built env.
- */
-function resolveHostedSlackRelayBaseUrl(
-  explicit: string | null | undefined,
-  fallbackBaseUrl: string | null | undefined,
-): string {
-  const candidate = explicit?.trim()
-    || getConfigValue('HYPER_SLACK_RELAY_BASE_URL')
-    || getConfigValue('SLACK_RELAY_BASE_URL')
-    || fallbackBaseUrl?.trim()
-    || '';
-  if (!candidate) {
-    throw new Error(
-      'Hosted Slack requires a relay base URL; pass slack.relayBaseUrl or set HYPER_SLACK_RELAY_BASE_URL',
-    );
-  }
-  return normalizeSlackRelayBaseUrl(candidate);
-}
-
 function prepareOpenClawLaunch(
   options: OpenClawCreateAgentOptions,
-  defaultSlackRelayBaseUrl?: string | null,
 ): {
   env: Record<string, string>;
   secrets: Record<string, string>;
-  slack: PreparedHostedSlack;
 } {
   const env = { ...(options.env ?? {}) };
   rejectOpenClawSecretOnlyEnv(env);
@@ -2504,62 +2437,7 @@ function prepareOpenClawLaunch(
   // lands reliably is the wildcard — always write it.
   env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = '*';
   Object.assign(env, buildOpenClawTrustedProxiesEnv(options.trustedProxies));
-
-  const slackOption = normalizeHostedSlackOption(options.slack);
-  // `slack: false` is an explicit disable, distinct from an absent option: the
-  // SDK owns HYPER_SLACK_APP_ENABLED and writes '0' for it below.
-  const slackDisabled = options.slack === false;
-  for (const key of HOSTED_SLACK_LAUNCH_ENV_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(secrets, key)) {
-      throw new Error(
-        `${key} is launch env, not a Secret; hosted Slack env holds URLs and identifiers, `
-        + 'and the credential that flow uses (HYPER_AGENTS_API_KEY) is injected by the platform',
-      );
-    }
-  }
-  const explicitSlackEnvKeys = HOSTED_SLACK_LAUNCH_ENV_KEYS
-    .filter((key) => Object.prototype.hasOwnProperty.call(env, key))
-    // An explicit disable overwrites HYPER_SLACK_APP_ENABLED itself below, so
-    // only the enable-asserting companions conflict with `slack: false`.
-    .filter((key) => !(slackDisabled && key === HOSTED_SLACK_APP_ENABLED_ENV));
-  let slack: PreparedHostedSlack = { enabled: false, relayBaseUrl: null, gatewayId: null };
-  if ((slackOption || slackDisabled) && explicitSlackEnvKeys.length) {
-    throw new Error(
-      `slack conflicts with ${explicitSlackEnvKeys.join(', ')} in env; `
-      + 'state the intent with slack and let the SDK build the launch env',
-    );
-  }
-  if (slackOption) {
-    const relayBaseUrl = resolveHostedSlackRelayBaseUrl(slackOption.relayBaseUrl, defaultSlackRelayBaseUrl);
-    const gatewayId = slackOption.gatewayId?.trim() || null;
-    if (slackOption.gatewayId !== undefined && slackOption.gatewayId !== null && !gatewayId) {
-      throw new Error('slack.gatewayId must not be blank');
-    }
-    if (!gatewayId && options.dryRun) {
-      throw new Error(
-        'createOpenClaw dry runs cannot preview hosted Slack: HYPER_SLACK_GATEWAY_ID is derived '
-        + 'from the Agent id the Backend assigns at create time. Pass slack.gatewayId to preview it.',
-      );
-    }
-    // With no gateway id the set stays absent entirely: a stored launch env
-    // that enables Slack without one is exactly the state that kills the pod.
-    if (gatewayId) Object.assign(env, HostedSlackLaunchEnv.build({ relayBaseUrl, gatewayId }));
-    slack = { enabled: true, relayBaseUrl, gatewayId };
-  } else if (slackDisabled) {
-    // Explicit disable: the container boot removes the hosted Slack channel
-    // config when HYPER_SLACK_APP_ENABLED parses false, so the SDK asserts
-    // that intent ('0', overwriting any caller-provided value) instead of
-    // leaving the key untouched.
-    env[HOSTED_SLACK_APP_ENABLED_ENV] = '0';
-  } else {
-    HostedSlackLaunchEnv.assertComplete(env, 'createOpenClaw env');
-    slack = {
-      enabled: HostedSlackLaunchEnv.isEnabled(env),
-      relayBaseUrl: null,
-      gatewayId: env[HOSTED_SLACK_GATEWAY_ID_ENV]?.trim() || null,
-    };
-  }
-  return { env, secrets, slack };
+  return { env, secrets };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -3855,8 +3733,7 @@ export class Deployments {
    * the rest. `create()` stays the raw generic entry; `createAgent` is the
    * typed one.
    *
-   * - openclaw/openclaw-pro: OpenClaw ACP launch (hosted Slack lives on
-   *   the `slack` knob; see createOpenClaw's note below). pro adds the
+   * - openclaw/openclaw-pro: OpenClaw ACP launch; pro adds the
    *   desktop route + leg.
    * - hermes-agent: Hermes ACP launch with the hermes image, sync-root, and cron defaults.
    * - buzz-agent/opencode/codex/claude-code/goose/kimi-code/pi: the shared
@@ -3876,13 +3753,6 @@ export class Deployments {
   /**
    * Create a hosted OpenClaw Agent.
    *
-   * With `slack` enabled the call also owns the hosted Slack launch env. The
-   * gateway id is `agent:<agent id>` and the Backend assigns that id at create
-   * time, so the complete set is written in a launch-config patch immediately
-   * after the record exists (and after it leaves CREATING, which rejects launch
-   * updates). The Agent is not started by create, so nothing boots on the
-   * incomplete env in between; the returned Agent carries the complete set.
-   *
    * @deprecated Use {@link Deployments.createAgent} with 'openclaw' or
    * 'openclaw-pro'.
    */
@@ -3894,7 +3764,7 @@ export class Deployments {
   }
 
   private async createOpenClawAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions): Promise<Agent> {
-    const prepared = prepareOpenClawLaunch(options, this.agentApiBase);
+    const prepared = prepareOpenClawLaunch(options);
     const pro = runtime === 'openclaw-pro';
     const effectiveOptions: CreateAgentOptions = {
       ...options,
@@ -3902,7 +3772,6 @@ export class Deployments {
       secrets: prepared.secrets,
     };
     delete (effectiveOptions as { config?: unknown }).config;
-    delete (effectiveOptions as { slack?: unknown }).slack;
     effectiveOptions.env = {
       // openclaw-pro is the same launch shape with the desktop leg on.
       ...(pro ? { HYPER_DESKTOP_ENABLED: '1' } : null),
@@ -3926,84 +3795,7 @@ export class Deployments {
     if (options.syncInclude === undefined && options.syncExclude === undefined) {
       effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
     }
-    const agent = await this.create(effectiveOptions);
-    if (!prepared.slack.enabled || prepared.slack.gatewayId || !prepared.slack.relayBaseUrl) return agent;
-    return this.applyHostedSlackLaunchConfig(agent, prepared.slack.relayBaseUrl);
-  }
-
-  /** Complete the ID-dependent hosted Slack launch contract on a stopped Agent. */
-  async ensureOpenClawHostedSlack(agentIdOrName: string, relayBaseUrl?: string): Promise<Agent> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    const agent = await this.get(agentId);
-    if (!isOpenClawRuntime(agent.runtime, agent.routes)) {
-      throw new Error(`Agent ${agentId} is not an OpenClaw deployment`);
-    }
-    const resolvedRelayBaseUrl = resolveHostedSlackRelayBaseUrl(relayBaseUrl, this.agentApiBase);
-    return this.applyHostedSlackLaunchConfig(agent, resolvedRelayBaseUrl);
-  }
-
-  /**
-   * Explicitly disable hosted Slack on an OpenClaw Agent.
-   *
-   * Writes `HYPER_SLACK_APP_ENABLED=0`; the container boot parses the value as
-   * false and removes the hosted Slack channel config. Like every env edit,
-   * the mutation is rejected while the Agent is in a state that disallows env
-   * changes (env PATCH rejects CREATING, the same gate
-   * `ensureOpenClawHostedSlack` waits out before its launch-config patch), so
-   * stop the Agent (or let it settle) before disabling.
-   */
-  async disableOpenClawHostedSlack(agentIdOrName: string): Promise<AgentEnvMutationResponse> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    const agent = await this.get(agentId);
-    if (!isOpenClawRuntime(agent.runtime, agent.routes)) {
-      throw new Error(`Agent ${agentId} is not an OpenClaw deployment`);
-    }
-    return this.setEnv(agentId, HOSTED_SLACK_APP_ENABLED_ENV, '0');
-  }
-
-  /**
-   * Write the complete hosted Slack launch env onto a freshly created Agent.
-   *
-   * The gateway id comes from the Agent projection when the endpoint carries
-   * one, and otherwise from the Backend's own derivation for that Agent id
-   * (`gateway_id_for_agent`, `agent:<id>`); the deployments projection does not
-   * currently include `gateway_id`.
-   */
-  private async applyHostedSlackLaunchConfig(
-    agent: Agent,
-    relayBaseUrl: string,
-  ): Promise<Agent> {
-    // Launch updates are rejected while the Agent is CREATING.
-    const ready = agent.state === 'STOPPED'
-      ? agent
-      : await this.waitForState(
-        agent.id,
-        ['STOPPED'],
-        AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS,
-        ['FAILED', 'NO_NAMESPACE', 'DELETED'],
-        agent.launchEpoch > 0 ? agent.launchEpoch : undefined,
-      );
-    const gatewayId = ready.gatewayId?.trim()
-      || agent.gatewayId?.trim()
-      || HostedSlackLaunchEnv.gatewayIdForAgent(ready.id || agent.id);
-    const launchConfig: Record<string, any> = { ...(ready.launchConfig ?? {}) };
-    launchConfig.env = {
-      ...(isPlainRecord(launchConfig.env) ? launchConfig.env : {}),
-      ...HostedSlackLaunchEnv.build({ relayBaseUrl, gatewayId }),
-    };
-    delete launchConfig.config;
-    const updated = await this.update(ready.id, { launchConfig });
-    const storedEnv: Record<string, string | undefined> = isPlainRecord(updated.launchConfig?.env)
-      ? updated.launchConfig.env as Record<string, string | undefined>
-      : {};
-    HostedSlackLaunchEnv.assertComplete(storedEnv, 'createOpenClaw stored launch env');
-    const missing = HOSTED_SLACK_LAUNCH_ENV_KEYS.filter((key) => !String(storedEnv[key] ?? '').trim());
-    if (missing.length) {
-      throw new Error(
-        `Agent ${updated.id} did not store the hosted Slack launch env (missing ${missing.join(', ')})`,
-      );
-    }
-    return updated;
+    return this.create(effectiveOptions);
   }
 
   /**
