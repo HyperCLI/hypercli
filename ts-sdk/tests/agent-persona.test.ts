@@ -27,11 +27,6 @@ describe('DefaultPersonaProfile', () => {
   it('advertises both files as sync includes, USER-first like the coding table', () => {
     expect(new DefaultPersonaProfile().syncIncludes()).toEqual(['.hypercli/USER.md', '.hypercli/SOUL.md']);
   });
-
-  it('renders markdown verbatim', () => {
-    const files = { soul: '# Soul', user: '# User' };
-    expect(new DefaultPersonaProfile().render(files)).toBe(files);
-  });
 });
 
 describe('OpenClawPersonaProfile', () => {

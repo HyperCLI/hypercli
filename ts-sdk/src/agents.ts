@@ -26,6 +26,10 @@ function preferredWebSocket(): typeof WebSocket {
 }
 export { preferredWebSocket };
 import {
+  DEFAULT_PERSONA_SOUL_PATH,
+  DEFAULT_PERSONA_USER_PATH,
+} from './agent-persona.js';
+import {
   agentSlotFromDict,
   parseAgentSlotSize,
   type AgentSlot,
@@ -150,18 +154,18 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
 export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[] | null>> = {
   'buzz-agent': null,
   opencode: [
-    '.hypercli/USER.md', '.hypercli/SOUL.md',
+    DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH,
     '.config/opencode',
     '.local/share/opencode',
     '.local/state/opencode',
     '.cache/opencode',
   ],
-  codex: ['.codex', '.hypercli/USER.md', '.hypercli/SOUL.md'],
-  'claude-code': ['.claude', '.claude.json', '.hypercli/USER.md', '.hypercli/SOUL.md'],
-  goose: ['.goose', '.hypercli/USER.md', '.hypercli/SOUL.md'],
-  'kimi-code': ['.kimi-code', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  codex: ['.codex', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
+  'claude-code': ['.claude', '.claude.json', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
+  goose: ['.goose', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
+  'kimi-code': ['.kimi-code', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
   // Native agent state and pi-acp metadata (~/.pi/pi-acp).
-  pi: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+  pi: ['.pi', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
 };
 export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
@@ -1773,10 +1777,6 @@ function agentMetaFromDict(data: unknown): AgentMeta | null {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-
-
-
 
 function isTruthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(String(value ?? '').trim().toLowerCase());

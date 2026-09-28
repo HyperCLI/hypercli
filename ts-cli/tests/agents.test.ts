@@ -190,8 +190,6 @@ function createMockDeploymentsApi(
       routeStatuses: {},
     })),
     removeRoute: vi.fn(async (id: string) => ({ agentId: id, routes: {}, cors: null, routeStatuses: {} })),
-    createOpenClaw: vi.fn(async () => stateful('new-openclaw', 'STOPPED')),
-    createHermesAgent: vi.fn(async () => stateful('new-hermes', 'STOPPED')),
     create: vi.fn(async () => stateful('new-generic', 'STOPPED')),
     createCodingAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
     createAgent: vi.fn(async () => stateful('new-coding', 'STOPPED')),
@@ -640,9 +638,7 @@ describe('hyper agents create', () => {
       }),
     );
     expect(d.create).not.toHaveBeenCalled();
-    expect(d.createOpenClaw).not.toHaveBeenCalled();
     expect(d.createCodingAgent).not.toHaveBeenCalled();
-    expect(d.createHermesAgent).not.toHaveBeenCalled();
   });
 
   it('the command argv after -- passes through verbatim (no shell join)', async () => {
@@ -684,7 +680,6 @@ describe('hyper agents create', () => {
       }),
     );
     expect(d.create).not.toHaveBeenCalled();
-    expect(d.createOpenClaw).not.toHaveBeenCalled();
   });
 
   it('--restart set reaffirms the policy; conflicts with --no-restart', async () => {

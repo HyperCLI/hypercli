@@ -17,13 +17,6 @@ export interface AgentPersonaProfile {
    * nothing.
    */
   syncIncludes(): readonly string[];
-  /**
-   * Adapt raw markdown into the runtime's on-disk persona format. Every
-   * supported runtime consumes plain markdown (no frontmatter), so the base
-   * render is the identity; a runtime that gains a native format encodes the
-   * adaptation here.
-   */
-  render(files: AgentPersonaFiles): AgentPersonaFiles;
 }
 
 export const DEFAULT_PERSONA_SOUL_PATH = '.hypercli/SOUL.md';
@@ -45,9 +38,6 @@ export class DefaultPersonaProfile implements AgentPersonaProfile {
   }
   syncIncludes(): readonly string[] {
     return [DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH];
-  }
-  render(files: AgentPersonaFiles): AgentPersonaFiles {
-    return files;
   }
 }
 
@@ -73,9 +63,6 @@ export class OpenClawPersonaProfile implements AgentPersonaProfile {
   syncIncludes(): readonly string[] {
     return [];
   }
-  render(files: AgentPersonaFiles): AgentPersonaFiles {
-    return files;
-  }
 }
 
 /**
@@ -96,9 +83,6 @@ export class HermesPersonaProfile implements AgentPersonaProfile {
   }
   syncIncludes(): readonly string[] {
     return [];
-  }
-  render(files: AgentPersonaFiles): AgentPersonaFiles {
-    return files;
   }
 }
 
