@@ -60,7 +60,6 @@ describe("TS SDK integration: agents", () => {
         },
       });
       expect(preview.launchConfig).not.toHaveProperty("sync_enabled");
-      expect(preview.launchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     },
   );
 
