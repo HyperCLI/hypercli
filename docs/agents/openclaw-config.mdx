@@ -15,23 +15,21 @@ rest of the agent state.
 
 ## Update Path
 
-Use the OpenClaw gateway config RPCs to update a running agent:
+There is no public gateway RPC surface: the pod gateway binds loopback with
+auth mode `none` as an ACP hop only. Edit the config over the deployment file
+API, then restart the agent so OpenClaw re-reads it:
 
 ```python
-config = await gw.config_get()
-await gw.config_patch({
-    "channels": {
-        "slack": {
-            "enabled": True,
-            "mode": "relay"
-        }
-    }
-})
+config = client.deployments.file_read(agent, "/home/node/.openclaw/openclaw.json")
+# mutate JSON...
+client.deployments.file_write(agent, "/home/node/.openclaw/openclaw.json", updated)
+client.deployments.stop(agent.id)
+client.deployments.start(agent.id)
 ```
 
-Do not write `openclaw.json` directly from product code when the gateway is
-available. Gateway updates let OpenClaw validate, merge, and persist the config
-using its own runtime contract.
+The image entrypoint reconciles the rendered config at boot (`config.ts`) and
+sheds stale gateway-era auth blocks, so a hand-edited config is normalized to
+the ACP-era shape on first boot.
 
 ## Persistence
 
@@ -45,7 +43,7 @@ When an agent has state sync enabled:
    config file is missing after restore. It no longer runs a redundant
    `openclaw config validate` pass during boot.
 
-This means gateway config updates are expected to survive normal container
+This means config updates are expected to survive normal container
 restarts.
 
 Public launch-config patches are complete replacements for launch fields, but
@@ -68,20 +66,19 @@ start without restored state.
 
 Use this behavior intentionally:
 
-- update Slack, WhatsApp, Telegram, and other channel settings through the
-  gateway
+- update Slack, WhatsApp, Telegram, and other channel settings via file edits
+  plus a restart
 - rely on sync for persistence
 - use the baked template as a recovery/default source for fresh state
 
 ## Operational Check
 
 For integration changes that must be durable, verify by reading the config back
-through the gateway after patching. For release validation, use a restart test:
+after the restart test:
 
-1. Patch a harmless channel config value through the gateway.
-2. Read it back from `config.get`.
-3. Restart the agent.
-4. Read it back again and confirm the value survived.
+1. Edit a harmless channel config value.
+2. Restart the agent.
+3. Read it back and confirm the value survived.
 
-For boot readiness, treat `config-applied` as the gateway handoff/ready point.
+For boot readiness, treat `config-applied` as the config handoff/ready point.
 It is not a promise that a separate "config verified" log line was emitted.

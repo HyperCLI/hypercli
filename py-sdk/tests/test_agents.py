@@ -36,7 +36,6 @@ from hypercli.agents import (
     build_agent_config,
     build_hermes_cron_env,
     build_openclaw_cron_env,
-    build_openclaw_routes,
     build_openclaw_trusted_proxies_env,
     flatten_launch_config,
     launch_config_has_desktop,
@@ -44,46 +43,6 @@ from hypercli.agents import (
     is_agent_transitional_state,
 )
 from hypercli.http import APIError, HTTPClient
-
-
-def _assert_openclaw_route(route: dict) -> None:
-    assert route == {
-        "port": 18789,
-        "auth": False,
-        "prefix": "",
-        "remove_headers": [
-            "Forwarded",
-            "X-Forwarded-For",
-            "X-Forwarded-Host",
-            "X-Forwarded-Port",
-            "X-Forwarded-Proto",
-            "X-Forwarded-Server",
-            "X-Real-IP",
-        ],
-    }
-
-
-def test_build_openclaw_routes_honors_gateway_options():
-    routes = build_openclaw_routes(
-        gateway_port=18080,
-        gateway_auth=True,
-        gateway_prefix="api",
-    )
-
-    assert routes["openclaw"] == {
-        "port": 18080,
-        "auth": True,
-        "prefix": "api",
-        "remove_headers": [
-            "Forwarded",
-            "X-Forwarded-For",
-            "X-Forwarded-Host",
-            "X-Forwarded-Port",
-            "X-Forwarded-Proto",
-            "X-Forwarded-Server",
-            "X-Real-IP",
-        ],
-    }
 
 
 def test_vendored_agents_openapi_matches_canonical_data_plane_routes():
@@ -1381,35 +1340,12 @@ def test_build_agent_launch_rejects_sync_none_shapes():
         _build_agent_launch({}, sync_exclude=["*"])
 
 
-def test_build_openclaw_routes_defaults():
-    routes = build_openclaw_routes()
-    assert set(routes) == {"openclaw"}
-    _assert_openclaw_route(routes["openclaw"])
+def test_build_openclaw_desktop_route_defaults():
+    from hypercli import build_openclaw_desktop_route
 
-
-def test_build_openclaw_routes_allows_gateway_options_and_desktop():
-    routes = build_openclaw_routes(
-        include_gateway=False,
-        include_desktop=True,
-        gateway_port=19999,
-        gateway_auth=True,
-        gateway_prefix="app",
-    )
-    assert routes["openclaw"] == {
-        "port": 19999,
-        "auth": True,
-        "prefix": "app",
-        "remove_headers": [
-            "Forwarded",
-            "X-Forwarded-For",
-            "X-Forwarded-Host",
-            "X-Forwarded-Port",
-            "X-Forwarded-Proto",
-            "X-Forwarded-Server",
-            "X-Real-IP",
-        ],
+    assert build_openclaw_desktop_route() == {
+        "desktop": {"port": 3000, "auth": True, "prefix": "desktop"}
     }
-    assert routes["desktop"] == {"port": 3000, "auth": True, "prefix": "desktop"}
 
 
 def test_build_agent_config_omits_empty_remove_headers_from_generic_routes():

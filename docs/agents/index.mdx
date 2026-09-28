@@ -1,6 +1,6 @@
 ---
 title: Agents Overview
-description: Managed runtime containers for desktops, coding agents, gateways, and custom workloads
+description: Managed runtime containers for desktops, coding agents, and custom workloads
 ---
 
 ## What Are Agents?
@@ -11,7 +11,6 @@ an agent can provide:
 - **Desktop** — browser-accessible desktop on OpenClaw pro runtimes
 - **Shell access** — backend WebSocket PTY terminal
 - **File system** — read/write files on the container
-- **Gateway APIs** — OpenClaw WebSocket RPC routes
 - **Coding agents** — Buzz Agent, OpenCode, Goose, Codex, Claude Code, and Kimi Code
 
 For launching Buzz coding agents, see [Buzz](/agents/buzz): the
@@ -21,7 +20,7 @@ and the [Buzz Desktop provider](/agents/buzz#path-b-buzz-desktop--hypercli-provi
 lets stock Buzz Desktop launch the same runtimes from its "Run on" menu.
 
 Agents are ideal for autonomous AI workflows, development environments,
-gateway-style services, or any task that needs a persistent Linux runtime with
+API-style services, or any task that needs a persistent Linux runtime with
 programmatic control.
 
 ## Architecture
@@ -37,7 +36,7 @@ HyperCLI managed control plane
     │  Scheduling, health monitoring, lifecycle updates
     ▼
 Managed agent runtimes
-    ├── OpenClaw desktop and gateway
+    ├── OpenClaw desktop
     ├── Hermes ACP runtime
     ├── Buzz coding-agent runtimes
     └── Custom containers
@@ -50,19 +49,19 @@ signals.
 
 ## Hostnames
 
-Each agent gets a root gateway host plus optional prefixed routes:
+Agents ship no public gateway route: the OpenClaw pod gateway binds loopback
+with auth mode `none` as an ACP hop only. Optional prefixed routes are
+caller-supplied:
 
 | Service  | URL Pattern                              | Protocol   |
 |----------|------------------------------------------|------------|
-| Gateway  | `wss://{name}.hypercli.app`             | WebSocket  |
 | Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC ([remote desktop](/agents/remote-desktop)) |
 | Custom   | `https://{prefix}-{name}.hypercli.app`  | HTTPS/WSS  |
 
-Desktop is available on the OpenClaw pro image. The base OpenClaw image keeps the root gateway route only unless callers explicitly add more routes.
+Desktop is available on the OpenClaw pro image.
 
 Current auth split:
 
-- gateway uses application-level auth inside OpenClaw
 - protected browser routes use `/_jwt_auth?jwt=...` bootstrap
 - shell/log streaming uses backend `/ws/*` endpoints, not a dedicated shell host
 

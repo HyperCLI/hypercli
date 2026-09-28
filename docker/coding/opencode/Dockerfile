@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-ARG HYPER_ACP_BASE_IMAGE=hypercli-acp-base:local
-FROM ${HYPER_ACP_BASE_IMAGE}
+ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
+FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG OPENCODE_VERSION=1.18.9
 

@@ -1,6 +1,6 @@
 ---
 title: Agents SDK
-description: Detailed Python SDK guide for HyperCLI deployments, route configuration, files, exec, WebSocket shells, and OpenClaw gateway access.
+description: Detailed Python SDK guide for HyperCLI deployments, route configuration, files, exec, and WebSocket shells.
 ---
 
 ## Overview
@@ -15,7 +15,6 @@ The Python SDK exposes two HyperCLI-related namespaces:
   - files
   - exec
   - shell and logs WebSockets
-  - OpenClaw gateway access
 
 ```python
 from hypercli import HyperCLI
@@ -44,8 +43,6 @@ purchase = client.deployments.purchase_entitlement_from_balance(
 )
 redemption = client.deployments.redeem_grant_code("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59")
 models = client.agent.models()
-health = client.agent.discovery_health()
-config = client.agent.discovery_config()
 ```
 
 The key split is:
@@ -207,7 +204,9 @@ It does not accept or repair `launch_config`; use `update(...,
 launch_config=...)` explicitly before starting when configuration must change.
 `self` is not accepted for lifecycle actions, delete, or key rotation.
 
-This generic path does not inject any routes. Pass `routes=build_openclaw_routes(...)` when you want the standard root gateway and `desktop` routes.
+This generic path does not inject any routes: openclaw agents ship no public
+gateway route post-cut (the pod gateway is a loopback ACP hop). Pass
+`routes=build_openclaw_desktop_route()` when you want the `desktop` route.
 
 Accepted create/update launch options:
 
@@ -270,19 +269,15 @@ launch-config patches.
 ### OpenClaw Launch Shape
 
 The Python SDK has no OpenClaw-specific create/start helper; assemble the
-launch over the generic surface. `build_openclaw_routes()` supplies the
-standard OpenClaw routes:
+launch over the generic surface:
 
 ```python
-from hypercli import build_openclaw_routes
-
 agent = client.deployments.create(
     name="docs-demo",
     tags=["team=dev"],
     runtime="openclaw",
     image="ghcr.io/hypercli/hypercli-openclaw:prod",
     sync_root="/home/node",
-    routes=build_openclaw_routes(),
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
 agent = client.deployments.start(agent.id)
@@ -291,34 +286,23 @@ agent = client.deployments.start(agent.id)
 `start(...)` starts the Backend-stored launch
 config. To change launch settings, call `update(..., launch_config=...)` first.
 
-`build_openclaw_routes()` defaults to the canonical gateway route:
-
-- `openclaw`
-  - `prefix=""`
-  - `port=18789`
-  - `auth=False`
-  - `remove_headers` set to the standard forwarded-header strip list
-
-Pass `include_desktop=True` to add the protected desktop route:
+There is no public gateway route: the pod gateway binds loopback with auth
+mode `none` as an ACP hop only. The desktop/browser ("pro") flavor adds the
+protected desktop route via `build_openclaw_desktop_route()`:
 
 - `desktop`
   - `prefix="desktop"`
   - `port=3000`
   - `auth=True`
 
-Generic routes omit `remove_headers` when it is absent or an empty list. The
-canonical OpenClaw gateway route is the only SDK default that strips proxy
-headers.
+The pro shape is `image="ghcr.io/hypercli/hypercli-openclaw:pro-prod"`,
+`routes=build_openclaw_desktop_route()`, and `HYPER_DESKTOP_ENABLED=1` in
+`env`. The protected noVNC route answers at
+`desktop-<agent>.hypercli.app`.
 
 `OPENCLAW_TRUSTED_PROXIES` is a comma-separated full replacement for OpenClaw
 `gateway.trustedProxies`; `build_openclaw_trusted_proxies_env([...])` builds
 that launch env.
-
-The desktop/browser ("pro") flavor is the same launch shape with explicit
-fields: `image="ghcr.io/hypercli/hypercli-openclaw:pro-prod"`,
-`routes=build_openclaw_routes(include_desktop=True)`, and
-`HYPER_DESKTOP_ENABLED=1` in `env`. The protected noVNC route answers at
-`desktop-<agent>.hypercli.app`.
 
 Everything else stays explicit on the generic launch surface:
 
@@ -381,7 +365,7 @@ Seven hosted coding runtimes share one launch helper,
 | `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
 | `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
 
-These runtimes have no OpenClaw gateway and no public route by default.
+These runtimes have no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
 use the authenticated deployment API:
 

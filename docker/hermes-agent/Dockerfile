@@ -2,11 +2,8 @@ ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa303
 ARG HYPERCLI_REF=main
 ARG HYPERCLI_SHA
 ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
-ARG ACP_IMAGE=hypercli-acp:local
 
 FROM ${HERMES_BASE_IMAGE} AS upstream-hermes
-
-FROM ${ACP_IMAGE} AS acp
 
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
@@ -23,8 +20,8 @@ COPY --from=upstream-hermes /etc/s6-overlay /etc/s6-overlay
 COPY --from=upstream-hermes /etc/cont-init.d /etc/cont-init.d
 COPY --from=upstream-hermes /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=upstream-hermes /usr/local/bin/uvx /usr/local/bin/uvx
-COPY --from=acp /hyper-acp /usr/local/bin/hyper-acp
 
+# hyper-acp comes from hypercli-agent-base (/usr/local/bin/hyper-acp symlink).
 RUN groupadd -g 10000 hermes \
     && useradd -u 10000 -g 10000 -d /home/hermes -s /bin/sh hermes \
     && printf '%s\n' 'hermes ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-hermes-nopasswd \

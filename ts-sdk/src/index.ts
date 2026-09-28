@@ -284,7 +284,7 @@ export {
   buildOpenClawMemoryIndexEnv,
   buildOpenClawCronEnv,
   buildWorkspacesSyncEnv,
-  buildOpenClawRoutes,
+  buildOpenClawDesktopRoute,
   buildOpenClawTrustedProxiesEnv,
   startSlackOAuth,
   getSlackInstallStatus,

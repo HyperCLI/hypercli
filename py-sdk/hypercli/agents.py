@@ -436,42 +436,24 @@ def _is_directory_listing_payload(value: object) -> bool:
     )
 
 
-def build_openclaw_routes(
+def build_openclaw_desktop_route(
     *,
-    include_gateway: bool = True,
-    include_desktop: bool = False,
-    gateway_port: int = 18789,
     desktop_port: int = 3000,
-    gateway_auth: bool = False,
     desktop_auth: bool = True,
-    gateway_prefix: str = "",
     desktop_prefix: str = "desktop",
 ) -> dict[str, dict]:
-    remove_headers = [
-        "Forwarded",
-        "X-Forwarded-For",
-        "X-Forwarded-Host",
-        "X-Forwarded-Port",
-        "X-Forwarded-Proto",
-        "X-Forwarded-Server",
-        "X-Real-IP",
-    ]
-    routes: dict[str, dict] = {
-        "openclaw": {
-            "port": int(gateway_port),
-            "auth": bool(gateway_auth),
-            "prefix": str(gateway_prefix),
-        }
-    }
-    if remove_headers:
-        routes["openclaw"]["remove_headers"] = remove_headers
-    if include_desktop:
-        routes["desktop"] = {
+    """Desktop leg route for openclaw-pro.
+
+    There is no public gateway route anymore: the OpenClaw gateway binds
+    loopback in-pod with auth mode ``none`` as an ACP hop only.
+    """
+    return {
+        "desktop": {
             "port": int(desktop_port),
             "auth": bool(desktop_auth),
             "prefix": str(desktop_prefix),
         }
-    return routes
+    }
 
 
 def build_openclaw_trusted_proxies_env(trusted_proxies: list[str] | tuple[str, ...] | None) -> dict[str, str]:
@@ -2823,7 +2805,6 @@ class Deployments:
         permission_mode: PermissionMode | None = None,
         cron_enabled: bool | None = None,
         memory_index: dict | None = None,
-        openclaw_routes: dict | None = None,
         trusted_proxies: list[str] | tuple[str, ...] | None = None,
     ) -> Agent:
         """Create a managed agent for a runtime in one call.
@@ -2835,9 +2816,9 @@ class Deployments:
         stays the raw generic entry; ``create_agent`` is the typed one
         (mirrors ts-sdk ``Deployments.createAgent``).
 
-        - ``openclaw``/``openclaw-pro``/``openclaw_acp``: OpenClaw gateway
-          launch with the openclaw route and cron/memory/workspaces defaults
-          (the pro variant adds the desktop leg).
+        - ``openclaw``/``openclaw-pro``/``openclaw_acp``: OpenClaw ACP launch
+          with cron/memory/workspaces defaults (the pro variant adds the
+          desktop route and leg).
         - ``hermes-agent``/``hermes_acp``: Hermes ACP launch with the hermes
           image, sync-root, and cron defaults.
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
@@ -2883,7 +2864,6 @@ class Deployments:
                 workspaces_sync=workspaces_sync,
                 cron_enabled=cron_enabled,
                 memory_index=memory_index,
-                openclaw_routes=openclaw_routes,
                 trusted_proxies=trusted_proxies,
                 launch=launch,
             )
@@ -2921,12 +2901,7 @@ class Deployments:
             **build_openclaw_trusted_proxies_env(knobs["trusted_proxies"]),
         }
         if launch["routes"] is None:
-            launch["routes"] = build_openclaw_routes(
-                **{"include_desktop": pro, **dict(knobs["openclaw_routes"] or {})}
-            )
-        else:
-            # A caller-supplied route map still fronts the canonical gateway route.
-            launch["routes"] = {**launch["routes"], **build_openclaw_routes()}
+            launch["routes"] = build_openclaw_desktop_route() if pro else {}
         launch["image"] = launch["image"] or (
             DEFAULT_OPENCLAW_PRO_IMAGE if pro else DEFAULT_OPENCLAW_IMAGE
         )

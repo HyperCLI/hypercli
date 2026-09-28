@@ -13,7 +13,6 @@ use crate::{AgentSize, CreateDeploymentRequest, ManagedRuntime, RouteConfig};
 pub const OPENCLAW_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:prod";
 pub const OPENCLAW_PRO_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
 pub const OPENCLAW_SYNC_ROOT: &str = "/home/node";
-pub const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 pub const OPENCLAW_DESKTOP_PORT: u16 = 3000;
 pub const OPENCLAW_DESKTOP_PREFIX: &str = "desktop";
 pub const HYPER_DESKTOP_ENABLED_ENV: &str = "HYPER_DESKTOP_ENABLED";
@@ -128,38 +127,17 @@ impl OpenClawLaunchConfig {
         self
     }
 
-    /// OpenClaw gateway route, plus the desktop route when enabled. Matches
-    /// `buildOpenClawRoutes` in the TypeScript SDK.
+    /// Desktop route when enabled; otherwise empty. There is no public
+    /// gateway route: the pod gateway binds loopback with auth mode none as
+    /// an ACP hop only. Matches `buildOpenClawDesktopRoute` in the TypeScript
+    /// SDK / `build_openclaw_desktop_route` in the Python SDK.
     pub fn routes(&self) -> BTreeMap<String, RouteConfig> {
         let mut routes = BTreeMap::new();
         self.ensure_routes(&mut routes);
         routes
     }
 
-    pub fn gateway_route() -> RouteConfig {
-        RouteConfig {
-            port: OPENCLAW_GATEWAY_PORT,
-            auth: false,
-            prefix: Some(String::new()),
-            remove_headers: Some(
-                [
-                    "Forwarded",
-                    "X-Forwarded-For",
-                    "X-Forwarded-Host",
-                    "X-Forwarded-Port",
-                    "X-Forwarded-Proto",
-                    "X-Forwarded-Server",
-                    "X-Real-IP",
-                ]
-                .iter()
-                .map(|header| header.to_string())
-                .collect(),
-            ),
-        }
-    }
-
     pub fn ensure_routes(&self, routes: &mut BTreeMap<String, RouteConfig>) {
-        routes.insert("openclaw".to_owned(), Self::gateway_route());
         if self.desktop {
             routes.insert(
                 "desktop".to_owned(),
@@ -352,11 +330,7 @@ mod tests {
             request.sync_exclude.as_ref().map(Vec::len),
             Some(OPENCLAW_SYNC_EXCLUDE.len())
         );
-        let gateway = request.routes.get("openclaw").expect("gateway route");
-        assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
-        assert!(!gateway.auth);
-        assert_eq!(gateway.remove_headers, Some(expected_remove_headers()));
-        assert!(!request.routes.contains_key("desktop"));
+        assert!(request.routes.is_empty());
         assert!(!request.env.contains_key(HYPER_DESKTOP_ENABLED_ENV));
         assert_eq!(
             request
@@ -461,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_routes_keep_custom_routes_but_replace_openclaw_gateway() {
+    fn existing_routes_pass_through_untouched() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
         request.routes.insert(
             "custom".to_owned(),
@@ -472,23 +446,10 @@ mod tests {
                 remove_headers: None,
             },
         );
-        request.routes.insert(
-            "openclaw".to_owned(),
-            RouteConfig {
-                port: 19999,
-                auth: true,
-                prefix: Some("wrong".to_owned()),
-                remove_headers: None,
-            },
-        );
 
         OpenClawLaunchConfig::new().apply_to_create(&mut request);
 
-        let gateway = request.routes.get("openclaw").expect("gateway route");
-        assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
-        assert!(!gateway.auth);
-        assert_eq!(gateway.prefix.as_deref(), Some(""));
-        assert_eq!(gateway.remove_headers, Some(expected_remove_headers()));
+        assert_eq!(request.routes.len(), 1);
         assert_eq!(
             request.routes.get("custom").expect("custom route").port,
             8080
@@ -502,20 +463,5 @@ mod tests {
             OpenClawLaunchConfig::new().apply_to_create(&mut self);
             self
         }
-    }
-
-    fn expected_remove_headers() -> Vec<String> {
-        [
-            "Forwarded",
-            "X-Forwarded-For",
-            "X-Forwarded-Host",
-            "X-Forwarded-Port",
-            "X-Forwarded-Proto",
-            "X-Forwarded-Server",
-            "X-Real-IP",
-        ]
-        .iter()
-        .map(|header| header.to_string())
-        .collect()
     }
 }

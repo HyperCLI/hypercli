@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG HYPER_ACP_BASE_IMAGE=hypercli-acp-base:local
+ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
 ARG GOOSE_FETCH_IMAGE=debian:bookworm-slim
 
 FROM ${GOOSE_FETCH_IMAGE} AS goose-fetch
@@ -31,7 +31,7 @@ RUN set -eux; \
     tar -xjf "${archive}" -C /out; \
     test -x /out/goose
 
-FROM ${HYPER_ACP_BASE_IMAGE}
+FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG GOOSE_VERSION=1.45.0
 

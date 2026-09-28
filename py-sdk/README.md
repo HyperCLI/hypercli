@@ -139,10 +139,9 @@ Cloudflare edge request-body cap on the agent hostname); split larger data
 across files or sync it via the agent's own tooling.
 File paths are relative to `sync_root`, and
 `files_list("")` lists the complete root, including dot-directories.
-`build_openclaw_routes()` builds the canonical `openclaw` gateway route
-(`prefix=""`, `port=18789`, `auth=False`, with the standard forwarded-header
-strip list) and can add the protected `desktop` route for pro launches; it only
-builds routes. The canonical images are
+`build_openclaw_desktop_route()` builds the protected `desktop` route for pro
+launches; there is no public `openclaw` gateway route (the pod gateway binds
+loopback with auth mode `none` as an ACP hop only). The canonical images are
 `ghcr.io/hypercli/hypercli-openclaw:prod` for regular OpenClaw and
 `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro OpenClaw — pass
 the image, `sync_root`, and exclusion choices explicitly in the launch config.

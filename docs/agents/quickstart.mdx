@@ -45,7 +45,7 @@ The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.jso
 ## Create An Agent With The Python SDK
 
 ```python
-from hypercli import HyperCLI, build_openclaw_routes
+from hypercli import HyperCLI
 
 client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
@@ -55,7 +55,6 @@ agent = client.deployments.create(
     runtime="openclaw",
     image="ghcr.io/hypercli/hypercli-openclaw:prod",
     sync_root="/home/node",
-    routes=build_openclaw_routes(include_desktop=True),
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
 agent = client.deployments.start(agent.id)
@@ -102,30 +101,6 @@ asyncio.run(main())
 The stream is best effort. SDKs reconnect with backoff and perform a complete
 REST resync; duplicate or coalesced invalidations are harmless. There is no
 client ACK, resume cursor, or per-client durable outbox.
-
-## Use The Gateway
-
-```python
-import asyncio
-from hypercli import HyperCLI
-
-client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
-
-async def main():
-    agent = client.deployments.get("your-agent-id")
-    token = client.deployments.refresh_token(agent.id)
-    agent.jwt_token = token["token"]
-
-    async with agent.connect() as gw:
-        await gw.config_patch({
-            "models": {"providers": {"openai": {"apiKey": "hyper_api_..."}}}
-        })
-
-        async for event in gw.chat_send("What files are in the workspace?"):
-            print(event)
-
-asyncio.run(main())
-```
 
 ## Next Steps
 

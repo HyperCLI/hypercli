@@ -423,22 +423,6 @@ class TestHyperAgentClient:
         http._session.put = Mock()
         return http
 
-    def test_discovery_health(self, mock_http):
-        mock_http._session.get.return_value.json.return_value = {
-            "status": "ok",
-            "hosts_total": 1,
-            "hosts_healthy": 0,
-            "fallbacks_active": 1
-        }
-        mock_http._session.get.return_value.raise_for_status = Mock()
-
-        agent = HyperAgent(mock_http, dev=True)
-        result = agent.discovery_health()
-
-        assert result["status"] == "ok"
-        assert result["hosts_total"] == 1
-        mock_http._session.get.assert_called_once()
-
     def test_current_plan(self, mock_http):
         mock_http._session.get.return_value.json.return_value = {
             "id": "large",
@@ -1183,31 +1167,6 @@ class TestHyperAgentClient:
         assert history.has_billing_history is False
         assert history.subscription_count == 0
         assert history.payment_count == 0
-
-class TestHyperAgentIntegration:
-    """Integration tests for HyperAgent client (require running service)."""
-
-    @pytest.fixture
-    def agent_client(self):
-        """Create a HyperAgent client for integration tests."""
-        api_key = os.getenv("HYPER_API_KEY")
-        if not api_key:
-            pytest.skip("HYPER_API_KEY not set")
-
-        # Create minimal mock http for standalone client
-        http = Mock()
-        http._api_key = api_key
-        import requests
-        http._session = requests.Session()
-
-        return HyperAgent(http, agent_api_key=api_key, dev=True)
-
-    @pytest.mark.integration
-    def test_discovery_health_integration(self, agent_client):
-        result = agent_client.discovery_health()
-        assert "status" in result
-        assert result["status"] == "ok"
-
 
 def test_hypercli_dev_client_defaults_agents_urls():
     os.environ.pop("AGENTS_API_BASE_URL", None)

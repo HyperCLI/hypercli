@@ -62,7 +62,7 @@ hyper agents start docs-demo
 
 Current defaults:
 
-- gateway host: `https://docs-demo.hypercli.app`
+- no public route on the base image (the pod gateway is loopback-only)
 - desktop is disabled on the base image
 
 For Chrome/browser automation and a noVNC desktop:
@@ -82,13 +82,6 @@ Shell and logs are backend WebSocket flows:
 ```bash
 hyper agents shell docs-demo
 hyper agents logs docs-demo --ws
-```
-
-Gateway operations use the root host:
-
-```bash
-hyper agents config docs-demo
-hyper agents gateway-chat docs-demo "Reply with exactly: hello"
 ```
 
 If the agent was launched with `--desktop`, desktop opens at the desktop route:

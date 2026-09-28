@@ -1145,9 +1145,6 @@ class HyperAgent:
             for model in data.get("data", [])
         ]
 
-    def _api_base_without_v1(self) -> str:
-        return self._base_url.replace("/v1", "")
-
     def _control_get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self._http._session.get(
             f"{self._control_base_url}{path}",
@@ -1522,31 +1519,4 @@ class HyperAgent:
     ) -> HyperAgentX402CheckoutResponse:
         raise ValueError("A canonical plan ID is required; use purchase_via_x402(plan_id, ...) instead")
 
-    def discovery_health(self) -> Dict[str, Any]:
-        """Return gateway discovery health.
 
-        This targets an external gateway discovery surface that is not served
-        by the mainline orchestra or hyperclaw backends; availability depends
-        on the deployment's gateway configuration.
-        """
-        response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")
-        response.raise_for_status()
-        return response.json()
-
-    def discovery_config(self, api_key: str = None) -> Dict[str, Any]:
-        """Return gateway discovery configuration.
-
-        This targets an external gateway discovery surface that is not served
-        by the mainline orchestra or hyperclaw backends; availability depends
-        on the deployment's gateway configuration.
-        """
-        headers = {}
-        if api_key:
-            headers["X-API-KEY"] = api_key
-
-        response = self._http._session.get(
-            f"{self._api_base_without_v1()}/discovery/config",
-            headers=headers,
-        )
-        response.raise_for_status()
-        return response.json()

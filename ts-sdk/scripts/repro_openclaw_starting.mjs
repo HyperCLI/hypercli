@@ -3,7 +3,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { lookup } from 'node:dns/promises';
 
 const agentsMod = await import(pathToFileURL(resolve(process.cwd(), 'dist/agents.js')).href);
 const httpMod = await import(pathToFileURL(resolve(process.cwd(), 'dist/http.js')).href);
@@ -70,16 +69,6 @@ function summarize(agent) {
   };
 }
 
-async function tryDns(hostname) {
-  if (!hostname) return { ok: false, error: 'missing hostname' };
-  try {
-    const result = await lookup(hostname);
-    return { ok: true, address: result.address, family: result.family };
-  } catch (error) {
-    return { ok: false, error: `${error?.code || error?.name || 'ERROR'}: ${error?.message || error}` };
-  }
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const productBase = normalizeProductBase(args['api-base'] || env('HYPER_API_BASE'));
@@ -110,9 +99,6 @@ async function main() {
       HYPER_API_BASE: productBase,
       OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: allowedOrigin(agentsBase),
     },
-    routes: {
-      openclaw: { port: 18789, auth: false, prefix: '' },
-    },
     ...registryConfig(),
   };
 
@@ -128,11 +114,7 @@ async function main() {
       last = await deployments.get(created.id);
       console.log(JSON.stringify({ phase: 'poll', agent: summarize(last) }, null, 2));
       if (String(last.state).toUpperCase() === 'RUNNING') {
-        const dns = await tryDns(last.hostname ?? null);
-        const gatewayContext = typeof last.waitForGatewayContext === 'function'
-          ? await last.waitForGatewayContext({ timeoutMs: 10_000, retryIntervalMs: 1_000 }).catch((error) => ({ error: String(error) }))
-          : { skipped: 'not-openclaw-agent' };
-        console.log(JSON.stringify({ phase: 'running', agent: summarize(last), dns, gatewayContext }, null, 2));
+        console.log(JSON.stringify({ phase: 'running', agent: summarize(last) }, null, 2));
         if (holdSeconds > 0) {
           await sleep(holdSeconds * 1000);
         }
@@ -145,11 +127,7 @@ async function main() {
     }
 
     const fresh = await deployments.get(created.id);
-    const dns = await tryDns(fresh.hostname ?? null);
-    const gatewayContext = typeof fresh.waitForGatewayContext === 'function'
-      ? await fresh.waitForGatewayContext({ timeoutMs: 10_000, retryIntervalMs: 1_000 }).catch((error) => ({ error: String(error) }))
-      : { skipped: 'not-openclaw-agent' };
-    console.error(JSON.stringify({ phase: 'stuck', agent: summarize(fresh), dns, gatewayContext }, null, 2));
+    console.error(JSON.stringify({ phase: 'stuck', agent: summarize(fresh) }, null, 2));
     process.exitCode = 1;
   } finally {
     if (created && !noDelete) {

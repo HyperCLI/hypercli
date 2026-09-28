@@ -31,7 +31,6 @@ from hypercli.agents import (
     RuntimeAuthClient,
     RuntimeAuthMethod,
     build_permissions_json,
-    build_openclaw_routes,
 )
 
 
@@ -609,8 +608,8 @@ class TestCreateAgentCodingRuntimes:
 
 
 class TestCreateAgentOpenClawRuntimes:
-    """ts createAgent openclaw branch: gateway route and env builders from the
-    existing py data tables; the pro variant adds the desktop leg."""
+    """ts createAgent openclaw branch: env builders from the existing py data
+    tables; the pro variant adds the desktop leg (its only public route)."""
 
     @pytest.mark.parametrize("runtime", ["openclaw", "openclaw_acp"])
     def test_default_launch_shape(self, monkeypatch, runtime):
@@ -623,7 +622,7 @@ class TestCreateAgentOpenClawRuntimes:
         assert body["runtime"] == runtime
         assert body["image"] == DEFAULT_OPENCLAW_IMAGE
         assert body["sync_root"] == "/home/node"
-        assert body["routes"] == build_openclaw_routes()
+        assert body["routes"] == {}
         assert "config" not in body
         # Non-pro openclaw carries no runtime-scope default.
         assert "runtime_scopes" not in body
@@ -645,19 +644,17 @@ class TestCreateAgentOpenClawRuntimes:
         body = posts[0][1]
         assert body["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
         assert body["env"]["HYPER_DESKTOP_ENABLED"] == "1"
-        assert list(body["routes"]) == ["openclaw", "desktop"]
+        assert body["routes"] == {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}
         assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
 
-    def test_caller_routes_still_front_the_canonical_gateway_route(self, monkeypatch):
+    def test_caller_routes_pass_through_untouched(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw")
 
         deployments.create_agent(
             "openclaw", routes={"custom": {"port": 8080, "auth": True, "prefix": "c"}}
         )
 
-        routes = posts[0][1]["routes"]
-        assert list(routes) == ["custom", "openclaw"]
-        assert routes["openclaw"] == build_openclaw_routes()["openclaw"]
+        assert posts[0][1]["routes"] == {"custom": {"port": 8080, "auth": True, "prefix": "c"}}
 
     def test_memory_index_and_trusted_proxies_env(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw")
@@ -672,12 +669,10 @@ class TestCreateAgentOpenClawRuntimes:
         assert env["OPENCLAW_MEMORY_SEARCH_ENABLED"] == "0"
         assert env["OPENCLAW_TRUSTED_PROXIES"] == "10.0.0.1,10.0.0.2"
 
-    def test_openclaw_routes_knob_feeds_build_openclaw_routes(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+    def test_openclaw_routes_knob_is_gone(self):
+        import inspect
 
-        deployments.create_agent("openclaw", openclaw_routes={"gateway_port": 9999})
-
-        assert posts[0][1]["routes"]["openclaw"]["port"] == 9999
+        assert "openclaw_routes" not in inspect.signature(Deployments.create_agent).parameters
 
     def test_openclaw_sync_exclude_preset_is_byte_pinned_to_ts(self):
         assert DEFAULT_OPENCLAW_SYNC_EXCLUDE == (

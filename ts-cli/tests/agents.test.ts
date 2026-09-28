@@ -615,7 +615,7 @@ describe('hyper agents create', () => {
       'create', 'g1', '--runtime', 'generic', '--size', 'small',
       '--image', 'python:3.12-alpine',
       '--sh', 'exec sleep 3600',
-      '--secret', 'OPENCLAW_GATEWAY_TOKEN=abc',
+      '--secret', 'EXAMPLE_SECRET=abc',
       '--sync-root', '/state',
       '--sync-exclude', 'cache/**',
       '--registry-url', 'registry.example/org',
@@ -630,7 +630,7 @@ describe('hyper agents create', () => {
         size: 'small',
         image: 'python:3.12-alpine',
         command: ['sh', '-c', 'exec sleep 3600'],
-        secrets: { OPENCLAW_GATEWAY_TOKEN: 'abc' },
+        secrets: { EXAMPLE_SECRET: 'abc' },
         syncRoot: '/state',
         syncExclude: ['cache/**'],
         registryUrl: 'registry.example/org',
@@ -667,7 +667,7 @@ describe('hyper agents create', () => {
     await agents.run(ctx, [
       'create', 'oc1', '--runtime', 'openclaw',
       '--image', 'registry.example/org/hypercli-openclaw:sha',
-      '--secret', 'OPENCLAW_GATEWAY_TOKEN=deadbeef',
+      '--secret', 'EXAMPLE_SECRET=deadbeef',
       '--env', 'HOME=/home/node',
       '--sync-include', '.openclaw/workspace',
     ]);
@@ -677,7 +677,7 @@ describe('hyper agents create', () => {
       expect.objectContaining({
         name: 'oc1',
         image: 'registry.example/org/hypercli-openclaw:sha',
-        secrets: { OPENCLAW_GATEWAY_TOKEN: 'deadbeef' },
+        secrets: { EXAMPLE_SECRET: 'deadbeef' },
         env: { HOME: '/home/node' },
         syncInclude: ['.openclaw/workspace'],
         dryRun: false,

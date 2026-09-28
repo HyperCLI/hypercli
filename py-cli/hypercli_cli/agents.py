@@ -23,7 +23,7 @@ from hypercli.agents import (
     build_hermes_cron_env,
     build_openclaw_cron_env,
     build_openclaw_memory_index_env,
-    build_openclaw_routes,
+    build_openclaw_desktop_route,
 )
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 from rich.console import Console
@@ -641,7 +641,7 @@ def create(
                 sync_gid=sync_gid,
                 runtime="openclaw-pro" if desktop_enabled else "openclaw",
                 env=build_openclaw_memory_index_env(memory_index) | effective_env,
-                routes=build_openclaw_routes(include_desktop=desktop_enabled),
+                routes=build_openclaw_desktop_route() if desktop_enabled else {},
                 runtime_scopes=list(DEFAULT_AGENT_RUNTIME_SCOPES) if desktop_enabled else None,
                 sync_root=DEFAULT_CODING_AGENT_SYNC_ROOT,
             )

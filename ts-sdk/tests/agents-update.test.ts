@@ -101,9 +101,10 @@ describe('Deployments.update', () => {
       reset_image: true,
       launch_config: {},
     });
-    expect(put).toHaveBeenCalledWith(
-      `/deployments/${agentId}/routes/openclaw`,
-      expect.objectContaining({ port: 18789, auth: false }),
+    // No public openclaw route exists post-cut: reset re-adds no route.
+    expect(put).not.toHaveBeenCalledWith(
+      expect.stringContaining('/routes/'),
+      expect.anything(),
     );
     expect(patch).toHaveBeenCalledWith(
       `/deployments/${agentId}/env/OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN`,

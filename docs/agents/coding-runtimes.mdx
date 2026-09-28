@@ -4,7 +4,7 @@ description: Inference, authentication, and selective-sync defaults for managed 
 ---
 
 HyperCLI provides six ACP coding-runtime container families plus the OpenClaw
-gateway runtime and the ACP-native Hermes runtime. The ACP families and OpenClaw
+runtime and the ACP-native Hermes runtime. The ACP families and OpenClaw
 use `/home/node`; Hermes uses `/home/hermes`. They do not all use the same
 inference, API-authentication, or backup policy.
 
@@ -22,7 +22,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
-| OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
+| OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw drives sessions over the in-pod ACP bridge; its gateway binds loopback with auth mode `none`. Update its persisted `.openclaw/openclaw.json` through `hyper agents exec`-style edits at rest, then restart. |
 | Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is ACP-native; sessions run through the backend ACP bridge like the coding harnesses. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
@@ -118,10 +118,9 @@ with `/usr/local/bin/hyper-acp plugin buzz` plus `BUZZ_ACP_*` environment. Only
 native Buzz Agent uses `hypercli-buzz-agent:latest`. An explicit immutable
 `image` override still wins.
 
-The coding runtimes and Hermes have no OpenClaw gateway and no public route by
-default. Use authenticated deployment lifecycle, files, exec, shell, ACP
-session, and runtime-auth APIs. OpenClaw instead exposes its gateway routes and
-should be controlled with the OpenClaw-specific SDK helpers. See
+No runtime ships a public route by default. Use authenticated deployment
+lifecycle, files, exec, shell, ACP session, and runtime-auth APIs. OpenClaw
+pro adds the protected desktop route. See
 [Supported runtime images](/agents/images),
 [OpenClaw runtime config](/agents/openclaw-config), and
 [Buzz Desktop](/agents/buzz) for those runtime-specific control planes.
