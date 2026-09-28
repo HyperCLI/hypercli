@@ -68,8 +68,8 @@ const memorySearch = (defaults.memorySearch ||= {}) as ConfigObject
 
 // The gateway is a pod-internal ACP hop only (loopback bind, no browser/WS
 // clients): auth stays mode "none" with no token. The auth subtree is
-// replaced wholesale so retained configs written when a caller-minted
-// OPENCLAW_GATEWAY_TOKEN was mandatory shed their stale token on first boot.
+// replaced wholesale so retained configs written in the caller-minted-token
+// era shed their stale token on first boot.
 {
   const gateway = (config.gateway ||= {}) as ConfigObject
   gateway.auth = { mode: "none" }

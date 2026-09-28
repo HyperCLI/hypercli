@@ -109,10 +109,10 @@ describe('Agents SDK', () => {
 
   it('keeps generic launch environment and secrets application-name blind', () => {
     const { config } = buildAgentConfig({}, {
-      env: { CUSTOM_SERVICE_TOKEN: 'opaque-env' },
+      env: { SERVICE_TOKEN: 'opaque-env' },
       secrets: { CUSTOM_SERVICE_KEY: 'opaque-secret' },
     });
-    expect(config.env).toEqual({ CUSTOM_SERVICE_TOKEN: 'opaque-env' });
+    expect(config.env).toEqual({ SERVICE_TOKEN: 'opaque-env' });
     expect(config.secrets).toEqual({ CUSTOM_SERVICE_KEY: 'opaque-secret' });
   });
 

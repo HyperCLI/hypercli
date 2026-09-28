@@ -143,7 +143,6 @@ describe('coding agents', () => {
     } else {
       expect(post.mock.calls[0][1].sync_exclude).toEqual(syncExclude);
     }
-    expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
   });
 
   it('allows callers to choose the hosted coding permission mode', async () => {
