@@ -3456,6 +3456,8 @@ interface AcpRuntimeRow {
   desktop?: boolean;
   /** Best-effort file deletes on resetRuntimeDefaults. */
   resetFiles?: readonly string[];
+  /** Best-effort recursive directory deletes on resetRuntimeDefaults (reef transport only; runner forbids recursive). */
+  resetDirs?: readonly string[];
 }
 const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
   image: DEFAULT_OPENCLAW_IMAGE,
@@ -3469,7 +3471,22 @@ const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
   stripConfigBag: true,
   openclawControlUi: true,
   openclawMemoryIndex: true,
-  resetFiles: ['.openclaw/openclaw.json'],
+  // openclaw.json reseeds on boot; the openclaw.sqlite trio clears
+  // device_pairing_paired/device_auth_tokens/device_pairing_pending rows so a
+  // stale scope-capped pairing (operator.pairing-only → FORBIDDEN on
+  // operator.read/write) can never survive a runtime reset — the in-pod ACP
+  // client re-pairs on loopback with silent auto-approve (operator.admin).
+  // The sqlite holds only disposable metadata (audit/diagnostic events,
+  // boot-reseeded cron, config tables); chat history lives in the agent db.
+  resetFiles: [
+    '.openclaw/openclaw.json',
+    '.openclaw/state/openclaw.sqlite',
+    '.openclaw/state/openclaw.sqlite-wal',
+    '.openclaw/state/openclaw.sqlite-shm',
+  ],
+  // Legacy inert per-device pairing records (devices/*.json*); unknown names,
+  // so the whole directory goes.
+  resetDirs: ['.openclaw/devices'],
 };
 const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRuntimeRow> = {
   openclaw_acp: OPENCLAW_ACP_ROW,
@@ -4628,6 +4645,10 @@ export class Deployments {
     }
     for (const file of family?.resetFiles ?? []) {
       await this.fileDelete(agentId, file).catch(() => undefined);
+    }
+    for (const dir of family?.resetDirs ?? []) {
+      // Runner transport forbids recursive deletes; on reef it lands, elsewhere best-effort.
+      await this.fileDelete(agentId, dir, { recursive: true }).catch(() => undefined);
     }
     return { agent: await this.get(agentId), droppedLaunchKeys };
   }

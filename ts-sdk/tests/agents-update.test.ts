@@ -110,7 +110,17 @@ describe('Deployments.update', () => {
       `/deployments/${agentId}/env/OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN`,
       { value: '*' },
     );
-    expect(fileDelete).toHaveBeenCalledWith(agentId, '.openclaw/openclaw.json');
+    // Paired-device state is cleared too: a stale operator.pairing-only row in
+    // openclaw.sqlite otherwise survives the reset and FORBIDs the re-paired
+    // in-pod ACP client on operator.read/write. Legacy per-device records are
+    // removed recursively as a directory (reef transport; runner forbids).
+    expect(fileDelete.mock.calls.map(([, path, options]) => [path, options])).toEqual([
+      ['.openclaw/openclaw.json', undefined],
+      ['.openclaw/state/openclaw.sqlite', undefined],
+      ['.openclaw/state/openclaw.sqlite-wal', undefined],
+      ['.openclaw/state/openclaw.sqlite-shm', undefined],
+      ['.openclaw/devices', { recursive: true }],
+    ]);
     expect(get).toHaveBeenCalledWith(`/deployments/${agentId}`);
     expect(result.droppedLaunchKeys).toEqual(['config']);
     expect(result.agent.id).toBe(agentId);
