@@ -192,8 +192,9 @@ describe('HyperClaw agents SDK', () => {
     });
   });
 
-  it('createOpenClaw defaults routes when omitted', async () => {
+  it('openclaw_acp launch defaults routes when omitted', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -206,7 +207,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', dryRun: true });
+    await deployments.createAgent('openclaw_acp', { name: 'test-agent', dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
@@ -230,8 +231,9 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
 
-  it('createOpenClaw passes caller routes through untouched', async () => {
+  it('openclaw_acp launch passes caller routes through untouched', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -242,7 +244,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', routes: {}, dryRun: true });
+    await deployments.createAgent('openclaw_acp', { name: 'test-agent', routes: {}, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
@@ -264,8 +266,9 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
 
-  it('createOpenClaw with runtime openclaw-pro defaults desktop image env and routes', async () => {
+  it('openclaw-pro launch defaults desktop image env and routes', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw-pro',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -281,7 +284,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    const agent = await deployments.createOpenClaw({ name: 'test-agent', runtime: 'openclaw-pro', dryRun: true });
+    const agent = await deployments.createAgent('openclaw-pro', { name: 'test-agent', dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       runtime: 'openclaw-pro',
@@ -309,8 +312,9 @@ describe('HyperClaw agents SDK', () => {
     expect(agent).toBeInstanceOf(Agent);
   });
 
-  it('createOpenClaw accepts memory index launch options', async () => {
+  it('openclaw_acp launch accepts memory index launch options', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -325,7 +329,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({
+    await deployments.createAgent('openclaw_acp', {
       name: 'test-agent',
       dryRun: true,
       memoryIndex: {
@@ -348,8 +352,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw accepts cron launch options', async () => {
+  it('openclaw_acp launch accepts cron launch options', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -363,7 +368,7 @@ describe('HyperClaw agents SDK', () => {
     expect(buildOpenClawCronEnv()).toEqual({ OPENCLAW_CRON_ENABLED: '1' });
     expect(buildOpenClawCronEnv(true)).toEqual({ OPENCLAW_CRON_ENABLED: '1' });
 
-    await deployments.createOpenClaw({
+    await deployments.createAgent('openclaw_acp', {
       name: 'test-agent',
       dryRun: true,
       cronEnabled: false,
@@ -376,8 +381,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw accepts workspace sync launch options', async () => {
+  it('openclaw_acp launch accepts workspace sync launch options', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -388,7 +394,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({
+    await deployments.createAgent('openclaw_acp', {
       name: 'test-agent',
       dryRun: true,
       workspacesSync: {
@@ -407,8 +413,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw lets explicit HYPER_API_BASE override the derived product API base', async () => {
+  it('openclaw_acp launch lets explicit HYPER_API_BASE override the derived product API base', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -419,7 +426,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({
+    await deployments.createAgent('openclaw_acp', {
       name: 'test-agent',
       dryRun: true,
       env: { HYPER_API_BASE: 'https://api.override.test' },
@@ -432,8 +439,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw preserves an explicit Workspaces directory override', async () => {
+  it('openclaw_acp launch preserves an explicit Workspaces directory override', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -444,7 +452,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({
+    await deployments.createAgent('openclaw_acp', {
       name: 'test-agent',
       dryRun: true,
       env: { HYPER_WORKSPACES_DIR: '/home/node/custom-shared' },
@@ -457,8 +465,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw can disable workspace boot sync', async () => {
+  it('openclaw_acp launch can disable workspace boot sync', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -469,7 +478,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', workspacesSync: false, dryRun: true });
+    await deployments.createAgent('openclaw_acp', { name: 'test-agent', workspacesSync: false, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       env: expect.objectContaining({
@@ -478,10 +487,11 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw replaces a caller-provided origin list with the wildcard', async () => {
+  it('openclaw_acp launch replaces a caller-provided origin list with the wildcard', async () => {
     // The wildcard is the only value that lands reliably across desktop and
     // console surfaces; the SDK owns this env and never merges caller values.
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -494,7 +504,7 @@ describe('HyperClaw agents SDK', () => {
     );
 
     try {
-      await deployments.createOpenClaw({
+      await deployments.createAgent('openclaw_acp', {
         name: 'test-agent',
         dryRun: true,
         env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://old.hypercli.com' },
@@ -510,8 +520,9 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw defaults the control-UI origin env to the wildcard', async () => {
+  it('openclaw_acp launch defaults the control-UI origin env to the wildcard', async () => {
     const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
@@ -522,7 +533,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', dryRun: true });
+    await deployments.createAgent('openclaw_acp', { name: 'test-agent', dryRun: true });
 
     expect(post.mock.calls[0]?.[1].env).toHaveProperty('OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
   });

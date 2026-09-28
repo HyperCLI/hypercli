@@ -38,6 +38,7 @@ RUN groupadd -g 10000 hermes \
     && /opt/hermes/.venv/bin/python -c "import acp_adapter.entry"
 
 COPY --chmod=0644 config.yaml /opt/hypercli-hermes/config.yaml
+COPY --chmod=0644 AGENTS.md.template /opt/hypercli-hermes/AGENTS.md.template
 COPY --chmod=0644 mem0.json /opt/hypercli-hermes/mem0.json
 COPY --chmod=0755 entrypoint.sh /opt/hypercli-hermes/entrypoint.sh
 COPY --chmod=0755 init.sh /opt/hypercli-hermes/init.sh

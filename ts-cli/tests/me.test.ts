@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APIError,
+  type Agent,
   type AgentAccessIdentity,
   type AuthMe,
   type HyperAgentSubscriptionSummary,
@@ -140,10 +141,22 @@ function runtimeKeyIdentityFixture(): AgentAccessIdentity {
   };
 }
 
+function selfAgentFixture(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: 'agent_123',
+    name: 'spark',
+    displayName: 'Spark',
+    handle: '@spark',
+    runtime: 'opencode',
+    ...overrides,
+  } as Agent;
+}
+
 interface FakeHandlers {
   authMe?: () => Promise<AuthMe>;
   subscriptionSummary?: () => Promise<HyperAgentSubscriptionSummary>;
   accessIdentity?: () => Promise<AgentAccessIdentity>;
+  getSelf?: () => Promise<Agent>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -153,6 +166,7 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
     deployments: {
       accessIdentity:
         handlers.accessIdentity ?? (async () => { throw new Error('requires an agent runtime key'); }),
+      get: handlers.getSelf ?? (async () => { throw new Error('self agent unavailable'); }),
     },
   } as unknown as HyperCLI;
 }
@@ -190,6 +204,73 @@ describe('hyper me', () => {
     expect(payload.agents.entitlementItems).toHaveLength(1);
     expect(payload.agents_error).toBeUndefined();
     expect(stdout()).not.toContain(SECRET);
+  });
+
+  it('(a2) runtime key + self agent record: prints agent name/handle/runtime', async () => {
+    const getSelf = vi.fn(async () => selfAgentFixture());
+    const client = fakeClient({
+      authMe: async () => authMeFixture({ runtime: { runtime: 'agent', agentId: 'agent_123' } }),
+      accessIdentity: async () => runtimeKeyIdentityFixture(),
+      getSelf,
+    });
+    const ctx = makeCtx(client, 'json');
+
+    await me.run(ctx, ['--json']);
+
+    expect(getSelf).toHaveBeenCalledWith('self');
+    const payload = JSON.parse(stdout());
+    expect(payload.identity.agent_id).toBe('agent_123');
+    expect(payload.identity.agent_name).toBe('Spark');
+    expect(payload.identity.agent_handle).toBe('@spark');
+    expect(payload.identity.agent_runtime).toBe('opencode');
+    expect(stdout()).not.toContain(SECRET);
+  });
+
+  it('(a3) runtime key display name falls back to the slug name', async () => {
+    const client = fakeClient({
+      authMe: async () => authMeFixture({ runtime: { runtime: 'agent', agentId: 'agent_123' } }),
+      accessIdentity: async () => runtimeKeyIdentityFixture(),
+      getSelf: async () => selfAgentFixture({ displayName: null }),
+    });
+    const ctx = makeCtx(client, 'table');
+
+    await me.run(ctx, []);
+
+    const out = stdout();
+    expect(out).toContain('agent_name');
+    expect(out).toContain('spark');
+    expect(out).toContain('agent_handle');
+    expect(out).toContain('@spark');
+    expect(out).toContain('agent_runtime');
+    expect(out).toContain('opencode');
+  });
+
+  it('(a4) self agent lookup failure degrades: identity keeps agent_id, no name rows', async () => {
+    const client = fakeClient({
+      authMe: async () => authMeFixture({ runtime: { runtime: 'agent', agentId: 'agent_123' } }),
+      accessIdentity: async () => runtimeKeyIdentityFixture(),
+      // default getSelf handler throws
+    });
+    const ctx = makeCtx(client, 'json');
+
+    await me.run(ctx, ['--json']); // resolves — no throw, exit 0
+
+    const payload = JSON.parse(stdout());
+    expect(payload.identity.agent_id).toBe('agent_123');
+    expect(payload.identity.agent_name).toBeUndefined();
+    expect(payload.identity.agent_handle).toBeUndefined();
+    expect(payload.identity.agent_runtime).toBeUndefined();
+  });
+
+  it('(a5) non-runtime key never asks for the self agent record', async () => {
+    const getSelf = vi.fn(async () => selfAgentFixture());
+    const client = fakeClient({ getSelf });
+    const ctx = makeCtx(client, 'json');
+
+    await me.run(ctx, ['--json']);
+
+    expect(getSelf).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout()).identity.agent_id).toBeUndefined();
   });
 
   it('(b) entitlement 403: exit 0 keeps identity, agents null + agents_error (never "no plan")', async () => {

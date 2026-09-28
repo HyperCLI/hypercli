@@ -9,6 +9,10 @@
  *   3. Runtime identity  — client.deployments.accessIdentity() (cheap probe;
  *      only an agent runtime key can name its Agent — skip silently otherwise)
  *
+ * When section 3 says the key IS an agent runtime key, a fourth step resolves
+ * the Agent record itself (client.deployments.get('self') — name, handle,
+ * runtime); its failure must leave the output exactly as it was.
+ *
  * The API key itself is never printed (keyId/keyName are identifiers, not the
  * secret).
  */
@@ -16,6 +20,7 @@
 import {
   APIError,
   hasActivePlan,
+  type Agent,
   type AgentAccessIdentity,
   type AuthMe,
   type HyperAgentSubscriptionSummary,
@@ -88,6 +93,7 @@ function rowsBlock(rows: ReadonlyArray<readonly [string, string]>): string[] {
 function identityRows(
   authMe: AuthMe,
   agentIdentity: AgentAccessIdentity | null,
+  selfAgent: Agent | null,
 ): Array<[string, string]> {
   const rows: Array<[string, string]> = [
     ['user_id', authMe.userId],
@@ -107,6 +113,11 @@ function identityRows(
   if (authMe.runtime) rows.push(['runtime', authMe.runtime.runtime]);
   if (agentIdentity) {
     rows.push(['agent_id', agentIdentity.agentId ?? '']);
+    if (selfAgent) {
+      rows.push(['agent_name', selfAgent.displayName ?? selfAgent.name ?? '']);
+      if (selfAgent.handle) rows.push(['agent_handle', selfAgent.handle]);
+      if (selfAgent.runtime) rows.push(['agent_runtime', selfAgent.runtime]);
+    }
     if (agentIdentity.capabilities.length > 0) {
       rows.push(['agent_capabilities', agentIdentity.capabilities.join(', ')]);
     }
@@ -143,10 +154,11 @@ function agentsRows(
 function renderTable(
   authMe: AuthMe,
   agentIdentity: AgentAccessIdentity | null,
+  selfAgent: Agent | null,
   summary: HyperAgentSubscriptionSummary | null,
   agentsError: string | null,
 ): string {
-  const identity = ['Identity', ...rowsBlock(identityRows(authMe, agentIdentity))].join('\n');
+  const identity = ['Identity', ...rowsBlock(identityRows(authMe, agentIdentity, selfAgent))].join('\n');
   const capabilityLines =
     authMe.capabilities.length > 0 ? authMe.capabilities.map((c) => `  ${c}`) : ['  (none)'];
   const capabilities = ['Capabilities', ...capabilityLines].join('\n');
@@ -159,6 +171,7 @@ function renderTable(
 function identityJson(
   authMe: AuthMe,
   agentIdentity: AgentAccessIdentity | null,
+  selfAgent: Agent | null,
 ): Record<string, unknown> {
   const identity: Record<string, unknown> = {
     userId: authMe.userId,
@@ -179,6 +192,11 @@ function identityJson(
   if (authMe.runtime) identity.runtime = authMe.runtime;
   if (agentIdentity) {
     identity.agent_id = agentIdentity.agentId;
+    if (selfAgent) {
+      identity.agent_name = selfAgent.displayName ?? selfAgent.name ?? null;
+      identity.agent_handle = selfAgent.handle ?? null;
+      identity.agent_runtime = selfAgent.runtime ?? null;
+    }
     identity.agent_capabilities = agentIdentity.capabilities;
   }
   return identity;
@@ -250,13 +268,24 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
     agentIdentity = null;
   }
 
+  // 4. Agent record (self) — resolves the runtime key's Agent display name,
+  //    handle, and runtime family. Same degradation rule as 3.
+  let selfAgent: Agent | null = null;
+  if (agentIdentity) {
+    try {
+      selfAgent = await client.deployments.get('self');
+    } catch {
+      selfAgent = null;
+    }
+  }
+
   const agents = entitlementSummary ? agentsJson(entitlementSummary) : null;
   const payload: Record<string, unknown> = {
-    identity: identityJson(authMe, agentIdentity),
+    identity: identityJson(authMe, agentIdentity, selfAgent),
     capabilities: authMe.capabilities,
     agents,
   };
   if (agents === null) payload.agents_error = agentsError ?? 'unknown error';
 
-  ctx.output.result(payload, renderTable(authMe, agentIdentity, entitlementSummary, agentsError));
+  ctx.output.result(payload, renderTable(authMe, agentIdentity, selfAgent, entitlementSummary, agentsError));
 }

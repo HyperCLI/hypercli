@@ -94,10 +94,10 @@ describe('Deployments.update', () => {
     );
     const fileDelete = vi.spyOn(deployments, 'fileDelete').mockRejectedValue(new Error('not found'));
 
-    const result = await deployments.resetRuntimeDefaults(agentId, { runtime: 'openclaw' });
+    const result = await deployments.resetRuntimeDefaults(agentId, { runtime: 'openclaw_acp' });
 
     expect(patch).toHaveBeenCalledWith(`/deployments/${agentId}`, {
-      runtime: 'openclaw',
+      runtime: 'openclaw_acp',
       reset_image: true,
       launch_config: {},
     });
@@ -128,10 +128,10 @@ describe('Deployments.update', () => {
     );
     const fileDelete = vi.spyOn(deployments, 'fileDelete').mockResolvedValue({ status: 'ok' });
 
-    const result = await deployments.resetRuntimeDefaults(agentId, { runtime: 'hermes-agent' });
+    const result = await deployments.resetRuntimeDefaults(agentId, { runtime: 'hermes_acp' });
 
     expect(patch).toHaveBeenCalledWith(`/deployments/${agentId}`, {
-      runtime: 'hermes-agent',
+      runtime: 'hermes_acp',
       reset_image: true,
       launch_config: {},
     });

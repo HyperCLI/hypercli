@@ -62,7 +62,7 @@ function chatAgentFixture(overrides: Record<string, unknown> = {}): Agent & { ac
     handle: null,
     displayName: 'alpha',
     avatarUrl: null,
-    runtime: 'openclaw',
+    runtime: 'openclaw_acp',
     hostname: 'alpha.hypercli.run',
     cpu: 2,
     memory: 4,
@@ -199,7 +199,7 @@ describe('hyper agents chat — sessions', () => {
 
   it('--session works identically on openclaw, but via the shared ACP surface', async () => {
     const { acpConnect, client } = fakeAcpClient(['resumed']);
-    const agent = chatAgentFixture({ runtime: 'openclaw', acpConnect });
+    const agent = chatAgentFixture({ runtime: 'openclaw_acp', acpConnect });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
 
     await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'sess-old-9', '--json']);
@@ -300,7 +300,7 @@ describe('hyper agents chat — reply extraction', () => {
   it('a prompt failure is a prompt-stage CliError', async () => {
     const { acpConnect } = fakeAcpClient(['Hello']);
     const agent = chatAgentFixture({
-      runtime: 'openclaw',
+      runtime: 'openclaw_acp',
       acpConnect: vi.fn(async (options: AcpOptions) => ({
         newSession: vi.fn(async () => ({ sessionId: 's1' })),
         loadSession: vi.fn(async () => ({})),
@@ -336,7 +336,7 @@ describe('hyper agents chat — reply extraction', () => {
 describe('hyper agents chat — lifecycle', () => {
   it('non-RUNNING openclaw agent: start, wait, then connect — no secret ceremony', async () => {
     const { acpConnect } = fakeAcpClient(['Hello', ' world']);
-    const agent = chatAgentFixture({ runtime: 'openclaw', state: 'STOPPED', acpConnect });
+    const agent = chatAgentFixture({ runtime: 'openclaw_acp', state: 'STOPPED', acpConnect });
     const d = chatDeployments([agent]);
     const ctx = makeCtx(fakeClient(d), 'table');
 
@@ -362,7 +362,7 @@ describe('hyper agents chat — lifecycle', () => {
 
   it('non-RUNNING hermes agent: same start dispatch, no secret ceremony', async () => {
     const { acpConnect } = fakeAcpClient(['hi']);
-    const agent = chatAgentFixture({ runtime: 'hermes-agent', state: 'STOPPED', acpConnect });
+    const agent = chatAgentFixture({ runtime: 'hermes_acp', state: 'STOPPED', acpConnect });
     const d = chatDeployments([agent]);
     const ctx = makeCtx(fakeClient(d), 'table');
 
@@ -377,7 +377,7 @@ describe('hyper agents chat — lifecycle', () => {
 
   it('overall timeout aborts with a stage-named CliError', async () => {
     const agent = chatAgentFixture({
-      runtime: 'openclaw',
+      runtime: 'openclaw_acp',
       acpConnect: vi.fn(() => new Promise(() => {})),
     });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');

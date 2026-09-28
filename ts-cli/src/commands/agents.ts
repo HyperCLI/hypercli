@@ -70,8 +70,10 @@ const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes'];
 
 /** CLI --runtime name → SDK runtime label; everything rides the flat createAgent. */
 const RUNTIME_LABELS: ReadonlyMap<string, ManagedAgentRuntime> = new Map([
-  ['openclaw', 'openclaw'],
-  ['hermes', 'hermes-agent'],
+  ['openclaw', 'openclaw_acp'],
+  ['openclaw_acp', 'openclaw_acp'],
+  ['hermes', 'hermes_acp'],
+  ['hermes_acp', 'hermes_acp'],
   ['generic', 'generic'],
   ['goose', 'goose'],
   ['opencode', 'opencode'],
@@ -83,8 +85,8 @@ const RUNTIME_LABELS: ReadonlyMap<string, ManagedAgentRuntime> = new Map([
 ]);
 
 /** desktop/src/agent-utils parity: only these runtimes get the token ceremony. */
-const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw', 'openclaw-pro', 'openclaw_acp']);
-const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes-agent', 'hermes_acp']);
+const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw-pro', 'openclaw_acp']);
+const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes_acp']);
 /** Agent family: chat rides the pod-side ACP bridge, never a gateway. */
 const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz-agent']);
 const OPENCLAW_RUNTIMES: ReadonlySet<string> = OPENCLAW_SET;
@@ -99,6 +101,20 @@ const KNOWN_COMMANDS = new Set([
 const MANAGED_RUNTIMES: ReadonlySet<ManagedAgentRuntime> = new Set([
   'generic', ...OPENCLAW_SET, ...HERMES_SET, ...ACP_SET,
 ]);
+
+// Backend-folded legacy wire spellings (launch_contract.py
+// LEGACY_RUNTIME_MIGRATIONS): existing DB rows may still serve them and users
+// still type them, so the CLI folds them to canonical at the read/display
+// boundary instead of rejecting legacy payloads.
+const LEGACY_RUNTIME_FOLD: Readonly<Record<string, ManagedAgentRuntime>> = {
+  openclaw: 'openclaw_acp',
+  'hermes-agent': 'hermes_acp',
+};
+
+/** Map a stored or user-supplied legacy runtime spelling to its canonical name. */
+export function canonicalRuntimeName(runtime: string): string {
+  return LEGACY_RUNTIME_FOLD[runtime.toLowerCase()] ?? runtime;
+}
 
 // ---------------------------------------------------------------------------
 // record helpers (local stand-ins for the records.ts contract)
@@ -560,17 +576,14 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const plan = str(parsed, 'plan');
   const size = str(parsed, 'size');
   const env = parseParams(strList(parsed, 'env'));
-  // Payload passthrough: openclaw strips the generic config bag in
-  // createAgent, so --param rides env there; the other runtimes carry a
-  // free-form config bag that reaches the create payload.
   const params = parseParams(strList(parsed, 'param'));
   const dryRun = parsed.values['dry-run'] === true;
 
-  // openclaw strips the generic config bag in createAgent, so a model there
-  // would be silently dropped; refuse instead of pretending.
-  if (model && runtime === 'openclaw') {
+  // The openclaw family strips the generic config bag in createAgent, so a
+  // model there would be silently dropped; refuse instead of pretending.
+  if (model && OPENCLAW_SET.has(runtimeLabel)) {
     throw new UsageError(
-      "--model is not supported for runtime 'openclaw' at create time; "
+      `--model is not supported for runtime '${runtime}' at create time; `
       + 'configure the model after launch with hyper agents config set <id> --param ...',
     );
   }
@@ -599,8 +612,10 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     throw new UsageError("--executor must be 'process' or 'docker'");
   }
 
-  const mergedEnv = { ...env, ...(runtime === 'openclaw' ? params : {}) };
-  const configBag = runtime === 'openclaw' ? {} : { ...(model ? { model } : {}), ...params };
+  // The openclaw family strips the generic config bag in createAgent, so
+  // --param rides env there; the other runtimes carry a free-form config bag.
+  const mergedEnv = { ...env, ...(OPENCLAW_SET.has(runtimeLabel) ? params : {}) };
+  const configBag = OPENCLAW_SET.has(runtimeLabel) ? {} : { ...(model ? { model } : {}), ...params };
   // Coding runtimes own their pod boot command; a caller command there would
   // replace the ACP entrypoint silently. openclaw/generic/hermes honor it.
   if (commandArgv.length > 0 && ACP_SET.has(runtimeLabel)) {
@@ -703,7 +718,8 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
   if (parsed.positionals.length > 2) {
     throw new UsageError(`unexpected extra arguments: ${parsed.positionals.slice(2).join(' ')}`);
   }
-  const [ref, runtime] = parsed.positionals;
+  const [ref, runtimeInput] = parsed.positionals;
+  const runtime = canonicalRuntimeName(runtimeInput);
   if (!MANAGED_RUNTIMES.has(runtime as ManagedAgentRuntime)) {
     throw new UsageError(
       `unknown runtime '${runtime}' (expected one of: ${[...MANAGED_RUNTIMES].join(', ')})`,
@@ -1441,7 +1457,7 @@ async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
 // Progress (started agent, session opened) goes to stderr via
 // ctx.output.info; stdout carries only the reply text (or the --json bag).
 //
-// Every chat-capable runtime (openclaw, hermes-agent, and the coding agents)
+// Every chat-capable runtime (openclaw_acp, hermes_acp, and the coding agents)
 // rides the same ACP surface: acpConnect() over the backend /ws/acp session
 // proxy, no pairing. The reply is folded from agent_message_chunk
 // notifications; prompt() resolving is the terminal condition. The records
@@ -1456,8 +1472,9 @@ async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
 type ChatStage = 'start' | 'wait' | 'connect' | 'prompt';
 
 function requireChatRuntime(runtime: string): string {
+  const normalized = canonicalRuntimeName(runtime);
   const supported = [...OPENCLAW_RUNTIMES, ...HERMES_RUNTIMES, ...ACP_RUNTIMES];
-  if (supported.some((r) => r === runtime.toLowerCase())) return runtime;
+  if (supported.some((r) => r === normalized)) return runtime;
   throw new CliError(
     `chat is not supported on runtime '${runtime || 'unknown'}' ` + `(supported: ${supported.join(', ')})`,
   );

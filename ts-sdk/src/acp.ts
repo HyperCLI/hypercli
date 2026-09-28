@@ -206,6 +206,12 @@ export interface CodingAgentAcpSeqDeliveryState {
 export interface CodingAgentAcpConnectOptions {
   /** Abort before connect rejects the promise; abort after connect closes the client. */
   signal?: AbortSignal;
+  /**
+   * Pre-minted `/ws/acp` credential. Defaults to the client API key; pass
+   * the `token` from `Deployments.mintAcpWsToken(agentId)` to dial with the
+   * short-lived, agent-scoped ticket instead of the raw account credential.
+   */
+  token?: string;
   /** Session working directory; defaults to the agent workspace root. */
   cwd?: string;
   /** Override the `clientInfo` sent with `initialize`. */

@@ -121,11 +121,13 @@ export const MAX_DOCKER_VOLUMES = 64;
 export const DEFAULT_PI_ENV = Object.freeze({
   HYPER_RUNTIME_HOME: `${DEFAULT_CODING_AGENT_SYNC_ROOT}/.pi/agent`,
 });
+// Canonical runtime labels only: the legacy wire spellings (`openclaw`,
+// `hermes-agent`) are folded to their *_acp successors by the Backend at
+// create/patch (launch_contract.py LEGACY_RUNTIME_MIGRATIONS) and are
+// deliberately not in this union.
 export type ManagedAgentRuntime =
   | 'generic'
-  | 'openclaw'
   | 'openclaw-pro'
-  | 'hermes-agent'
   | 'openclaw_acp'
   | 'hermes_acp'
   | 'buzz-agent'
@@ -136,26 +138,6 @@ export type ManagedAgentRuntime =
   | 'kimi-code'
   | 'pi';
 export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' | 'pi'>;
-/**
- * Runtime labels whose pods front `hyper-acp`, so the ACP members on
- * {@link Agent} (acpConnect/acpPool/acpTurnDriver/auth) accept them; the gate
- * mirrors the old hydration gating — labeled runtimes by this set, legacy
- * unlabeled openclaw payloads structurally (see Agent.requireAcpCapable).
- */
-const HYPER_ACP_RUNTIMES: ReadonlySet<string> = new Set<ManagedAgentRuntime>([
-  'openclaw',
-  'openclaw-pro',
-  'hermes-agent',
-  'openclaw_acp',
-  'hermes_acp',
-  'buzz-agent',
-  'opencode',
-  'codex',
-  'claude-code',
-  'goose',
-  'kimi-code',
-  'pi',
-]);
 export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_OPENCODE_IMAGE,
@@ -477,6 +459,16 @@ export interface AgentLogsTokenResponse {
   token: string;
   expires_at?: string | null;
   ws_url?: string;
+}
+
+/**
+ * Minted by POST /agents/{id}/acp-ws-token: a very short-lived (~60s),
+ * agent-scoped ES256 ticket the backend ACP session proxy (`/ws/acp`) accepts
+ * on the `token` query param in place of a raw API key or app JWT.
+ */
+export interface AgentAcpWsTokenResponse {
+  token: string;
+  expires_at: string;
 }
 
 /**
@@ -1185,12 +1177,6 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
   buzzActivity?: boolean;
 }
 
-/** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('openclaw' | 'openclaw-pro', options)`. */
-export type OpenClawCreateAgentOptions = Omit<ManagedAgentCreateOptions, 'config'>;
-
-/** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent('hermes-agent', options)`. */
-export type HermesAgentCreateOptions = ManagedAgentCreateOptions;
-
 /** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
 export type PermissionMode =
   | 'default'
@@ -1788,14 +1774,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isOpenClawRuntime(
-  runtime: string | null | undefined,
-  routes: unknown = null,
-): boolean {
-  if (runtime === 'openclaw' || runtime === 'openclaw-pro' || runtime === 'openclaw_acp') return true;
-  return !!(routes && typeof routes === 'object' && !Array.isArray(routes)
-    && (routes as Record<string, unknown>).openclaw);
-}
+
 
 
 
@@ -1931,15 +1910,6 @@ export function buildBrowserDesktopUrl(
   url.searchParams.set('jwt', jwt);
   url.searchParams.set('redirect', browserDesktopRedirectPath(options));
   return url.toString();
-}
-
-function isOpenClawProLaunchConfig(launchConfig: unknown): boolean {
-  if (!launchConfig || typeof launchConfig !== 'object' || Array.isArray(launchConfig)) return false;
-  if (launchConfigHasDesktop(launchConfig)) {
-    return true;
-  }
-  const image = String((launchConfig as { image?: unknown }).image ?? '');
-  return image.includes('hypercli-openclaw:pro') || image.endsWith('-pro');
 }
 
 function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListing {
@@ -2123,6 +2093,15 @@ function validateDeploymentEventToken(value: unknown): { token: string; ws_url: 
     throw invalid();
   }
   return { token: value.token, ws_url: value.ws_url };
+}
+
+function validateAgentAcpWsToken(value: unknown): AgentAcpWsTokenResponse {
+  const invalid = () => new Error('Backend returned an invalid Agent ACP WS token response');
+  if (!isPlainRecord(value)) throw invalid();
+  if (!ownKeysEqual(value, ['expires_at', 'token'])) throw invalid();
+  if (typeof value.token !== 'string' || !value.token) throw invalid();
+  if (typeof value.expires_at !== 'string' || !value.expires_at) throw invalid();
+  return value as unknown as AgentAcpWsTokenResponse;
 }
 
 function validateAgentLogsToken(value: unknown): AgentLogsTokenResponse {
@@ -2407,37 +2386,6 @@ function buildAgentCreateConfig(
   if (complete.docker) prepared.docker = complete.docker;
   if (complete.executor !== undefined) prepared.executor = complete.executor;
   return prepared;
-}
-
-function defaultOpenClawImage(
-  runtime: string,
-  image: string | null | undefined,
-): string {
-  if (image !== undefined && image !== null) return image;
-  return runtime === 'openclaw-pro' ? DEFAULT_OPENCLAW_PRO_IMAGE : DEFAULT_OPENCLAW_IMAGE;
-}
-
-function defaultHermesAgentImage(image: string | null | undefined): string {
-  if (image !== undefined && image !== null) return image;
-  return DEFAULT_HERMES_AGENT_IMAGE;
-}
-
-function prepareOpenClawLaunch(
-  options: OpenClawCreateAgentOptions,
-): {
-  env: Record<string, string>;
-  secrets: Record<string, string>;
-} {
-  const env = { ...(options.env ?? {}) };
-  rejectOpenClawSecretOnlyEnv(env);
-  const secrets = { ...(options.secrets ?? {}) };
-  // OpenClaw treats this env as a full replace for
-  // gateway.controlUi.allowedOrigins, and every HyperCLI surface (desktop,
-  // console) drives the control UI from dynamic origins. The only value that
-  // lands reliably is the wildcard — always write it.
-  env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = '*';
-  Object.assign(env, buildOpenClawTrustedProxiesEnv(options.trustedProxies));
-  return { env, secrets };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -2868,19 +2816,12 @@ export class Agent {
   }
 
   /**
-   * ACP-capable gating, mirroring the old hydration class choice: a labeled
-   * runtime must front hyper-acp (HYPER_ACP_RUNTIMES); legacy payloads without
-   * a runtime label pass the structural openclaw / openclaw-pro detection the
-   * hydration gating used. Anything else has no ACP bridge to dial.
+   * Every non-generic labeled runtime fronts hyper-acp; `generic` (and
+   * unlabeled legacy payloads) have no ACP bridge to dial.
    */
   protected requireAcpCapable(): void {
     const runtime = this.runtime;
-    if (runtime !== null && (HYPER_ACP_RUNTIMES as ReadonlySet<string>).has(runtime)) return;
-    if (
-      isOpenClawRuntime(runtime, this.routes)
-      || isOpenClawRuntime(null, this.launchConfig?.routes)
-      || isOpenClawProLaunchConfig(this.launchConfig)
-    ) return;
+    if (runtime !== null && runtime !== 'generic') return;
     throw new Error(
       `Agent runtime '${runtime ?? 'generic'}' does not front hyper-acp; ` +
       'the ACP surface (acpConnect, acpPool, acpTurnDriver) is available on ACP-capable runtimes only',
@@ -2921,6 +2862,10 @@ export class Agent {
    * min of the offer and the leg's version). The `cwd` default is the agent
    * workspace root (the launch's sync root, `/home/node` for coding-agent
    * runtimes, `/home/hermes` for hermes-agent).
+   *
+   * Auth: the dial carries the client API key on the `token` query param;
+   * pass `options.token` (e.g. from `Deployments.mintAcpWsToken`) to dial
+   * with a short-lived, agent-scoped ticket instead.
    */
   async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
     this.requireAcpCapable();
@@ -2938,7 +2883,7 @@ export class Agent {
         : defaultAcpProxyWsUrl(deployments.agentApiBase),
     );
     url.searchParams.set('agent_id', this.id);
-    url.searchParams.set('token', deployments.agentApiKey);
+    url.searchParams.set('token', options.token ?? deployments.agentApiKey);
     if (options.sessionId) url.searchParams.set('session_id', options.sessionId);
     const syncRoot = this.launchConfig?.sync_root;
     return CodingAgentAcpClient.connect(
@@ -3481,7 +3426,136 @@ export class RuntimeAuthClient {
 }
 
 /**
- * Every managed runtime — openclaw, openclaw-pro, hermes-agent, and the
+ * One canonical ACP launch path; per-family differences are data. `generic`
+ * is absent by design — it launches raw through {@link Deployments.create}.
+ */
+interface AcpRuntimeRow {
+  image: string;
+  syncRoot: string;
+  syncUid: number;
+  syncGid: number;
+  /** Static env defaults applied before caller env (caller wins). */
+  env?: Record<string, string>;
+  /** Cron env builder for this family, driven by options.cronEnabled. */
+  cronEnv?: (enabled: boolean | null) => Record<string, string>;
+  /** Default sync_exclude when the caller passes neither sync policy key. */
+  syncExclude?: readonly string[];
+  /** HYPER_WORKSPACES_* env (paths are /home/node-shaped; never hermes). */
+  workspacesSyncEnv?: boolean;
+  /** HYPER_ACP_PERMISSIONS/permission-mode env (coding harnesses). */
+  permissionEnv?: boolean;
+  /** Coding-harness runtimes: BUZZ key promotion, buzz launch, default command. */
+  codingHarness?: boolean;
+  /** Strip the generic `config` bag from the create payload (openclaw family). */
+  stripConfigBag?: boolean;
+  /** Control-UI wildcard origin + trusted-proxies env (openclaw family). */
+  openclawControlUi?: boolean;
+  /** Memory-index env knobs (openclaw family). */
+  openclawMemoryIndex?: boolean;
+  /** HYPER_DESKTOP_ENABLED=1 + default desktop route (openclaw-pro). */
+  desktop?: boolean;
+  /** Best-effort file deletes on resetRuntimeDefaults. */
+  resetFiles?: readonly string[];
+}
+const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
+  image: DEFAULT_OPENCLAW_IMAGE,
+  syncRoot: DEFAULT_OPENCLAW_SYNC_ROOT,
+  syncUid: 1000,
+  syncGid: 1000,
+  env: DEFAULT_OPENCLAW_MODEL_ENV,
+  cronEnv: buildOpenClawCronEnv,
+  syncExclude: DEFAULT_OPENCLAW_SYNC_EXCLUDE,
+  workspacesSyncEnv: true,
+  stripConfigBag: true,
+  openclawControlUi: true,
+  openclawMemoryIndex: true,
+  resetFiles: ['.openclaw/openclaw.json'],
+};
+const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRuntimeRow> = {
+  openclaw_acp: OPENCLAW_ACP_ROW,
+  'openclaw-pro': {
+    ...OPENCLAW_ACP_ROW,
+    image: DEFAULT_OPENCLAW_PRO_IMAGE,
+    desktop: true,
+  },
+  hermes_acp: {
+    image: DEFAULT_HERMES_AGENT_IMAGE,
+    syncRoot: DEFAULT_HERMES_AGENT_SYNC_ROOT,
+    syncUid: DEFAULT_HERMES_AGENT_SYNC_UID,
+    syncGid: DEFAULT_HERMES_AGENT_SYNC_GID,
+    env: DEFAULT_HERMES_MODEL_ENV,
+    cronEnv: buildHermesCronEnv,
+    syncExclude: DEFAULT_HERMES_AGENT_SYNC_EXCLUDE,
+    resetFiles: ['.hermes/config.yaml', '.hermes/mem0.json'],
+  },
+  'buzz-agent': {
+    image: DEFAULT_BUZZ_AGENT_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  opencode: {
+    image: DEFAULT_OPENCODE_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  codex: {
+    image: DEFAULT_CODEX_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  'claude-code': {
+    image: DEFAULT_CLAUDE_CODE_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  goose: {
+    image: DEFAULT_GOOSE_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  'kimi-code': {
+    image: DEFAULT_KIMI_CODE_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+  pi: {
+    image: DEFAULT_PI_IMAGE,
+    syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
+    syncUid: 1000,
+    syncGid: 1000,
+    env: DEFAULT_PI_ENV,
+    workspacesSyncEnv: true,
+    permissionEnv: true,
+    codingHarness: true,
+  },
+};
+
+/**
+ * Every managed runtime — openclaw_acp, openclaw-pro, hermes_acp, and the
  * coding-agent runtimes — boots its pod behind `hyper-acp`, so chat,
  * sessions, runtime auth, and turn driving all ride the same ACP bridge; the
  * runtimes differ only in the `runtime` label plus launch-config data
@@ -3726,118 +3800,17 @@ export class Deployments {
   /**
    * Create a managed agent for a runtime in one call.
    *
-   * `runtime` selects the per-runtime launch defaults (image, sync root and
+   * `runtime` selects the launch defaults (image, sync root and
    * include/exclude presets, uid/gid, env presets, routes, boot command) from
-   * the SDK's data tables; `options` folds the old per-runtime facade option
-   * types — each runtime family reads the knobs it understands and ignores
-   * the rest. `create()` stays the raw generic entry; `createAgent` is the
-   * typed one.
-   *
-   * - openclaw/openclaw-pro: OpenClaw ACP launch; pro adds the
-   *   desktop route + leg.
-   * - hermes-agent: Hermes ACP launch with the hermes image, sync-root, and cron defaults.
-   * - buzz-agent/opencode/codex/claude-code/goose/kimi-code/pi: the shared
-   *   ACP coding-agent launch contract; `buzz` switches to the Buzz launch.
+   * the ACP_RUNTIME_TABLE data table; `options` folds the old per-runtime
+   * facade option types — each runtime reads the knobs it understands and
+   * ignores the rest. `create()` stays the raw generic entry; `createAgent`
+   * is the typed one. Every non-generic runtime boots behind hyper-acp;
+   * `buzz` switches to the Buzz launch (coding runtimes only).
    */
   async createAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions = {}): Promise<Agent> {
     if (runtime === 'generic') return this.create(options);
-    if (runtime === 'openclaw' || runtime === 'openclaw-pro' || runtime === 'openclaw_acp') {
-      return this.createOpenClawAgent(runtime, options);
-    }
-    if (runtime === 'hermes-agent' || runtime === 'hermes_acp') {
-      return this.createHermesAgentDeployment(runtime, options);
-    }
-    return this.createCodingAgentDeployment(runtime, options);
-  }
-
-  /**
-   * Create a hosted OpenClaw Agent.
-   *
-   * @deprecated Use {@link Deployments.createAgent} with 'openclaw' or
-   * 'openclaw-pro'.
-   */
-  async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    // The old facade read its label from options.runtime (default 'openclaw');
-    // delegating keeps that precedence: an explicit label wins, the same as
-    // createAgent's first argument.
-    return this.createAgent(options.runtime ?? 'openclaw', options);
-  }
-
-  private async createOpenClawAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions): Promise<Agent> {
-    const prepared = prepareOpenClawLaunch(options);
-    const pro = runtime === 'openclaw-pro';
-    const effectiveOptions: CreateAgentOptions = {
-      ...options,
-      runtime,
-      secrets: prepared.secrets,
-    };
-    delete (effectiveOptions as { config?: unknown }).config;
-    effectiveOptions.env = {
-      // openclaw-pro is the same launch shape with the desktop leg on.
-      ...(pro ? { HYPER_DESKTOP_ENABLED: '1' } : null),
-      ...buildWorkspacesSyncEnv(options.workspacesSync ?? null),
-      ...buildOpenClawCronEnv(options.cronEnabled ?? null),
-      ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
-      ...DEFAULT_OPENCLAW_MODEL_ENV,
-      ...prepared.env,
-    };
-    const openClawRoutes: OpenClawRouteOptions = pro
-      ? { includeDesktop: true, ...(options.openClawRoutes ?? {}) }
-      : (options.openClawRoutes ?? {});
-    effectiveOptions.routes = options.routes === undefined
-      ? (openClawRoutes.includeDesktop ? buildOpenClawDesktopRoute(openClawRoutes) : {})
-      : options.routes;
-    effectiveOptions.image = defaultOpenClawImage(runtime, options.image);
-    if (pro && options.runtimeScopes === undefined) {
-      effectiveOptions.runtimeScopes = DEFAULT_AGENT_RUNTIME_SCOPES;
-    }
-    if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
-    if (options.syncInclude === undefined && options.syncExclude === undefined) {
-      effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
-    }
-    return this.create(effectiveOptions);
-  }
-
-  /**
-   * @deprecated Use {@link Deployments.createAgent} with 'hermes-agent'; the
-   * folded entry takes the same options bag.
-   */
-  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<Agent> {
-    // The old facade always launched 'hermes-agent', ignoring options.runtime;
-    // the delegation now honors an explicit 'hermes_acp' relabel instead.
-    return this.createAgent(options.runtime ?? 'hermes-agent', options);
-  }
-
-  private async createHermesAgentDeployment(
-    runtime: 'hermes-agent' | 'hermes_acp',
-    options: ManagedAgentCreateOptions,
-  ): Promise<Agent> {
-    const env: Record<string, string> = {
-      ...buildHermesCronEnv(options.cronEnabled ?? null),
-      ...DEFAULT_HERMES_MODEL_ENV,
-      ...(options.env ?? {}),
-    };
-    const effectiveOptions: CreateAgentOptions = {
-      ...options,
-      runtime,
-      env,
-      secrets: options.secrets,
-      cors: options.cors,
-      image: defaultHermesAgentImage(options.image),
-      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
-      syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncExclude: options.syncInclude === undefined && options.syncExclude === undefined
-        ? [...DEFAULT_HERMES_AGENT_SYNC_EXCLUDE]
-        : options.syncExclude,
-      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
-      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
-      routes: options.routes,
-    };
-    const agent = await this.create(effectiveOptions);
-    if (agent.runtime !== 'hermes-agent' && agent.runtime !== 'hermes_acp') {
-      throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
-    }
-    return agent;
+    return this.createAcpAgentDeployment(runtime, options);
   }
 
   /**
@@ -3855,54 +3828,79 @@ export class Deployments {
     return this.createAgent(runtime, options);
   }
 
-  private async createCodingAgentDeployment(
-    runtime: CodingAgentRuntime,
+  /**
+   * The one canonical ACP launch path: every non-generic runtime launches
+   * through here, with per-family differences read from ACP_RUNTIME_TABLE.
+   */
+  private async createAcpAgentDeployment(
+    runtime: Exclude<ManagedAgentRuntime, 'generic'>,
     options: ManagedAgentCreateOptions,
   ): Promise<Agent> {
+    const family = ACP_RUNTIME_TABLE[runtime];
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
     }
     if ((options.buzzEnabled || options.buzz) && options.command !== undefined && options.command !== null) {
       throw new Error('Buzz launch cannot be combined with an explicit command');
     }
+    if ((options.buzzEnabled || options.buzz) && !family.codingHarness) {
+      throw new Error(`Buzz launch is supported on coding-agent runtimes only, not '${runtime}'`);
+    }
     const buzzLaunch = options.buzzEnabled || options.buzz !== undefined && options.buzz !== null;
     if (buzzLaunch && options.size !== undefined && options.size !== 'large' && options.size !== 'medium') {
       throw new Error("Buzz coding agents require size='large' or 'medium'");
     }
+    rejectOpenClawSecretOnlyEnv({ ...(options.env ?? {}) });
     const effectiveEnv: Record<string, string> = {
-      ...buildWorkspacesSyncEnv(options.workspacesSync ?? null),
-      ...(runtime === 'pi' ? DEFAULT_PI_ENV : null),
+      // openclaw-pro's desktop leg is the same launch shape with the flag on.
+      ...(family.desktop ? { HYPER_DESKTOP_ENABLED: '1' } : null),
+      ...(family.workspacesSyncEnv ? buildWorkspacesSyncEnv(options.workspacesSync ?? null) : null),
+      ...(family.cronEnv ? family.cronEnv(options.cronEnabled ?? null) : null),
+      ...(family.openclawMemoryIndex ? buildOpenClawMemoryIndexEnv(options.memoryIndex) : null),
+      ...(family.env ?? null),
       ...(options.env ?? {}),
     };
-    effectiveEnv.HYPER_ACP_PERMISSIONS ??= buildPermissionsJson(options.permissionMode ?? 'default');
-    if (options.permissionMode !== undefined) {
-      // Transition: legacy hyper-acp builds only read the mode var, so keep
-      // emitting it alongside the JSON when the caller chose a mode. A
-      // caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
-      effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= options.permissionMode;
+    if (family.openclawControlUi) {
+      // OpenClaw treats this env as a full replace for
+      // gateway.controlUi.allowedOrigins, and every HyperCLI surface (desktop,
+      // console) drives the control UI from dynamic origins. The only value
+      // that lands reliably is the wildcard — always write it.
+      effectiveEnv.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = '*';
+      Object.assign(effectiveEnv, buildOpenClawTrustedProxiesEnv(options.trustedProxies));
+    }
+    if (family.permissionEnv) {
+      effectiveEnv.HYPER_ACP_PERMISSIONS ??= buildPermissionsJson(options.permissionMode ?? 'default');
+      if (options.permissionMode !== undefined) {
+        // Transition: legacy hyper-acp builds only read the mode var, so keep
+        // emitting it alongside the JSON when the caller chose a mode. A
+        // caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
+        effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= options.permissionMode;
+      }
     }
     const effectiveSecrets: Record<string, string> = { ...(options.secrets ?? {}) };
-    for (const key of ['BUZZ_PRIVATE_KEY', 'NOSTR_PRIVATE_KEY']) {
-      const value = effectiveEnv[key];
-      if (value === undefined) continue;
-      delete effectiveEnv[key];
-      if (effectiveSecrets[key] !== undefined && effectiveSecrets[key] !== value) {
-        throw new Error(`${key} conflicts between env and secrets`);
+    if (family.codingHarness) {
+      for (const key of ['BUZZ_PRIVATE_KEY', 'NOSTR_PRIVATE_KEY']) {
+        const value = effectiveEnv[key];
+        if (value === undefined) continue;
+        delete effectiveEnv[key];
+        if (effectiveSecrets[key] !== undefined && effectiveSecrets[key] !== value) {
+          throw new Error(`${key} conflicts between env and secrets`);
+        }
+        effectiveSecrets[key] = value;
       }
-      effectiveSecrets[key] = value;
     }
     if (options.buzz) {
       for (const key of BUZZ_RESERVED_ENV_KEYS) delete effectiveEnv[key];
       Object.assign(
         effectiveEnv,
-        buildBuzzLaunchEnv(runtime, options.buzz, options.name),
+        buildBuzzLaunchEnv(runtime as CodingAgentRuntime, options.buzz, options.name),
       );
       Object.assign(effectiveSecrets, buildBuzzLaunchSecrets(options.buzz));
     }
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
-    const resolvedImage = options.image ?? DEFAULT_CODING_AGENT_IMAGES[runtime];
+    const resolvedImage = options.image ?? family.image;
     if (buzzLaunch) {
       for (const key of [
         'HYPER_ACP_WS_LISTEN',
@@ -3931,33 +3929,43 @@ export class Deployments {
     } else if (options.syncInclude === null) {
       syncInclude = undefined;
       syncExclude = undefined;
-    } else {
-      const defaultInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime];
+    } else if (family.codingHarness) {
+      // Read live: tests and embedders may retarget the include presets.
+      const defaultInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime as CodingAgentRuntime];
       syncInclude = defaultInclude ?? undefined;
       syncExclude = defaultInclude === null ? [] : undefined;
+    } else if (family.syncExclude) {
+      syncExclude = [...family.syncExclude];
     }
+    const defaultRoutes = family.desktop
+      ? buildOpenClawDesktopRoute({ includeDesktop: true, ...(options.openClawRoutes ?? {}) })
+      : (options.openClawRoutes?.includeDesktop ? buildOpenClawDesktopRoute(options.openClawRoutes) : {});
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
       size: buzzLaunch ? (options.size ?? 'large') : options.size,
       env: effectiveEnv,
       secrets: effectiveSecrets,
-      routes: buzzLaunch ? {} : options.routes ?? {},
+      routes: buzzLaunch ? {} : options.routes ?? defaultRoutes,
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
         ? ['/usr/local/bin/hyper-acp', 'plugin', 'buzz']
-        // Plain ACP launches use the image's hyper-acp binary.
-        : options.command ?? ['/usr/local/bin/hyper-acp'],
-      syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
+        // Plain ACP launches use the image's hyper-acp binary; openclaw/
+        // hermes images already CMD hyper-acp, so no explicit command is set.
+        : options.command ?? (family.codingHarness ? ['/usr/local/bin/hyper-acp'] : undefined),
+      syncRoot: options.syncRoot ?? family.syncRoot,
       syncInclude,
       syncExclude,
-      syncUid: options.syncUid ?? 1000,
-      syncGid: options.syncGid ?? 1000,
+      syncUid: options.syncUid ?? family.syncUid,
+      syncGid: options.syncGid ?? family.syncGid,
       // Hosted Buzz shutdown is process-driven; generic launch options cannot
       // opt it back into automatic restart.
       restart: buzzLaunch ? false : options.restart,
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
+    if (family.stripConfigBag) {
+      delete (effectiveOptions as { config?: unknown }).config;
+    }
     const agent = await this.create(effectiveOptions);
     if (agent.runtime !== runtime) {
       throw new Error(`Deployment response did not identify runtime '${runtime}'`);
@@ -4614,12 +4622,12 @@ export class Deployments {
       },
     );
     const droppedLaunchKeys = droppedLaunchConfigKeys(resetData);
-    if (options.runtime === 'openclaw' || options.runtime === 'openclaw-pro' || options.runtime === 'openclaw_acp') {
+    const family = options.runtime === 'generic' ? undefined : ACP_RUNTIME_TABLE[options.runtime];
+    if (family?.openclawControlUi) {
       await this.setEnv(agentId, 'OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
-      await this.fileDelete(agentId, '.openclaw/openclaw.json').catch(() => undefined);
-    } else if (options.runtime === 'hermes-agent' || options.runtime === 'hermes_acp') {
-      await this.fileDelete(agentId, '.hermes/config.yaml').catch(() => undefined);
-      await this.fileDelete(agentId, '.hermes/mem0.json').catch(() => undefined);
+    }
+    for (const file of family?.resetFiles ?? []) {
+      await this.fileDelete(agentId, file).catch(() => undefined);
     }
     return { agent: await this.get(agentId), droppedLaunchKeys };
   }
@@ -4867,6 +4875,20 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     return validateAgentLogsToken(await this.agentHttp.post<AgentLogsTokenResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`,
+    ));
+  }
+
+  /**
+   * Mint a very short-lived (~60s), agent-scoped ticket for the ACP session
+   * proxy (`/ws/acp`). Pass the returned `token` as
+   * `acpConnect({ token })` to dial without exposing the raw API key; raw
+   * API-key/JWT credentials remain accepted by the proxy for server-side and
+   * Node consumers.
+   */
+  async mintAcpWsToken(agentIdOrName: string): Promise<AgentAcpWsTokenResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return validateAgentAcpWsToken(await this.agentHttp.post<AgentAcpWsTokenResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/acp-ws-token`,
     ));
   }
 

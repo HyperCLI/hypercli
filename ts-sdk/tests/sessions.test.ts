@@ -30,16 +30,12 @@ const sessionRow = {
       participant_id: AGENT_ID,
       internal_session_id: 'claude-session-9f2e',
       cursor_pos: 14,
-      turn_state: 'idle',
-      current_turn_id: null,
     },
     {
       kind: 'user',
       participant_id: USER_ID,
       internal_session_id: null,
       cursor_pos: 14,
-      turn_state: null,
-      current_turn_id: null,
     },
   ],
 };
@@ -79,16 +75,12 @@ describe('SessionsAPI (§15)', () => {
           participantId: AGENT_ID,
           internalSessionId: 'claude-session-9f2e',
           cursorPos: 14,
-          turnState: 'idle',
-          currentTurnId: null,
         },
         {
           kind: 'user',
           participantId: USER_ID,
           internalSessionId: null,
           cursorPos: 14,
-          turnState: null,
-          currentTurnId: null,
         },
       ],
     });
@@ -151,7 +143,7 @@ describe('SessionsAPI (§15)', () => {
           id: 's',
           summaryText: 't',
           summaryKeywords: 'oops-not-an-array',
-          members: [{ kind: 'agent', participantId: 'p', cursorPos: 3, turnState: 'walking' }],
+          members: [{ kind: 'agent', participantId: 'p', cursorPos: 3 }],
         },
       ],
       nextCursor: 'c',
@@ -170,8 +162,6 @@ describe('SessionsAPI (§15)', () => {
         participantId: 'p',
         internalSessionId: null,
         cursorPos: 3,
-        turnState: null,
-        currentTurnId: null,
       },
     ]);
   });
