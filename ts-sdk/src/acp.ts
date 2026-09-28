@@ -83,20 +83,21 @@ export const ACP_TURN_STARTED_METHOD = '_hypercli.dev/turn_started';
 export const ACP_TURN_ENDED_METHOD = '_hypercli.dev/turn_ended';
 
 /**
- * Read-ack contract (sessions/README §15 — explicit acks). The backend ACP
- * proxy annotates every persisted-and-teed frame with its durable store seq
- * under `params._meta[ACP_READ_ACK_META_KEY].seq`. A client batch-acks the
- * highest seq it has consumed via the `_hypercli.dev/session_read_ack`
- * REQUEST (one per N messages, not per frame); the proxy advances the
- * caller's user-member cursor under the session row lock with GREATEST
- * semantics, so acks are at-least-once safe and stale acks are absorbed. The
- * response resolves only after the store commit — it IS the durability ack
- * for the read receipt. Acks beyond the persisted head are rejected (you can
- * only ack what the store wrote); a delivery gap is visible as a seq jump
- * and is recoverable with a keyset re-read (`after_seq = cursor`).
+ * Seq-annotation contract (sessions/README §15). The backend ACP proxy
+ * annotates every persisted-and-teed frame with its durable store seq under
+ * `params._meta[ACP_SEQ_META_KEY].seq`; a forward jump is delivery-gap
+ * evidence the consumer recovers with a keyset re-read over the REST history
+ * endpoint (`after_seq` = the last seq actually seen).
+ *
+ * USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the REST history read
+ * advances the caller's participant cursor — there is NO client→proxy
+ * read-ack frame, and this client emits none. (Earlier versions sent a
+ * `_hypercli.dev/session_read_ack` request and treated its response as a
+ * durability ack: the proxy never handled that frame — it leg-passthrough'd
+ * it to the pod, which moved no cursor, so the "confirmed" receipt was a
+ * silent no-op lie. The proxy now pins the retired frame at dispatch.)
  */
-export const ACP_READ_ACK_METHOD = '_hypercli.dev/session_read_ack';
-export const ACP_READ_ACK_META_KEY = 'hypercli.dev';
+export const ACP_SEQ_META_KEY = 'hypercli.dev';
 
 /** JSON-RPC request id of a `session/prompt`, used to key a turn. */
 export type CodingAgentAcpTurnId = string | number;
@@ -190,37 +191,16 @@ export class CodingAgentAcpReplayGapError extends Error {
 }
 
 /**
- * Soft error delivered via `onError` when an automatic read ack fails (e.g.
- * the socket dropped mid-ack). The receipt is NOT durable; the client retries
- * on the next delivered frame or an explicit `ackSessionRead` call.
+ * Per-session seq-delivery position tracked by {@link CodingAgentAcpClient}.
+ * Pure delivery evidence from the store-seq `_meta` annotation — NOT a read
+ * receipt (read cursors are backend-owned; the REST history read advances
+ * them).
  */
-export class CodingAgentAcpReadAckError extends Error {
-  public readonly sessionId: string;
-  public readonly seq: number;
-  constructor(sessionId: string, seq: number, detail: string, options: { cause?: unknown } = {}) {
-    super(
-      `read_ack: ACP session ${sessionId} read receipt for seq ${seq} was not persisted: ${detail}`,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
-    this.name = 'CodingAgentAcpReadAckError';
-    this.sessionId = sessionId;
-    this.seq = seq;
-  }
-}
-
-/** Per-session read-ack position tracked by {@link CodingAgentAcpClient}. */
-export interface CodingAgentAcpReadAckState {
-  /** Highest persisted seq seen on a delivered frame (0 = none seen). */
+export interface CodingAgentAcpSeqDeliveryState {
+  /** Highest persisted seq seen on a delivered annotated frame (0 = none seen). */
   latestSeq: number;
-  /** Highest seq the proxy has durably confirmed for this client. */
-  ackedSeq: number;
   /** Number of forward seq jumps observed (missed-frame evidence). */
   gaps: number;
-}
-
-interface ReadAckTracking extends CodingAgentAcpReadAckState {
-  /** An ack request is currently in flight for this session. */
-  inFlight: boolean;
 }
 
 export interface CodingAgentAcpConnectOptions {
@@ -276,15 +256,6 @@ export interface CodingAgentAcpConnectOptions {
   onWriteTextFile?: (
     params: acp.WriteTextFileRequest,
   ) => acp.MaybePromise<acp.WriteTextFileResponse | void>;
-  /**
-   * Batch read receipts (§15 ack contract): when set, the client sends one
-   * `_hypercli.dev/session_read_ack` request whenever the highest delivered
-   * store seq outruns the last durably acked seq by at least this many
-   * messages. Omit to ack only via explicit {@link CodingAgentAcpClient.ackSessionRead}
-   * calls. Frames the proxy never annotated (direct-bridge connections) never
-   * trigger an ack.
-   */
-  readAckEvery?: number;
   /** Soft errors (replay gaps); the client stays alive. */
   onError?: (error: Error) => void;
   /** Terminal close: reconnect budget exhausted or a terminal bridge close code. */
@@ -350,8 +321,8 @@ export class CodingAgentAcpClient {
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   /** In-memory only: sessionId → latest epoch + in-flight load count. */
   private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
-  /** Read-ack position per session; ackedSeq mirrors the proxy-side cursor. */
-  private readonly readAckStates = new Map<string, ReadAckTracking>();
+  /** Seq-delivery position per session (from the `_meta` annotation). */
+  private readonly seqDeliveryStates = new Map<string, CodingAgentAcpSeqDeliveryState>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
@@ -758,38 +729,20 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Snapshot of the read-ack position for a session (§15 ack contract).
-   * `latestSeq` is what the proxy delivered with a store-seq annotation,
-   * `ackedSeq` what it durably confirmed. Zeros for sessions that never saw
-   * an annotated frame (e.g. direct-bridge connections).
+   * Snapshot of the seq-delivery position for a session (§15 annotation).
+   * `latestSeq` is the highest store seq the proxy annotated on a delivered
+   * tee frame, `gaps` the count of forward jumps (missed-frame evidence —
+   * refill with a `SessionsAPI.messages` keyset re-read from the last seen
+   * seq). Zeros for sessions that never saw an annotated frame (e.g.
+   * direct-bridge connections). Not a read receipt: user read cursors are
+   * backend-owned and advance on the REST history read.
    */
-  readAckState(sessionId: string): CodingAgentAcpReadAckState {
-    const state = this.readAckStates.get(sessionId);
+  seqDeliveryState(sessionId: string): CodingAgentAcpSeqDeliveryState {
+    const state = this.seqDeliveryStates.get(sessionId);
     return {
       latestSeq: state?.latestSeq ?? 0,
-      ackedSeq: state?.ackedSeq ?? 0,
       gaps: state?.gaps ?? 0,
     };
-  }
-
-  /**
-   * Durably advance this client's read cursor for a session. `seq` defaults
-   * to the highest delivered annotated seq; a client with nothing delivered
-   * resolves to 0 without touching the wire. Resolves with the proxy's
-   * confirmed cursor (GREATEST — a stale explicit ack never regresses it).
-   * Rejects when the proxy rejects the ack (e.g. seq beyond the persisted
-   * head) or the connection is down.
-   */
-  async ackSessionRead(sessionId: string, seq?: number): Promise<number> {
-    const target = seq ?? this.readAckStates.get(sessionId)?.latestSeq ?? 0;
-    if (!Number.isInteger(target) || target < 1) return 0;
-    const result = await this.requireContext().request<{ cursor?: unknown }>(ACP_READ_ACK_METHOD, {
-      sessionId,
-      seq: target,
-    });
-    const cursor = typeof result?.cursor === 'number' && Number.isInteger(result.cursor) ? result.cursor : target;
-    this.noteReadAcked(sessionId, cursor);
-    return cursor;
   }
 
   close(): void {
@@ -799,7 +752,7 @@ export class CodingAgentAcpClient {
     this.turnListeners.clear();
     this.replayListeners.clear();
     this.closeListeners.clear();
-    this.readAckStates.clear();
+    this.seqDeliveryStates.clear();
     this.permissionHandler = null;
     this.generation += 1;
     this.options.signal?.removeEventListener('abort', this.onAbort);
@@ -883,11 +836,11 @@ export class CodingAgentAcpClient {
       return { outcome: { outcome: 'cancelled' as const } };
     });
     app.onNotification(acp.methods.client.session.update, (context) => {
-      // Seq annotation (§15 ack contract): persisted proxy-tee'd frames carry
-      // their store seq under _meta; the value drives batch read acks and gap
-      // detection. Unannotated frames (direct bridge) leave tracking alone.
+      // Seq annotation (§15): persisted proxy-tee'd frames carry their store
+      // seq under _meta; the value drives gap detection (refill via a history
+      // re-read). Unannotated frames (direct bridge) leave tracking alone.
       const meta = (context.params as { _meta?: Record<string, unknown> | null })._meta;
-      const vendor = meta?.[ACP_READ_ACK_META_KEY];
+      const vendor = meta?.[ACP_SEQ_META_KEY];
       const seq = vendor && typeof vendor === 'object' ? (vendor as Record<string, unknown>).seq : undefined;
       this.noteDeliveredSeq(
         context.params.sessionId,
@@ -1230,55 +1183,20 @@ export class CodingAgentAcpClient {
 
   /**
    * Record one delivered annotated frame. A forward jump (a frame whose seq
-   * is not latestSeq+1) means frames were lost on the tee — the cursor batch
-   * ack still advances, and a consumer that needs the hole refilled re-reads
-   * with `after_seq = ackedSeq`. Stale/duplicate deliveries are ignored.
+   * is not latestSeq+1) means frames were lost on the tee — a consumer that
+   * needs the hole refilled re-reads history from the last seen seq.
+   * Stale/duplicate deliveries are ignored.
    */
   private noteDeliveredSeq(sessionId: string, seq: number | null): void {
     if (seq === null) return;
-    let state = this.readAckStates.get(sessionId);
+    let state = this.seqDeliveryStates.get(sessionId);
     if (!state) {
-      state = { latestSeq: 0, ackedSeq: 0, gaps: 0, inFlight: false };
-      this.readAckStates.set(sessionId, state);
+      state = { latestSeq: 0, gaps: 0 };
+      this.seqDeliveryStates.set(sessionId, state);
     }
     if (seq <= state.latestSeq) return;
     if (state.latestSeq > 0 && seq > state.latestSeq + 1) state.gaps += 1;
     state.latestSeq = seq;
-    this.maybeAutoAck(sessionId, state);
-  }
-
-  private noteReadAcked(sessionId: string, cursor: number): void {
-    const state = this.readAckStates.get(sessionId);
-    if (!state) return;
-    state.ackedSeq = Math.max(state.ackedSeq, cursor);
-    state.inFlight = false;
-    this.maybeAutoAck(sessionId, state);
-  }
-
-  /**
-   * Batch-ack trigger: one in-flight ack per session, fired when the
-   * uncontested window (`latestSeq − ackedSeq`) reaches `readAckEvery`.
-   * Failures surface as soft {@link CodingAgentAcpReadAckError}s and leave
-   * ackedSeq alone — the next delivered frame (or explicit ack) retries.
-   */
-  private maybeAutoAck(sessionId: string, state: ReadAckTracking): void {
-    const every = this.options.readAckEvery;
-    if (every === undefined || every < 1 || state.inFlight || this.closedFlag) return;
-    if (state.latestSeq - state.ackedSeq < every) return;
-    const target = state.latestSeq;
-    state.inFlight = true;
-    this.ackSessionRead(sessionId, target).catch((error: unknown) => {
-      const current = this.readAckStates.get(sessionId);
-      if (current) current.inFlight = false;
-      this.softError(
-        new CodingAgentAcpReadAckError(
-          sessionId,
-          target,
-          error instanceof Error ? error.message : 'read ack rejected or connection down',
-          { cause: error },
-        ),
-      );
-    });
   }
 
   private requireConnection(): acp.ClientConnection {
