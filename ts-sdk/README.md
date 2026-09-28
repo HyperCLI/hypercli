@@ -168,9 +168,10 @@ Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the
 Cloudflare edge request-body cap on the agent hostname); split larger data
 across files or sync it via the agent's own tooling. File
 paths are relative to `syncRoot`, and `filesList("")` lists the complete root, including
-dot-directories. The OpenClaw helpers always ensure the canonical `openclaw`
-gateway route (`prefix: ""`, `port: 18789`, `auth: false`) and add concrete
-image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by default.
+dot-directories. The OpenClaw helpers add concrete
+image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by default;
+there is no public `openclaw` route (the pod gateway binds loopback with auth
+mode `none` as an ACP hop only; pro adds the protected `desktop` route).
 Regular OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`;
 desktop/pro OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:pro-prod`.
 Coding helpers instead inject the runtime-specific include defaults
@@ -212,7 +213,7 @@ for (const slot of capacity.agentSlots) {
 `start()` starts the Backend-stored launch config. Change
 launch settings through `update(..., { launchConfig })` before starting.
 `start()` does not accept launch mutation options such as
-`launchConfig`, `gatewayToken`, `controlUiAllowedOrigins`, or `trustedProxies`.
+`launchConfig`, `controlUiAllowedOrigins`, or `trustedProxies`.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
 HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in

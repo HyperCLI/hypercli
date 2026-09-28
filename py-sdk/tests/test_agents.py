@@ -1300,10 +1300,10 @@ def test_build_agent_launch_rejects_env_secret_collisions():
 def test_build_agent_launch_is_name_blind_for_application_keys():
     launch = _build_agent_launch(
         {},
-        env={"OPENCLAW_GATEWAY_TOKEN": "opaque-env"},
+        env={"CUSTOM_SERVICE_TOKEN": "opaque-env"},
         secrets={"CUSTOM_SERVICE_KEY": "opaque-secret"},
     )
-    assert launch["env"] == {"OPENCLAW_GATEWAY_TOKEN": "opaque-env"}
+    assert launch["env"] == {"CUSTOM_SERVICE_TOKEN": "opaque-env"}
     assert launch["secrets"] == {"CUSTOM_SERVICE_KEY": "opaque-secret"}
 
 
