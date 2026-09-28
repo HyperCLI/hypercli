@@ -29,8 +29,8 @@ continue without them and pick them up on a later session.
   with your normal file tools (the block's `name` field is the original
   filename).
 - Documents: extract PDF text with `pdftotext`; convert office documents to
-  text first (`pandoc` when present, else unzip and read the XML). Raw
-  document binaries do not belong in a model prompt.
+  text with `pandoc` (both are installed). Raw document binaries do not
+  belong in a model prompt.
 - Files you produce for the user must live under your synced home — `~/shared`
   workspaces are always user-visible. Use absolute paths.
 

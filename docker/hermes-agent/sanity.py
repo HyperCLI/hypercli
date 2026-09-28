@@ -25,6 +25,7 @@ EXPECTED_RUNTIME_TOOLS = (
     "node",
     "npm",
     "npx",
+    "pandoc",
     "pdftotext",
     "pnpm",
     "python3",
