@@ -3,10 +3,10 @@ title: Hermes Agent SDK
 description: TypeScript SDK helpers for creating, starting, and calling Hermes Agent deployments.
 ---
 
-Use `client.deployments.createHermesAgent(...)` for the managed Hermes runtime.
-The helper selects runtime `hermes-agent`, image
-`ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
-sync root `/home/hermes`, `syncExclude: ["shared/**"]`, and UID/GID `10000`.
+Use `client.deployments.createAgent("hermes-agent", ...)` for the managed
+Hermes runtime. The helper selects image
+`ghcr.io/hypercli/hypercli-hermes:latest`, sync root `/home/hermes`,
+`syncExclude: ["shared/**"]`, and UID/GID `10000`.
 
 ## Create
 
@@ -15,7 +15,7 @@ import { HyperCLI } from "@hypercli.com/sdk";
 
 const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
 
-let agent = await client.deployments.createHermesAgent({
+let agent = await client.deployments.createAgent("hermes-agent", {
   name: "hermes",
   size: "small",
 });
@@ -24,10 +24,6 @@ agent = await agent.waitRunning();
 
 The SDK seeds no authentication material: your `env` and `secrets` pass
 through to the launch contract untouched.
-
-Pass `corsOrigins` to allow browser origins on the public route; it drives the
-route-plane `cors.allowed_origins` when you do not provide an explicit `cors`
-config.
 
 ## Start
 

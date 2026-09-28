@@ -481,36 +481,16 @@ This is used for desktop and any other route marked `auth: true`.
 
 ### OpenClaw Gateway Auth
 
-The root agent host is the OpenClaw gateway host.
-
-Gateway auth is application-level and separate from browser route bootstrap:
-
-- `OPENCLAW_GATEWAY_TOKEN` is the canonical shared/bootstrap credential. The
-  Agent SDK reads it through the exact-key Secret API only after the deployment
-  and its public route are ready, keeps it in memory, and never puts it in a
-  route URL, cookie, or browser storage.
-- the TypeScript browser client keeps one device keypair for the browser
-  storage origin in `localStorage` under `openclaw.device.auth.v1`
-- issued device tokens and pending pairing records in that store are scoped by
-  deployment and gateway role; they are not shared between Agents
-
-On a cold browser connection, OpenClaw can answer `PAIRING_REQUIRED` (also
-reported as not paired). With trusted deployment context and
-`autoApprovePairing`, the SDK approves that exact request through the
-token-authenticated Agent exec WebSocket, then reconnects the root WebSocket. A warm connection from the same
-browser origin to the same deployment and role reuses its device identity and
-issued device token and does not pair again.
-
-If a cached device token is rejected, repair clears only that deployment and
-role entry. It preserves the browser's global device identity and cached auth
-for other Agents.
+OpenClaw Agents run ACP era networking: the in-pod gateway binds loopback only
+with auth mode `none` and serves the in-pod ACP hop. There is no shared
+bootstrap credential, no device pairing ceremony, and no public gateway host —
+sessions and chat flow through the backend ACP bridge, authenticated by the
+Agent key, so browser clients never touch the pod gateway directly.
 
 So:
 
 - `/_jwt_auth` is for protected browser routes
-- gateway clients should use the SDK / CLI gateway flows, not manual cookie setup
-- `RUNNING` is necessary but does not mean the public route, pairing, or
-  authenticated gateway hello is ready
+- `RUNNING` is necessary but does not mean a public route is ready
 
 ## Security Best Practices
 

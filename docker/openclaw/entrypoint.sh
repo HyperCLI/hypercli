@@ -96,8 +96,8 @@ if [[ "${LAUNCH_MODE}" == "gateway" ]]; then
   fi
   if [[ "${1}" == "run" ]]; then
     run_args=("${@:2}")
-    echo "[openclaw] starting gateway on ${OPENCLAW_GATEWAY_BIND:-lan}:${OPENCLAW_PORT:-18789}"
-    exec openclaw gateway run --port "${OPENCLAW_PORT:-18789}" --bind "${OPENCLAW_GATEWAY_BIND:-lan}" "${run_args[@]}"
+    echo "[openclaw] starting gateway on ${OPENCLAW_GATEWAY_BIND:-loopback}:${OPENCLAW_PORT:-18789}"
+    exec openclaw gateway run --port "${OPENCLAW_PORT:-18789}" --bind "${OPENCLAW_GATEWAY_BIND:-loopback}" "${run_args[@]}"
   fi
   exec openclaw gateway "$@"
 fi
@@ -110,8 +110,8 @@ fi
 # loopback connections, then run hyper-acp in front (`openclaw acp` is baked
 # in via HYPER_ACP_AGENT_* image ENVs). First process to exit ends the pod.
 GATEWAY_PORT="${OPENCLAW_PORT:-18789}"
-GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
-# URL is env-pinned to loopback so the bridge dial never carries --token argv.
+GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-loopback}"
+# URL is env-pinned to loopback: the bridge only ever dials the pod-internal gateway.
 export OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://127.0.0.1:${GATEWAY_PORT}}"
 
 # Sessions/chat are backend-authoritative — the contract authority is
@@ -121,7 +121,7 @@ export OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://127.0.0.1:${GATEWAY_PO
 # the pod serves no sessions/chat at all. Lagoon/Fly pods receive
 # HYPER_AGENTS_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
 # derive the bridge URL here from the agents API base with the same rules
-# docker/coding/entrypoint.sh uses (https→wss, http→ws, trailing slash and
+# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash and
 # /agents handled). An explicit HYPER_ACP_WS_URL always wins: backend
 # runners and pods pin the exact /ws bridge per launch and that override
 # must never be rewritten (agents/backend/agents/runners/launch.py).

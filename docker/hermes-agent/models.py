@@ -19,9 +19,6 @@ if models:
     path = Path(os.environ["CONFIG_PATH"])
     config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     config.setdefault("model", {})["default"] = models[0]
-    extra = config.setdefault("gateway", {}).setdefault("platforms", {}).setdefault("api_server", {}).setdefault("extra", {})
-    extra["model_name"] = models[0]
-    extra["model_routes"] = {model: {"provider": "custom:hypercli", "model": model} for model in models}
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 if models or embedding_models:

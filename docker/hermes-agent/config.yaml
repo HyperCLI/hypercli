@@ -20,13 +20,3 @@ cron:
 skills:
   external_dirs:
     - /opt/hypercli/skills
-
-gateway:
-  platforms:
-    api_server:
-      extra:
-        model_name: default-anthropic
-        model_routes:
-          default-anthropic:
-            provider: custom:hypercli
-            model: default-anthropic

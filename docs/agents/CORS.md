@@ -4,7 +4,7 @@ Status: diagnosed 2026-08-22, validated live on dev01. The API-server lane
 described below is the legacy image mode (`gateway run`); the managed Hermes
 runtime is ACP-native now and the SDK launch helpers seed no API-server env
 at all. CORS for browser callers is configured at the route plane
-(`cors.allowed_origins`, via the SDK's `corsOrigins`), not through pod env.
+(`cors.allowed_origins` in the launch config), not through pod env.
 
 ## The exact failure
 
@@ -45,10 +45,11 @@ rejected any request carrying an `Origin` header with **403** when the pod's
 allowed-origins env was empty. Requests with no `Origin` (curl, server to
 server) always passed.
 
-Post-strip, neither gate is seeded by the launcher: `corsOrigins` maps to the
-route-plane `cors.allowed_origins` and nothing more. An explicit legacy-mode
-(`gateway run`) launch can still configure the in-pod middleware through its
-own env, but that is caller-managed configuration on an opt-in path.
+Post-strip, neither gate is seeded by the launcher: deployment
+`cors.allowed_origins` is route-plane configuration and nothing more. An
+explicit legacy-mode (`gateway run`) launch can still configure the in-pod
+middleware through its own env, but that is caller-managed configuration on a
+retired path outside the managed runtime's contract.
 
 ## The validated fix
 

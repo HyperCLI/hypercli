@@ -157,7 +157,6 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "apply_params",
         "build_agent_config",
         "build_browser_desktop_url",
-        "build_hermes_agent_routes",
         "build_openclaw_memory_index_env",
         "build_openclaw_routes",
         "build_openclaw_trusted_proxies_env",

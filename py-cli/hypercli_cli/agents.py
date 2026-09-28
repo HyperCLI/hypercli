@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import secrets
 import shlex
 import sys
 from pathlib import Path
@@ -21,7 +20,6 @@ from hypercli.agents import (
     DEFAULT_OPENCLAW_PRO_IMAGE,
     Agent,
     Deployments,
-    build_hermes_agent_routes,
     build_hermes_cron_env,
     build_openclaw_cron_env,
     build_openclaw_memory_index_env,
@@ -41,11 +39,6 @@ PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"
 _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
-
-# The OpenClaw image refuses to boot without a gateway token; the reduced SDK
-# treats it as an ordinary caller-owned secret (SPEC.md §4), so the CLI mints
-# one into launch secrets at create time.
-OPENCLAW_GATEWAY_TOKEN_SECRET = "OPENCLAW_GATEWAY_TOKEN"
 
 # Config — uses HyperCLI API key (hyper_api_...) for backend auth
 STATE_DIR = hyper_home()
@@ -576,7 +569,6 @@ def create(
     ),
     sync_uid: int = typer.Option(None, "--sync-uid", min=0, max=4_294_967_294, help="UID for synced files; Lagoon defaults to 1000"),
     sync_gid: int = typer.Option(None, "--sync-gid", min=0, max=4_294_967_294, help="GID for synced files; Lagoon defaults to 1000"),
-    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override (stored as a caller-owned secret)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent"),
 ):
     """Provision a new managed agent in STOPPED state."""
@@ -596,7 +588,6 @@ def create(
             index_watch=index_watch,
             index_watch_debounce_ms=index_watch_debounce_ms,
             index_interval_minutes=index_interval_minutes,
-            gateway_token=gateway_token,
         )
         desktop_enabled = False
         effective_env = _apply_hermes_cron_env(env_dict, cron)
@@ -635,7 +626,6 @@ def create(
                 sync_uid=10000 if sync_uid is None else sync_uid,
                 sync_gid=10000 if sync_gid is None else sync_gid,
                 runtime="hermes-agent",
-                routes=build_hermes_agent_routes(),
                 sync_root=DEFAULT_HERMES_AGENT_SYNC_ROOT,
                 **(
                     {"sync_exclude": list(DEFAULT_HERMES_AGENT_SYNC_EXCLUDE)}
@@ -651,7 +641,6 @@ def create(
                 sync_gid=sync_gid,
                 runtime="openclaw-pro" if desktop_enabled else "openclaw",
                 env=build_openclaw_memory_index_env(memory_index) | effective_env,
-                secrets={OPENCLAW_GATEWAY_TOKEN_SECRET: gateway_token or secrets.token_hex(32)},
                 routes=build_openclaw_routes(include_desktop=desktop_enabled),
                 runtime_scopes=list(DEFAULT_AGENT_RUNTIME_SCOPES) if desktop_enabled else None,
                 sync_root=DEFAULT_CODING_AGENT_SYNC_ROOT,
@@ -667,9 +656,7 @@ def create(
     console.print(f"  Name:     {getattr(pod, 'name', None) or pod.id}")
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
-    if runtime == "hermes-agent":
-        console.print(f"  API:      {pod.route_url('hermes') or 'pending route assignment'}")
-    else:
+    if runtime != "hermes-agent":
         console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
 
@@ -679,12 +666,11 @@ def create(
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
         console.print(f"Start:   [bold]hyper agents start {pod.id[:8]}[/bold]")
-        if runtime == "hermes-agent":
-            console.print(f"API:     {pod.route_url('hermes') or 'pending route assignment'}")
-        elif desktop_enabled:
-            console.print(f"Desktop: {pod.vnc_url}")
-        else:
-            console.print("Desktop: disabled (launch with --desktop to enable)")
+        if runtime != "hermes-agent":
+            if desktop_enabled:
+                console.print(f"Desktop: {pod.vnc_url}")
+            else:
+                console.print("Desktop: disabled (launch with --desktop to enable)")
 
 
 @app.command("wait")
@@ -1140,11 +1126,8 @@ def start(
     console.print(f"[green]✓[/green] {'Agent start validated' if pod.dry_run else 'Agent starting'}: {getattr(pod, 'name', None) or pod.id}")
     if pod.dry_run:
         console.print("  No agent was created.")
-    else:
-        if is_hermes:
-            console.print(f"  API: {pod.route_url('hermes') or 'pending route assignment'}")
-        else:
-            console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
+    elif not is_hermes:
+        console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
 
 
 @app.command("stop")

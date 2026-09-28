@@ -967,12 +967,6 @@ export function buildOpenClawTrustedProxiesEnv(trustedProxies: readonly string[]
   return proxies.length > 0 ? { [OPENCLAW_TRUSTED_PROXIES_ENV]: proxies.join(',') } : {};
 }
 
-export interface HermesAgentRouteOptions {
-  port?: number;
-  auth?: boolean;
-  prefix?: string;
-}
-
 export interface OpenClawMemoryIndexOptions {
   enabled?: boolean | null;
   onSessionStart?: boolean | null;
@@ -1185,7 +1179,7 @@ export interface OpenClawSlackOptions {
  * Folded create options for {@link Deployments.createAgent}: the generic
  * launch contract plus every per-runtime facade knob
  * (slack/openClawRoutes/trustedProxies/cronEnabled/memoryIndex/
- * hermesRoute/corsOrigins/workspacesSync/permissionMode/buzz). A runtime's
+ * workspacesSync/permissionMode/buzz). A runtime's
  * own launch branch reads the knobs it understands and ignores the rest,
  * exactly as the old per-runtime facades ignored fields outside their type.
  */
@@ -1205,9 +1199,6 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
   cronEnabled?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: WorkspacesSyncOptions | boolean | null;
-  hermesRoute?: HermesAgentRouteOptions | null;
-  /** Browser origins allowed on the public route; drives the route-plane cors allowed_origins when `cors` is unset. */
-  corsOrigins?: string[] | null;
   /**
    * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
    * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
@@ -2794,16 +2785,6 @@ export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<
   return routes;
 }
 
-export function buildHermesAgentRoutes(options: HermesAgentRouteOptions = {}): Record<string, AgentRouteConfig> {
-  return {
-    hermes: {
-      port: options.port ?? 8642,
-      auth: options.auth ?? false,
-      prefix: options.prefix ?? '',
-    },
-  };
-}
-
 function envBool(value: unknown): string {
   return value ? '1' : '0';
 }
@@ -3913,7 +3894,7 @@ export class Deployments {
    *
    * - openclaw/openclaw-pro: OpenClaw gateway launch (hosted Slack lives on
    *   the `slack` knob; see createOpenClaw's note below).
-   * - hermes-agent: Hermes launch with the hermes route and cron defaults.
+   * - hermes-agent: Hermes ACP launch with the hermes image, sync-root, and cron defaults.
    * - buzz-agent/opencode/codex/claude-code/goose/kimi-code/pi: the shared
    *   ACP coding-agent launch contract; `buzz` switches to the Buzz launch.
    */
@@ -4080,19 +4061,12 @@ export class Deployments {
       ...DEFAULT_HERMES_MODEL_ENV,
       ...(options.env ?? {}),
     };
-    const corsOrigins = [...(options.corsOrigins ?? [])]
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0);
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
       env,
       secrets: options.secrets,
-      cors: options.cors !== undefined
-        ? options.cors
-        : corsOrigins.length > 0
-          ? { allowed_origins: [...new Set(corsOrigins)] }
-          : undefined,
+      cors: options.cors,
       image: defaultHermesAgentImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
@@ -4101,9 +4075,7 @@ export class Deployments {
         : options.syncExclude,
       syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
       syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
-      routes: options.routes === undefined
-        ? buildHermesAgentRoutes(options.hermesRoute ?? {})
-        : options.routes,
+      routes: options.routes,
     };
     const agent = await this.create(effectiveOptions);
     if (agent.runtime !== 'hermes-agent' && agent.runtime !== 'hermes_acp') {
@@ -4891,7 +4863,6 @@ export class Deployments {
       await this.setEnv(agentId, 'OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
       await this.fileDelete(agentId, '.openclaw/openclaw.json').catch(() => undefined);
     } else if (options.runtime === 'hermes-agent' || options.runtime === 'hermes_acp') {
-      await this.setRoute(agentId, 'hermes', buildHermesAgentRoutes({}).hermes);
       await this.fileDelete(agentId, '.hermes/config.yaml').catch(() => undefined);
       await this.fileDelete(agentId, '.hermes/mem0.json').catch(() => undefined);
     }

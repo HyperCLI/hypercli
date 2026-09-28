@@ -3,10 +3,10 @@ title: Hermes Agent SDK
 description: Python SDK helpers for creating, starting, and calling Hermes Agent deployments.
 ---
 
-Use `client.deployments.create_hermes_agent(...)` for the managed Hermes
-runtime. The helper selects runtime `hermes-agent`, image
-`ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
-sync root `/home/hermes`, `sync_exclude=["shared/**"]`, and UID/GID `10000`.
+Use `client.deployments.create_agent("hermes-agent", ...)` for the managed
+Hermes runtime. The helper selects image
+`ghcr.io/hypercli/hypercli-hermes:latest`, sync root `/home/hermes`,
+`sync_exclude=["shared/**"]`, and UID/GID `10000`.
 
 ## Create
 
@@ -15,7 +15,8 @@ from hypercli import HyperCLI
 
 client = HyperCLI(agent_api_key="hyper_api_...")
 
-agent = client.deployments.create_hermes_agent(
+agent = client.deployments.create_agent(
+    "hermes-agent",
     name="hermes",
     size="small",
 )
@@ -25,15 +26,11 @@ agent = agent.wait_running()
 The SDK seeds no authentication material: your `env` and `secrets` pass
 through to the launch contract untouched.
 
-Pass `cors_origins` to allow browser origins on the public route; it drives the
-route-plane `cors.allowed_origins` when you do not provide an explicit `cors`
-config.
-
 ## Start
 
 Start reuses the Backend-stored launch configuration:
 
 ```python
-agent = client.deployments.start_hermes_agent("agent-id-or-name")
+agent = client.deployments.start("agent-id-or-name")
 agent = agent.wait_running()
 ```

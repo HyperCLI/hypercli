@@ -1,19 +1,17 @@
-ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent:v2026.8.3
+ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
 ARG HYPERCLI_REF=main
 ARG HYPERCLI_SHA
 ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
+ARG ACP_IMAGE=hypercli-acp:local
 
 FROM ${HERMES_BASE_IMAGE} AS upstream-hermes
+
+FROM ${ACP_IMAGE} AS acp
 
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG HERMES_BASE_IMAGE
-ARG HYPERCLI_REF
-ARG HYPERCLI_SHA
 ARG HYPERCLI_AGENT_BASE_IMAGE
-
-ENV HYPERCLI_REF=${HYPERCLI_REF}
-ENV HYPERCLI_SHA=${HYPERCLI_SHA}
 
 USER root
 
@@ -25,6 +23,7 @@ COPY --from=upstream-hermes /etc/s6-overlay /etc/s6-overlay
 COPY --from=upstream-hermes /etc/cont-init.d /etc/cont-init.d
 COPY --from=upstream-hermes /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=upstream-hermes /usr/local/bin/uvx /usr/local/bin/uvx
+COPY --from=acp /hyper-acp /usr/local/bin/hyper-acp
 
 RUN groupadd -g 10000 hermes \
     && useradd -u 10000 -g 10000 -d /home/hermes -s /bin/sh hermes \
@@ -36,7 +35,10 @@ RUN groupadd -g 10000 hermes \
     && UV_NO_CONFIG=1 uv pip install --no-cache-dir --no-deps -e . \
     && UV_NO_CONFIG=1 uv pip install --python /opt/hermes/.venv/bin/python "mem0ai>=2.0.10,<3" qdrant-client \
     && test -n "$(find /opt/hypercli/skills -type f -name SKILL.md -print -quit)" \
-    && hyper --help >/dev/null
+    && hyper --help >/dev/null \
+    && hyper-acp --help >/dev/null \
+    && test -x /opt/hermes/.venv/bin/hermes-acp \
+    && /opt/hermes/.venv/bin/python -c "import acp_adapter.entry"
 
 COPY --chmod=0644 config.yaml /opt/hypercli-hermes/config.yaml
 COPY --chmod=0644 mem0.json /opt/hypercli-hermes/mem0.json
@@ -67,6 +69,11 @@ RUN usermod -d /home/hermes hermes \
       /opt/hermes/bin/hermes \
     && chown -R hermes:hermes /home/hermes
 
+ARG HYPERCLI_REF
+ARG HYPERCLI_SHA
+ENV HYPERCLI_REF=${HYPERCLI_REF}
+ENV HYPERCLI_SHA=${HYPERCLI_SHA}
+
 ENV HOME=/home/hermes
 ENV HERMES_HOME=/home/hermes/.hermes
 ENV HERMES_WRITE_SAFE_ROOT=/home/hermes
@@ -81,15 +88,14 @@ ENV HYPER_DESKTOP_PORT=3000
 ENV HYPER_DESKTOP_GEOMETRY=1280x800x24
 ENV DISPLAY=:99
 ENV HERMES_CRON_ENABLED=
+ENV HERMES_ACP_SKIP_CONFIGURED_MCP=1
+ENV HYPER_ACP_AGENT_COMMAND=/opt/hermes/.venv/bin/hermes-acp
 ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/home/hermes/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WORKDIR /home/hermes
 
-EXPOSE 8642 3000
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
-  CMD curl -fsS http://127.0.0.1:8642/health >/dev/null || exit 1
+EXPOSE 3000
 
 # Keep the wrapper as PID 1 only long enough to seed missing default config,
 # then exec the upstream dispatcher so s6-overlay retains its native lifecycle.
 ENTRYPOINT ["/opt/hypercli-hermes/entrypoint.sh"]
-CMD ["gateway", "run"]
+CMD ["/usr/local/bin/hyper-acp"]

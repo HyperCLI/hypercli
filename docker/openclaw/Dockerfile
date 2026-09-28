@@ -55,7 +55,7 @@ ENV HYPERCLI_REF=${HYPERCLI_REF}
 ENV HYPERCLI_SHA=${HYPERCLI_SHA}
 
 ENV OPENCLAW_PORT=18789
-ENV OPENCLAW_GATEWAY_BIND=lan
+ENV OPENCLAW_GATEWAY_BIND=loopback
 ENV OPENCLAW_STATE_DIR=/home/node/.openclaw
 ENV OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json
 ENV OPENCLAW_CONFIG_TEMPLATE=/opt/hypercli-openclaw/openclaw.json
@@ -76,8 +76,8 @@ ENV OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS=
 ENV OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES=
 ENV DISPLAY=:99
 # ACP leg as pod default: hyper-acp spawns `openclaw acp`; the entrypoint
-# backgrounds `openclaw gateway run` first (the bridge dials it over loopback
-# with OPENCLAW_GATEWAY_TOKEN auth). `gateway run` override = native gateway.
+# backgrounds `openclaw gateway run` first (the bridge dials it loopback-only
+# with gateway auth mode "none"). `gateway run` override = native gateway.
 ENV HYPER_ACP_AGENT_COMMAND=openclaw \
     HYPER_ACP_AGENT_ARGS=acp
 

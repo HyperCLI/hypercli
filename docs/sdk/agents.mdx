@@ -259,9 +259,8 @@ an explicit cold restore; ordinary start reuses the retained PVC. See
 and the complete lifecycle and full-PVC archive semantics.
 
 `env` and `secrets` are separate string dictionaries. A key cannot appear in
-both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; supply it in `secrets`
-only when intentionally replacing it. Otherwise
-the Backend preserves the existing secret.
+both. Omitted `secrets` keys are preserved by the Backend; supply a key again
+only when intentionally replacing its value.
 
 Public launch-config PATCH calls can preserve stored backend-redacted `secrets`
 when they are omitted. START does not accept launch config. Provisioned storage

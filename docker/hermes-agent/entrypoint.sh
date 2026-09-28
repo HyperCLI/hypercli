@@ -30,11 +30,10 @@ fi
 # the pod serves no sessions/chat at all. Lagoon/Fly pods receive
 # HYPER_AGENTS_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
 # derive the bridge URL here from the agents API base with the same rules
-# docker/coding/entrypoint.sh uses (https→wss, http→ws, trailing slash and
+# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash and
 # /agents handled). An explicit HYPER_ACP_WS_URL always wins: backend
 # runners and pods pin the exact /ws bridge per launch and that override
-# must never be rewritten (agents/backend/agents/runners/launch.py). Legacy
-# `gateway run` rows never start hyper-acp and simply ignore the export.
+# must never be rewritten (agents/backend/agents/runners/launch.py).
 if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
   acp_ws_base="${HYPER_AGENTS_API_BASE:-${HYPER_API_BASE:-https://api.agents.hypercli.com}}"
   acp_ws_base="${acp_ws_base%/}"

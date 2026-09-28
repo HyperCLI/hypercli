@@ -3,19 +3,16 @@ title: Hermes Agent
 description: Run Hermes Agent as a managed HyperCLI runtime.
 ---
 
-Hermes Agent is a supported managed Agent runtime. Its primary control surface
-is ACP: the managed image runs ACP-natively and is driven through the same
-agent session flows as the other managed runtimes. The older HTTP/SSE API
-server mode (`gateway run`) still exists as the legacy image mode and is an
-explicit opt-in — see [Legacy API Server mode](#legacy-api-server-mode).
+Hermes Agent is a supported managed Agent runtime. Its control surface is ACP:
+the managed image runs ACP-natively and is driven through the same agent
+session flows as the other managed runtimes.
 
 ## Runtime Contract
 
 | Field | Value |
 | --- | --- |
 | Runtime | `hermes-agent` |
-| Default image | `ghcr.io/hypercli/hypercli-hermes-agent:latest` |
-| Public route | `hermes` |
+| Default image | `ghcr.io/hypercli/hypercli-hermes:latest` |
 | Persistent root | `/home/hermes` |
 | Persistent owner | UID/GID `10000` |
 
@@ -32,10 +29,6 @@ The SDK launch helpers seed no authentication material: your `env` and
 minted, moved, or retained by the SDK. The model credential is injected by the
 backend into the managed runtime.
 
-Pass `corsOrigins` / `cors_origins` to allow browser origins on the public
-route; it drives the route-plane `cors.allowed_origins` when you do not
-provide an explicit `cors` config. It is not translated into pod env.
-
 ## Python Create
 
 ```python
@@ -43,13 +36,13 @@ from hypercli import HyperCLI
 
 client = HyperCLI(agent_api_key="hyper_api_...")
 
-agent = client.deployments.create_hermes_agent(
+agent = client.deployments.create_agent(
+    "hermes-agent",
     name="hermes",
     size="small",
 )
 
 agent = agent.wait_running()
-print(agent.api_url)
 ```
 
 ## TypeScript Create
@@ -59,27 +52,13 @@ import { HyperCLI } from "@hypercli.com/sdk";
 
 const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
 
-let agent = await client.deployments.createHermesAgent({
+let agent = await client.deployments.createAgent("hermes-agent", {
   name: "hermes",
   size: "small",
 });
 
 agent = await agent.waitRunning();
-console.log(agent.apiUrl);
 ```
 
 For SDK-specific start examples and client method names, see
 [Python Hermes SDK](/sdk/hermes) and [TypeScript Hermes SDK](/ts-sdk/hermes).
-
-## Legacy API Server mode
-
-Previous managed images started the Hermes API Server (OpenAI-compatible
-`/v1/*` plus Hermes-native `/api/sessions` and `/v1/runs` resources with SSE
-streams) on port 8642 behind the `hermes` route. That mode remains available
-from the image as an explicit opt-in: run `gateway run` yourself and supply
-its configuration through your own launch env and secrets. The SDK never
-mints an inbound credential; if you opt in, the credential you supply is the
-only one the server knows.
-
-The Rust SDK still ships `HermesApiClient` for this surface; construct it
-with the credential you supplied, not with anything the SDK generated.

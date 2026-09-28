@@ -8,7 +8,6 @@ mod billing;
 mod client;
 mod config;
 mod files;
-mod hermes;
 mod instances;
 mod jobs;
 mod keys;
@@ -39,15 +38,6 @@ pub use config::{
     ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
 };
 pub use files::{File, FilesClient};
-pub use hermes::{
-    HermesApiClient, HermesApiError, HermesCapabilities, HermesChatCompletion, HermesChatRequest,
-    HermesDeletedSession, HermesDetailedHealth, HermesEventStream, HermesHealth,
-    HermesLaunchConfig, HermesMessage, HermesMessageList, HermesModel, HermesModelList,
-    HermesModelLock, HermesModelLockRequest, HermesOpenAiError, HermesRun, HermesRunApproval,
-    HermesRunApprovalChoice, HermesRunApprovalRequest, HermesRunCreated, HermesRunRequest,
-    HermesSession, HermesSessionCreateRequest, HermesSessionForkRequest, HermesSessionList,
-    HermesSessionPatchRequest, HermesSseEvent, HERMES_AGENT_IMAGE, HERMES_API_PORT,
-};
 pub use instances::{GpuConfig, GpuPricing, GpuType, InstancesClient, PricingTier, Region};
 pub use jobs::{
     find_by_hostname, find_by_ip, is_uuid, CreateJobOptions, Job, JobExecResult, JobListFilters,
