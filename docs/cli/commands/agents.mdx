@@ -1,6 +1,6 @@
 ---
 title: hyper agents
-description: Detailed reference for agent lifecycle, routes, files, exec, backend shells/logs, and OpenClaw gateway commands.
+description: Detailed reference for agent lifecycle, routes, files, exec, and backend shells/logs.
 ---
 
 ## Overview
@@ -15,8 +15,6 @@ It covers:
 - one-shot exec
 - backend WebSocket shell
 - backend log streaming
-- gateway config, files, sessions, cron
-- direct gateway chat
 
 ## Command Inventory
 
@@ -27,7 +25,6 @@ It covers:
 | Routes | `routes list`, `routes add`, `routes remove` |
 | Container access | `exec`, `cp`, `shell`, `logs`, `token` |
 | Compatibility chat | `chat` |
-| Gateway | `config`, `config-patch`, `models`, `files`, `sessions`, `cron`, `cron-add`, `cron-remove`, `cron-run`, `gateway-chat` |
 
 Run `hyper agents <command> --help` for the current flags. Lifecycle, file
 writes, exec/shell, config patches, cron mutations, token refreshes, and relay
@@ -44,7 +41,6 @@ hyper agents --agents-ws-url wss://api.agents.dev.hypercli.com/ws
 
 OpenClaw-backed agents use:
 
-- root host = gateway / agent
 - `desktop-<host>` = desktop when launched with the desktop/browser flavor
 - no default `shell-<host>` route
 
@@ -256,7 +252,7 @@ hyper agents metrics <agent_id>
 hyper agents logs <agent_id> --no-follow -n 100
 ```
 
-Do not begin with a shell or broad environment dump. Logs and gateway config can
+Do not begin with a shell or broad environment dump. Logs can
 still contain credentials or user content; summarize relevant fields and redact
 values before sharing. Avoid commands such as `env`, `printenv`, recursive home
 directory reads, or full config dumps unless the specific investigation
@@ -342,76 +338,6 @@ Show current resource budget and usage:
 ```bash
 hyper agents budget
 ```
-
-## Gateway Commands
-
-These commands target the OpenClaw gateway on the root agent host.
-
-### `config`
-
-```bash
-hyper agents config <agent_id>
-hyper agents config <agent_id> --schema
-```
-
-### `config-patch`
-
-```bash
-hyper agents config-patch <agent_id> '<json-merge-patch>'
-```
-
-`config-patch` merges the JSON patch and restarts the gateway. Do not place a
-literal API key in the shell command; use an existing runtime secret reference
-or another approved secret-delivery path.
-
-### `models`
-
-```bash
-hyper agents models <agent_id>
-```
-
-### `files`
-
-```bash
-hyper agents files <agent_id>
-hyper agents files <agent_id> --get SOUL.md
-hyper agents files <agent_id> --set 'SOUL.md=# My Agent'
-```
-
-### `sessions`
-
-```bash
-hyper agents sessions <agent_id>
-```
-
-### `cron`
-
-```bash
-hyper agents cron <agent_id>
-```
-
-Mutating cron commands accept a job definition or ID:
-
-```bash
-hyper agents cron-add <agent_id> '{"name":"hourly-task","schedule":"0 * * * *","command":"run-task"}'
-hyper agents cron-run <agent_id> <job_id>
-hyper agents cron-remove <agent_id> <job_id>
-```
-
-### `gateway-chat`
-
-Current preferred chat path against the OpenClaw gateway:
-
-```bash
-hyper agents gateway-chat <agent_id> "Reply with exactly: hello"
-hyper agents gateway-chat <agent_id> "Inspect the workspace" --session-key docs
-```
-
-This uses the root host gateway plus pairing-aware SDK logic.
-The command treats deployment `RUNNING`, public route readiness, pairing, and
-the authenticated gateway connection as separate phases. On a cold not-paired
-connection the SDK can approve the device through trusted Agent exec and
-reconnect; a warm connection reuses the scoped device credential.
 
 ### `chat`
 

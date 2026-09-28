@@ -1,6 +1,6 @@
 ---
 title: CLI
-description: Detailed overview of the Python CLI for HyperCLI platform APIs, HyperCLI plans, OpenClaw deployments, backend shells/logs, and gateway operations.
+description: Detailed overview of the Python CLI for HyperCLI platform APIs, HyperCLI plans, OpenClaw deployments, and backend shells/logs.
 ---
 
 ## Install
@@ -27,7 +27,7 @@ Every registered top-level command maps to one detailed reference:
 | `hyper me` | Resolve auth context and agent entitlement summary | [Configuration](/cli/configuration#diagnosing-401-errors) |
 | `hyper status` | Query compact model and cluster health | [Configuration](/cli/configuration) |
 | `hyper launch` | Alias for `hyper instances launch` | [instances](/cli/commands/instances) |
-| `hyper agents` | Managed agent lifecycle, access, gateway, and web search | [agents](/cli/commands/agents) |
+| `hyper agents` | Managed agent lifecycle, access, and web search | [agents](/cli/commands/agents) |
 | `hyper agent` | Account, subscription, onboarding, and compatibility tools | [agent](/cli/commands/agent) |
 | `hyper billing` | Balance, transactions, and invoices | [billing](/cli/commands/billing) |
 | `hyper comfyui` | Run and manage ComfyUI workflow jobs | [comfyui](/cli/commands/comfyui) |
@@ -61,13 +61,11 @@ Use:
   - files
   - exec
   - backend shell/log streams
-  - gateway config/chat/session/files/cron
 
 ## Current Agent Route Model
 
 The CLI now follows the same route defaults as the SDKs:
 
-- root host = OpenClaw gateway / agent
 - `desktop-<host>` = desktop when launched with `--desktop`
 - there is no default `shell-<host>` route
 

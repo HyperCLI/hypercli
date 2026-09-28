@@ -4356,7 +4356,7 @@ mod tests {
             .with_body(
                 json!({
                     "agent_id": "deployment-1",
-                    "names": ["OPENCLAW_GATEWAY_TOKEN"],
+                    "names": ["EXAMPLE_SECRET"],
                     "launch_epoch": 4
                 })
                 .to_string(),
@@ -4365,7 +4365,7 @@ mod tests {
         let secret = server
             .mock(
                 "GET",
-                "/agents/deployments/deployment-1/secrets/OPENCLAW_GATEWAY_TOKEN",
+                "/agents/deployments/deployment-1/secrets/EXAMPLE_SECRET",
             )
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
@@ -4373,7 +4373,7 @@ mod tests {
             .with_body(
                 json!({
                     "agent_id": "deployment-1",
-                    "key": "OPENCLAW_GATEWAY_TOKEN",
+                    "key": "EXAMPLE_SECRET",
                     "value": "stable-token",
                     "launch_epoch": 4
                 })
@@ -4391,10 +4391,10 @@ mod tests {
                 .deployment_secret_names("deployment-1")
                 .unwrap()
                 .names,
-            vec!["OPENCLAW_GATEWAY_TOKEN"]
+            vec!["EXAMPLE_SECRET"]
         );
         let revealed = client
-            .deployment_secret("deployment-1", "OPENCLAW_GATEWAY_TOKEN")
+            .deployment_secret("deployment-1", "EXAMPLE_SECRET")
             .unwrap();
         assert_eq!(revealed.value, "stable-token");
         assert_eq!(revealed.launch_epoch, 4);

@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: Detailed guide to the Python SDK for jobs, renders, HyperCLI account data, agent lifecycle, shell/log streams, and OpenClaw gateway sessions.
+description: Detailed guide to the Python SDK for jobs, renders, HyperCLI account data, agent lifecycle, and shell/log streams.
 ---
 
 ## Install
@@ -83,12 +83,11 @@ Use `agent_api_key` when your HyperCLI key is different from your main HyperCLI 
   - exec
   - file copy and file APIs
   - log and shell WebSocket helpers
-  - OpenClaw gateway access
 
 ## Quick Start
 
 ```python
-from hypercli import HyperCLI, build_openclaw_routes
+from hypercli import HyperCLI, build_openclaw_desktop_route
 
 client = HyperCLI(api_key="hyper_...")
 
@@ -97,8 +96,8 @@ agent = client.deployments.create(
     runtime="openclaw",
     image="ghcr.io/hypercli/hypercli-openclaw:prod",
     sync_root="/home/node",
-    routes=build_openclaw_routes(include_desktop=True),
-    env={"APP_ENV": "prod"},
+    routes=build_openclaw_desktop_route(),
+    env={"APP_ENV": "prod", "HYPER_DESKTOP_ENABLED": "1"},
 )
 
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
@@ -112,7 +111,6 @@ print(agent.desktop_url)  # https://desktop-docs-demo.hypercli.app
 
 For OpenClaw-backed agents, the platform defaults are:
 
-- root host = gateway / agent
 - `desktop-<host>` = desktop
 - extra routes come from the `routes` dict you pass at create/start time
 

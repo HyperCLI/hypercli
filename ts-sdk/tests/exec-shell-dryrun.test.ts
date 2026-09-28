@@ -13,7 +13,7 @@ import {
   Deployments,
   buildAgentConfig,
   buildOpenClawCronEnv,
-  buildOpenClawRoutes,
+  buildOpenClawDesktopRoute,
   buildOpenClawTrustedProxiesEnv,
 } from '../src/agents.js';
 import { APIError } from '../src/errors.js';
@@ -42,21 +42,8 @@ function operationToken(agentId: string, purpose: 'metrics' | 'exec') {
   };
 }
 
-function openclawRoute() {
-  return {
-    port: 18789,
-    auth: false,
-    prefix: '',
-    remove_headers: [
-      'Forwarded',
-      'X-Forwarded-For',
-      'X-Forwarded-Host',
-      'X-Forwarded-Port',
-      'X-Forwarded-Proto',
-      'X-Forwarded-Server',
-      'X-Real-IP',
-    ],
-  };
+function desktopRoute() {
+  return { port: 3000, auth: true, prefix: 'desktop' };
 }
 
 function shellToken(shell: string, tokenValue = 'jwt-shell') {
@@ -190,22 +177,12 @@ describe('HyperClaw agents SDK', () => {
     });
   });
 
-  it('buildOpenClawRoutes returns the default gateway route', () => {
-    expect(buildOpenClawRoutes()).toEqual({
-      openclaw: openclawRoute(),
-    });
-  });
-
-  it('buildOpenClawRoutes keeps the gateway canonical and allows desktop', () => {
-    expect(buildOpenClawRoutes({
-      includeGateway: false,
-      includeDesktop: true,
-      gatewayPort: 19999,
-      gatewayAuth: true,
-      gatewayPrefix: 'app',
-    })).toEqual({
-      openclaw: openclawRoute(),
+  it('buildOpenClawDesktopRoute returns the desktop leg route', () => {
+    expect(buildOpenClawDesktopRoute()).toEqual({
       desktop: { port: 3000, auth: true, prefix: 'desktop' },
+    });
+    expect(buildOpenClawDesktopRoute({ desktopPort: 3999, desktopAuth: false, desktopPrefix: 'ui' })).toEqual({
+      desktop: { port: 3999, auth: false, prefix: 'ui' },
     });
   });
 
@@ -247,15 +224,13 @@ describe('HyperClaw agents SDK', () => {
         HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: '*',
       }),
-      routes: {
-        openclaw: openclawRoute(),
-      },
+      routes: {},
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
 
-  it('createOpenClaw repairs explicit empty routes', async () => {
+  it('createOpenClaw passes caller routes through untouched', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -284,9 +259,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: '*',
       }),
-      routes: {
-        openclaw: openclawRoute(),
-      },
+      routes: {},
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
@@ -329,8 +302,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_DESKTOP_ENABLED: '1',
       }),
       routes: {
-        openclaw: openclawRoute(),
-        desktop: { port: 3000, auth: true, prefix: 'desktop' },
+        desktop: desktopRoute(),
       },
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');

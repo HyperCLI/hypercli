@@ -863,7 +863,6 @@ const REQUIRED_START_LAUNCH_CONFIG_KEYS: ReadonlyArray<keyof AgentLaunchConfig> 
 ];
 
 const OPENCLAW_SECRET_ONLY_ENV_KEYS = [
-  'OPENCLAW_GATEWAY_TOKEN',
   'SLACK_BOT_TOKEN',
   'SLACK_APP_TOKEN',
   'SLACK_USER_TOKEN',
@@ -945,13 +944,9 @@ export interface BuildAgentConfigOptions {
 }
 
 export interface OpenClawRouteOptions {
-  includeGateway?: boolean;
   includeDesktop?: boolean;
-  gatewayPort?: number;
   desktopPort?: number;
-  gatewayAuth?: boolean;
   desktopAuth?: boolean;
-  gatewayPrefix?: string;
   desktopPrefix?: string;
 }
 
@@ -1788,8 +1783,6 @@ export interface AgentHydrationData {
   command?: string[] | null;
   entrypoint?: string[] | null;
   dry_run?: boolean;
-  openclaw_url?: string | null;
-  gateway_url?: string | null;
   [key: string]: any;
 }
 
@@ -2456,32 +2449,6 @@ function defaultOpenClawImage(
   return runtime === 'openclaw-pro' ? DEFAULT_OPENCLAW_PRO_IMAGE : DEFAULT_OPENCLAW_IMAGE;
 }
 
-function canonicalOpenClawGatewayRoute(): AgentRouteConfig {
-  return {
-    port: 18789,
-    auth: false,
-    prefix: '',
-    remove_headers: [
-      'Forwarded',
-      'X-Forwarded-For',
-      'X-Forwarded-Host',
-      'X-Forwarded-Port',
-      'X-Forwarded-Proto',
-      'X-Forwarded-Server',
-      'X-Real-IP',
-    ],
-  };
-}
-
-function withOpenClawGatewayRoute(
-  routes: Record<string, AgentRouteConfig> | null | undefined,
-): Record<string, AgentRouteConfig> {
-  return {
-    ...(routes ? structuredClone(routes) : {}),
-    openclaw: canonicalOpenClawGatewayRoute(),
-  };
-}
-
 function defaultHermesAgentImage(image: string | null | undefined): string {
   if (image !== undefined && image !== null) return image;
   return DEFAULT_HERMES_AGENT_IMAGE;
@@ -2771,18 +2738,14 @@ export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOption
   };
 }
 
-export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
-  const routes: Record<string, AgentRouteConfig> = {
-    openclaw: canonicalOpenClawGatewayRoute(),
-  };
-  if (options.includeDesktop ?? false) {
-    routes.desktop = {
+export function buildOpenClawDesktopRoute(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
+  return {
+    desktop: {
       port: options.desktopPort ?? 3000,
       auth: options.desktopAuth ?? true,
       prefix: options.desktopPrefix ?? 'desktop',
-    };
-  }
-  return routes;
+    },
+  };
 }
 
 function envBool(value: unknown): string {
@@ -3892,8 +3855,9 @@ export class Deployments {
    * the rest. `create()` stays the raw generic entry; `createAgent` is the
    * typed one.
    *
-   * - openclaw/openclaw-pro: OpenClaw gateway launch (hosted Slack lives on
-   *   the `slack` knob; see createOpenClaw's note below).
+   * - openclaw/openclaw-pro: OpenClaw ACP launch (hosted Slack lives on
+   *   the `slack` knob; see createOpenClaw's note below). pro adds the
+   *   desktop route + leg.
    * - hermes-agent: Hermes ACP launch with the hermes image, sync-root, and cron defaults.
    * - buzz-agent/opencode/codex/claude-code/goose/kimi-code/pi: the shared
    *   ACP coding-agent launch contract; `buzz` switches to the Buzz launch.
@@ -3952,8 +3916,8 @@ export class Deployments {
       ? { includeDesktop: true, ...(options.openClawRoutes ?? {}) }
       : (options.openClawRoutes ?? {});
     effectiveOptions.routes = options.routes === undefined
-      ? buildOpenClawRoutes(openClawRoutes)
-      : withOpenClawGatewayRoute(options.routes);
+      ? (openClawRoutes.includeDesktop ? buildOpenClawDesktopRoute(openClawRoutes) : {})
+      : options.routes;
     effectiveOptions.image = defaultOpenClawImage(runtime, options.image);
     if (pro && options.runtimeScopes === undefined) {
       effectiveOptions.runtimeScopes = DEFAULT_AGENT_RUNTIME_SCOPES;
@@ -4859,7 +4823,6 @@ export class Deployments {
     );
     const droppedLaunchKeys = droppedLaunchConfigKeys(resetData);
     if (options.runtime === 'openclaw' || options.runtime === 'openclaw-pro' || options.runtime === 'openclaw_acp') {
-      await this.setRoute(agentId, 'openclaw', buildOpenClawRoutes({}).openclaw);
       await this.setEnv(agentId, 'OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN', '*');
       await this.fileDelete(agentId, '.openclaw/openclaw.json').catch(() => undefined);
     } else if (options.runtime === 'hermes-agent' || options.runtime === 'hermes_acp') {
