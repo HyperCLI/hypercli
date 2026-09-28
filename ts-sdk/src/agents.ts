@@ -5,6 +5,10 @@
  */
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
+import {
+  DEFAULT_PERSONA_SOUL_PATH,
+  DEFAULT_PERSONA_USER_PATH,
+} from './agent-persona.js';
 
 // undici's native WebSocket (Node 18+) drops a permessage-deflate frame when
 // the peer's close frame and FIN land in the same TCP chunk, surfacing as a
@@ -25,10 +29,6 @@ function preferredWebSocket(): typeof WebSocket {
   return global ?? (NodeWebSocket as unknown as typeof WebSocket);
 }
 export { preferredWebSocket };
-import {
-  DEFAULT_PERSONA_SOUL_PATH,
-  DEFAULT_PERSONA_USER_PATH,
-} from './agent-persona.js';
 import {
   agentSlotFromDict,
   parseAgentSlotSize,
