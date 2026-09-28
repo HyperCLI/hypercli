@@ -264,23 +264,11 @@ await client.deployments.update(agent.id, { launchConfig });
 await client.deployments.start(agent.id);
 ```
 
-Hosted Slack gateway ids are finalized during create/update, not START.
-
-Hosted Slack is expressed as intent on `createOpenClaw(...)`:
-
-```ts
-const agent = await client.deployments.createOpenClaw({
-  name: "slack-demo",
-  slack: true,
-});
-```
-
-The SDK owns the `HYPER_SLACK_APP_ENABLED`, `HYPER_SLACK_RELAY_URL`,
-`HYPER_SLACK_API_URL`, and `HYPER_SLACK_GATEWAY_ID` launch env. Because the
-gateway id depends on the assigned agent id, `createOpenClaw(...)` creates the
-agent first, waits until launch updates are accepted, then patches the complete
-env and OpenClaw Slack relay config. Nothing starts with a partial Slack env.
-For dry-run previews, pass `slack: { gatewayId: "agent:<id>" }` explicitly.
+Hosted Slack attaches through the relay on an existing agent (see
+[Slack App](/agents/slack)): the relay persists the scoping markers and
+delivers messages over the Backend `/ws/acp` proxy. An agent never dials a
+Slack transport, so the SDK mints no Slack launch env and `createOpenClaw(...)`
+takes no `slack` option.
 
 There is no default OpenClaw route: the pod gateway binds loopback with auth
 mode `none` as an ACP hop only. The pro flavor adds the `desktop` route:
