@@ -2824,9 +2824,10 @@ class Deployments:
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
           ``kimi-code``/``pi``: the shared ACP coding-agent launch contract.
 
-        The typed Buzz launch contract (``BuzzLaunchConfig``) and the hosted
-        Slack ``slack`` knob are ts-sdk-only: this surface accepts neither
-        keyword, so passing one raises ``TypeError``.
+        The typed Buzz launch contract (``BuzzLaunchConfig``) is ts-sdk-only:
+        this surface does not accept the keyword, so passing it raises
+        ``TypeError``. Hosted Slack has no launch knob to set: the relay
+        attaches and routes outside the pod.
         """
         launch = {
             "name": name,
@@ -3150,9 +3151,11 @@ class Deployments:
     ) -> dict:
         """Attach an agent to the hosted HyperCLI Slack relay.
 
-        The relay verifies the caller's Slack install and persists the hosted
-        Slack launch env on the backend. Running agents still need a restart
-        before OpenClaw reads the boot-time relay settings.
+        The relay verifies the caller's Slack install and persists its
+        scoping markers (``HYPER_SLACK_APP_ENABLED`` and the optional
+        channel/user allowlist) in the agent's stored launch config. Nothing
+        pod-side reads them: the relay enforces the scope and submits turns
+        through the Backend ACP proxy, so a running agent needs no restart.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id_or_name)
         relay_base = _normalize_slack_relay_base_url(relay_base_url)
