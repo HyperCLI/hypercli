@@ -3,7 +3,7 @@
  * driven entirely through the existing exec/cp machinery; no TTY needed.
  *
  * Flow registry (LOGIN_FLOWS) is keyed by runtime so new runtimes (opencode,
- * openclaw, ...) slot in by adding an entry — each flow is an async fn over
+ * openclaw_acp, ...) slot in by adding an entry — each flow is an async fn over
  * the shared exec/poll primitives.
  *
  * Choreographies (verified live in pods):
@@ -486,11 +486,8 @@ const NATIVE_LOGIN_HINTS: Readonly<Record<string, string>> = {
   'kimi-code': 'kimi-code reads provider credentials from the pod environment at launch: hyper agents create <name> --runtime kimi-code --env ...',
   'buzz-agent': 'buzz-agent is configured at launch via env; there is no interactive pod login',
   pi: 'Pi uses native provider configuration: open hyper agents shell <id>, then run pi to configure API keys or login',
-  openclaw: 'openclaw authenticates in-pod over ACP; there is no pod login flow',
   'openclaw-pro': 'openclaw authenticates in-pod over ACP; there is no pod login flow',
   openclaw_acp: 'openclaw authenticates in-pod over ACP; there is no pod login flow',
-  hermes: 'hermes authenticates in-pod over ACP; there is no pod login flow',
-  'hermes-agent': 'hermes authenticates in-pod over ACP; there is no pod login flow',
   hermes_acp: 'hermes authenticates in-pod over ACP; there is no pod login flow',
 };
 

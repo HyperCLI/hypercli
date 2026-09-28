@@ -30,9 +30,7 @@ const ALL_NAMES = [
 
 /** Verified runtime -> [sync-root-relative skills dir, absolute skills dir]. */
 const VERIFIED: Array<[string, string, string]> = [
-  ['openclaw', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['openclaw-pro', '.openclaw/skills', '/home/node/.openclaw/skills'],
-  ['hermes-agent', '.hermes/skills', '/home/hermes/.hermes/skills'],
   ['openclaw_acp', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['hermes_acp', '.hermes/skills', '/home/hermes/.hermes/skills'],
   ['opencode', '.agents/skills', '/home/node/.agents/skills'],
@@ -59,7 +57,7 @@ function agentFixture(overrides: Record<string, unknown> = {}): Agent {
     state: 'RUNNING',
     name: 'alpha',
     handle: null,
-    runtime: 'openclaw',
+    runtime: 'openclaw_acp',
     hostname: 'alpha.hypercli.run',
     launchConfig: null,
     ...overrides,
@@ -191,7 +189,7 @@ describe('hyper skills install', () => {
   });
 
   it('--dir accepts an absolute path under the sync root and strips the prefix', async () => {
-    const seam = makeSeam(agentFixture({ runtime: 'openclaw' }));
+    const seam = makeSeam(agentFixture({ runtime: 'openclaw_acp' }));
     await run(seam.ctx, ['install', 'alpha', '--dir', '/home/node/custom/skills', '--json']);
     const record = JSON.parse(seam.stdout()) as Record<string, unknown>;
     expect(record.dir).toBe('custom/skills');
@@ -200,7 +198,7 @@ describe('hyper skills install', () => {
 
   it('--dir honors launchConfig.sync_root over the runtime default', async () => {
     const seam = makeSeam(
-      agentFixture({ runtime: 'openclaw', launchConfig: { sync_root: '/data' } }),
+      agentFixture({ runtime: 'openclaw_acp', launchConfig: { sync_root: '/data' } }),
     );
     await run(seam.ctx, ['install', 'alpha', '--dir', '/data/skills', '--json']);
     expect(seam.execCalls[0].argv[2]).toBe('/data/skills/hypercli');
@@ -208,7 +206,7 @@ describe('hyper skills install', () => {
   });
 
   it('rejects an absolute --dir outside the sync root', async () => {
-    const seam = makeSeam(agentFixture({ runtime: 'openclaw' }));
+    const seam = makeSeam(agentFixture({ runtime: 'openclaw_acp' }));
     const err = await run(seam.ctx, ['install', 'alpha', '--dir', '/etc/skills']).catch(
       (e: unknown) => e,
     );

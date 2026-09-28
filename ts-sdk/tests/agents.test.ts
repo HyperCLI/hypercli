@@ -2761,7 +2761,7 @@ describe('Agents SDK', () => {
       .rejects.toMatchObject({ statusCode: 403, message: expect.stringContaining('forbidden') });
   });
 
-  it.each(['openclaw_acp', 'hermes_acp', 'openclaw', 'hermes-agent'])(
+  it.each(['openclaw_acp', 'hermes_acp', 'openclaw-pro'])(
     'hydrates runtime %s to the ACP-facing Agent',
     async (runtime) => {
       const http = {
@@ -2794,19 +2794,8 @@ describe('Agents SDK', () => {
     expect(() => generic.auth).toThrow(/Runtime authentication is not available/);
   });
 
-  it('passes the ACP gate for legacy payloads detected structurally as openclaw', () => {
-    const legacy = Agent.fromDict({
-      id: 'agent-legacy',
-      user_id: 'user-1',
-      state: 'RUNNING',
-      launch_config: { routes: { openclaw: { port: 18789 } } },
-    });
-    expect(legacy.runtime).toBeNull();
-    expect(legacy.acpPool).toBeDefined();
-  });
-
-  it.each(['hermes_acp', 'hermes-agent'])(
-    'createHermesAgent accepts a backend response already migrated to %s',
+  it.each(['hermes_acp', 'openclaw_acp', 'openclaw-pro'])(
+    'createAgent accepts a backend response labeled %s',
     async (runtime) => {
       const http = {
         post: vi.fn().mockResolvedValue({
@@ -2818,7 +2807,7 @@ describe('Agents SDK', () => {
       } as unknown as HTTPClient;
 
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-      const agent = await deployments.createHermesAgent({ name: 'hermes' });
+      const agent = await deployments.createAgent(runtime, { name: 'agent' });
 
       expect(agent).toBeInstanceOf(Agent);
       expect(agent.runtime).toBe(runtime);

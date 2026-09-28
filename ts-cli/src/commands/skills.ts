@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { APIError, type Agent, type Deployments } from '@hypercli.com/sdk';
 import { parseCommandArgs, type ParsedCommand } from '../core/argv.js';
+import { canonicalRuntimeName } from './agents.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import { getSkill, listSkills, type BundledSkill } from '../core/skills-runtime.js';
@@ -62,9 +63,9 @@ const DESCRIPTION_MIN = 16;
 /**
  * Verified runtime -> skills directory mapping. Paths are relative to the
  * agent sync root (the Reef file API rejects absolute paths). Evidence:
- *   openclaw, openclaw-pro: hypercli-agent-images/openclaw/init.sh:5,12
+ *   openclaw_acp, openclaw-pro: hypercli-agent-images/openclaw/init.sh:5,12
  *     (STATE_DIR=$HOME/.openclaw, OPENCLAW_SKILLS_DIR=$STATE_DIR/skills)
- *   hermes-agent: hypercli-agent-images/hermes-agent/entrypoint.sh:7,14 and
+ *   hermes_acp: hypercli-agent-images/hermes-agent/entrypoint.sh:7,14 and
  *     Dockerfile (`ENV HERMES_HOME=/home/hermes/.hermes`, dir ${HERMES_HOME}/skills)
  *   opencode: hypercli-agent-images/coding/init.sh:18,66-72 seeds
  *     $HOME/.agents/skills; opencode loads global ~/.agents/skills/<name>/SKILL.md
@@ -76,11 +77,8 @@ const DESCRIPTION_MIN = 16;
  * kimi-code, pi and generic have no verified default: they require --dir.
  */
 const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
-  openclaw: '.openclaw/skills',
-  'openclaw-pro': '.openclaw/skills',
-  'hermes-agent': '.hermes/skills',
-  // *_acp successors inherit the legacy pod layout (evidence rows above).
   openclaw_acp: '.openclaw/skills',
+  'openclaw-pro': '.openclaw/skills',
   hermes_acp: '.hermes/skills',
   opencode: '.agents/skills',
   'buzz-agent': '.agents/skills',
@@ -90,16 +88,14 @@ const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
 };
 
 /**
- * Default sync root per runtime (ts-sdk agents.ts:142/311/1364). Coding
- * runtimes and openclaw live under /home/node; hermes-agent under
+ * Default sync root per runtime (ts-sdk agents.ts ACP_RUNTIME_TABLE). Coding
+ * runtimes and openclaw_acp live under /home/node; hermes_acp under
  * /home/hermes. launchConfig.sync_root wins when the agent was launched
  * with an explicit root.
  */
 const SYNC_ROOT_BY_RUNTIME: Readonly<Record<string, string>> = {
-  openclaw: '/home/node',
-  'openclaw-pro': '/home/node',
-  'hermes-agent': '/home/hermes',
   openclaw_acp: '/home/node',
+  'openclaw-pro': '/home/node',
   hermes_acp: '/home/hermes',
   opencode: '/home/node',
   'buzz-agent': '/home/node',
@@ -281,7 +277,7 @@ function agentSyncRoot(agent: Agent): string | null {
   if (typeof configured === 'string' && configured.trim()) {
     return configured.trim().replace(/\/+$/, '');
   }
-  return SYNC_ROOT_BY_RUNTIME[(agent.runtime ?? '').toLowerCase()] ?? null;
+  return SYNC_ROOT_BY_RUNTIME[canonicalRuntimeName(agent.runtime ?? '').toLowerCase()] ?? null;
 }
 
 function resolveInstallTarget(agent: Agent, dirOption: string | undefined): InstallTarget {
@@ -290,7 +286,7 @@ function resolveInstallTarget(agent: Agent, dirOption: string | undefined): Inst
 
   let rel: string;
   if (dirOption === undefined) {
-    const mapped = SKILLS_DIR_BY_RUNTIME[runtime];
+    const mapped = SKILLS_DIR_BY_RUNTIME[canonicalRuntimeName(runtime)];
     if (mapped === undefined) {
       throw new UsageError(
         `no verified default skills directory for runtime '${agent.runtime ?? 'unknown'}' — ` +

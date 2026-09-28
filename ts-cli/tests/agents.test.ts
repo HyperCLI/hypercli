@@ -69,7 +69,7 @@ function agentFixture(overrides: Record<string, unknown> = {}): Agent {
     handle: null,
     displayName: 'alpha',
     avatarUrl: null,
-    runtime: 'openclaw',
+    runtime: 'openclaw_acp',
     hostname: 'alpha.hypercli.run',
     cpu: 2,
     memory: 4,
@@ -250,8 +250,8 @@ async function runErr(ctx: CommandContext, args: string[]): Promise<unknown> {
 describe('hyper agents ls', () => {
   it('prints the state/runtime/short-id table and total + per-state counts on stderr', async () => {
     const d = createMockDeploymentsApi([
-      agentFixture({ id: ID_A, runtime: 'openclaw', state: 'RUNNING' }),
-      agentFixture({ id: ID_B, name: 'beta', displayName: 'beta', runtime: 'hermes-agent', state: 'STOPPED' }),
+      agentFixture({ id: ID_A, runtime: 'openclaw_acp', state: 'RUNNING' }),
+      agentFixture({ id: ID_B, name: 'beta', displayName: 'beta', runtime: 'hermes_acp', state: 'STOPPED' }),
     ]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
@@ -265,8 +265,8 @@ describe('hyper agents ls', () => {
     expect(out).toContain('alpha');
     expect(out).toContain('beta');
     expect(out).toContain(ID_A.slice(0, 12));
-    expect(out).toContain('openclaw');
-    expect(out).toContain('hermes-agent');
+    expect(out).toContain('openclaw_acp');
+    expect(out).toContain('hermes_acp');
     expect(out).toContain('RUNNING');
     expect(out).toContain('STOPPED');
     expect(stderr()).toContain('total 2');
@@ -311,7 +311,7 @@ describe('hyper agents status', () => {
     expect(out).toContain('dashboard');
     expect(out).toContain(`https://console.hypercli.com/agents/${ID_A}`);
     expect(out).toContain('runtime');
-    expect(out).toContain('openclaw');
+    expect(out).toContain('openclaw_acp');
     expect(out).toContain('state');
     expect(out).toContain('RUNNING');
     expect(out).toContain('plan_id');
@@ -426,8 +426,8 @@ describe('hyper agents set runtime', () => {
 
     await agents.run(ctx, ['set', 'runtime', ID_A, 'openclaw']);
 
-    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw' });
-    expect(stdout()).toContain('launch image reset to the openclaw default');
+    expect(d.update).toHaveBeenCalledWith(ID_A, { runtime: 'openclaw_acp' });
+    expect(stdout()).toContain('launch image reset to the openclaw_acp default');
   });
 
   it.each(['openclaw_acp', 'hermes_acp'])('accepts the *_acp runtime name %s as a set target', async (runtime) => {
@@ -452,7 +452,7 @@ describe('hyper agents set runtime', () => {
 
   it('omits the reset note for generic (no platform default image)', async () => {
     const updated = agentFixture({ runtime: 'generic', state: 'STOPPED', launchConfig: { image: 'img' } });
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw', state: 'STOPPED' })], {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw_acp', state: 'STOPPED' })], {
       update: vi.fn(async () => updated),
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
@@ -466,12 +466,12 @@ describe('hyper agents set runtime', () => {
     const d = createMockDeploymentsApi([agentFixture({ runtime: 'generic', state: 'RUNNING' })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw']);
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw_acp']);
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as Error).message).toContain('cannot change the runtime of a running agent');
     expect((err as Error).message).toContain(`hyper agents stop ${ID_A.slice(0, 12)}`);
-    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw`);
+    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw_acp`);
     expect((err as Error).message).not.toContain('--reset-image');
     expect((err as Error).message).toContain(`hyper agents start ${ID_A.slice(0, 12)}`);
     expect(d.update).not.toHaveBeenCalled();
@@ -485,12 +485,12 @@ describe('hyper agents set runtime', () => {
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
-    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw']);
+    const err = await runErr(ctx, ['set', 'runtime', ID_A, 'openclaw_acp']);
 
     expect(err).toBeInstanceOf(CliError);
     expect((err as Error).message).toContain('409');
     expect((err as Error).message).toContain(`hyper agents stop ${ID_A.slice(0, 12)}`);
-    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw`);
+    expect((err as Error).message).toContain(`hyper agents set runtime ${ID_A.slice(0, 12)} openclaw_acp`);
     expect((err as Error).message).not.toContain('--reset-image');
     expect((err as Error).message).toContain(`hyper agents start ${ID_A.slice(0, 12)}`);
   });
@@ -558,13 +558,13 @@ describe('hyper agents create', () => {
     }
   });
 
-  it('dispatches per runtime through createAgent: hermes -> hermes-agent, buzz -> buzz-agent', async () => {
+  it('dispatches per runtime through createAgent: hermes -> hermes_acp, buzz -> buzz-agent', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['create', 'h1', '--runtime', 'hermes', '--model', 'm-x']);
     expect(d.createAgent).toHaveBeenCalledWith(
-      'hermes-agent',
+      'hermes_acp',
       expect.objectContaining({ name: 'h1', dryRun: false, config: { model: 'm-x' } }),
     );
 
@@ -673,7 +673,7 @@ describe('hyper agents create', () => {
     ]);
 
     expect(d.createAgent).toHaveBeenCalledWith(
-      'openclaw',
+      'openclaw_acp',
       expect.objectContaining({
         name: 'oc1',
         image: 'registry.example/org/hypercli-openclaw:sha',
@@ -1274,7 +1274,7 @@ describe('hyper agents token', () => {
 
 describe('hyper agents config', () => {
   it('prints the launch config regardless of runtime', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'hermes-agent' })]);
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'hermes_acp' })]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
     await agents.run(ctx, ['config', 'get', ID_A]);

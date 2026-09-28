@@ -116,6 +116,17 @@ export {
 
 // User API
 export { projectManagedContext, MANAGED_CONTEXT_PATHS, type ManagedContext, type ManagedContextFileResult } from './managed-context.js';
+export {
+  AGENT_PERSONA_PROFILES,
+  DEFAULT_PERSONA_SOUL_PATH,
+  DEFAULT_PERSONA_USER_PATH,
+  DefaultPersonaProfile,
+  HermesPersonaProfile,
+  OpenClawPersonaProfile,
+  resolveAgentPersonaProfile,
+  type AgentPersonaFiles,
+  type AgentPersonaProfile,
+} from './agent-persona.js';
 export type { UserUi, UpdateUserOptions } from './user.js';
 export {
   UserAPI,
@@ -334,6 +345,7 @@ export {
   type AttachSlackRelayAgentResult,
   type AgentShellTokenResponse,
   type AgentShellConnectOptions,
+  type AgentAcpWsTokenResponse,
   type AgentCorsConfig,
   type AgentRouteConfig,
   type AgentRoutesState,
@@ -352,8 +364,6 @@ export {
   type OpenClawHeartbeatConfig,
   type OpenClawRouteOptions,
   type CreateAgentOptions,
-  type OpenClawCreateAgentOptions,
-  type HermesAgentCreateOptions,
   type StartAgentOptions,
   type LifecycleActionOptions,
   type AgentExecOptions,

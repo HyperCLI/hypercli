@@ -41,11 +41,11 @@ describe('dist export parity', () => {
     const agent = root.Agent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
     expect(agent).toBeInstanceOf(root.Agent);
     expect(agent.runtime).toBe('pi');
-    // The single flat factory plus the three deprecated facade aliases.
+    // The single flat factory plus the one remaining deprecated facade alias.
     expect(root.Deployments.prototype.createAgent).toBeTypeOf('function');
     expect(root.Deployments.prototype.createCodingAgent).toBeTypeOf('function');
-    expect(root.Deployments.prototype.createOpenClaw).toBeTypeOf('function');
-    expect(root.Deployments.prototype.createHermesAgent).toBeTypeOf('function');
+    expect(root.Deployments.prototype.createOpenClaw).toBeUndefined();
+    expect(root.Deployments.prototype.createHermesAgent).toBeUndefined();
     expect(root.Deployments.prototype.createPi).toBeUndefined();
     expect(root.Deployments.prototype.createOpenCode).toBeUndefined();
     expect(root.Deployments.prototype.startOpenClaw).toBeUndefined();

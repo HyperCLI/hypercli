@@ -930,27 +930,6 @@ describe('deprecated facades delegate to createAgent', () => {
     }), { retries: 1 });
   });
 
-  it('createOpenClaw delegates with the openclaw label', async () => {
-    const { post, deployments } = aliasDeployments('openclaw');
-    const spy = vi.spyOn(deployments, 'createAgent');
-    await deployments.createOpenClaw({ name: 'legacy' });
-    expect(spy).toHaveBeenCalledExactlyOnceWith('openclaw', expect.objectContaining({ name: 'legacy' }));
-    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
-      runtime: 'openclaw',
-      image: DEFAULT_OPENCLAW_IMAGE,
-    }), { retries: 1 });
-  });
-
-  it('createHermesAgent delegates with the hermes label', async () => {
-    const { post, deployments } = aliasDeployments('hermes-agent');
-    const spy = vi.spyOn(deployments, 'createAgent');
-    await deployments.createHermesAgent({ name: 'legacy' });
-    expect(spy).toHaveBeenCalledExactlyOnceWith('hermes-agent', expect.objectContaining({ name: 'legacy' }));
-    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
-      runtime: 'hermes-agent',
-      image: DEFAULT_HERMES_AGENT_IMAGE,
-    }), { retries: 1 });
-  });
 });
 
 describe('buzz acp raw outbound launch', () => {

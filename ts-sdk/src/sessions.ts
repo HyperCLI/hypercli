@@ -25,8 +25,6 @@ export interface AcpSessionMember {
   internalSessionId: string | null;
   /** Member's durable delivery cursor (seq) in this session. */
   cursorPos: number;
-  turnState: 'idle' | 'running' | null;
-  currentTurnId: string | null;
 }
 
 /** One `agent_sessions` row as the catalog sees it (backend `SessionListItem`). summaryText doubles as the display title. */
@@ -85,15 +83,12 @@ function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T 
 
 function memberFromWire(row: Record<string, unknown>): AcpSessionMember {
   const kind = row.kind;
-  const turnState = pick<string>(row, 'turn_state', 'turnState');
   const cursorPos = pick<unknown>(row, 'cursor_pos', 'cursorPos');
   return {
     kind: kind === 'user' ? 'user' : 'agent',
     participantId: String(pick<unknown>(row, 'participant_id', 'participantId') ?? ''),
     internalSessionId: (pick<string>(row, 'internal_session_id', 'internalSessionId') ?? null) as string | null,
     cursorPos: typeof cursorPos === 'number' ? cursorPos : Number(cursorPos ?? 0),
-    turnState: turnState === 'idle' || turnState === 'running' ? turnState : null,
-    currentTurnId: (pick<string>(row, 'current_turn_id', 'currentTurnId') ?? null) as string | null,
   };
 }
 
