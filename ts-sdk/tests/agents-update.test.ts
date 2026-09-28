@@ -134,10 +134,7 @@ describe('Deployments.update', () => {
       reset_image: true,
       launch_config: {},
     });
-    expect(put).toHaveBeenCalledWith(
-      `/deployments/${agentId}/routes/hermes`,
-      expect.objectContaining({ port: 8642, auth: false }),
-    );
+    expect(put).not.toHaveBeenCalled();
     expect(fileDelete.mock.calls.map(([, path]) => path)).toEqual([
       '.hermes/config.yaml',
       '.hermes/mem0.json',

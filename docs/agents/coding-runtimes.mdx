@@ -4,9 +4,9 @@ description: Inference, authentication, and selective-sync defaults for managed 
 ---
 
 HyperCLI provides six ACP coding-runtime container families plus the OpenClaw
-and Hermes gateway-style runtimes. The ACP families and OpenClaw use
-`/home/node`; Hermes uses `/home/hermes`. They do not all use the same inference,
-API-authentication, or backup policy.
+gateway runtime and the ACP-native Hermes runtime. The ACP families and OpenClaw
+use `/home/node`; Hermes uses `/home/hermes`. They do not all use the same
+inference, API-authentication, or backup policy.
 
 The Python and TypeScript coding-agent helpers apply the defaults below. A
 Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
@@ -23,7 +23,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
-| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. |
+| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is ACP-native; sessions run through the backend ACP bridge like the coding harnesses. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
 `/usr/local/bin/hypercli-runtime-auth` wrapper. Their login commands run inside
@@ -40,11 +40,10 @@ complete configuration; HyperCLI does not mix a vendor URL with a platform
 credential.
 
 Hermes launches as runtime `hermes-agent` with
-`ghcr.io/hypercli/hypercli-hermes-agent:latest` and exposes the route named
-`hermes`. The SDK seeds no authentication material and never substitutes
-caller-supplied secrets for the backend-injected model credential. The legacy
-`gateway run` API-server mode is an explicit opt-in; the Rust SDK's
-`HermesApiClient` talks to that surface with a caller-supplied credential.
+`ghcr.io/hypercli/hypercli-hermes:latest` and exposes no public route by
+default; the pod's hyper-acp child dials the backend ACP bridge. The SDK seeds
+no authentication material and never substitutes caller-supplied secrets for
+the backend-injected model credential.
 
 ## Selective-sync contract
 
@@ -119,11 +118,10 @@ with `/usr/local/bin/hyper-acp plugin buzz` plus `BUZZ_ACP_*` environment. Only
 native Buzz Agent uses `hypercli-buzz-agent:latest`. An explicit immutable
 `image` override still wins.
 
-The coding runtimes have no OpenClaw gateway and no public route by default.
-Use authenticated deployment lifecycle, files, exec, shell, and runtime-auth
-APIs. OpenClaw instead exposes its gateway routes and should be controlled with
-the OpenClaw-specific SDK helpers. Hermes exposes its API Server through the
-`hermes` route and should be controlled with the Hermes SDK helpers. See
+The coding runtimes and Hermes have no OpenClaw gateway and no public route by
+default. Use authenticated deployment lifecycle, files, exec, shell, ACP
+session, and runtime-auth APIs. OpenClaw instead exposes its gateway routes and
+should be controlled with the OpenClaw-specific SDK helpers. See
 [Supported runtime images](/agents/images),
 [OpenClaw runtime config](/agents/openclaw-config), and
 [Buzz Desktop](/agents/buzz) for those runtime-specific control planes.

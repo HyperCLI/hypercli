@@ -66,13 +66,13 @@ const agents = (config.agents ||= {}) as ConfigObject
 const defaults = (agents.defaults ||= {}) as ConfigObject
 const memorySearch = (defaults.memorySearch ||= {}) as ConfigObject
 
+// The gateway is a pod-internal ACP hop only (loopback bind, no browser/WS
+// clients): auth stays mode "none" with no token. The auth subtree is
+// replaced wholesale so retained configs written when a caller-minted
+// OPENCLAW_GATEWAY_TOKEN was mandatory shed their stale token on first boot.
 {
-  const token = (env.OPENCLAW_GATEWAY_TOKEN || "").trim()
-  if (!token) throw new Error("OPENCLAW_GATEWAY_TOKEN is required")
   const gateway = (config.gateway ||= {}) as ConfigObject
-  const auth = (gateway.auth ||= {}) as ConfigObject
-  auth.mode = "token"
-  auth.token = token
+  gateway.auth = { mode: "none" }
 }
 
 // OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN, when set in the container env, holds a

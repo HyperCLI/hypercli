@@ -519,22 +519,6 @@ def _routes_config_body(routes: dict | None) -> dict:
     return {str(name): _route_config_body(dict(route)) for name, route in (routes or {}).items()}
 
 
-def build_hermes_agent_routes(
-    *,
-    port: int = 8642,
-    auth: bool = False,
-    prefix: str = "",
-) -> dict[str, dict]:
-    """Build the public route for Hermes' bearer-authenticated API Server."""
-    return {
-        "hermes": {
-            "port": int(port),
-            "auth": bool(auth),
-            "prefix": str(prefix),
-        }
-    }
-
-
 def _env_bool(value: object) -> str:
     return "1" if bool(value) else "0"
 
@@ -2840,8 +2824,6 @@ class Deployments:
         cron_enabled: bool | None = None,
         memory_index: dict | None = None,
         openclaw_routes: dict | None = None,
-        hermes_route: dict | None = None,
-        cors_origins: list[str] | None = None,
         trusted_proxies: list[str] | tuple[str, ...] | None = None,
     ) -> Agent:
         """Create a managed agent for a runtime in one call.
@@ -2856,8 +2838,8 @@ class Deployments:
         - ``openclaw``/``openclaw-pro``/``openclaw_acp``: OpenClaw gateway
           launch with the openclaw route and cron/memory/workspaces defaults
           (the pro variant adds the desktop leg).
-        - ``hermes-agent``/``hermes_acp``: Hermes launch with the hermes route
-          and cron defaults.
+        - ``hermes-agent``/``hermes_acp``: Hermes ACP launch with the hermes
+          image, sync-root, and cron defaults.
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
           ``kimi-code``/``pi``: the shared ACP coding-agent launch contract.
 
@@ -2909,8 +2891,6 @@ class Deployments:
             return self._create_hermes_agent_deployment(
                 runtime,
                 cron_enabled=cron_enabled,
-                hermes_route=hermes_route,
-                cors_origins=cors_origins,
                 launch=launch,
             )
         return self._create_coding_agent_deployment(
@@ -2966,16 +2946,6 @@ class Deployments:
             **DEFAULT_HERMES_MODEL_ENV,
             **dict(launch["env"] or {}),
         }
-        if launch["cors"] is _UNSET:
-            origins = list(
-                dict.fromkeys(
-                    origin.strip()
-                    for origin in (knobs["cors_origins"] or [])
-                    if origin.strip()
-                )
-            )
-            if origins:
-                launch["cors"] = {"allowed_origins": origins}
         launch["image"] = launch["image"] or DEFAULT_HERMES_AGENT_IMAGE
         if launch["sync_root"] is None:
             launch["sync_root"] = DEFAULT_HERMES_AGENT_SYNC_ROOT
@@ -2985,8 +2955,6 @@ class Deployments:
             launch["sync_uid"] = DEFAULT_HERMES_AGENT_SYNC_UID
         if launch["sync_gid"] is None:
             launch["sync_gid"] = DEFAULT_HERMES_AGENT_SYNC_GID
-        if launch["routes"] is None:
-            launch["routes"] = build_hermes_agent_routes(**dict(knobs["hermes_route"] or {}))
         if launch["runtime_scopes"] is None:
             launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
         agent = self.create(runtime=runtime, **launch)

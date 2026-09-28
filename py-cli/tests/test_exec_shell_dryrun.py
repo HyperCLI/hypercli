@@ -349,7 +349,7 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "0"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert "desktop" not in captured["routes"]
-    assert list(captured["secrets"]) == ["OPENCLAW_GATEWAY_TOKEN"]
+    assert "secrets" not in captured
     assert "Desktop:  disabled" in result.stdout
 
 
@@ -620,12 +620,12 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
     assert captured["runtime"] == "hermes-agent"
     assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert captured["env"] == {"HERMES_CRON_ENABLED": "1"}
-    assert captured["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
+    assert "routes" not in captured
     assert captured["sync_root"] == "/home/hermes"
     assert captured["sync_exclude"] == ["shared/**"]
     assert (captured["sync_uid"], captured["sync_gid"]) == (10000, 10000)
-    assert "https://hermes-demo.hypercli.app" in result.stdout
     assert "Desktop" not in result.stdout
+    assert "API:" not in result.stdout
 
 
 def test_agents_create_hermes_rejects_openclaw_only_flags(monkeypatch):
@@ -955,7 +955,7 @@ def test_agents_start_hermes_reuses_saved_launch_fields(monkeypatch):
                 "config": {"model": {"default": "hyper/model"}},
                 "env": {"SAVED": "1"},
                 "image": "ghcr.io/hypercli/hypercli-hermes-agent:saved",
-                "routes": {"hermes-agent": {"port": 8642, "auth": False, "prefix": ""}},
+                "routes": {"hermes-agent": {"port": 9090, "auth": False, "prefix": ""}},
                 "sync_root": "/home/hermes",
                 "sync_exclude": ["shared/**"],
                 "sync_uid": 10000,

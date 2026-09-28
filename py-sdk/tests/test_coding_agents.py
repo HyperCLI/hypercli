@@ -751,7 +751,6 @@ class TestCreateAgentHermesRuntimes:
         assert "sync_include" not in body
         assert body["sync_exclude"] == ["shared/**"]
         assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
-        assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
         env = body["env"]
         assert env["HERMES_CRON_ENABLED"] == "1"
         assert env["HYPER_MODELS"] == "default-anthropic"
@@ -766,22 +765,12 @@ class TestCreateAgentHermesRuntimes:
         assert env["HYPER_MODELS"] == "custom-model"
         assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
 
-    def test_cors_origins_drive_cors_when_cors_unset(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
-
-        deployments.create_agent(
-            "hermes-agent", cors_origins=["https://a.test ", "https://a.test", "https://b.test"]
-        )
-
-        assert posts[0][1]["cors"] == {"allowed_origins": ["https://a.test", "https://b.test"]}
-
-    def test_explicit_cors_wins_over_cors_origins(self, monkeypatch):
+    def test_explicit_cors_passes_through(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "hermes-agent")
 
         deployments.create_agent(
             "hermes-agent",
             cors={"allowed_origins": ["https://explicit.test"]},
-            cors_origins=["https://ignored.test"],
         )
 
         assert posts[0][1]["cors"] == {"allowed_origins": ["https://explicit.test"]}

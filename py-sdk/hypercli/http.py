@@ -2,7 +2,7 @@
 import time
 import httpx
 import logging
-from typing import Any, Optional, Iterator, Callable
+from typing import Any, Optional, Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -187,20 +187,6 @@ class HTTPClient:
             headers=self.headers, timeout=self.timeout
         )
         return _handle_response(resp)
-
-    def stream_post(self, path: str, json: dict) -> Iterator[str]:
-        """Streaming POST for SSE responses"""
-        with httpx.Client(timeout=None) as client:
-            with client.stream(
-                "POST",
-                f"{self.base_url}{path}",
-                headers=self.headers,
-                json=json,
-            ) as response:
-                if response.status_code >= 400:
-                    raise APIError(response.status_code, response.read().decode())
-                for line in response.iter_lines():
-                    yield line
 
     def post_multipart(self, path: str, files: dict) -> Any:
         """POST with multipart form data for file uploads.
