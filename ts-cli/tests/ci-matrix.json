@@ -119,6 +119,23 @@
         { "argv": ["delete", "--help"] }
       ]
     },
+    "integrations": {
+      "tests": ["integrations"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["providers", "--help"] },
+        { "argv": ["connections", "--help"] },
+        { "argv": ["status", "--help"] },
+        { "argv": ["connect", "--help"] },
+        { "argv": ["disconnect", "--help"] },
+        { "argv": ["enable", "--help"] },
+        { "argv": ["disable", "--help"] },
+        { "argv": ["unset", "--help"] },
+        { "argv": ["token", "--help"] },
+        { "argv": ["call", "--help"] }
+      ]
+    },
     "voice": {
       "tests": ["voice"],
       "windows": false,

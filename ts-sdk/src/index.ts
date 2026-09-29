@@ -184,6 +184,17 @@ export {
 } from './routines.js';
 
 export {
+  IntegrationsAPI,
+  deriveIntegrationsApiBase,
+  type Provider,
+  type ConnectionEntry,
+  type ConnectionInfo,
+  type ConnectSession,
+  type TokenResponse,
+  type ProxyOptions,
+} from './integrations.js';
+
+export {
   RunnersAPI,
   deriveRunnersApiBase,
   type Runner,
