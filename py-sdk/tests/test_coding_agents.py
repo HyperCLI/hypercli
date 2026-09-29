@@ -611,15 +611,14 @@ class TestCreateAgentOpenClawRuntimes:
     """ts createAgent openclaw branch: env builders from the existing py data
     tables; the pro variant adds the desktop leg (its only public route)."""
 
-    @pytest.mark.parametrize("runtime", ["openclaw", "openclaw_acp"])
-    def test_default_launch_shape(self, monkeypatch, runtime):
-        deployments, posts = _capture_create(monkeypatch, runtime)
+    def test_default_launch_shape(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
-        agent = deployments.create_agent(runtime)
+        agent = deployments.create_agent("openclaw_acp")
 
         assert type(agent) is Agent
         body = posts[0][1]
-        assert body["runtime"] == runtime
+        assert body["runtime"] == "openclaw_acp"
         assert body["image"] == DEFAULT_OPENCLAW_IMAGE
         assert body["sync_root"] == "/home/node"
         assert body["routes"] == {}
@@ -648,19 +647,19 @@ class TestCreateAgentOpenClawRuntimes:
         assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
 
     def test_caller_routes_pass_through_untouched(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
         deployments.create_agent(
-            "openclaw", routes={"custom": {"port": 8080, "auth": True, "prefix": "c"}}
+            "openclaw_acp", routes={"custom": {"port": 8080, "auth": True, "prefix": "c"}}
         )
 
         assert posts[0][1]["routes"] == {"custom": {"port": 8080, "auth": True, "prefix": "c"}}
 
     def test_memory_index_and_trusted_proxies_env(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
         deployments.create_agent(
-            "openclaw",
+            "openclaw_acp",
             memory_index={"enabled": False},
             trusted_proxies=["10.0.0.1", "10.0.0.2"],
         )
@@ -688,9 +687,9 @@ class TestCreateAgentOpenClawRuntimes:
         )
 
     def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
-        deployments.create_agent("openclaw", env={"HYPER_MODELS": "custom-model", "X": "1"})
+        deployments.create_agent("openclaw_acp", env={"HYPER_MODELS": "custom-model", "X": "1"})
 
         env = posts[0][1]["env"]
         assert env["HYPER_MODELS"] == "custom-model"
@@ -698,18 +697,18 @@ class TestCreateAgentOpenClawRuntimes:
         assert env["X"] == "1"
 
     def test_control_ui_allowed_origin_wildcard_is_unconditional(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
         deployments.create_agent(
-            "openclaw", env={"OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN": "https://panel.test"}
+            "openclaw_acp", env={"OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN": "https://panel.test"}
         )
 
         assert posts[0][1]["env"]["OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN"] == "*"
 
     def test_explicit_sync_include_drops_default_exclude(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
-        deployments.create_agent("openclaw", sync_include=[".openclaw/agents"])
+        deployments.create_agent("openclaw_acp", sync_include=[".openclaw/agents"])
 
         body = posts[0][1]
         assert body["sync_include"] == [".openclaw/agents"]
@@ -717,9 +716,9 @@ class TestCreateAgentOpenClawRuntimes:
 
     @pytest.mark.parametrize("knob", ["sync_include", "sync_exclude"])
     def test_explicit_null_sync_policy_opts_out_of_default_exclude(self, monkeypatch, knob):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
-        deployments.create_agent("openclaw", **{knob: None})
+        deployments.create_agent("openclaw_acp", **{knob: None})
 
         body = posts[0][1]
         assert body[knob] is None
@@ -730,15 +729,14 @@ class TestCreateAgentHermesRuntimes:
     """ts createAgent hermes branch: /home/hermes root, uid/gid 10000, and the
     shared/** exclude from the existing py data tables."""
 
-    @pytest.mark.parametrize("runtime", ["hermes-agent", "hermes_acp"])
-    def test_default_launch_shape(self, monkeypatch, runtime):
-        deployments, posts = _capture_create(monkeypatch, runtime)
+    def test_default_launch_shape(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "hermes_acp")
 
-        agent = deployments.create_agent(runtime)
+        agent = deployments.create_agent("hermes_acp")
 
         assert type(agent) is Agent
         body = posts[0][1]
-        assert body["runtime"] == runtime
+        assert body["runtime"] == "hermes_acp"
         assert body["image"] == DEFAULT_HERMES_AGENT_IMAGE
         assert body["sync_root"] == "/home/hermes"
         assert body["sync_uid"] == 10000
@@ -752,31 +750,31 @@ class TestCreateAgentHermesRuntimes:
         assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
 
     def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
+        deployments, posts = _capture_create(monkeypatch, "hermes_acp")
 
-        deployments.create_agent("hermes-agent", env={"HYPER_MODELS": "custom-model"})
+        deployments.create_agent("hermes_acp", env={"HYPER_MODELS": "custom-model"})
 
         env = posts[0][1]["env"]
         assert env["HYPER_MODELS"] == "custom-model"
         assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
 
     def test_explicit_cors_passes_through(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "hermes-agent")
+        deployments, posts = _capture_create(monkeypatch, "hermes_acp")
 
         deployments.create_agent(
-            "hermes-agent",
+            "hermes_acp",
             cors={"allowed_origins": ["https://explicit.test"]},
         )
 
         assert posts[0][1]["cors"] == {"allowed_origins": ["https://explicit.test"]}
 
     def test_wrong_runtime_response_rejected(self, monkeypatch):
-        deployments, _ = _capture_create(monkeypatch, "openclaw")
+        deployments, _ = _capture_create(monkeypatch, "openclaw_acp")
 
         with pytest.raises(
-            TypeError, match="Hermes deployment response did not identify runtime 'hermes-agent'"
+            TypeError, match="Hermes deployment response did not identify runtime 'hermes_acp'"
         ):
-            deployments.create_agent("hermes-agent")
+            deployments.create_agent("hermes_acp")
 
 
 class TestFlatAgentSurface:
@@ -790,7 +788,7 @@ class TestFlatAgentSurface:
         assert isinstance(agent.auth, RuntimeAuthClient)
         assert agent.auth.runtime == "pi"
 
-    @pytest.mark.parametrize("runtime", ["openclaw", "hermes-agent", "not-a-runtime"])
+    @pytest.mark.parametrize("runtime", ["openclaw_acp", "hermes_acp", "not-a-runtime"])
     def test_auth_gates_runtimes_without_auth_config(self, runtime):
         agent = Agent.from_dict({"id": "a", "user_id": "u", "state": "RUNNING", "runtime": runtime})
         with pytest.raises(
@@ -838,10 +836,10 @@ class TestFlatAgentSurface:
         assert posts == []
 
     def test_hosted_slack_knob_is_ts_sdk_only(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw")
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
         with pytest.raises(TypeError, match="unexpected keyword argument 'slack'"):
-            deployments.create_agent("openclaw", slack=True)
+            deployments.create_agent("openclaw_acp", slack=True)
         assert posts == []
 
 

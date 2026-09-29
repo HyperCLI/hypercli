@@ -214,11 +214,13 @@ def _run_sync(
     return asyncio.run(operation())
 
 
+# Canonical runtime labels only: the legacy wire spellings (``openclaw``,
+# ``hermes-agent``) are folded to their *_acp successors by the Backend at
+# create/patch (launch_contract.py LEGACY_RUNTIME_MIGRATIONS) and are
+# deliberately not in this union (mirrors ts-sdk).
 ManagedAgentRuntime = Literal[
     "generic",
-    "openclaw",
     "openclaw-pro",
-    "hermes-agent",
     "openclaw_acp",
     "hermes_acp",
     "buzz-agent",
@@ -1419,7 +1421,7 @@ class RuntimeAuthClient:
                     id="device",
                     name="ChatGPT device login",
                     description="Open a verification URL and enter the displayed device code.",
-                    kind="device",
+                    kind="native",
                     command=("codex", "login", "--device-auth"),
                 ),
             ),
@@ -1432,19 +1434,19 @@ class RuntimeAuthClient:
                 RuntimeAuthMethod(
                     id="claude-ai",
                     name="Claude subscription",
-                    kind="browser",
+                    kind="native",
                     command=("claude", "auth", "login", "--claudeai"),
                 ),
                 RuntimeAuthMethod(
                     id="console",
                     name="Anthropic Console",
-                    kind="browser",
+                    kind="native",
                     command=("claude", "auth", "login", "--console"),
                 ),
                 RuntimeAuthMethod(
                     id="sso",
                     name="Claude SSO",
-                    kind="browser",
+                    kind="native",
                     command=("claude", "auth", "login", "--sso"),
                 ),
             ),
@@ -2164,7 +2166,7 @@ class Agent:
         return await self._require_deployments().shell_connect(self.id, shell=shell)
 
 
-# Every managed runtime — openclaw, openclaw-pro, hermes-agent, and the
+# Every managed runtime — openclaw_acp, openclaw-pro, hermes_acp, and the
 # coding-agent runtimes — boots its pod behind hyper-acp, so runtime auth
 # rides the same exec/shell surface; the runtimes differ only in the
 # ``runtime`` label plus launch-config data (images, sync roots/uid/gid,
@@ -2816,10 +2818,10 @@ class Deployments:
         stays the raw generic entry; ``create_agent`` is the typed one
         (mirrors ts-sdk ``Deployments.createAgent``).
 
-        - ``openclaw``/``openclaw-pro``/``openclaw_acp``: OpenClaw ACP launch
+        - ``openclaw_acp``/``openclaw-pro``: OpenClaw ACP launch
           with cron/memory/workspaces defaults (the pro variant adds the
           desktop route and leg).
-        - ``hermes-agent``/``hermes_acp``: Hermes ACP launch with the hermes
+        - ``hermes_acp``: Hermes ACP launch with the hermes
           image, sync-root, and cron defaults.
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/
           ``kimi-code``/``pi``: the shared ACP coding-agent launch contract.
@@ -2859,7 +2861,7 @@ class Deployments:
         }
         if runtime == "generic":
             return self.create(**launch)
-        if runtime in ("openclaw", "openclaw-pro", "openclaw_acp"):
+        if runtime in ("openclaw-pro", "openclaw_acp"):
             return self._create_openclaw_agent(
                 runtime,
                 workspaces_sync=workspaces_sync,
@@ -2868,7 +2870,7 @@ class Deployments:
                 trusted_proxies=trusted_proxies,
                 launch=launch,
             )
-        if runtime in ("hermes-agent", "hermes_acp"):
+        if runtime == "hermes_acp":
             return self._create_hermes_agent_deployment(
                 runtime,
                 cron_enabled=cron_enabled,
@@ -2934,8 +2936,8 @@ class Deployments:
         if launch["runtime_scopes"] is None:
             launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
         agent = self.create(runtime=runtime, **launch)
-        if agent.runtime not in ("hermes-agent", "hermes_acp"):
-            raise TypeError("Hermes deployment response did not identify runtime 'hermes-agent'")
+        if agent.runtime != "hermes_acp":
+            raise TypeError("Hermes deployment response did not identify runtime 'hermes_acp'")
         return agent
 
     def _create_coding_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:

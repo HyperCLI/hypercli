@@ -1570,13 +1570,13 @@ def test_start_refuses_to_invent_registry_auth_for_private_registry(agents_clien
 
 def test_hydrate_agent_yields_flat_agent_for_every_runtime(agents_client):
     """Backend folds openclaw→openclaw_acp and hermes-agent→hermes_acp at
-    create/patch, so hydrated rows carry the new names; every runtime, legacy
-    spelling included, hydrates to the single flat Agent (capability gates at
-    call time via Agent.auth, not by hydration class)."""
+    create/patch, so hydrated rows carry the canonical names; every canonical
+    runtime label hydrates to the single flat Agent (capability gates at call
+    time via Agent.auth, not by hydration class)."""
     base = {"id": "agent-123", "user_id": "user-456", "state": "RUNNING"}
 
     for runtime in (
-        "hermes_acp", "hermes-agent", "openclaw_acp", "openclaw", "openclaw-pro", "generic",
+        "hermes_acp", "openclaw_acp", "openclaw-pro", "generic",
     ):
         agent = agents_client._hydrate_agent({**base, "runtime": runtime})
         assert type(agent) is Agent, runtime
