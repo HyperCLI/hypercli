@@ -48,6 +48,8 @@ AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.hypercli.com/ws/acp"
+DEV_AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.dev.hypercli.com/ws/acp"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
 DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes:latest"
@@ -678,6 +680,43 @@ def _default_agents_ws_url(api_base: str) -> str:
     }:
         return DEV_AGENTS_WS_URL
     return _normalize_agents_ws_url(raw)
+
+
+def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
+    """Client-facing ACP session proxy (sessions/README §14) next to the
+    agent-keyed ``/ws`` tunnel — the same host, with the path suffixed to
+    ``/ws/acp``. Mirrors ts-sdk agent-urls.ts."""
+    base = (agents_ws_url or "").strip()
+    suffix = "/ws"
+    if not base.endswith(suffix):
+        raise ValueError(f"agents ws url must end with /ws: {agents_ws_url!r}")
+    return f"{base[: -len(suffix)]}/ws/acp"
+
+
+def _default_agents_acp_ws_url(api_base: str) -> str:
+    raw = _normalize_agents_api_base(api_base)
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower()
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return AGENTS_ACP_PROXY_WS_URL
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
+        return DEV_AGENTS_ACP_PROXY_WS_URL
+    tunnel_base = raw[: -len("/agents")] if raw.endswith("/agents") else raw
+    return agents_acp_proxy_ws_url(_normalize_agents_ws_url(tunnel_base))
+
+
+def _agents_admin_base(api_base: str) -> str:
+    """Service-key admin surface (``/admin/...``); same origin as the agents API."""
+    base = (api_base or "").rstrip("/")
+    suffix = "/agents"
+    if not base.endswith(suffix):
+        raise ValueError(f"agents api base must end with /agents: {api_base!r}")
+    return f"{base[: -len(suffix)]}/admin"
 
 
 MAX_SYNC_OWNER_ID = 4_294_967_294
@@ -3877,6 +3916,44 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+
+    @property
+    def acp_ws_url(self) -> str:
+        """Client-facing ACP session proxy URL derived from the agents WS tunnel URL."""
+        return agents_acp_proxy_ws_url(self._agents_ws_url)
+
+    def acp_ws_token(self, agent_id: str) -> dict:
+        """Mint a very short-lived (~60s), agent-scoped ticket for the ACP session
+        proxy (``/ws/acp``). Pass the returned ``token`` as the ``token`` query
+        param on the dial instead of a raw account credential.
+
+        Call shape mirrors ts-sdk ``Deployments.mintAcpWsToken`` but posts
+        through the service-key admin surface — this credential path exists
+        for backend consumers (the routines executor) holding the backend key.
+        """
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        with httpx.Client(timeout=self._timeout) as client:
+            resp = client.post(
+                f"{_agents_admin_base(self._api_base)}/agents/{resolved_agent_id}/acp-ws-token",
+                headers={**self._headers, "X-BACKEND-API-KEY": self._api_key},
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        data = resp.json()
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"token", "expires_at"}
+            or not isinstance(data.get("token"), str)
+            or not data["token"]
+            or not isinstance(data.get("expires_at"), str)
+            or not data["expires_at"]
+        ):
+            raise ValueError("Backend returned an invalid Agent ACP WS token response")
+        return data
 
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived token for backend log streaming."""

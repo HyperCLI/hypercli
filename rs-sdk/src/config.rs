@@ -274,9 +274,21 @@ fn load_kv_file(path: &Path) -> Result<BTreeMap<String, String>, ConfigError> {
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| line.strip_prefix("export ").map_or(line, str::trim))
         .filter_map(|line| line.split_once('='))
-        .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
+        .map(|(key, value)| (key.trim().to_owned(), unquote(value.trim()).to_owned()))
         .collect())
+}
+
+/// Strip one pair of matching surrounding quotes, mirroring the ts-cli
+/// config-file parser (`export`-style values round-trip unchanged).
+fn unquote(value: &str) -> &str {
+    let quoted = |quote: &str| value.starts_with(quote) && value.ends_with(quote) && value.len() > 1;
+    if quoted("\"") || quoted("'") {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
 }
 
 fn load_legacy_agent_key(path: &PathBuf) -> Result<Option<String>, ConfigError> {
@@ -376,6 +388,58 @@ pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
 mod tests {
     use super::*;
     use secrecy::ExposeSecret;
+
+    #[test]
+    fn config_file_strips_quotes_export_prefix_and_ignores_comments_and_blanks() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "# comment line\n\n   \nexport HYPER_API_KEY=\"exported-key\"\nUNUSED='quoted'\n",
+        )
+        .unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "exported-key");
+    }
+
+    #[test]
+    fn config_file_keeps_single_quoted_values_verbatim() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config"), "HYPER_API_KEY='single-quoted'\n").unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "single-quoted");
+    }
+
+    #[test]
+    fn config_file_only_strips_matching_quote_pairs() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config"), "HYPER_API_KEY=\"mismatched'\n").unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "\"mismatched'");
+    }
+
+    #[test]
+    fn config_file_preserves_equals_inside_value() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=key=with=equals\n",
+        )
+        .unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(config.api_key.expose_secret(), "key=with=equals");
+    }
 
     #[test]
     fn product_env_precedes_files_and_legacy_key() {
