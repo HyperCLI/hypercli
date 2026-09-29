@@ -203,6 +203,10 @@ class ACPClient:
 
         Dial/handshake failures raise :class:`RetryableACPError`; an agent-side
         JSON-RPC rejection of ``initialize`` raises :class:`ACPRequestError`.
+        The ``initialize`` await is bounded by ``open_timeout`` (the same
+        budget the dial gets): a bridge that accepts the socket but never
+        answers the handshake fails the connect as :class:`RetryableACPError`
+        instead of hanging forever, so callers' retry budgets engage.
         """
         if token:
             url = _with_token(url, token)
@@ -220,17 +224,23 @@ class ACPClient:
             raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
         client = cls(ws, on_update=on_update, ws_exit=ws_exit)
         try:
-            initialize_response = await client._request(
-                "initialize",
-                {
-                    "protocolVersion": ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {"readTextFile": False, "writeTextFile": False},
-                        "terminal": False,
+            initialize_response = await asyncio.wait_for(
+                client._request(
+                    "initialize",
+                    {
+                        "protocolVersion": ACP_PROTOCOL_VERSION,
+                        "clientCapabilities": {
+                            "fs": {"readTextFile": False, "writeTextFile": False},
+                            "terminal": False,
+                        },
+                        "clientInfo": client_info or DEFAULT_CLIENT_INFO,
                     },
-                    "clientInfo": client_info or DEFAULT_CLIENT_INFO,
-                },
+                ),
+                timeout=open_timeout,
             )
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            await client.close()
+            raise RetryableACPError(f"ACP initialize handshake exceeded {open_timeout:g}s") from exc
         except BaseException:
             await client.close()
             raise
