@@ -3955,6 +3955,18 @@ class Deployments:
             raise ValueError("Backend returned an invalid Agent ACP WS token response")
         return data
 
+    def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
+        """Redeem a promo/activation grant code via POST /billing/grants/redeem.
+
+        Returns the applied grant plus the resulting entitlement. Codes create
+        new entitlements by default; pass ``extend_existing=True`` only for
+        renewal/extension behavior.
+        """
+        payload: dict[str, Any] = {"code": str(code)}
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
+        return self._post("/billing/grants/redeem", json=payload)
+
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived token for backend log streaming."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
