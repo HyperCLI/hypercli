@@ -1429,6 +1429,51 @@ def test_create_omits_start_and_returns_creating_admission(mock_http):
     wait.assert_not_called()
 
 
+def test_agents_redeem_grant_code(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123"},
+            "entitlement": {"id": "ent-1", "plan_id": "basic"},
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        result = agents_client.redeem_grant_code("promo-123")
+
+        assert result["grant"]["code"] == "promo-123"
+        assert result["entitlement"]["plan_id"] == "basic"
+        assert mock_client.post.call_args[0][0].endswith("/billing/grants/redeem")
+        assert mock_client.post.call_args[1]["json"] == {"code": "promo-123"}
+
+
+def test_agents_redeem_grant_code_can_request_extension(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123"},
+            "entitlement": {"id": "ent-1", "plan_id": "basic"},
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.redeem_grant_code("promo-123", extend_existing=True)
+
+        assert mock_client.post.call_args[0][0].endswith("/billing/grants/redeem")
+        assert mock_client.post.call_args[1]["json"] == {
+            "code": "promo-123",
+            "extend_existing": True,
+        }
+
+
 def test_agents_create_hydrates_acp_runtime_to_coding_agent(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
