@@ -706,8 +706,8 @@ def _default_agents_acp_ws_url(api_base: str) -> str:
         "dev-api.hyperclaw.app",
     }:
         return DEV_AGENTS_ACP_PROXY_WS_URL
-    tunnel_base = raw[: -len("/agents")] if raw.endswith("/agents") else raw
-    return agents_acp_proxy_ws_url(_normalize_agents_ws_url(tunnel_base))
+    # _normalize_agents_api_base always returns a URL ending in /agents.
+    return agents_acp_proxy_ws_url(_normalize_agents_ws_url(raw.removesuffix("/agents")))
 
 
 def _agents_admin_base(api_base: str) -> str:
@@ -3940,7 +3940,7 @@ class Deployments:
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
-            except Exception:
+            except Exception:  # noqa: BLE001 - match _post's detail fallback
                 detail = resp.text
             raise APIError(resp.status_code, detail)
         data = resp.json()
