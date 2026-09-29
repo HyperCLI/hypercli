@@ -780,6 +780,21 @@ describe('CodingAgentAcpClient.addUpdateListener', () => {
   });
 });
 
+describe('read receipts', () => {
+  it('emits no read-ack traffic: updates arrive unannotated, user read cursors are backend-owned', async () => {
+    const bridge = await startBridge();
+    const updates: string[] = [];
+    track(await acpAgent(bridge).acpConnect({ onUpdate: () => updates.push('u') }));
+    bridge.currentPeer.update('session-1', 'one');
+    bridge.currentPeer.update('session-1', 'two');
+    await waitFor(() => updates.length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The only frame the client may ever send here is initialize — any
+    // `_hypercli.dev/session_read_ack` would be the resurrected no-op lie.
+    expect(bridge.currentPeer.frames.map((frame) => frame.method)).toEqual(['initialize']);
+  });
+});
+
 describe('CodingAgentAcpClient replay epoch tracking', () => {
   it('brackets loadSession: replayed updates observe a live epoch, which ends when the load resolves', async () => {
     const bridge = await startBridge();
