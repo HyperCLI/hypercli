@@ -465,7 +465,7 @@ export class CodingAgentAcpClient {
     });
   }
 
-  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[]; systemPrompt?: string } = {}): Promise<acp.NewSessionResponse> {
+  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[]; systemPrompt?: string; title?: string } = {}): Promise<acp.NewSessionResponse> {
     const context = this.requireContext();
     const cwd = options.cwd ?? this.cwd;
     const mcpServers = options.mcpServers ?? this.mcpServers;
@@ -475,13 +475,16 @@ export class CodingAgentAcpClient {
       // Pass-through hyper-acp param: the pod host layers this last as
       // <session-context> and routes it through the per-adapter channel.
       systemPrompt: options.systemPrompt,
+      // Pass-through hyper-acp param: catalog title for the new session row.
+      // Omitted entirely when unset so existing callers keep their wire shape.
+      ...(options.title !== undefined ? { title: options.title } : {}),
     });
     this.sessions.set(response.sessionId, {
       cwd,
       mcpServers,
       modes: response.modes ?? null,
       configOptions: response.configOptions ?? null,
-      title: null,
+      title: options.title ?? null,
     });
     return response;
   }
