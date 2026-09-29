@@ -163,6 +163,9 @@ function createMockDeploymentsApi(
     archive: vi.fn(async (id: string) => stateful(id, 'ARCHIVING')),
     restore: vi.fn(async (id: string) => stateful(id, 'RESTORING')),
     exec: vi.fn(async () => ({ exitCode: 0, stdout: 'hello\n', stderr: '' })),
+    fileRead: vi.fn(async () => {
+      throw new APIError(404, 'not found');
+    }),
     cpTo: vi.fn(async () => ({})),
     cpFrom: vi.fn(async (_id: string, _remote: string, local: string) => local),
     subscribeLogs: vi.fn(async () => {}),
@@ -1296,6 +1299,128 @@ describe('hyper agents config', () => {
     expect((err as Error).message).toContain('launch config');
   });
 
+});
+
+// ---------- models (hidden): openclaw.json provider catalog, openclaw family ----------
+
+function openclawJsonFixture(): string {
+  return JSON.stringify({
+    models: {
+      providers: {
+        hypercli: {
+          baseUrl: 'https://api.hypercli.com/v1',
+          apiKey: 'sk-should-never-print',
+          models: [
+            { id: 'default-anthropic', name: 'Default Anthropic', contextWindow: 200000, reasoning: true },
+            { id: 'kimi-k2.6-anthropic' },
+          ],
+        },
+        broken: { baseUrl: 'https://example.com', models: [{ name: 'no id' }] },
+      },
+    },
+  });
+}
+
+describe('hyper agents models', () => {
+  it('lists the provider catalog from openclaw.json, never the apiKey', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw_acp' })], {
+      fileRead: vi.fn(async () => openclawJsonFixture()),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['models', ID_A]);
+
+    expect(d.fileRead).toHaveBeenCalledWith(ID_A, '.openclaw/openclaw.json');
+    const out = stdout();
+    expect(out).toContain('PROVIDER');
+    expect(out).toContain('hypercli');
+    expect(out).toContain('default-anthropic');
+    expect(out).toContain('kimi-k2.6-anthropic');
+    expect(out).not.toContain('sk-should-never-print');
+  });
+
+  it('--json emits the curated catalog bag (no provider secrets)', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw-pro' })], {
+      fileRead: vi.fn(async () => openclawJsonFixture()),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'json');
+
+    await agents.run(ctx, ['models', ID_A, '--json']);
+
+    expect(JSON.parse(stdout())).toEqual({
+      agent_id: ID_A,
+      providers: {
+        hypercli: [
+          { id: 'default-anthropic', name: 'Default Anthropic', context_window: 200000, reasoning: true },
+          { id: 'kimi-k2.6-anthropic', name: null, context_window: null, reasoning: null },
+        ],
+        broken: [],
+      },
+    });
+    expect(stdout()).not.toContain('sk-should-never-print');
+  });
+
+  it('the legacy openclaw spelling folds to the family gate', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw' })], {
+      fileRead: vi.fn(async () => openclawJsonFixture()),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['models', ID_A]);
+
+    expect(stdout()).toContain('default-anthropic');
+  });
+
+  it('a non-openclaw runtime is a CliError naming the runtime, before any file read', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'opencode' })], {
+      fileRead: vi.fn(async () => openclawJsonFixture()),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['models', ID_A]);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('openclaw-only');
+    expect((err as Error).message).toContain('opencode');
+    expect(d.fileRead).not.toHaveBeenCalled();
+  });
+
+  it('missing agent id is a UsageError; unknown id is a CliError', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const missing = await runErr(ctx, ['models']);
+    expect(missing).toBeInstanceOf(UsageError);
+    expect((missing as Error).message).toContain('missing agent id');
+    expect(exitCodeFor(missing)).toBe(2);
+
+    const unknown = await runErr(ctx, ['models', 'no-such-agent']);
+    expect(unknown).toBeInstanceOf(CliError);
+    expect((unknown as Error).message).toContain("no agent matches 'no-such-agent'");
+    expect(exitCodeFor(unknown)).toBe(1);
+  });
+
+  it('a missing openclaw.json is a CliError naming the path', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['models', ID_A]);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('.openclaw/openclaw.json');
+    expect((err as Error).message).toContain('HTTP 404');
+  });
+
+  it('an openclaw.json without providers prints the empty-catalog note', async () => {
+    const d = createMockDeploymentsApi([agentFixture()], {
+      fileRead: vi.fn(async () => JSON.stringify({ agents: {} })),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['models', ID_A]);
+
+    expect(stdout()).toContain('No models configured');
+  });
 });
 
 // ---------- routes (hidden) ----------

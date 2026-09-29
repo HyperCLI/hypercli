@@ -55,6 +55,41 @@ assert_fail() {
   echo "expected failure ok (${dev_args[*]}): ${pat}"
 }
 
+# retry_404 <argv...> — bounded retry for the transient read-after-write 404
+# window right after a create/restore transition: a get agent within ~a
+# minute of the transition can 404 on replica lag or a backend restart.
+# 5 attempts, 3s/6s/12s/24s backoff; a 404 past the window and any other
+# failure stay hard.
+retry_404() {
+  local delay=3 out rc=0 n
+  for n in 1 2 3 4 5; do
+    rc=0
+    out="$("$@" 2>&1)" || rc=$?
+    [ -z "${out}" ] || printf '%s\n' "${out}"
+    [ "${rc}" -eq 0 ] && return 0
+    grep -qF 'HTTP 404' <<<"${out}" || return "${rc}"
+    [ "${n}" -lt 5 ] || return "${rc}"
+    echo "transient HTTP 404 (attempt ${n}/5); retry in ${delay}s" >&2
+    sleep "${delay}"
+    delay=$((delay * 2))
+  done
+}
+
+# wait_running <id> <timeout> [retry-timeout] — agents wait RUNNING,
+# recovering once from an agent that entered STOPPED mid-wait (pod
+# self-stop, or a start that raced the replica window) via an explicit
+# start + one fresh wait at the retry timeout (default 180s, matching the
+# original inline recovery). A second miss is a hard failure.
+wait_running() {
+  local id="$1" timeout="$2" retry_timeout="${3:-180}"
+  if "${CLI[@]}" agents wait "${id}" --state RUNNING --timeout "${timeout}" --interval 5 --dev; then
+    return 0
+  fi
+  echo "wait RUNNING missed for ${id}; one explicit start retry" >&2
+  retry_404 "${CLI[@]}" agents start "${id}" --dev
+  "${CLI[@]}" agents wait "${id}" --state RUNNING --timeout "${retry_timeout}" --interval 5 --dev
+}
+
 case "${GROUP}/${SUB}" in
   me/me)
     step "me (three authorities: identity, capabilities, agents)"
@@ -176,7 +211,9 @@ case "${GROUP}/${SUB}" in
     step "agents create (dry-run payload + validation; real create lives in lifecycle)"
     out="$("${CLI[@]}" agents create hypercli-ci-dryrun --runtime opencode --dry-run --dev)"
     grep -qF '"name": "hypercli-ci-dryrun"' <<<"${out}"
-    grep -qF '"method": "createOpenCode"' <<<"${out}"
+    # All runtimes ride the single SDK createAgent entry; the legacy per-runtime
+    # method spellings (createOpenCode et al) no longer exist in ts-sdk/ts-cli.
+    grep -qF '"method": "createAgent"' <<<"${out}"
     assert_fail 2 "" -- agents create x --runtime bogus --dry-run
     assert_fail 2 "" -- agents create x --runtime openclaw --model m --dry-run
     ;;
@@ -230,10 +267,7 @@ case "${GROUP}/${SUB}" in
     [ -n "${ID}" ] || { echo "create returned no id after 6 attempts"; cat /tmp/create.err >&2; exit 1; }
     echo "created ${NAME} id=${ID}"
 
-    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 120 --interval 5 --dev || {
-      "${CLI[@]}" agents start "${ID}" --dev
-      "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
-    }
+    wait_running "${ID}" 120
 
     step "chat 1/2"
     "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --dev
@@ -245,14 +279,15 @@ case "${GROUP}/${SUB}" in
     # Large-tier storage snapshot/finalize is slow (observed ~73s); wait for
     # the acknowledged archive before restore, which 409s on a pending one.
     "${CLI[@]}" agents wait "${ID}" --state ARCHIVED --timeout 240 --interval 5 --dev
-    "${CLI[@]}" agents restore "${ID}" --dev
+    retry_404 "${CLI[@]}" agents restore "${ID}" --dev
     # Restore is async too: storage must finish re-materializing (back to
-    # STOPPED) before start, which 409s on a still-restoring agent.
-    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5 --dev
+    # STOPPED) before start, which 409s on a still-restoring agent. The wait
+    # polls get agent, so it rides the same post-transition 404 window.
+    retry_404 "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5 --dev
 
     step "start → chat 2/2"
-    "${CLI[@]}" agents start "${ID}" --dev
-    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
+    retry_404 "${CLI[@]}" agents start "${ID}" --dev
+    wait_running "${ID}" 180
     "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --dev
 
     step "stop → delete"
