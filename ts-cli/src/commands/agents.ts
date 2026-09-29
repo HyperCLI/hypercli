@@ -66,7 +66,7 @@ export const usage = [
 ];
 
 /** Hidden commands work but stay out of the help listing. */
-const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes'];
+const HIDDEN = ['archive', 'restore', 'token', 'config', 'routes', 'models'];
 
 /** CLI --runtime name → SDK runtime label; everything rides the flat createAgent. */
 const RUNTIME_LABELS: ReadonlyMap<string, ManagedAgentRuntime> = new Map([
@@ -1449,6 +1449,88 @@ async function cmdConfig(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// models (hidden) — the per-agent model catalog; openclaw family only
+// ---------------------------------------------------------------------------
+
+/**
+ * The catalog's printable fields. openclaw.json providers also carry apiKey
+ * and auth headers; those never leave the pod file — only these keys are
+ * extracted.
+ */
+interface CatalogModel {
+  id: string;
+  name: string | null;
+  context_window: number | null;
+  reasoning: boolean | null;
+}
+
+function catalogModelFromJson(value: unknown): CatalogModel | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== 'string' || record.id.length === 0) return null;
+  return {
+    id: record.id,
+    name: typeof record.name === 'string' ? record.name : null,
+    context_window: typeof record.contextWindow === 'number' ? record.contextWindow : null,
+    reasoning: typeof record.reasoning === 'boolean' ? record.reasoning : null,
+  };
+}
+
+/** The openclaw model catalog lives in the pod config (under the sync root). */
+const OPENCLAW_CONFIG_PATH = '.openclaw/openclaw.json';
+
+/**
+ * The openclaw family keeps its provider model catalog in
+ * ~/.openclaw/openclaw.json (models.providers.<name>.models). The Reef file
+ * API serves sync-root-relative reads from the stored volume, so this works
+ * on STOPPED agents and needs no exec or RUNNING gate.
+ */
+async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
+  const parsed = parseCommandArgs(args);
+  if (parsed.help) return printHelp();
+  const ref = onePositional(parsed, 'agent id');
+  const { d } = await adopt(ctx);
+  const agent = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
+  if (!OPENCLAW_SET.has(canonicalRuntimeName(agent.runtime ?? '') as ManagedAgentRuntime)) {
+    throw new CliError(
+      `agents models is openclaw-only: agent ${shortId(agent.id)} runs '${agent.runtime ?? 'unknown'}'`,
+    );
+  }
+  let openclawConfig: unknown;
+  try {
+    openclawConfig = JSON.parse(await d.fileRead(agent.id, OPENCLAW_CONFIG_PATH));
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new CliError(`${OPENCLAW_CONFIG_PATH} on ${shortId(agent.id)} is not valid JSON`);
+    }
+    throw new CliError(`read ${OPENCLAW_CONFIG_PATH} failed: ${describeFailure(err)}`);
+  }
+  const modelsSection = (openclawConfig && typeof openclawConfig === 'object'
+    ? (openclawConfig as Record<string, unknown>).models
+    : undefined);
+  const providerMap = (modelsSection && typeof modelsSection === 'object'
+    ? (modelsSection as Record<string, unknown>).providers
+    : undefined) ?? {};
+  const catalog: Record<string, CatalogModel[]> = {};
+  for (const [provider, providerConfig] of Object.entries(providerMap as Record<string, unknown>)) {
+    const models = (providerConfig && typeof providerConfig === 'object'
+      ? (providerConfig as Record<string, unknown>).models
+      : undefined);
+    catalog[provider] = (Array.isArray(models) ? models : [])
+      .map(catalogModelFromJson)
+      .filter((model): model is CatalogModel => model !== null);
+  }
+  const rows: unknown[][] = Object.entries(catalog)
+    .flatMap(([provider, models]) => models.map((model) => [provider, model.id]));
+  ctx.output.result(
+    { agent_id: agent.id, providers: catalog },
+    rows.length === 0
+      ? `No models configured on ${shortId(agent.id)}.`
+      : { columns: ['PROVIDER', 'MODEL'], rows },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // chat — the canonical one-shot prompt round trip, validated per runtime in CI
 //
 // CI contract: zero TTY, no prompts, no stdin reads. Exit 0 exactly when an
@@ -1823,6 +1905,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdToken(ctx, rest);
     case 'config':
       return cmdConfig(ctx, rest);
+    case 'models':
+      return cmdModels(ctx, rest);
     case 'routes':
       return cmdRoutes(ctx, rest);
     default:
