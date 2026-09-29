@@ -148,7 +148,9 @@ from .acp import (
     ACPError,
     ACPPromptResult,
     ACPRequestError,
+    ACPTerminalCloseError,
     ACPUnavailableError,
+    ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
     AmbiguousDeliveryError,
     RetryableACPError,
 )
@@ -342,7 +344,9 @@ __all__ = [
     "ACPError",
     "ACPPromptResult",
     "ACPRequestError",
+    "ACPTerminalCloseError",
     "ACPUnavailableError",
+    "ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE",
     "AmbiguousDeliveryError",
     "RetryableACPError",
 ]

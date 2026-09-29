@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 
 import pytest
 import websockets
 
 from hypercli.acp import (
+    ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
+    ACP_TERMINAL_CLOSE_CODES,
     ACPClient,
     ACPClosedError,
     ACPError,
     ACPRequestError,
+    ACPTerminalCloseError,
     ACPUnavailableError,
     AmbiguousDeliveryError,
     RetryableACPError,
@@ -23,15 +25,12 @@ class StubWs:
     """In-memory WebSocket stand-in: outbound frames are recorded, inbound
     frames arrive through :meth:`feed` into the client's read loop."""
 
-    def __init__(self, *, fail_send: bool = False):
+    def __init__(self):
         self.sent: list[dict] = []
-        self.fail_send = fail_send
         self._incoming: asyncio.Queue = asyncio.Queue()
         self.close_calls = 0
 
     async def send(self, data: str):
-        if self.fail_send:
-            raise OSError("stub send failure")
         self.sent.append(json.loads(data))
 
     async def recv(self):
@@ -49,11 +48,13 @@ class FakeAcpBridge:
 
     ``drop_on`` lists methods whose frames make the bridge slam the connection
     shut instead of replying — used to prove retry classification boundaries.
+    ``drop_codes`` overrides the close code per dropped method (default 1011).
     """
 
-    def __init__(self, handlers=None, *, drop_on=(), push_update_on_new=False):
+    def __init__(self, handlers=None, *, drop_on=(), drop_codes=None, push_update_on_new=False):
         self.handlers = handlers or {}
         self.drop_on = set(drop_on)
+        self.drop_codes = dict(drop_codes or {})
         self.push_update_on_new = push_update_on_new
         self.received: list[dict] = []
         self.paths: list[str] = []
@@ -68,7 +69,7 @@ class FakeAcpBridge:
             if not method or "id" not in frame:
                 continue
             if method in self.drop_on:
-                await ws.close(code=1011)
+                await ws.close(code=self.drop_codes.get(method, 1011))
                 return
             if self.push_update_on_new and method == "session/new":
                 notification = {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "s-1", "update": {"sessionUpdate": "agent_message_chunk"}}}
@@ -249,6 +250,88 @@ async def test_drop_after_prompt_send_is_ambiguous():
     finally:
         await bridge.stop()
     assert len(bridge.params("session/prompt")) == 1
+
+
+def test_terminal_close_codes_cover_the_bridge_refusal_set():
+    """Mirrors ts-sdk ACP_TERMINAL_CLOSE_CODES: 4401/4403/4404/4408 terminal;
+    4409 (duplicate side) stays transient, 1011 (leg unavailable) stays transient."""
+    assert ACP_TERMINAL_CLOSE_CODES == frozenset({4401, 4403, 4404, 4408})
+    assert ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE in ACP_TERMINAL_CLOSE_CODES
+    assert 4409 not in ACP_TERMINAL_CLOSE_CODES
+    assert 1011 not in ACP_TERMINAL_CLOSE_CODES
+
+
+@pytest.mark.asyncio
+async def test_terminal_close_during_initialize_is_not_retryable():
+    """The proxy's unknown-session attach (4404) kills the socket while the
+    initialize frame is in flight; the connect surfaces the terminal code."""
+    async def handler(ws):
+        async for raw in ws:
+            frame = json.loads(raw)
+            if frame.get("method") == "initialize":
+                await ws.close(code=4404, reason="Unknown ACP session sess-1")
+                return
+
+    bridge = FakeAcpBridge(_handlers())
+    url = await bridge.start(handler)
+    try:
+        with pytest.raises(ACPTerminalCloseError, match="terminal close code 4404") as excinfo:
+            await ACPClient.connect(url, open_timeout=5.0)
+        assert excinfo.value.code == 4404
+        assert excinfo.value.reason == "Unknown ACP session sess-1"
+        assert isinstance(excinfo.value, ACPError)
+        assert not isinstance(excinfo.value, RetryableACPError)
+    finally:
+        await bridge.stop()
+    assert bridge.params("session/new") == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_close_fails_pending_non_prompt_requests():
+    """A mid-session terminal refusal (4403) rejects the in-flight request
+    with the code surfaced, not a blanket RetryableACPError."""
+    bridge = FakeAcpBridge(_handlers(), drop_on={"session/new"}, drop_codes={"session/new": 4403})
+    url = await bridge.start()
+    try:
+        async with await ACPClient.connect(url) as client:
+            with pytest.raises(ACPTerminalCloseError, match="terminal close code 4403") as excinfo:
+                await client.new_session(cwd="/home/node")
+            assert excinfo.value.code == 4403
+            assert not isinstance(excinfo.value, RetryableACPError)
+    finally:
+        await bridge.stop()
+    assert bridge.params("session/prompt") == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_close_keeps_pending_prompt_ambiguous():
+    """Terminal classification never overrides the post-send rule: a prompt
+    already on the wire stays AmbiguousDelivery (4401 visible in detail)."""
+    bridge = FakeAcpBridge(_handlers(), drop_on={"session/prompt"}, drop_codes={"session/prompt": 4401})
+    url = await bridge.start()
+    try:
+        async with await ACPClient.connect(url) as client:
+            session_id = await client.new_session(cwd="/home/node")
+            with pytest.raises(AmbiguousDeliveryError, match="not retrying to avoid duplicate execution") as excinfo:
+                await client.prompt(session_id, "run once")
+            assert "4401" in str(excinfo.value)
+    finally:
+        await bridge.stop()
+    assert len(bridge.params("session/prompt")) == 1
+
+
+@pytest.mark.asyncio
+async def test_transient_close_code_stays_retryable():
+    """1011 (proxy leg-unavailable) is transient: same drop, still retryable."""
+    bridge = FakeAcpBridge(_handlers(), drop_on={"session/new"}, drop_codes={"session/new": 1011})
+    url = await bridge.start()
+    try:
+        async with await ACPClient.connect(url) as client:
+            with pytest.raises(RetryableACPError, match="WebSocket connection failed"):
+                await client.new_session(cwd="/home/node")
+    finally:
+        await bridge.stop()
+    assert bridge.params("session/prompt") == []
 
 
 @pytest.mark.asyncio
@@ -529,152 +612,5 @@ async def test_request_listener_unsubscribe_restores_defaults():
         await client._dispatch({"jsonrpc": "2.0", "id": 82, "method": "mcp/connect", "params": {}})
         assert client._ws.sent[0]["result"] == {"outcome": {"outcome": "cancelled"}}
         assert client._ws.sent[1]["error"]["code"] == -32601
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_notify_sends_notification_frame_without_id_then_returns():
-    client = ACPClient(StubWs(), {"protocolVersion": 1})
-    try:
-        await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
-        await client.notify("_hypercli.dev/bare")
-    finally:
-        await client.close()
-    assert client.initialize_response["protocolVersion"] == 1
-    assert client._ws.sent == [
-        {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended_ack", "params": {"turnId": 7}},
-        {"jsonrpc": "2.0", "method": "_hypercli.dev/bare", "params": {}},
-    ]
-    assert all("id" not in frame for frame in client._ws.sent)
-
-
-@pytest.mark.asyncio
-async def test_notify_send_failure_is_retryable_and_never_awaited():
-    client = ACPClient(StubWs(fail_send=True), {})
-    try:
-        with pytest.raises(RetryableACPError, match="WebSocket connection failed"):
-            await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
-    finally:
-        await client.close()
-    with pytest.raises(ACPClosedError, match="ACP client is closed"):
-        await client.notify("_hypercli.dev/turn_ended_ack", {"turnId": 7})
-
-
-@pytest.mark.asyncio
-async def test_notification_listeners_exact_and_wildcard_and_removal():
-    client = ACPClient(StubWs(), {})
-    exact: list[dict] = []
-    wildcard: list[tuple[str, dict]] = []
-
-    def on_turn_ended(params):
-        exact.append(params)
-
-    client.add_notification_listener("_hypercli.dev/turn_ended", on_turn_ended)
-    client.add_notification_listener("*", lambda method, params: wildcard.append((method, params)))
-    try:
-        frame = {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended",
-                 "params": {"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}}
-        await client._dispatch(frame)
-        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
-                                "params": {"sessionId": "s-1", "turnId": 9}})
-        assert exact == [{"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}]
-        assert wildcard == [
-            ("_hypercli.dev/turn_ended", {"sessionId": "s-1", "turnId": 9, "stopReason": "end_turn"}),
-            ("_hypercli.dev/turn_started", {"sessionId": "s-1", "turnId": 9}),
-        ]
-        client.remove_notification_listener("_hypercli.dev/turn_ended", on_turn_ended)
-        await client._dispatch(frame)
-        assert len(exact) == 1
-        assert len(wildcard) == 3
-
-        unsubscribe = client.add_notification_listener("_hypercli.dev/turn_started", lambda params: exact.append(params))
-        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
-                                "params": {"sessionId": "s-1", "turnId": 10}})
-        assert len(exact) == 2
-        unsubscribe()
-        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
-                                "params": {"sessionId": "s-1", "turnId": 11}})
-        assert len(exact) == 2
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_notification_listener_exceptions_are_logged_and_never_kill_dispatch(caplog):
-    client = ACPClient(StubWs(), {})
-    seen: list[dict] = []
-
-    def boom(params):
-        raise RuntimeError("listener exploded")
-
-    async def async_boom(params):
-        raise RuntimeError("async listener exploded")
-
-    client.add_notification_listener("_hypercli.dev/turn_ended", boom)
-    client.add_notification_listener("_hypercli.dev/turn_ended", async_boom)
-    client.add_notification_listener("_hypercli.dev/turn_ended", seen.append)
-    try:
-        frame = {"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended", "params": {"turnId": 1}}
-        with caplog.at_level(logging.ERROR, logger="hypercli.acp"):
-            await client._dispatch(frame)
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-        assert seen == [{"turnId": 1}]
-        assert any("ACP notification listener raised" in record.getMessage() for record in caplog.records)
-        assert any("async listener exploded" in record.getMessage() for record in caplog.records)
-
-        caplog.clear()
-        async_seen: list[dict] = []
-
-        async def collect(params):
-            await asyncio.sleep(0)
-            async_seen.append(params)
-
-        client.add_notification_listener("_hypercli.dev/turn_ended", collect)
-        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended", "params": {"turnId": 2}})
-        assert async_seen == []  # async listeners run off the read loop
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        assert async_seen == [{"turnId": 2}]
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_session_update_is_not_offered_to_notification_registry():
-    client = ACPClient(StubWs(), {})
-    updates: list[dict] = []
-    wildcard: list[tuple[str, dict]] = []
-    client.add_update_listener(updates.append)
-    client.add_notification_listener("*", lambda method, params: wildcard.append((method, params)))
-    try:
-        await client._dispatch({"jsonrpc": "2.0", "method": "session/update",
-                                "params": {"sessionId": "s-1", "update": {"sessionUpdate": "agent_message_chunk"}}})
-        assert len(updates) == 1
-        assert wildcard == []
-        # Unknown notifications without registered listeners are dropped silently.
-        await client._dispatch({"jsonrpc": "2.0", "method": "_hypercli.dev/nobody", "params": {}})
-        assert wildcard == [("_hypercli.dev/nobody", {})]
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_vendor_notifications_reach_listeners_through_the_read_loop():
-    client = ACPClient(StubWs(), {})
-    started: list[dict] = []
-    ended: list[dict] = []
-    client.add_notification_listener("_hypercli.dev/turn_started", started.append)
-    client.add_notification_listener("_hypercli.dev/turn_ended", ended.append)
-    try:
-        client._ws.feed({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_started",
-                         "params": {"sessionId": "s-1", "turnId": 4}})
-        client._ws.feed({"jsonrpc": "2.0", "method": "_hypercli.dev/turn_ended",
-                         "params": {"sessionId": "s-1", "turnId": 4, "stopReason": "end_turn"}})
-        for _ in range(10):
-            await asyncio.sleep(0)
-        assert started == [{"sessionId": "s-1", "turnId": 4}]
-        assert ended == [{"sessionId": "s-1", "turnId": 4, "stopReason": "end_turn"}]
     finally:
         await client.close()

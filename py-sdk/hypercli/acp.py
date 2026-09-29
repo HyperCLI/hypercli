@@ -39,6 +39,11 @@ Retry policy (mirrors the TypeScript client):
   :class:`ACPClosedError` — terminal, never retryable — while pending prompt
   turns still surface :class:`AmbiguousDeliveryError` (the prompt may already
   be executing). This matches the Rust client's ``AcpError::Closed`` split.
+- A bridge refusal carrying a terminal close code (:data:`ACP_TERMINAL_CLOSE_CODES`
+  — 4401/4403 auth refusals, 4404 unknown-session attach, 4408 invalid
+  binding) raises :class:`ACPTerminalCloseError` with the close ``code``:
+  terminal, never retryable, because re-dialing with the same credentials or
+  pinned session can never succeed (mirrors the ts-sdk classification).
 
 The default permission policy matches the TypeScript SDK: a raw client never
 auto-approves — inbound ``session/request_permission`` requests are answered
@@ -47,11 +52,14 @@ JSON-RPC ``method not found`` error. Callers that want to serve agent→client
 requests register a request listener (:meth:`ACPClient.add_request_listener`)
 which takes over that default handling for matching methods.
 
-Vendor extension frames (``_hypercli.dev/*``) are NOTIFICATIONS, never
-requests: outbound ones go through :meth:`ACPClient.notify`, and inbound ones
-are offered to the method-keyed registry
-(:meth:`ACPClient.add_notification_listener`, wildcard key ``"*"``) before
-being dropped.
+Vendor extension frames (``_hypercli.dev/*``) are leg-side only
+(pod ↔ backend): this client emits none and silently drops inbound ones.
+``_hypercli.dev/turn_ended_ack`` and ``_hypercli.dev/session_read_ack`` are
+retired from the wire contract (no pod-side retention, no acks; user read
+receipts are backend-owned), and the proxy tee is 100% vanilla ACP — there is
+no ``_meta["hypercli.dev"].seq`` annotation to consume. Mirrors the ts-sdk
+artifacts, which keep only the constant definitions plus the refusal
+guardrails on this boundary.
 """
 from __future__ import annotations
 
@@ -73,9 +81,20 @@ ACP_PROTOCOL_VERSION = 1
 DEFAULT_OPEN_TIMEOUT = 30.0
 DEFAULT_CLIENT_INFO = {"name": "hypercli-py-sdk", "version": ""}
 
+# Proxy (`/ws/acp`) close code for an attach whose `session_id` the backend
+# session store does not hold for this agent. Re-dialing the same id can
+# never succeed, so the code is terminal just like the auth refusals.
+# (Mirrors ts-sdk ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE.)
+ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404
+
+# Bridge close codes that must not be retried: the identity/binding itself is
+# rejected, so re-dialing with the same credentials can never succeed. 4404
+# is the proxy's unknown-session attach — same permanence, the session the
+# URL pins does not exist. (4409, duplicate side, is transient — the other
+# client may disconnect.) Mirrors ts-sdk acp.ts ACP_TERMINAL_CLOSE_CODES.
+ACP_TERMINAL_CLOSE_CODES = frozenset({4401, 4403, ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE, 4408})
+
 UpdateListener = Callable[[dict[str, Any]], None]
-NotificationListener = Callable[[dict[str, Any]], Any]
-WildcardNotificationListener = Callable[[str, dict[str, Any]], Any]
 RequestListener = Callable[..., Any]
 
 
@@ -110,6 +129,27 @@ class AmbiguousDeliveryError(ACPError):
             "agent; inspect the agent's session state with session/load or session/list "
             "before re-issuing the prompt"
         )
+        if cause is not None:
+            self.__cause__ = cause
+
+
+class ACPTerminalCloseError(ACPError):
+    """Terminal bridge refusal: the socket closed with a terminal close code.
+
+    Codes in :data:`ACP_TERMINAL_CLOSE_CODES` reject the identity or the
+    pinned session itself, so re-dialing with the same credentials can never
+    succeed — never classified as :class:`RetryableACPError`. ``code`` carries
+    the bridge close code and ``reason`` the close-frame text (mirrors the
+    ts-sdk ``terminate`` path, where these codes end the connection).
+    """
+
+    def __init__(self, code: int, reason: str = "", *, cause: BaseException | None = None):
+        self.code = code
+        self.reason = reason
+        detail = f"ACP bridge rejected the connection with terminal close code {code}"
+        if reason:
+            detail += f": {reason}"
+        super().__init__(detail)
         if cause is not None:
             self.__cause__ = cause
 
@@ -159,6 +199,25 @@ def _with_token(url: str, token: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
+def _terminal_close(exc: BaseException) -> ACPTerminalCloseError | None:
+    """Classify a transport failure carrying a terminal bridge close code.
+
+    websockets>=13 exposes the received close frame on ``exc.rcvd`` (the
+    top-level ``code``/``reason`` attributes are deprecated); other transports
+    may surface ``code``/``reason`` directly.
+    """
+    if hasattr(exc, "rcvd"):
+        rcvd = exc.rcvd
+        if rcvd is None:  # no close frame received — no bridge code to classify
+            return None
+        code, reason = rcvd.code, rcvd.reason
+    else:
+        code, reason = getattr(exc, "code", None), getattr(exc, "reason", "")
+    if isinstance(code, int) and code in ACP_TERMINAL_CLOSE_CODES:
+        return ACPTerminalCloseError(code, str(reason or ""), cause=exc)
+    return None
+
+
 class ACPClient:
     """One-shot async ACP client; create with :meth:`ACPClient.connect`.
 
@@ -185,7 +244,6 @@ class ACPClient:
         self._update_listeners: list[UpdateListener] = []
         if on_update is not None:
             self._update_listeners.append(on_update)
-        self._notification_listeners: dict[str, list[Callable[..., Any]]] = {}
         self._request_listeners: dict[str, list[RequestListener]] = {}
         self._reader = asyncio.ensure_future(self._read_loop())
 
@@ -203,10 +261,14 @@ class ACPClient:
 
         Dial/handshake failures raise :class:`RetryableACPError`; an agent-side
         JSON-RPC rejection of ``initialize`` raises :class:`ACPRequestError`.
-        The ``initialize`` await is bounded by ``open_timeout`` (the same
-        budget the dial gets): a bridge that accepts the socket but never
-        answers the handshake fails the connect as :class:`RetryableACPError`
-        instead of hanging forever, so callers' retry budgets engage.
+        A bridge refusal carrying a terminal close code (4401/4403/4404/4408)
+        raises :class:`ACPTerminalCloseError` — re-dialing with the same
+        credentials or pinned session can never succeed, so callers must not
+        burn a retry budget on it. The ``initialize`` await is bounded by
+        ``open_timeout`` (the same budget the dial gets): a bridge that accepts
+        the socket but never answers the handshake fails the connect as
+        :class:`RetryableACPError` instead of hanging forever, so callers'
+        retry budgets engage.
         """
         if token:
             url = _with_token(url, token)
@@ -221,6 +283,9 @@ class ACPClient:
         except TimeoutError as exc:
             raise RetryableACPError(f"ACP WebSocket connect exceeded {open_timeout:g}s") from exc
         except (WebSocketException, OSError) as exc:
+            terminal = _terminal_close(exc)
+            if terminal is not None:
+                raise terminal from exc
             raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
         client = cls(ws, on_update=on_update, ws_exit=ws_exit)
         try:
@@ -275,7 +340,6 @@ class ACPClient:
         self._closed = True
         self._fail_pending(ACPClosedError("ACP client closed"))
         self._update_listeners.clear()
-        self._notification_listeners.clear()
         self._request_listeners.clear()
         if self._reader is not asyncio.current_task():
             self._reader.cancel()
@@ -300,34 +364,6 @@ class ACPClient:
 
         return unsubscribe
 
-    def add_notification_listener(
-        self,
-        method: str,
-        listener: Callable[..., Any],
-    ) -> Callable[[], None]:
-        """Register a sink for non-``session/update`` notifications; returns an unsubscribe.
-
-        ``method`` is an exact method-name key. The special key ``"*"`` is a
-        wildcard: its listeners receive ``(method, params)`` for every
-        notification offered to the registry, while exact-key listeners receive
-        ``params`` only. Listeners may be sync or async; async results are
-        scheduled off the read loop. Listener exceptions are logged and never
-        kill the reader.
-        """
-        key = method or "*"
-        self._notification_listeners.setdefault(key, []).append(listener)
-
-        def unsubscribe() -> None:
-            self.remove_notification_listener(method, listener)
-
-        return unsubscribe
-
-    def remove_notification_listener(self, method: str, listener: Callable[..., Any]) -> None:
-        """Remove a listener registered with :meth:`add_notification_listener`."""
-        listeners = self._notification_listeners.get(method or "*")
-        if listeners and listener in listeners:
-            listeners.remove(listener)
-
     def add_request_listener(
         self,
         method: str,
@@ -338,10 +374,9 @@ class ACPClient:
         ``method`` is an exact method-name key (``session/request_permission``,
         ``fs/read_text_file``, ...) or the wildcard ``"*"``. Exact-key listeners
         are invoked as ``listener(params)``; wildcard listeners as
-        ``listener(method, params)`` — mirroring the notification registry.
-        Only ONE response exists per request, so the first-registered exact-key
-        listener wins over any wildcard; the first-registered wildcard is used
-        when no exact listener matches.
+        ``listener(method, params)``. Only ONE response exists per request, so
+        the first-registered exact-key listener wins over any wildcard; the
+        first-registered wildcard is used when no exact listener matches.
 
         The listener is served off the read loop so dispatch keeps pumping
         while it runs. Its return value becomes the JSON-RPC ``result``.
@@ -363,23 +398,6 @@ class ACPClient:
         listeners = self._request_listeners.get(method or "*")
         if listeners and listener in listeners:
             listeners.remove(listener)
-
-    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
-        """Send a JSON-RPC notification frame; no response is awaited.
-
-        Send failures raise :class:`RetryableACPError`: a notification carries
-        no request id and starts no turn, so re-sending from a fresh client is
-        always the caller's call.
-        """
-        if self._closed:
-            raise ACPClosedError("ACP client is closed")
-        frame = {"jsonrpc": "2.0", "method": method, "params": params or {}}
-        try:
-            await self._ws.send(json.dumps(frame, separators=(",", ":")))
-        except asyncio.CancelledError:
-            raise
-        except (WebSocketException, OSError) as exc:
-            raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
 
     async def new_session(self, *, cwd: str, mcp_servers: list[Any] | None = None) -> str:
         """Create a session with ``session/new`` and return its session id."""
@@ -456,6 +474,9 @@ class ACPClient:
             self._pending.pop(frame_id, None)
             if method == "session/prompt":
                 raise AmbiguousDeliveryError(str(exc), cause=exc) from exc
+            terminal = _terminal_close(exc)
+            if terminal is not None:
+                raise terminal from exc
             raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
         try:
             result = await future
@@ -502,8 +523,9 @@ class ACPClient:
         if frame_id is None:
             if method_name == "session/update":
                 self._emit_update(frame.get("params") or {})
-            else:
-                self._emit_notification(method_name, frame.get("params") or {})
+            # Any other notification — including vendor ``_hypercli.dev/*``
+            # leg frames — is dropped silently: the proxy tee is vanilla ACP
+            # (mirrors ts-sdk) and this client has no vendor-frame registry.
             return
         listener, wildcard = self._request_listener_for(method_name)
         if listener is not None:
@@ -582,37 +604,18 @@ class ACPClient:
             except Exception:
                 logger.exception("ACP session/update listener raised")
 
-    def _emit_notification(self, method: str, params: dict[str, Any]) -> None:
-        for listener in list(self._notification_listeners.get(method, ())):
-            self._invoke_notification_listener(listener, params)
-        for listener in list(self._notification_listeners.get("*", ())):
-            self._invoke_notification_listener(listener, method, params)
-
-    def _invoke_notification_listener(self, listener: Callable[..., Any], *args: Any) -> None:
-        try:
-            result = listener(*args)
-        except Exception:
-            logger.exception("ACP notification listener raised")
-            return
-        if inspect.isawaitable(result):
-            task = asyncio.ensure_future(result)
-            task.add_done_callback(self._log_async_listener_failure)
-
-    @staticmethod
-    def _log_async_listener_failure(task: asyncio.Future) -> None:
-        if task.cancelled():
-            return
-        exc = task.exception()
-        if exc is not None:
-            logger.error("ACP async notification listener failed: %s", exc, exc_info=exc)
-
     def _fail_pending(self, exc: BaseException) -> None:
         pending, self._pending = self._pending, {}
+        terminal = _terminal_close(exc)
         for method, future in pending.values():
             if future.done():
                 continue
             if method == "session/prompt":
+                # The prompt frame already left: even a terminal drop keeps the
+                # turn ambiguous (the close code survives in the detail text).
                 future.set_exception(AmbiguousDeliveryError(str(exc), cause=exc))
+            elif terminal is not None:
+                future.set_exception(ACPTerminalCloseError(terminal.code, terminal.reason, cause=exc))
             elif isinstance(exc, (WebSocketException, OSError)):
                 failure = RetryableACPError(f"ACP WebSocket connection failed: {exc}")
                 failure.__cause__ = exc
