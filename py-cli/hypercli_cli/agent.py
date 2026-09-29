@@ -1328,22 +1328,27 @@ def _config_openclaw(
                         for m in other_chat_models
                     },
                 },
-                **(
-                    {
-                        "memorySearch": {
-                            "provider": "openai",
-                            "model": embedding_model_id,
-                            "remote": {
-                                "baseUrl": f"{api_base}/v1",
-                                "apiKey": config_api_key,
-                            },
-                        }
-                    }
-                    if embedding_model_id
-                    else {}
-                ),
             }
         },
+        # Canonical memory search owner for the pinned gateway (2026.9.x):
+        # top-level memory.search; agents.defaults.memorySearch is a rejected
+        # dead key there.
+        **(
+            {
+                "memory": {
+                    "search": {
+                        "provider": "openai",
+                        "model": embedding_model_id,
+                        "remote": {
+                            "baseUrl": f"{api_base}/v1",
+                            "apiKey": config_api_key,
+                        },
+                    }
+                }
+            }
+            if embedding_model_id
+            else {}
+        ),
     }
 
 
@@ -1405,5 +1410,12 @@ def _merge_openclaw_config(existing: dict, snippet: dict) -> dict:
         merged.setdefault("agents", {})
         merged["agents"].setdefault("defaults", {})
         merged["agents"]["defaults"]["model"] = snippet_model_config
+
+    # The pinned gateway rejects the legacy agents.defaults.memorySearch and
+    # top-level memorySearch keys outright; once the canonical memory.search is
+    # written, drop any legacy copies retained in the existing config.
+    if (snippet.get("memory") or {}).get("search"):
+        merged.get("agents", {}).get("defaults", {}).pop("memorySearch", None)
+        merged.pop("memorySearch", None)
 
     return merged

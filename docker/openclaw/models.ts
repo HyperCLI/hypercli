@@ -61,8 +61,10 @@ export function applyModelEnv(config: ConfigObject, env: EnvMap): void {
 
   const embeddingModels = parseCsv(env, "HYPER_EMBEDDING_MODELS")
   if (embeddingModels.length > 0) {
-    const memorySearch = (defaults.memorySearch ||= {}) as ConfigObject
-    memorySearch.model = embeddingModels[0]
-    memorySearch.models = embeddingModels
+    // Canonical memory search owner (pinned gateway 2026.9.x): memory.search
+    // only carries a single `model`; there is no per-config model list.
+    const memory = (config.memory ||= {}) as ConfigObject
+    const search = (memory.search ||= {}) as ConfigObject
+    search.model = embeddingModels[0]
   }
 }

@@ -44,37 +44,30 @@
         "hypercli/default-anthropic": {
           "alias": "default-anthropic"
         }
-      },
-      "memorySearch": {
-        "enabled": true,
-        "provider": "openai",
-        "model": "qwen3-embedding-4b",
-        "remote": {
-          "baseUrl": "${HYPER_AGENTS_API_BASE}/v1",
-          "apiKey": "${HYPER_AGENTS_API_KEY}"
-        },
-        "sync": {
-          "onSessionStart": false,
-          "onSearch": false,
-          "watch": false,
-          "watchDebounceMs": 30000,
-          "intervalMinutes": 0
-        }
       }
     },
-    "list": [
-      {
-        "id": "default",
+    "entries": {
+      "default": {
         "name": "OpenClaw Assistant",
         "workspace": "~/.openclaw/workspace"
       }
-    ]
+    }
+  },
+  "memory": {
+    "search": {
+      "enabled": true,
+      "provider": "openai",
+      "model": "qwen3-embedding-4b",
+      "remote": {
+        "baseUrl": "${HYPER_AGENTS_API_BASE}/v1",
+        "apiKey": "${HYPER_AGENTS_API_KEY}"
+      }
+    }
   },
   "commands": {
     "native": "auto",
     "nativeSkills": "auto",
-    "restart": true,
-    "ownerDisplay": "raw"
+    "restart": true
   },
   "cron": {
     "enabled": false
