@@ -68,6 +68,37 @@ const defaults = (agents.defaults ||= {}) as ConfigObject
 // validate against the pinned gateway schema on every boot — the reconciler
 // therefore enforces the canonical shape itself. (upstream:
 // openclaw-git src/commands/doctor/shared/legacy-config-migrations.runtime.*.ts)
+// Flat legacy memorySearch fields remap to their canonical nested homes
+// (doctor migration "memorySearch.flat-fields->nested-fields"; an explicitly
+// set canonical key always wins over its legacy flat carry-over).
+const LEGACY_MEMORY_SEARCH_FIELD_MAPPINGS = [
+  { legacyKey: "chunkSize", parentKey: "chunking", canonicalKey: "tokens" },
+  { legacyKey: "chunkOverlap", parentKey: "chunking", canonicalKey: "overlap" },
+  { legacyKey: "maxResults", parentKey: "query", canonicalKey: "maxResults" },
+] as const
+
+function migrateLegacyMemorySearchFlatKeys(search: ConfigObject): void {
+  for (const { legacyKey, parentKey, canonicalKey } of LEGACY_MEMORY_SEARCH_FIELD_MAPPINGS) {
+    if (!Object.hasOwn(search, legacyKey)) continue
+    const legacyValue = search[legacyKey]
+    if (search[parentKey] === undefined) {
+      search[parentKey] = { [canonicalKey]: legacyValue }
+    } else {
+      const parent = asRecord(search[parentKey])
+      if (parent && parent[canonicalKey] === undefined) parent[canonicalKey] = legacyValue
+    }
+    delete search[legacyKey]
+  }
+}
+
+// The pinned gateway's strict memory.search schema has no `sync` or `models`
+// keys (sync cadence is built in; only `model` is configurable), so any
+// carried over from legacy renders must be stripped to keep the output valid.
+function stripUnsupportedMemorySearchKeys(search: ConfigObject): void {
+  delete search.sync
+  delete search.models
+}
+
 const memorySearch = ((): ConfigObject => {
   // agents.defaults.memorySearch / top-level memorySearch → memory.search
   // (doctor migration "memorySearch->memory.search"; existing canonical keys win).
@@ -81,13 +112,29 @@ const memorySearch = ((): ConfigObject => {
       if (!(key in search)) search[key] = value
     }
   }
-  // The pinned gateway's strict memory.search schema has no `sync` or `models`
-  // keys (sync cadence is built in; only `model` is configurable), so any
-  // carried over from legacy renders must be stripped to keep the output valid.
-  delete search.sync
-  delete search.models
+  migrateLegacyMemorySearchFlatKeys(search)
+  stripUnsupportedMemorySearchKeys(search)
   return search
 })()
+
+// Agent-id key normalization, mirrored from upstream normalization-core
+// agent-id.ts: a trimmed lowercase id matching the schema regex passes
+// through; anything else has invalid char runs collapsed to "-", leading/
+// trailing dashes trimmed, and slices to 64 chars; an unrepresentable id
+// falls back to the default ("main"), matching normalizeAgentId.
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+
+function normalizeAgentId(value: string): string {
+  const trimmed = value.trim()
+  const lowered = trimmed.toLowerCase()
+  if (VALID_AGENT_ID_RE.test(trimmed)) return lowered
+  const normalized = lowered
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "")
+    .slice(0, 64)
+  return normalized || "main"
+}
 
 // agents.list[] → keyed agents.entries (doctor migration
 // "runtime.agents-entries"). When canonical entries are already present the
@@ -102,13 +149,40 @@ if (Array.isArray(agents.list)) {
       const entry = asRecord(item)
       if (!entry) continue
       const rawId = typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : "agent"
-      const requested = rawId.toLowerCase()
+      const requested = normalizeAgentId(rawId)
       let id = requested
       let suffix = 2
       while (ids.has(id)) id = `${requested}-${suffix++}`
       ids.add(id)
       const { id: _id, ...rest } = entry
       entries[id] = rest
+    }
+  }
+}
+
+// Per-agent memory search migration, mirrored from the doctor's
+// "memorySearch->memory.search" entry walk: agents.entries.*.memorySearch
+// merges into agents.entries.*.memory.search (canonical keys win), with the
+// same flat-field remap and unsupported-key strip as the top-level owner.
+{
+  const entries = asRecord(agents.entries)
+  if (entries) {
+    for (const value of Object.values(entries)) {
+      const agent = asRecord(value)
+      if (!agent) continue
+      const legacy = asRecord(agent.memorySearch)
+      if (legacy) {
+        delete agent.memorySearch
+        const memory = (agent.memory ||= {}) as ConfigObject
+        const search = (memory.search ||= {}) as ConfigObject
+        for (const [key, legacyValue] of Object.entries(legacy)) {
+          if (!(key in search)) search[key] = legacyValue
+        }
+      }
+      const search = asRecord(asRecord(agent.memory)?.search)
+      if (!search) continue
+      migrateLegacyMemorySearchFlatKeys(search)
+      stripUnsupportedMemorySearchKeys(search)
     }
   }
 }
