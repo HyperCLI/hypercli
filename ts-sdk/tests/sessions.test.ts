@@ -50,6 +50,7 @@ const messageRow = {
   stop_reason: 'end_turn',
   created_at: '2026-09-26T08:30:00+00:00',
   delivered_at: '2026-09-26T08:30:05+00:00',
+  completed_at: '2026-09-26T08:30:07+00:00',
 };
 
 describe('SessionsAPI (§15)', () => {
@@ -113,6 +114,7 @@ describe('SessionsAPI (§15)', () => {
       stopReason: 'end_turn',
       createdAt: '2026-09-26T08:30:00+00:00',
       deliveredAt: '2026-09-26T08:30:05+00:00',
+      completedAt: '2026-09-26T08:30:07+00:00',
       memberKind: 'agent',
       memberParticipant: AGENT_ID,
     });
@@ -125,6 +127,25 @@ describe('SessionsAPI (§15)', () => {
     const page = await api.getMessages('sess-1');
 
     expect(page.items[0].deliveredAt).toBeNull();
+  });
+
+  it('leaves completedAt null until the covering turn commits', async () => {
+    const http = fakeHttp({ items: [{ ...messageRow, delivered_at: null, completed_at: null }], next_cursor: null, has_more: false });
+    const api = new SessionsAPI(http as never);
+
+    const page = await api.getMessages('sess-1');
+
+    expect(page.items[0].completedAt).toBeNull();
+    expect(page.items[0].deliveredAt).toBeNull();
+  });
+
+  it('decodes completed_at when only that receipt exists', async () => {
+    const http = fakeHttp({ items: [{ ...messageRow, delivered_at: null }], next_cursor: null, has_more: false });
+    const api = new SessionsAPI(http as never);
+
+    const page = await api.getMessages('sess-1');
+
+    expect(page.items[0].completedAt).toBe('2026-09-26T08:30:07+00:00');
   });
 
   it('url-encodes the session id', async () => {

@@ -51,6 +51,8 @@ export interface AcpSessionMessage {
   createdAt: string | null;
   /** Null until delivery is durable: user rows stamp at turn commit, agent rows at persist (§15). */
   deliveredAt: string | null;
+  /** Null until the covering turn commits; on user rows this is the "agent acted on this" receipt (§15). */
+  completedAt: string | null;
   /** Author tuple; resolve via the session's members. */
   memberKind: 'user' | 'agent' | null;
   memberParticipant: string | null;
@@ -118,6 +120,7 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
     stopReason: (pick<string>(row, 'stop_reason', 'stopReason') ?? null) as string | null,
     createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
     deliveredAt: (pick<string>(row, 'delivered_at', 'deliveredAt') ?? null) as string | null,
+    completedAt: (pick<string>(row, 'completed_at', 'completedAt') ?? null) as string | null,
     memberKind: (pick<string>(row, 'member_kind', 'memberKind') ?? null) as AcpSessionMessage['memberKind'],
     memberParticipant: (pick<string>(row, 'member_participant', 'memberParticipant') ?? null) as string | null,
   };
