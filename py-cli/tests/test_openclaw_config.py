@@ -29,9 +29,11 @@ def test_config_openclaw_limits_runtime_models_to_supported_set():
 
     defaults = config["agents"]["defaults"]
     assert defaults["model"]["primary"] == "hypercli/coding-anthropic"
-    assert defaults["memorySearch"]["provider"] == "openai"
-    assert defaults["memorySearch"]["model"] == "qwen3-embedding-4b"
-    assert defaults["memorySearch"]["remote"]["baseUrl"] == "https://api.agents.hypercli.com/v1"
+    assert "memorySearch" not in defaults
+    memory_search = config["memory"]["search"]
+    assert memory_search["provider"] == "openai"
+    assert memory_search["model"] == "qwen3-embedding-4b"
+    assert memory_search["remote"]["baseUrl"] == "https://api.agents.hypercli.com/v1"
 
 
 def test_config_openclaw_uses_first_embedding_model_for_memory_search():
@@ -44,8 +46,7 @@ def test_config_openclaw_uses_first_embedding_model_for_memory_search():
         "https://api.agents.hypercli.com",
     )
 
-    defaults = config["agents"]["defaults"]
-    assert defaults["memorySearch"]["model"] == "text-embedding-3-large"
+    assert config["memory"]["search"]["model"] == "text-embedding-3-large"
 
 
 def test_config_openclaw_supports_placeholder_api_key_env():
@@ -62,7 +63,7 @@ def test_config_openclaw_supports_placeholder_api_key_env():
 
     providers = config["models"]["providers"]
     assert providers["hypercli"]["apiKey"] == "${HYPER_API_KEY}"
-    assert config["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "${HYPER_API_KEY}"
+    assert config["memory"]["search"]["remote"]["apiKey"] == "${HYPER_API_KEY}"
 
 
 def test_merge_openclaw_config_replaces_stale_provider_sections():
@@ -120,3 +121,31 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
         "primary": "hypercli/coding-anthropic",
     }
     assert merged["gateway"]["port"] == 18789
+
+
+def test_merge_openclaw_config_drops_legacy_memory_search_keys():
+    existing = {
+        "agents": {
+            "defaults": {
+                "memorySearch": {
+                    "provider": "openai",
+                    "model": "qwen3-embedding-4b",
+                }
+            }
+        },
+        "memorySearch": {"enabled": True},
+    }
+    snippet = {
+        "memory": {
+            "search": {
+                "provider": "openai",
+                "model": "qwen3-embedding-4b",
+            }
+        }
+    }
+
+    merged = _merge_openclaw_config(existing, snippet)
+
+    assert merged["memory"]["search"]["model"] == "qwen3-embedding-4b"
+    assert "memorySearch" not in merged["agents"]["defaults"]
+    assert "memorySearch" not in merged

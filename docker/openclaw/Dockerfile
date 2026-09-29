@@ -64,12 +64,9 @@ ENV OPENCLAW_DESKTOP_PORT=3000
 ENV HYPER_DESKTOP_PORT=3000
 ENV HYPER_DESKTOP_GEOMETRY=1280x800x24
 ENV OPENCLAW_CRON_ENABLED=
+# Memory search: the pinned gateway only accepts memory.search.* config keys
+# and no longer exposes sync cadence knobs, so only ENABLED remains a knob.
 ENV OPENCLAW_MEMORY_SEARCH_ENABLED=
-ENV OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START=
-ENV OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH=
-ENV OPENCLAW_MEMORY_SEARCH_SYNC_WATCH=
-ENV OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS=
-ENV OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES=
 ENV DISPLAY=:99
 # ACP leg as pod default: hyper-acp spawns `openclaw acp`; the entrypoint
 # backgrounds `openclaw gateway run` first (the bridge dials it loopback-only
