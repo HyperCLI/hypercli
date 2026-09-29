@@ -82,22 +82,17 @@ export const ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404;
 export const ACP_TURN_STARTED_METHOD = '_hypercli.dev/turn_started';
 export const ACP_TURN_ENDED_METHOD = '_hypercli.dev/turn_ended';
 
-/**
- * Seq-annotation contract (sessions/README §15). The backend ACP proxy
- * annotates every persisted-and-teed frame with its durable store seq under
- * `params._meta[ACP_SEQ_META_KEY].seq`; a forward jump is delivery-gap
- * evidence the consumer recovers with a keyset re-read over the REST history
- * endpoint (`after_seq` = the last seq actually seen).
- *
- * USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the REST history read
- * advances the caller's participant cursor — there is NO client→proxy
- * read-ack frame, and this client emits none. (Earlier versions sent a
- * `_hypercli.dev/session_read_ack` request and treated its response as a
- * durability ack: the proxy never handled that frame — it leg-passthrough'd
- * it to the pod, which moved no cursor, so the "confirmed" receipt was a
- * silent no-op lie. The proxy now pins the retired frame at dispatch.)
- */
-export const ACP_SEQ_META_KEY = 'hypercli.dev';
+// USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the REST history read
+// advances the caller's participant cursor — there is NO client→proxy
+// read-ack frame, and this client emits none. (Earlier versions sent a
+// `_hypercli.dev/session_read_ack` request and treated its response as a
+// durability ack: the proxy never handled that frame — it leg-passthrough'd
+// it to the pod, which moved no cursor, so the "confirmed" receipt was a
+// silent no-op lie. The proxy now pins the retired frame at dispatch.)
+// The proxy's `_meta["hypercli.dev"].seq` tee annotation is GONE (removed
+// 2026-09-29): the proxy tee is 100% vanilla ACP (owner ruling, final
+// 2026-09-28), so teed frames arrive unannotated and delivery gaps are
+// recovered with a keyset re-read over the REST history endpoint.
 
 /** JSON-RPC request id of a `session/prompt`, used to key a turn. */
 export type CodingAgentAcpTurnId = string | number;
@@ -188,19 +183,6 @@ export class CodingAgentAcpReplayGapError extends Error {
     this.name = 'CodingAgentAcpReplayGapError';
     this.sessionId = sessionId;
   }
-}
-
-/**
- * Per-session seq-delivery position tracked by {@link CodingAgentAcpClient}.
- * Pure delivery evidence from the store-seq `_meta` annotation — NOT a read
- * receipt (read cursors are backend-owned; the REST history read advances
- * them).
- */
-export interface CodingAgentAcpSeqDeliveryState {
-  /** Highest persisted seq seen on a delivered annotated frame (0 = none seen). */
-  latestSeq: number;
-  /** Number of forward seq jumps observed (missed-frame evidence). */
-  gaps: number;
 }
 
 export interface CodingAgentAcpConnectOptions {
@@ -327,8 +309,6 @@ export class CodingAgentAcpClient {
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   /** In-memory only: sessionId → latest epoch + in-flight load count. */
   private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
-  /** Seq-delivery position per session (from the `_meta` annotation). */
-  private readonly seqDeliveryStates = new Map<string, CodingAgentAcpSeqDeliveryState>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
@@ -734,23 +714,6 @@ export class CodingAgentAcpClient {
     return this.requireContext().notify(method, params);
   }
 
-  /**
-   * Snapshot of the seq-delivery position for a session (§15 annotation).
-   * `latestSeq` is the highest store seq the proxy annotated on a delivered
-   * tee frame, `gaps` the count of forward jumps (missed-frame evidence —
-   * refill with a `SessionsAPI.messages` keyset re-read from the last seen
-   * seq). Zeros for sessions that never saw an annotated frame (e.g.
-   * direct-bridge connections). Not a read receipt: user read cursors are
-   * backend-owned and advance on the REST history read.
-   */
-  seqDeliveryState(sessionId: string): CodingAgentAcpSeqDeliveryState {
-    const state = this.seqDeliveryStates.get(sessionId);
-    return {
-      latestSeq: state?.latestSeq ?? 0,
-      gaps: state?.gaps ?? 0,
-    };
-  }
-
   close(): void {
     if (this.closedFlag) return;
     this.closedFlag = true;
@@ -758,7 +721,6 @@ export class CodingAgentAcpClient {
     this.turnListeners.clear();
     this.replayListeners.clear();
     this.closeListeners.clear();
-    this.seqDeliveryStates.clear();
     this.permissionHandler = null;
     this.generation += 1;
     this.options.signal?.removeEventListener('abort', this.onAbort);
@@ -842,16 +804,6 @@ export class CodingAgentAcpClient {
       return { outcome: { outcome: 'cancelled' as const } };
     });
     app.onNotification(acp.methods.client.session.update, (context) => {
-      // Seq annotation (§15): persisted proxy-tee'd frames carry their store
-      // seq under _meta; the value drives gap detection (refill via a history
-      // re-read). Unannotated frames (direct bridge) leave tracking alone.
-      const meta = (context.params as { _meta?: Record<string, unknown> | null })._meta;
-      const vendor = meta?.[ACP_SEQ_META_KEY];
-      const seq = vendor && typeof vendor === 'object' ? (vendor as Record<string, unknown>).seq : undefined;
-      this.noteDeliveredSeq(
-        context.params.sessionId,
-        typeof seq === 'number' && Number.isInteger(seq) ? seq : null,
-      );
       this.options.onUpdate?.(context.params);
       for (const listener of [...this.updateListeners]) {
         try {
@@ -1185,24 +1137,6 @@ export class CodingAgentAcpClient {
 
   private softError(error: Error): void {
     this.options.onError?.(error);
-  }
-
-  /**
-   * Record one delivered annotated frame. A forward jump (a frame whose seq
-   * is not latestSeq+1) means frames were lost on the tee — a consumer that
-   * needs the hole refilled re-reads history from the last seen seq.
-   * Stale/duplicate deliveries are ignored.
-   */
-  private noteDeliveredSeq(sessionId: string, seq: number | null): void {
-    if (seq === null) return;
-    let state = this.seqDeliveryStates.get(sessionId);
-    if (!state) {
-      state = { latestSeq: 0, gaps: 0 };
-      this.seqDeliveryStates.set(sessionId, state);
-    }
-    if (seq <= state.latestSeq) return;
-    if (state.latestSeq > 0 && seq > state.latestSeq + 1) state.gaps += 1;
-    state.latestSeq = seq;
   }
 
   private requireConnection(): acp.ClientConnection {
