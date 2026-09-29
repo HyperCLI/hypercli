@@ -9,6 +9,7 @@ import * as agents from './commands/agents.js';
 import * as configure from './commands/configure.js';
 import * as files from './commands/files.js';
 import * as flow from './commands/flow.js';
+import * as integrations from './commands/integrations.js';
 import * as jobs from './commands/jobs.js';
 import * as me from './commands/me.js';
 import * as routines from './commands/routines.js';
@@ -26,6 +27,7 @@ export const GROUPS: readonly CommandGroup[] = [
   jobs,
   flow,
   files,
+  integrations,
   voice,
   websearch,
 ];

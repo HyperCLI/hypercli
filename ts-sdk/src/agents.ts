@@ -995,9 +995,19 @@ export interface AgentUiMeta {
   avatar?: AgentUiAvatarMeta | null;
 }
 
+/**
+ * Per-provider integration toggle stored under meta.integrations; semantics
+ * per the backend model (agents/backend/agents/launch_contract.py
+ * AgentIntegrationMeta): enabled ?? true, `enabled: null` on write unsets.
+ */
+export interface AgentIntegrationMeta {
+  enabled?: boolean | null;
+}
+
 export interface AgentMeta {
   ui?: AgentUiMeta | null;
   status?: DeploymentMetaStatus | null;
+  integrations?: Record<string, AgentIntegrationMeta> | null;
   [key: string]: any;
 }
 
@@ -1118,6 +1128,12 @@ export interface UpdateAgentOptions {
   runtime?: ManagedAgentRuntime;
   /** Replace the stored launch image with the platform default for the (new or current) runtime on next start. Requires the agent stopped. */
   resetImage?: boolean;
+  /**
+   * Per-provider integration overrides (meta.integrations): shallow-merged
+   * per provider; `enabled: null` removes the provider key (unset → default
+   * enabled). See {@link AgentIntegrationMeta} for the effective semantics.
+   */
+  integrations?: Record<string, AgentIntegrationMeta>;
   /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
   refreshFromLagoon?: boolean;
   /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
@@ -4603,7 +4619,8 @@ export class Deployments {
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
-    // name, handle, size, launch_config, runtime, reset_image. refresh_from_lagoon/error are rejected.
+    // name, handle, size, launch_config, runtime, reset_image, ui, integrations.
+    // refresh_from_lagoon/error are rejected.
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
@@ -4612,6 +4629,7 @@ export class Deployments {
     if (options.runtime !== undefined) body.runtime = options.runtime;
     if (options.resetImage !== undefined) body.reset_image = options.resetImage;
     if (options.ui !== undefined) body.ui = options.ui;
+    if (options.integrations !== undefined) body.integrations = options.integrations;
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
