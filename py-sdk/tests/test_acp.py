@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 import pytest
 import websockets
@@ -195,6 +196,29 @@ async def test_dial_failure_is_retryable_bridge_down():
     await bridge.stop()
     with pytest.raises(RetryableACPError, match="WebSocket connection failed"):
         await ACPClient.connect(url, open_timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_silent_initialize_times_out_as_retryable():
+    initialize_seen = asyncio.Event()
+
+    async def hang_initialize(params):
+        initialize_seen.set()
+        await asyncio.sleep(10)
+        return {"protocolVersion": 1, "agentCapabilities": {}}
+
+    bridge = FakeAcpBridge(_handlers(initialize=hang_initialize))
+    url = await bridge.start()
+    try:
+        started = time.monotonic()
+        with pytest.raises(RetryableACPError, match="initialize handshake exceeded"):
+            await ACPClient.connect(url, open_timeout=0.05)
+        assert time.monotonic() - started < 2.0
+    finally:
+        await bridge.stop()
+    assert initialize_seen.is_set()
+    assert bridge.params("session/new") == []
+    assert bridge.params("session/prompt") == []
 
 
 @pytest.mark.asyncio
