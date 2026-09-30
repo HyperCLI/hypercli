@@ -760,6 +760,52 @@ describe('hyper agents start', () => {
     expect(d.start).toHaveBeenCalledWith(ID_A);
     expect(d.storedLaunchConfig).not.toHaveBeenCalled();
   });
+
+  it('a structured AGENT_SLOT_EXHAUSTED 429 prints the actionable message, never the inventory dump', async () => {
+    const message = 'All 3 large agent slots are in use. Stop or archive an agent, or pick a different tier.';
+    const body = JSON.stringify({
+      detail: message,
+      error: {
+        code: 'AGENT_SLOT_EXHAUSTED',
+        message,
+        tier: 'large',
+        requested: { tier: 'large', free: 0, total: 3, used: 3 },
+        inventory: [
+          { tier: 'large', free: 0, total: 3, used: 3 },
+          { tier: 'medium', free: 0, total: 0, used: 0 },
+        ],
+      },
+    });
+    const d = createMockDeploymentsApi([agentFixture({ state: 'STOPPED' })], {
+      start: vi.fn(async () => {
+        throw new APIError(429, 'wrapped detail', 'POST', 'https://api.hypercli.com/agents/deployments/x/start', body);
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['start', ID_A]);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('HTTP 429');
+    expect((err as Error).message).toContain(message);
+    expect((err as Error).message).not.toContain('wrapped detail');
+    expect((err as Error).message).not.toContain('entitlement');
+    expect((err as Error).message).not.toContain('inventory');
+  });
+
+  it('a legacy sentence-dump 429 without a structured body still renders its detail', async () => {
+    const d = createMockDeploymentsApi([agentFixture({ state: 'STOPPED' })], {
+      start: vi.fn(async () => {
+        throw new APIError(429, 'No available large entitlement slots', 'POST', undefined, '{not json');
+      }),
+    });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    const err = await runErr(ctx, ['start', ID_A]);
+
+    expect(err).toBeInstanceOf(CliError);
+    expect((err as Error).message).toContain('HTTP 429: No available large entitlement slots');
+  });
 });
 
 // ---------- stop / delete ----------
