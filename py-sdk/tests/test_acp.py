@@ -116,6 +116,33 @@ def _handlers(**overrides):
 
 
 @pytest.mark.asyncio
+async def test_connect_negotiates_terminal_auth_only_when_requested():
+    methods = [{"id": "claude-ai-login"}, {"id": "console-login"}]
+
+    def initialize(params):
+        advertised = params["clientCapabilities"].get("_meta", {}).get("terminal-auth") is True
+        return {"protocolVersion": 1, "authMethods": methods if advertised else []}
+
+    bridge = FakeAcpBridge(_handlers(initialize=initialize))
+    url = await bridge.start()
+    capabilities = {"terminal": False, "_meta": {"terminal-auth": True}}
+    try:
+        async with await ACPClient.connect(url) as client:
+            assert client.initialize_response["authMethods"] == []
+        async with await ACPClient.connect(url, client_capabilities=capabilities) as client:
+            assert client.initialize_response["authMethods"] == methods
+        async with await ACPClient.connect(url, client_capabilities={}) as client:
+            assert client.initialize_response["authMethods"] == []
+    finally:
+        await bridge.stop()
+    assert [params["clientCapabilities"] for params in bridge.params("initialize")] == [
+        {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
+        capabilities,
+        {},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_reader_failure_racing_send_does_not_leave_unobserved_future(monkeypatch):
     import gc
 
