@@ -855,8 +855,7 @@ class TestBuildPermissionsJson:
         assert build_permissions_json("buzz-hosted") == (
             '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",'
             '"todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny",'
-            '"external_directory":"allow","bash":{"sprig *":"allow","sprig":"allow",'
-            '"buzz *":"allow","buzz":"allow","hyper *":"allow","git *":"allow","*":"deny"},'
+            '"external_directory":"allow","bash":{"hyper *":"allow","git *":"allow","*":"deny"},'
             '"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}'
         )
 
