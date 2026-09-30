@@ -474,24 +474,26 @@ class ACPClient:
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[frame_id] = (method, future)
         try:
-            await self._ws.send(json.dumps({"jsonrpc": "2.0", "id": frame_id, "method": method, "params": params}, separators=(",", ":")))
-        except asyncio.CancelledError:
-            self._pending.pop(frame_id, None)
-            raise
-        except (WebSocketException, OSError) as exc:
-            self._pending.pop(frame_id, None)
-            if method == "session/prompt":
-                raise AmbiguousDeliveryError(str(exc), cause=exc) from exc
-            terminal = _terminal_close(exc)
-            if terminal is not None:
-                raise terminal from exc
-            raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
-        try:
+            try:
+                await self._ws.send(json.dumps({"jsonrpc": "2.0", "id": frame_id, "method": method, "params": params}, separators=(",", ":")))
+            except (WebSocketException, OSError) as exc:
+                if method == "session/prompt":
+                    raise AmbiguousDeliveryError(str(exc), cause=exc) from exc
+                terminal = _terminal_close(exc)
+                if terminal is not None:
+                    raise terminal from exc
+                raise RetryableACPError(f"ACP WebSocket connection failed: {exc}") from exc
             result = await future
-        except asyncio.CancelledError:
+            return dict(result or {})
+        finally:
             self._pending.pop(frame_id, None)
-            raise
-        return dict(result or {})
+            # A reader failure can settle this future while send is failing.
+            # The send error still reaches the caller; consume only the duplicate
+            # future exception so asyncio cannot log a reflected peer credential.
+            if not future.done():
+                future.cancel()
+            elif not future.cancelled():
+                future.exception()
 
     async def _read_loop(self) -> None:
         try:

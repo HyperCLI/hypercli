@@ -179,42 +179,34 @@ export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntim
 const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   command: string;
   args: string[];
-  mcpCommand: string;
 }> = {
   'buzz-agent': {
     command: '/usr/local/bin/buzz-agent',
     args: [],
-    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
   },
   opencode: {
     command: '/opt/hypercli/bin/opencode',
     args: ['acp'],
-    mcpCommand: '',
   },
   codex: {
     command: '/opt/hypercli/bin/codex-acp',
     args: [],
-    mcpCommand: '/usr/local/lib/acp/buzz/sprig',
   },
   'claude-code': {
     command: '/opt/hypercli/bin/claude-agent-acp',
     args: [],
-    mcpCommand: '',
   },
   goose: {
     command: '/usr/local/bin/goose',
     args: ['acp'],
-    mcpCommand: '',
   },
   'kimi-code': {
     command: '/opt/hypercli/bin/kimi',
     args: ['acp'],
-    mcpCommand: '',
   },
   pi: {
     command: '/opt/hypercli/bin/pi-acp',
     args: [],
-    mcpCommand: '',
   },
 };
 export const DEFAULT_BUZZ_RUST_LOG =
@@ -1260,10 +1252,6 @@ const PERMISSION_PRESETS: Record<PermissionMode, PermissionRules> = {
     doom_loop: 'deny',
     external_directory: 'allow',
     bash: {
-      'sprig *': 'allow',
-      'sprig': 'allow',
-      'buzz *': 'allow',
-      'buzz': 'allow',
       'hyper *': 'allow',
       'git *': 'allow',
       '*': 'deny',
@@ -1325,11 +1313,9 @@ function buildBuzzLaunchEnv(
     BUZZ_RELAY_URL: buzz.relayUrl,
     BUZZ_ACP_AGENT_COMMAND: harness.command,
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
-    BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,
     BUZZ_ACP_LAZY_POOL: 'true',
     BUZZ_ACP_RELAY_OBSERVER: 'true',
     BUZZ_ACP_AGENTS: String(parallelism),
-    BUZZ_ACP_MULTIPLE_EVENT_HANDLING: 'steer',
     BUZZ_ACP_DEDUP: 'queue',
   };
   if (runtime === 'claude-code') {
@@ -1358,10 +1344,8 @@ function buildBuzzLaunchEnv(
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
   if (buzz.requireReply !== false) {
     env.BUZZ_ACP_REQUIRE_REPLY = 'true';
-    if (runtime === 'buzz-agent') env.BUZZ_AGENT_REQUIRE_REPLY = '1';
-  } else if (runtime === 'buzz-agent') {
-    env.BUZZ_AGENT_REQUIRE_REPLY = '0';
   }
+  if (runtime === 'buzz-agent') env.BUZZ_AGENT_REQUIRE_REPLY = '0';
   return env;
 }
 
@@ -3813,6 +3797,7 @@ export class Deployments {
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size) body.size = options.size;
     if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
+    if (options.meta?.integrations) body.meta = { ...body.meta, integrations: structuredClone(options.meta.integrations) };
     if (options.tags?.length) body.tags = [...options.tags];
     if (options.runner) {
       body.runner = {
@@ -3986,6 +3971,10 @@ export class Deployments {
       : (options.openClawRoutes?.includeDesktop ? buildOpenClawDesktopRoute(options.openClawRoutes) : {});
     const effectiveOptions: CreateAgentOptions = {
       ...options,
+      meta: buzzLaunch ? {
+        ...options.meta,
+        integrations: { ...options.meta?.integrations, buzz: { enabled: true } },
+      } : options.meta,
       runtime,
       size: buzzLaunch ? (options.size ?? 'large') : options.size,
       env: effectiveEnv,
