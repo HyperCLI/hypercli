@@ -256,6 +256,7 @@ class ACPClient:
         open_timeout: float = DEFAULT_OPEN_TIMEOUT,
         source: str | None = None,
         client_info: dict[str, str] | None = None,
+        client_capabilities: dict[str, Any] | None = None,
         on_update: UpdateListener | None = None,
     ) -> "ACPClient":
         """Dial the ACP bridge and complete the ``initialize`` handshake.
@@ -270,6 +271,9 @@ class ACPClient:
         the socket but never answers the handshake fails the connect as
         :class:`RetryableACPError` instead of hanging forever, so callers'
         retry budgets engage.
+
+        ``client_capabilities`` supplies the initialize capabilities verbatim.
+        Omit it to retain the default disabled filesystem/terminal capabilities.
         """
         # Proxy creation-only provenance, outside ACP JSON-RPC. Reusing a
         # session on this connection never changes its stored source.
@@ -302,7 +306,7 @@ class ACPClient:
                     "initialize",
                     {
                         "protocolVersion": ACP_PROTOCOL_VERSION,
-                        "clientCapabilities": {
+                        "clientCapabilities": client_capabilities if client_capabilities is not None else {
                             "fs": {"readTextFile": False, "writeTextFile": False},
                             "terminal": False,
                         },
