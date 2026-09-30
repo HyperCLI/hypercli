@@ -51,7 +51,6 @@ const buzzGolden = JSON.parse(readFileSync(
     image: string;
     agent_command: string;
     agent_args: string;
-    mcp_command: string;
     env: Record<string, string>;
   }>;
 };
@@ -422,12 +421,13 @@ describe('coding agents', () => {
     const expectedRuntime = buzzGolden.runtimes[runtime];
     expect(payload).toMatchObject(buzzGolden.common);
     expect(payload.runtime).toBe(runtime);
+    expect(payload.meta.integrations.buzz).toEqual({ enabled: true });
     expect(payload.runtime_scopes).toEqual(buzzGolden.runtime_scopes);
     expect(payload.image).toBe(expectedRuntime.image);
     expect(payload.sync_include).toEqual(expectedRuntime.sync_include);
     expect(payload.env.BUZZ_ACP_AGENT_COMMAND).toBe(expectedRuntime.agent_command);
     expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
-    expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);
+    expect(payload.env).not.toHaveProperty('BUZZ_ACP_MCP_COMMAND');
     for (const [key, value] of Object.entries(buzzGolden.common_env)) {
       expect(payload.env[key]).toBe(
         key === 'HYPER_ACP_WS_URL' ? 'wss://api.test.hypercli.com/ws' : value,
@@ -516,7 +516,6 @@ describe('coding agents', () => {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
         BUZZ_ACP_AGENT_COMMAND: '/opt/hypercli/bin/opencode',
         BUZZ_ACP_AGENT_ARGS: 'acp',
-        BUZZ_ACP_MCP_COMMAND: '',
         BUZZ_ACP_SESSION_TITLE: 'Fizz4',
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
         BUZZ_ACP_AGENTS: '3',
@@ -563,7 +562,7 @@ describe('coding agents', () => {
     expect(payload.secrets.BUZZ_AUTH_TAG).toBe('["auth","owner","","sig"]');
   });
 
-  it('sets the native reply guard only for native Buzz Agent launches', async () => {
+  it('disables the native tool-only reply guard for hosted Buzz Agent launches', async () => {
     const post = vi.fn().mockResolvedValue(response('buzz-agent'));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -580,7 +579,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1].runtime).toBe('buzz-agent');
     expect(post.mock.calls[0][1].env.BUZZ_ACP_REQUIRE_REPLY).toBe('true');
-    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBe('1');
+    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBe('0');
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {

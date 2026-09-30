@@ -1200,22 +1200,14 @@ impl BuzzLaunchConfig {
         if !(1..=32).contains(&self.parallelism) {
             return Err(BuzzLaunchError::InvalidParallelism);
         }
-        let (agent_command, agent_args, mcp_command) = match request.runtime {
-            ManagedRuntime::BuzzAgent => (
-                "/usr/local/bin/buzz-agent",
-                "",
-                "/usr/local/bin/buzz-dev-mcp",
-            ),
-            ManagedRuntime::Opencode => ("/opt/hypercli/bin/opencode", "acp", ""),
-            ManagedRuntime::Codex => (
-                "/opt/hypercli/bin/codex-acp",
-                "",
-                "/usr/local/lib/acp/buzz/sprig",
-            ),
-            ManagedRuntime::ClaudeCode => ("/opt/hypercli/bin/claude-agent-acp", "", ""),
-            ManagedRuntime::Goose => ("/usr/local/bin/goose", "acp", ""),
-            ManagedRuntime::KimiCode => ("/opt/hypercli/bin/kimi", "acp", ""),
-            ManagedRuntime::Pi => ("/opt/hypercli/bin/pi-acp", "", ""),
+        let (agent_command, agent_args) = match request.runtime {
+            ManagedRuntime::BuzzAgent => ("/usr/local/bin/buzz-agent", ""),
+            ManagedRuntime::Opencode => ("/opt/hypercli/bin/opencode", "acp"),
+            ManagedRuntime::Codex => ("/opt/hypercli/bin/codex-acp", ""),
+            ManagedRuntime::ClaudeCode => ("/opt/hypercli/bin/claude-agent-acp", ""),
+            ManagedRuntime::Goose => ("/usr/local/bin/goose", "acp"),
+            ManagedRuntime::KimiCode => ("/opt/hypercli/bin/kimi", "acp"),
+            ManagedRuntime::Pi => ("/opt/hypercli/bin/pi-acp", ""),
             _ => return Err(BuzzLaunchError::UnsupportedRuntime),
         };
 
@@ -1274,9 +1266,6 @@ impl BuzzLaunchConfig {
         request
             .env
             .insert("BUZZ_ACP_AGENT_ARGS".to_owned(), agent_args.to_owned());
-        request
-            .env
-            .insert("BUZZ_ACP_MCP_COMMAND".to_owned(), mcp_command.to_owned());
         if request.runtime == ManagedRuntime::ClaudeCode {
             request.env.insert(
                 "CLAUDE_CODE_EXECUTABLE".to_owned(),
@@ -1296,10 +1285,6 @@ impl BuzzLaunchConfig {
         request
             .env
             .insert("BUZZ_ACP_AGENTS".to_owned(), self.parallelism.to_string());
-        request.env.insert(
-            "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
-            "steer".to_owned(),
-        );
         request
             .env
             .insert("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned());
@@ -1337,7 +1322,7 @@ impl BuzzLaunchConfig {
             if request.runtime == ManagedRuntime::BuzzAgent {
                 request
                     .env
-                    .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
+                    .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned());
             }
         } else if request.runtime == ManagedRuntime::BuzzAgent {
             request
@@ -1494,6 +1479,9 @@ pub struct RunnerTargetSpec {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CreateDeploymentRequest {
+    /// Public creation metadata (UI and explicit integration enablement).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1526,6 +1514,7 @@ impl std::ops::DerefMut for CreateDeploymentRequest {
 impl CreateDeploymentRequest {
     pub fn new(runtime: ManagedRuntime) -> Self {
         let mut request = Self {
+            meta: None,
             name: None,
             handle: None,
             runtime,
@@ -1547,6 +1536,8 @@ impl CreateDeploymentRequest {
     /// public Nostr identity. These keys are owned by the Buzz launch
     /// contract, so stale values are replaced rather than duplicated.
     pub fn mark_buzz_deployment(&mut self, public_key: Option<&str>) {
+        let meta = self.meta.get_or_insert_with(|| serde_json::json!({}));
+        meta["integrations"]["buzz"] = serde_json::json!({"enabled": true});
         self.tags.retain(|tag| {
             tag != BUZZ_DEPLOYMENT_TAG
                 && !tag.starts_with("app=")
@@ -2552,7 +2543,10 @@ mod tests {
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
-        assert_eq!(request.command, ["/usr/local/bin/hyper-acp", "plugin", "buzz"]);
+        assert_eq!(
+            request.command,
+            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+        );
         assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
@@ -2582,10 +2576,7 @@ mod tests {
             request.env.get("BUZZ_ACP_AGENT_ARGS").map(String::as_str),
             Some("acp")
         );
-        assert_eq!(
-            request.env.get("BUZZ_ACP_MCP_COMMAND").map(String::as_str),
-            Some("")
-        );
+        assert!(!request.env.contains_key("BUZZ_ACP_MCP_COMMAND"));
         assert_eq!(
             request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
             Some("Fizz4")
@@ -2644,7 +2635,7 @@ mod tests {
                 .env
                 .get("BUZZ_AGENT_REQUIRE_REPLY")
                 .map(String::as_str),
-            Some("1")
+            Some("0")
         );
         assert_eq!(
             agent_request
@@ -2673,6 +2664,10 @@ mod tests {
     #[test]
     fn buzz_tagging_replaces_owned_keys_and_preserves_unrelated_tags() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.meta = Some(serde_json::json!({
+            "ui": {"description": "keep"},
+            "integrations": {"slack": {"enabled": false}}
+        }));
         request.tags = vec![
             "team=desktop".to_owned(),
             "app=old".to_owned(),
@@ -2680,6 +2675,16 @@ mod tests {
         ];
 
         request.mark_buzz_deployment(Some("new-key"));
+
+        assert_eq!(
+            request.meta.as_ref().unwrap()["integrations"]["buzz"]["enabled"],
+            true
+        );
+        assert_eq!(
+            request.meta.as_ref().unwrap()["integrations"]["slack"]["enabled"],
+            false
+        );
+        assert_eq!(request.meta.as_ref().unwrap()["ui"]["description"], "keep");
 
         assert_eq!(
             request.tags,
@@ -2904,7 +2909,7 @@ mod tests {
                 contract["agent_command"]
             );
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
-            assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], contract["mcp_command"]);
+            assert!(!request.env.contains_key("BUZZ_ACP_MCP_COMMAND"));
             for (key, value) in golden["common_env"].as_object().unwrap() {
                 assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
             }
@@ -3105,7 +3110,10 @@ mod tests {
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
-        assert_eq!(request.command, ["/usr/local/bin/hyper-acp", "plugin", "buzz"]);
+        assert_eq!(
+            request.command,
+            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+        );
         assert!(request.entrypoint.is_empty());
         let wire = serde_json::to_value(&request).unwrap();
         assert_eq!(

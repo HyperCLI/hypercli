@@ -116,6 +116,33 @@ def _handlers(**overrides):
 
 
 @pytest.mark.asyncio
+async def test_reader_failure_racing_send_does_not_leave_unobserved_future(monkeypatch):
+    import gc
+
+    ws = StubWs()
+    client = ACPClient(ws)
+    diagnostics = []
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: diagnostics.append(context))
+
+    async def fail_send(_frame):
+        client._fail_pending(OSError("PRIVATE duplicate peer reason"))
+        raise OSError("send failed")
+
+    monkeypatch.setattr(ws, "send", fail_send)
+    try:
+        with pytest.raises(RetryableACPError, match="send failed"):
+            await client.request("initialize")
+        assert not client._pending
+        gc.collect()
+        assert diagnostics == []
+    finally:
+        await client.close()
+        loop.set_exception_handler(previous)
+
+
+@pytest.mark.asyncio
 async def test_source_is_query_metadata_not_acp():
     from urllib.parse import parse_qs, urlsplit
 

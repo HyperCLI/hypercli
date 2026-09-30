@@ -340,10 +340,6 @@ _PERMISSION_PRESETS: dict[str, dict[str, Any]] = {
         "doom_loop": "deny",
         "external_directory": "allow",
         "bash": {
-            "sprig *": "allow",
-            "sprig": "allow",
-            "buzz *": "allow",
-            "buzz": "allow",
             "hyper *": "allow",
             "git *": "allow",
             "*": "deny",
