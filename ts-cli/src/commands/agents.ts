@@ -203,8 +203,34 @@ function dashboardBase(ctx: CommandContext): string {
 // error mapping — bare catches convert to CliError with API status detail
 // ---------------------------------------------------------------------------
 
+/**
+ * The control plane's structured AGENT_SLOT_EXHAUSTED contract names its own
+ * clean message beside HTTP `detail`. Prefer it over whatever intermediate
+ * layers wrapped into `detail`, and never re-print the admin-style inventory
+ * dump a legacy proxy may carry.
+ */
+function slotExhaustionMessage(err: APIError): string | null {
+  const text = err.responseText;
+  if (typeof text !== 'string' || !text) return null;
+  let payload: { error?: unknown };
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const wire = payload?.error;
+  if (!wire || typeof wire !== 'object') return null;
+  const record = wire as Record<string, unknown>;
+  if (record.code !== 'AGENT_SLOT_EXHAUSTED') return null;
+  return typeof record.message === 'string' && record.message ? record.message : null;
+}
+
 function describeFailure(err: unknown): string {
-  if (err instanceof APIError) return `HTTP ${err.statusCode}: ${err.detail}`;
+  if (err instanceof APIError) {
+    const slotMessage = slotExhaustionMessage(err);
+    if (slotMessage) return `HTTP ${err.statusCode}: ${slotMessage}`;
+    return `HTTP ${err.statusCode}: ${err.detail}`;
+  }
   if (err instanceof Error) return err.message;
   return String(err);
 }
