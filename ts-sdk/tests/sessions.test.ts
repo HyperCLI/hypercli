@@ -4,19 +4,14 @@ import { SessionsAPI } from '../src/sessions.js';
 /**
  * §15 REST read surface (sessions/README §15). These fixtures mirror the
  * landed backend contract — `agents/backend/agents/session_routes.py`
- * `SessionListPage` / `SessionMessagePage` / `SessionListItem` (`{ items,
- * next_cursor, has_more }` envelopes, snake_case fields, UUID ids,
- * participants embedded on session rows, `PATCH /sessions/{id}` returning the
- * patched item) — and pin the client half of it: paths, `agent_id` filtering,
- * opaque-cursor pagination args, LIMIT N+1 has_more sentinel.
+ * `SessionListPage` / `SessionMessagePage` (`{ items, next_cursor, has_more }`
+ * envelopes, snake_case fields, UUID ids, participants embedded on session rows) —
+ * and pin the client half of it: paths, opaque-cursor pagination args, LIMIT
+ * N+1 has_more sentinel.
  */
 
 function fakeHttp(payload: unknown) {
   return { get: vi.fn(async () => payload) };
-}
-
-function fakeHttpWithPatch(payload: unknown) {
-  return { get: vi.fn(async () => null), patch: vi.fn(async () => payload) };
 }
 
 const SESSION_ID = 'b7a3d1e2-4f50-4c6a-9d2b-8c1f0a5e6d7b';
@@ -97,15 +92,6 @@ describe('SessionsAPI (§15)', () => {
         },
       ],
     });
-  });
-
-  it('sends agentId as the agent_id query param alongside cursor+limit', async () => {
-    const http = fakeHttp({ items: [], next_cursor: null, has_more: false });
-    const api = new SessionsAPI(http as never);
-
-    await api.listSessions({ agentId: AGENT_ID, cursor: 'cur-1', limit: 25 });
-
-    expect(http.get).toHaveBeenCalledWith('/sessions', { agent_id: AGENT_ID, cursor: 'cur-1', limit: 25 });
   });
 
   it('omits cursor/limit params when not given (first page)', async () => {
@@ -206,42 +192,5 @@ describe('SessionsAPI (§15)', () => {
         cursorPos: 3,
       },
     ]);
-  });
-
-  it('renames a session via PATCH /sessions/{id} and parses the returned SessionListItem', async () => {
-    const http = fakeHttpWithPatch({ ...sessionRow, summary_text: 'Q3 flake triage' });
-    const api = new SessionsAPI(http as never);
-
-    const renamed = await api.renameSession(SESSION_ID, 'Q3 flake triage');
-
-    expect(http.patch).toHaveBeenCalledWith(`/sessions/${SESSION_ID}`, { title: 'Q3 flake triage' });
-    expect(renamed.id).toBe(SESSION_ID);
-    expect(renamed.summaryText).toBe('Q3 flake triage');
-    expect(renamed.participants).toHaveLength(2);
-    expect(renamed.participants[0]).toEqual({
-      kind: 'agent',
-      participantId: AGENT_ID,
-      internalSessionId: 'claude-session-9f2e',
-      cursorPos: 14,
-    });
-  });
-
-  it('clears the label with a null title (null-clear semantics)', async () => {
-    const http = fakeHttpWithPatch({ ...sessionRow, summary_text: null });
-    const api = new SessionsAPI(http as never);
-
-    const cleared = await api.renameSession(SESSION_ID, null);
-
-    expect(http.patch).toHaveBeenCalledWith(`/sessions/${SESSION_ID}`, { title: null });
-    expect(cleared.summaryText).toBeNull();
-  });
-
-  it('url-encodes the session id on rename', async () => {
-    const http = fakeHttpWithPatch(sessionRow);
-    const api = new SessionsAPI(http as never);
-
-    await api.renameSession('sess/odd id', 't');
-
-    expect(http.patch).toHaveBeenCalledWith('/sessions/sess%2Fodd%20id', { title: 't' });
   });
 });

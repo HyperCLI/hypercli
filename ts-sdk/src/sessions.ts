@@ -5,11 +5,9 @@
  * The backend proxy (`/ws/acp`, see acp.ts) is the write/turn path; this
  * namespace is the typed read path over the durable `agent_sessions` /
  * `session_messages` tables: session catalog with summaries and participants,
- * backwards-paginated history per session, and the backend-owned label PATCH
- * (the rename pencil — backend-owned until ACP grows a client→agent rename).
- * The wire contract is owned by the backend routes
- * (`agents/backend/agents/session_routes.py` — `SessionListPage` /
- * `SessionMessagePage` / `SessionListItem`), and both pages are the same
+ * backwards-paginated history per session. The wire contract is owned by the
+ * backend routes (`agents/backend/agents/session_routes.py` —
+ * `SessionListPage` / `SessionMessagePage`), and both pages are the same
  * envelope: `{ items, next_cursor, has_more }`.
  *
  * Pagination contract (§15 "Type & pagination"): every list is keyset over a
@@ -72,8 +70,6 @@ export interface AcpSessionPage<T> {
 }
 
 export interface AcpSessionListOptions {
-  /** Restrict the catalog to sessions this agent participates in (`agent_id` query). */
-  agentId?: string;
   cursor?: string | null;
   limit?: number;
 }
@@ -150,12 +146,11 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get' | 'patch'>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'>) {}
 
   /** Session catalog page, newest activity first (`(updated_at, id)` keyset). */
   async listSessions(options: AcpSessionListOptions = {}): Promise<AcpSessionPage<AcpSessionRecord>> {
     const payload = await this.http.get<Record<string, unknown>>('/sessions', {
-      ...(options.agentId ? { agent_id: options.agentId } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });
@@ -176,19 +171,5 @@ export class SessionsAPI {
       },
     );
     return pageFromWire(payload ?? {}, messageFromWire);
-  }
-
-  /**
-   * Set or clear the caller-visible session label (the rename pencil) via
-   * `PATCH /sessions/{id}`. A null title clears the label; the backend also
-   * strips and clears whitespace-only titles and caps the stripped title at
-   * 256 characters. Returns the session row (`SessionListItem`) verbatim.
-   */
-  async renameSession(sessionId: string, title: string | null): Promise<AcpSessionRecord> {
-    const payload = await this.http.patch<Record<string, unknown>>(
-      `/sessions/${encodeURIComponent(sessionId)}`,
-      { title },
-    );
-    return sessionFromWire(payload ?? {});
   }
 }
