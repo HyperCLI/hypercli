@@ -446,10 +446,10 @@ export { defaultAcpProxyWsUrl } from './agent-urls.js';
 export {
   SessionsAPI,
   type AcpSessionListOptions,
-  type AcpSessionMember,
   type AcpSessionMessage,
   type AcpSessionMessagesOptions,
   type AcpSessionPage,
+  type AcpSessionParticipant,
   type AcpSessionRecord,
 } from './sessions.js';
 export {

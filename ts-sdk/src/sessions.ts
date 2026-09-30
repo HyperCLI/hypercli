@@ -4,10 +4,12 @@
  *
  * The backend proxy (`/ws/acp`, see acp.ts) is the write/turn path; this
  * namespace is the typed read path over the durable `agent_sessions` /
- * `session_messages` tables: session catalog with summaries and members, and
- * backwards-paginated history per session. The wire contract is owned by the
- * backend routes (`agents/backend/agents/session_routes.py` —
- * `SessionListPage` / `SessionMessagePage`), and both pages are the same
+ * `session_messages` tables: session catalog with summaries and participants,
+ * backwards-paginated history per session, and the backend-owned label PATCH
+ * (the rename pencil — backend-owned until ACP grows a client→agent rename).
+ * The wire contract is owned by the backend routes
+ * (`agents/backend/agents/session_routes.py` — `SessionListPage` /
+ * `SessionMessagePage` / `SessionListItem`), and both pages are the same
  * envelope: `{ items, next_cursor, has_more }`.
  *
  * Pagination contract (§15 "Type & pagination"): every list is keyset over a
@@ -17,13 +19,13 @@
  */
 import type { HTTPClient } from './http.js';
 
-/** One `session_members` row as embedded in the session catalog (backend `SessionMember`). */
-export interface AcpSessionMember {
+/** One `session_participants` row as embedded in the session catalog (backend `SessionParticipant`). */
+export interface AcpSessionParticipant {
   kind: 'user' | 'agent';
   participantId: string;
-  /** The agent leg's harness-side session id; null for user members and legs without one. */
+  /** The agent leg's harness-side session id; null for user participants and legs without one. */
   internalSessionId: string | null;
-  /** Member's durable delivery cursor (seq) in this session. */
+  /** Participant's durable delivery cursor (seq) in this session. */
   cursorPos: number;
 }
 
@@ -35,7 +37,7 @@ export interface AcpSessionRecord {
   updatedAt: string | null;
   summaryText: string | null;
   summaryKeywords: string[];
-  members: AcpSessionMember[];
+  participants: AcpSessionParticipant[];
 }
 
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
@@ -53,9 +55,9 @@ export interface AcpSessionMessage {
   deliveredAt: string | null;
   /** Null until the covering turn commits; on user rows this is the "agent acted on this" receipt (§15). */
   completedAt: string | null;
-  /** Author tuple; resolve via the session's members. */
-  memberKind: 'user' | 'agent' | null;
-  memberParticipant: string | null;
+  /** Author tuple; resolve via the session's participants. */
+  participantKind: 'user' | 'agent' | null;
+  participantId: string | null;
 }
 
 /** One page of a cursor-paginated endpoint. */
@@ -68,6 +70,8 @@ export interface AcpSessionPage<T> {
 }
 
 export interface AcpSessionListOptions {
+  /** Restrict the catalog to sessions this agent participates in (`agent_id` query). */
+  agentId?: string;
   cursor?: string | null;
   limit?: number;
 }
@@ -83,7 +87,7 @@ function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T 
   return value === undefined ? undefined : (value as T);
 }
 
-function memberFromWire(row: Record<string, unknown>): AcpSessionMember {
+function participantFromWire(row: Record<string, unknown>): AcpSessionParticipant {
   const kind = row.kind;
   const cursorPos = pick<unknown>(row, 'cursor_pos', 'cursorPos');
   return {
@@ -96,15 +100,15 @@ function memberFromWire(row: Record<string, unknown>): AcpSessionMember {
 
 function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   const keywords = pick<unknown>(row, 'summary_keywords', 'summaryKeywords');
-  const members = row.members;
+  const participants = row.participants;
   return {
     id: String(row.id ?? ''),
     createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
     updatedAt: (pick<string>(row, 'updated_at', 'updatedAt') ?? null) as string | null,
     summaryText: (pick<string>(row, 'summary_text', 'summaryText') ?? null) as string | null,
     summaryKeywords: Array.isArray(keywords) ? keywords.map(String) : [],
-    members: Array.isArray(members)
-      ? members.filter((member) => member && typeof member === 'object').map(memberFromWire)
+    participants: Array.isArray(participants)
+      ? participants.filter((participant) => participant && typeof participant === 'object').map(participantFromWire)
       : [],
   };
 }
@@ -121,8 +125,8 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
     createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
     deliveredAt: (pick<string>(row, 'delivered_at', 'deliveredAt') ?? null) as string | null,
     completedAt: (pick<string>(row, 'completed_at', 'completedAt') ?? null) as string | null,
-    memberKind: (pick<string>(row, 'member_kind', 'memberKind') ?? null) as AcpSessionMessage['memberKind'],
-    memberParticipant: (pick<string>(row, 'member_participant', 'memberParticipant') ?? null) as string | null,
+    participantKind: (pick<string>(row, 'participant_kind', 'participantKind') ?? null) as AcpSessionMessage['participantKind'],
+    participantId: (pick<string>(row, 'participant_id', 'participantId') ?? null) as string | null,
   };
 }
 
@@ -143,11 +147,12 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get' | 'patch'>) {}
 
   /** Session catalog page, newest activity first (`(updated_at, id)` keyset). */
   async listSessions(options: AcpSessionListOptions = {}): Promise<AcpSessionPage<AcpSessionRecord>> {
     const payload = await this.http.get<Record<string, unknown>>('/sessions', {
+      ...(options.agentId ? { agent_id: options.agentId } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });
@@ -168,5 +173,19 @@ export class SessionsAPI {
       },
     );
     return pageFromWire(payload ?? {}, messageFromWire);
+  }
+
+  /**
+   * Set or clear the caller-visible session label (the rename pencil) via
+   * `PATCH /sessions/{id}`. A null title clears the label; the backend also
+   * strips and clears whitespace-only titles and caps the stripped title at
+   * 256 characters. Returns the session row (`SessionListItem`) verbatim.
+   */
+  async renameSession(sessionId: string, title: string | null): Promise<AcpSessionRecord> {
+    const payload = await this.http.patch<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+      { title },
+    );
+    return sessionFromWire(payload ?? {});
   }
 }

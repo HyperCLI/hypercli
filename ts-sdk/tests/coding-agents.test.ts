@@ -901,6 +901,104 @@ describe('coding agents', () => {
   });
 });
 
+describe('runner process executor', () => {
+  function runnerResponse(runtime: string) {
+    return { id: `${runtime}-runner-1`, user_id: 'user-1', state: 'RUNNING', runtime };
+  }
+
+  function runnerDeployments(post: ReturnType<typeof vi.fn>) {
+    return new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+  }
+
+  it.each([
+    'opencode',
+    'codex',
+  ] as const)('launches %s on a runner with the process executor and no image', async (runtime) => {
+    const post = vi.fn().mockResolvedValue(runnerResponse(runtime));
+
+    await runnerDeployments(post).createAgent(runtime, {
+      executor: 'process',
+      runner: { tags: ['linux', 'gpu'], runnerId: 'runner-1' },
+    });
+
+    const body = post.mock.calls[0][1];
+    expect(body.runtime).toBe(runtime);
+    expect(body.executor).toBe('process');
+    // Bare binary name, resolved via the runner host's PATH.
+    expect(body.command).toEqual(['hyper-acp']);
+    expect(body.runner).toEqual({ tags: ['linux', 'gpu'], runner_id: 'runner-1' });
+    expect(body).not.toHaveProperty('image');
+    // Env/default presets still flow: hyper-acp runs on the runner host.
+    expect(body.env.HYPER_ACP_PERMISSIONS).toBe('{"*":"allow"}');
+    expect(body.env.HYPER_WORKSPACES_DIR).toBe('/home/node/shared');
+  });
+
+  it('carries the buzz plugin entrypoint for runner-process Buzz launches', async () => {
+    const post = vi.fn().mockResolvedValue(runnerResponse('opencode'));
+
+    await runnerDeployments(post).createAgent('opencode', {
+      executor: 'process',
+      runner: { runnerId: 'runner-1' },
+      buzzEnabled: true,
+    });
+
+    const body = post.mock.calls[0][1];
+    expect(body).toMatchObject({
+      runtime: 'opencode',
+      executor: 'process',
+      command: ['hyper-acp', 'plugin', 'buzz'],
+      size: 'large',
+      restart: false,
+      runner: { runner_id: 'runner-1' },
+    });
+    expect(body).not.toHaveProperty('image');
+  });
+
+  it('always carries a valid command for non-coding ACP runtimes on the process executor', async () => {
+    const post = vi.fn().mockResolvedValue(runnerResponse('openclaw_acp'));
+
+    await runnerDeployments(post).createAgent('openclaw_acp', {
+      executor: 'process',
+      runner: { runnerId: 'runner-1' },
+    });
+
+    const body = post.mock.calls[0][1];
+    expect(body.executor).toBe('process');
+    expect(body.command).toEqual(['hyper-acp']);
+    expect(body).not.toHaveProperty('image');
+  });
+
+  it('rejects an explicit image with the process executor before any request', async () => {
+    const post = vi.fn();
+
+    await expect(runnerDeployments(post).createAgent('opencode', {
+      executor: 'process',
+      image: 'registry.example.test/custom-opencode:tag',
+      runner: { runnerId: 'runner-1' },
+    })).rejects.toThrow('image requires the docker executor');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the hosted create body unchanged (image pinned, no executor/runner keys)', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+
+    await runnerDeployments(post).createAgent('opencode');
+
+    const body = post.mock.calls[0][1];
+    expect(body).toMatchObject({
+      runtime: 'opencode',
+      image: DEFAULT_OPENCODE_IMAGE,
+      command: ['/usr/local/bin/hyper-acp'],
+    });
+    expect(body).not.toHaveProperty('executor');
+    expect(body).not.toHaveProperty('runner');
+  });
+});
+
 describe('deprecated facades delegate to createAgent', () => {
   function aliasDeployments(runtime: string) {
     const post = vi.fn().mockResolvedValue({

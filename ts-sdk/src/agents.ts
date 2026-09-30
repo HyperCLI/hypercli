@@ -3870,6 +3870,13 @@ export class Deployments {
     options: ManagedAgentCreateOptions,
   ): Promise<Agent> {
     const family = ACP_RUNTIME_TABLE[runtime];
+    const processExecutor = options.executor === 'process';
+    if (processExecutor && options.image !== undefined && options.image !== null) {
+      // Runner-process launch: the runner host executes `command` directly,
+      // so there is no image to pull. Mirrors the Backend's 400
+      // "image is only supported for the docker executor".
+      throw new Error('image requires the docker executor');
+    }
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
     }
@@ -3933,7 +3940,11 @@ export class Deployments {
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
-    const resolvedImage = options.image ?? family.image;
+    // The process executor has no image: the runner host runs `command`,
+    // resolving the bare hyper-acp binary via the host's PATH. Hosted/docker
+    // launches keep the container path.
+    const resolvedImage = processExecutor ? undefined : options.image ?? family.image;
+    const hyperAcpBinary = processExecutor ? 'hyper-acp' : '/usr/local/bin/hyper-acp';
     if (buzzLaunch) {
       for (const key of [
         'HYPER_ACP_WS_LISTEN',
@@ -3982,10 +3993,14 @@ export class Deployments {
       routes: buzzLaunch ? {} : options.routes ?? defaultRoutes,
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/hyper-acp', 'plugin', 'buzz']
+        ? [hyperAcpBinary, 'plugin', 'buzz']
         // Plain ACP launches use the image's hyper-acp binary; openclaw/
         // hermes images already CMD hyper-acp, so no explicit command is set.
-        : options.command ?? (family.codingHarness ? ['/usr/local/bin/hyper-acp'] : undefined),
+        // The process executor has no image to CMD from, so every ACP
+        // runtime carries the bare hyper-acp binary name explicitly.
+        : options.command ?? (
+          family.codingHarness || processExecutor ? [hyperAcpBinary] : undefined
+        ),
       syncRoot: options.syncRoot ?? family.syncRoot,
       syncInclude,
       syncExclude,
