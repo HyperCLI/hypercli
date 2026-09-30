@@ -32,6 +32,8 @@ export interface AcpSessionParticipant {
 /** One `agent_sessions` row as the catalog sees it (backend `SessionListItem`). summaryText doubles as the display title. */
 export interface AcpSessionRecord {
   id: string;
+  /** Descriptive creation provenance; unknown values are preserved. */
+  source: string | null;
   createdAt: string | null;
   /** Last-activity timestamp; bumps on every message append, not on row touch. */
   updatedAt: string | null;
@@ -103,6 +105,7 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   const participants = row.participants;
   return {
     id: String(row.id ?? ''),
+    source: typeof row.source === 'string' ? row.source : null,
     createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
     updatedAt: (pick<string>(row, 'updated_at', 'updatedAt') ?? null) as string | null,
     summaryText: (pick<string>(row, 'summary_text', 'summaryText') ?? null) as string | null,

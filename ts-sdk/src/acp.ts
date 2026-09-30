@@ -226,6 +226,9 @@ export interface CodingAgentAcpConnectOptions {
    * `transport: 'direct'` throws — the `/ws` bridge has no session binding.
    */
   sessionId?: string;
+  /** Proxy creation provenance, carried in the WS query (not ACP). Applies only
+   * to newly created sessions on this connection; attaching never changes it. */
+  source?: string | null;
   /** Receives every `session/update` notification. */
   onUpdate?: (notification: acp.SessionNotification) => void;
   /**
@@ -320,7 +323,14 @@ export class CodingAgentAcpClient {
   private readonly onAbort: () => void;
 
   private constructor(target: CodingAgentAcpTarget, options: CodingAgentAcpConnectOptions) {
-    this.target = target;
+    if (options.source != null) {
+      if (options.transport === 'direct') throw new Error('source requires the ACP proxy transport');
+      const url = new URL(target.url);
+      url.searchParams.set('source', options.source);
+      this.target = { ...target, url: url.toString() };
+    } else {
+      this.target = target;
+    }
     this.options = options;
     this.cwd = options.cwd ?? '/home/node';
     this.mcpServers = options.mcpServers ?? [];
@@ -899,6 +909,12 @@ export class CodingAgentAcpClient {
     negotiatedVersion: CodingAgentAcpProtocolVersion;
   }> {
     const { connection, closeInfo } = this.dial();
+    // Until initialize finishes this.connection is deliberately unpublished.
+    // close() alone therefore cannot interrupt a peer that accepts WS but
+    // never answers initialize. Bind cancellation to this pending dial too.
+    const abortDial = () => connection.close(new CodingAgentAcpConnectionError('ACP connect aborted'));
+    this.options.signal?.addEventListener('abort', abortDial, { once: true });
+    if (this.options.signal?.aborted) abortDial();
     try {
       const initializeResponse = await connection.agent.request(
         acp.methods.agent.initialize,
@@ -926,6 +942,8 @@ export class CodingAgentAcpClient {
         `ACP initialize failed${code !== null ? ` (bridge closed with code ${code})` : ''}`,
         { code, cause: error },
       );
+    } finally {
+      this.options.signal?.removeEventListener('abort', abortDial);
     }
   }
 

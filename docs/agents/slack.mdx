@@ -40,9 +40,10 @@ POST https://api.hypercli.com/slack/agents/{agent_id}/relay
 Authorization: Bearer <HyperCLI user JWT>
 ```
 
-Attach writes the relay's scoping marker (`HYPER_SLACK_APP_ENABLED=1`, plus the
-optional channel/user allowlist) into the agent's persisted launch config.
-Nothing pod-side reads these markers: the relay resolves the install and
+Attach persists only the optional channel/user allowlist
+(`HYPER_SLACK_ALLOWED_CHANNEL_ID` / `HYPER_SLACK_ALLOW_FROM`) into the agent's
+stored launch config; the enable toggle lives in `meta.integrations.slack`.
+Nothing pod-side reads these settings: the relay resolves the install and
 enforces the scope at message time, then submits each Slack message as one ACP
 turn through the Backend's `/ws/acp` proxy. An agent never dials out to a
 Slack relay, so there is no Slack transport env to set and no restart
