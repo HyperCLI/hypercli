@@ -277,6 +277,19 @@ afterEach(async () => {
 });
 
 describe('Agent.acpConnect', () => {
+  it('carries source only in the connection query, preserving auth and ACP payloads', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect({ source: 'future client/slack' }));
+    await client.newSession();
+    const url = new URL(bridge.upgrades[0].url ?? '', 'http://127.0.0.1');
+    expect(url.searchParams.get('source')).toBe('future client/slack');
+    expect(url.searchParams.get('token')).toBe('hyper_api_test');
+    expect(url.searchParams.get('agent_id')).toBe(AGENT_ID);
+    for (const frame of bridge.currentPeer.frames) {
+      expect(frame.params).not.toHaveProperty('source');
+      expect(frame.params).not.toHaveProperty('_meta');
+    }
+  });
   it('dials the /ws/acp session proxy with token query auth and agent_id, then completes the initialize handshake', async () => {
     const bridge = await startBridge();
     const updates: string[] = [];

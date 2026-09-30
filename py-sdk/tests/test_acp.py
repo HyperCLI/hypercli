@@ -116,6 +116,23 @@ def _handlers(**overrides):
 
 
 @pytest.mark.asyncio
+async def test_source_is_query_metadata_not_acp():
+    from urllib.parse import parse_qs, urlsplit
+
+    bridge = FakeAcpBridge(_handlers())
+    url = await bridge.start()
+    try:
+        async with await ACPClient.connect(f"{url}?agent_id=a", token="service-key", source="future client/slack") as client:
+            await client.new_session(cwd="/home/node")
+    finally:
+        await bridge.stop()
+    assert parse_qs(urlsplit(bridge.paths[0]).query) == {
+        "agent_id": ["a"], "token": ["service-key"], "source": ["future client/slack"],
+    }
+    assert all("source" not in frame["params"] and "_meta" not in frame["params"] for frame in bridge.received)
+
+
+@pytest.mark.asyncio
 async def test_full_frame_flow_new_session_then_prompt():
     bridge = FakeAcpBridge(_handlers())
     url = await bridge.start()

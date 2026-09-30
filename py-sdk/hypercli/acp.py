@@ -254,6 +254,7 @@ class ACPClient:
         *,
         token: str | None = None,
         open_timeout: float = DEFAULT_OPEN_TIMEOUT,
+        source: str | None = None,
         client_info: dict[str, str] | None = None,
         on_update: UpdateListener | None = None,
     ) -> "ACPClient":
@@ -270,6 +271,13 @@ class ACPClient:
         :class:`RetryableACPError` instead of hanging forever, so callers'
         retry budgets engage.
         """
+        # Proxy creation-only provenance, outside ACP JSON-RPC. Reusing a
+        # session on this connection never changes its stored source.
+        if source is not None:
+            parts = urlsplit(url)
+            query = dict(parse_qsl(parts.query, keep_blank_values=True))
+            query["source"] = source
+            url = urlunsplit(parts._replace(query=urlencode(query)))
         if token:
             url = _with_token(url, token)
         connector = websockets.connect(url, open_timeout=open_timeout)

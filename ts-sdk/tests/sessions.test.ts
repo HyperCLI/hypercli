@@ -59,6 +59,12 @@ const messageRow = {
 };
 
 describe('SessionsAPI (§15)', () => {
+  it.each([undefined, null, 'slack', 'future-client'])('decodes nullable open-ended source %s', async (source) => {
+    const http = fakeHttp({ items: [{ ...sessionRow, source }], has_more: false });
+    const page = await new SessionsAPI(http as never).listSessions();
+    expect(page.items[0].source).toBe(source ?? null);
+    expect(page.items[0].summaryText).toBe(sessionRow.summary_text);
+  });
   it('lists the session catalog against /sessions with cursor+limit and parses the items envelope', async () => {
     const http = fakeHttp({ items: [sessionRow], next_cursor: 'cur-2', has_more: true });
     const api = new SessionsAPI(http as never);
@@ -71,6 +77,7 @@ describe('SessionsAPI (§15)', () => {
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toEqual({
       id: SESSION_ID,
+      source: null,
       createdAt: '2026-09-25T12:00:00+00:00',
       updatedAt: '2026-09-26T08:30:00+00:00',
       summaryText: 'investigate flaky vitest run',

@@ -41,6 +41,7 @@ import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
+from .sessions import SessionPage
 
 
 AGENTS_API_BASE = "https://api.hypercli.com/agents"
@@ -3192,11 +3193,12 @@ class Deployments:
     ) -> dict:
         """Attach an agent to the hosted HyperCLI Slack relay.
 
-        The relay verifies the caller's Slack install and persists its
-        scoping markers (``HYPER_SLACK_APP_ENABLED`` and the optional
-        channel/user allowlist) in the agent's stored launch config. Nothing
-        pod-side reads them: the relay enforces the scope and submits turns
-        through the Backend ACP proxy, so a running agent needs no restart.
+        The relay verifies the caller's Slack install and persists the
+        optional channel/user allowlist in the agent's stored launch config;
+        the enable toggle lives in ``meta.integrations.slack.enabled``.
+        Nothing pod-side reads them: the relay enforces the scope and submits
+        turns through the Backend ACP proxy, so a running agent needs no
+        restart.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id_or_name)
         relay_base = _normalize_slack_relay_base_url(relay_base_url)
@@ -3921,6 +3923,21 @@ class Deployments:
     def acp_ws_url(self) -> str:
         """Client-facing ACP session proxy URL derived from the agents WS tunnel URL."""
         return agents_acp_proxy_ws_url(self._agents_ws_url)
+
+    def list_sessions(
+        self, *, agent_id: str | None = None, cursor: str | None = None, limit: int = 50,
+    ) -> SessionPage:
+        """Caller-scoped REST catalog, including nullable creation source.
+
+        Feed next_cursor back unchanged. Service-key auth is not a user reader;
+        this endpoint requires the existing user/runtime-key read scope.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if agent_id is not None:
+            params["agent_id"] = agent_id
+        if cursor is not None:
+            params["cursor"] = cursor
+        return SessionPage.from_dict(self._get("/sessions", params=params))
 
     def acp_ws_token(self, agent_id: str) -> dict:
         """Mint a very short-lived (~60s), agent-scoped ticket for the ACP session
