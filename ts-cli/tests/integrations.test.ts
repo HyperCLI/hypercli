@@ -89,7 +89,7 @@ describe('hyper integrations token', () => {
     expect(stderr()).toContain('2026-10-01T00:00:00Z');
   });
 
-  it('unknown provider surfaces the server 404 detail verbatim', async () => {
+  it('credential errors expose the status without echoing response bodies', async () => {
     const client = fakeClient({
       mintToken: async () => {
         throw new APIError(404, "Unknown integration 'gitlab'");
@@ -97,7 +97,7 @@ describe('hyper integrations token', () => {
     });
 
     await expect(integrations.run(makeCtx(client, 'table'), ['token', 'gitlab'])).rejects.toMatchObject({
-      message: expect.stringContaining("Unknown integration 'gitlab'"),
+      message: expect.stringContaining('HTTP 404'),
     });
     expect(stdout()).toBe('');
   });
@@ -144,8 +144,8 @@ describe('hyper integrations connections', () => {
 
     expect(stdout()).toBe(
       [
-        'NAME    CONNECTED  ENABLED  BACKEND',
-        'github  yes        yes      nango',
+        'NAME    CONNECTED  ENABLED  BACKEND              CONNECTION_IDS',
+        'github  yes        yes      nango                conn_1',
         'slack   no                  relay (unavailable)',
       ].join('\n') + '\n',
     );
@@ -311,7 +311,7 @@ describe('hyper integrations enable/disable/unset --agent', () => {
 
     await integrations.run(makeCtx(client, 'table'), ['enable', 'github']);
 
-    expect(setConnectionEnabled).toHaveBeenCalledWith('github', true);
+    expect(setConnectionEnabled).toHaveBeenCalledWith('github', true, undefined);
     expect(updateAgent).not.toHaveBeenCalled();
     expect(stdout()).toBe('enabled github\n');
   });

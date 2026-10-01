@@ -191,6 +191,7 @@ export {
   type ConnectionInfo,
   type ConnectSession,
   type TokenResponse,
+  type CredentialsResponse,
   type ProxyOptions,
 } from './integrations.js';
 
@@ -453,8 +454,20 @@ export {
   type AcpSessionRecord,
 } from './sessions.js';
 export {
+  MemoryAPI,
+  type MemorySummary,
+  type MemoryChunk,
+  type MemorySearchResult,
+  type MemorySearchResponse,
+  type MemoryChunkPage,
+  type MemoryTailMessage,
+  type MemoryTail,
+  type MemoryRebuildResponse,
+  type MemorySearchOptions,
+  type MemoryChunksOptions,
+} from './memory.js';
+export {
   AcpTurnDriver,
-  ACP_BUNDLE_FRAMING_HEADER,
   type AcpTurnBundle,
   type AcpTurnDriverOptions,
   type AcpTurnDriverState,
@@ -541,4 +554,3 @@ export {
   GradioJob,
   type GradioJobOptions,
 } from './job/gradio.js';
-

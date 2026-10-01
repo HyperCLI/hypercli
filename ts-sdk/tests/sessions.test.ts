@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
 import { SessionsAPI } from '../src/sessions.js';
 
 /**
@@ -52,6 +53,63 @@ const messageRow = {
   delivered_at: '2026-09-26T08:30:05+00:00',
   completed_at: '2026-09-26T08:30:07+00:00',
 };
+
+describe('session detail HTTP contract', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([null, 'slack', 'future-client'])('hydrates all metadata with source %s using caller auth', async (source) => {
+    const row = { ...sessionRow, source };
+    const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.endsWith('/sessions') ? { items: [row], has_more: false } : row,
+    ), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const client = new HyperCLI({ apiKey: 'caller-key', apiUrl: 'https://example.com' });
+
+    const detail: AcpSessionRecord = await client.sessions.getSession(SESSION_ID);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`https://example.com/agents/sessions/${SESSION_ID}`, {
+      method: 'GET',
+      headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/json' },
+      body: undefined,
+      signal: expect.any(AbortSignal),
+    });
+    expect(detail).toEqual({
+      id: SESSION_ID, source,
+      summaryText: sessionRow.summary_text, summaryKeywords: sessionRow.summary_keywords,
+      createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at,
+      participants: [
+        { kind: 'agent', participantId: AGENT_ID, internalSessionId: 'claude-session-9f2e', cursorPos: 14 },
+        { kind: 'user', participantId: USER_ID, internalSessionId: null, cursorPos: 14 },
+      ],
+    });
+    expect((await client.sessions.listSessions()).items[0]).toEqual(detail);
+  });
+
+  it('encodes the supplied platform ID without resolving runtime IDs and preserves null metadata', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      id: SESSION_ID, source: null, summary_text: null, summary_keywords: null,
+      created_at: sessionRow.created_at, updated_at: sessionRow.updated_at, participants: [],
+    })));
+    vi.stubGlobal('fetch', fetch);
+    const client = new HyperCLI({ apiKey: 'caller-key', apiUrl: 'https://example.com' });
+    const detail = await client.sessions.getSession('platform/odd id?#%');
+    expect(fetch.mock.calls[0][0]).toBe('https://example.com/agents/sessions/platform%2Fodd%20id%3F%23%25');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(detail).toEqual({
+      id: SESSION_ID, source: null, summaryText: null, summaryKeywords: [],
+      createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at, participants: [],
+    });
+  });
+
+  it.each([401, 403, 404, 422])('propagates HTTP %s without ACP fallback', async (status) => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ detail: 'Denied or invalid session' }), { status }));
+    vi.stubGlobal('fetch', fetch);
+    const client = new HyperCLI({ apiKey: 'caller-key', apiUrl: 'https://example.com' });
+    const result = client.sessions.getSession(SESSION_ID);
+    await expect(result).rejects.toBeInstanceOf(APIError);
+    await expect(result).rejects.toMatchObject({ statusCode: status, message: expect.stringContaining('Denied or invalid session') });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('SessionsAPI (§15)', () => {
   it.each([undefined, null, 'slack', 'future-client'])('decodes nullable open-ended source %s', async (source) => {

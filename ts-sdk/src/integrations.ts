@@ -35,6 +35,7 @@ export interface Provider {
   categories: string[] | null;
   docsUrl: string | null;
   description: string | null;
+  connectFlow?: string;
 }
 
 export interface ConnectionInfo {
@@ -48,6 +49,7 @@ export interface ConnectionEntry extends Provider {
   connected: boolean;
   backendAvailable: boolean;
   connection: ConnectionInfo | null;
+  connections?: ConnectionInfo[];
 }
 
 export interface ConnectSession {
@@ -64,10 +66,19 @@ export interface TokenResponse {
   stack: string;
 }
 
+export interface CredentialsResponse {
+  provider: string;
+  connectionId: string;
+  credentials: Record<string, unknown>;
+  stack: string;
+}
+
 export interface ProxyOptions {
   method?: string;
   body?: any;
   query?: Record<string, string | number | Array<string | number>>;
+  connectionId?: string;
+  headers?: Record<string, string>;
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -86,6 +97,7 @@ function providerFromDict(data: any): Provider {
     categories: Array.isArray(data?.categories) ? data.categories.map(String) : null,
     docsUrl: stringOrNull(data?.docs_url ?? data?.docsUrl),
     description: stringOrNull(data?.description),
+    connectFlow: data?.connect_flow,
   };
 }
 
@@ -104,6 +116,7 @@ function connectionEntryFromDict(name: string, data: any): ConnectionEntry {
     connected: Boolean(data?.connected),
     backendAvailable: data?.backend_available !== undefined ? Boolean(data.backend_available) : true,
     connection: data?.connection ? connectionInfoFromDict(data.connection) : null,
+    connections: Array.isArray(data?.connections) ? data.connections.map(connectionInfoFromDict) : undefined,
   };
 }
 
@@ -135,7 +148,7 @@ async function handleResponse<T = any>(response: Response, method?: string): Pro
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(`integrations: non-JSON response body from ${method ?? 'GET'} ${response.url} (status ${response.status})`);
+    return text as T;
   }
 }
 
@@ -163,7 +176,7 @@ export class IntegrationsAPI {
     }
     this.apiKey = apiKey;
     this.apiBase = (options.apiBase || deriveIntegrationsApiBase(options.agentsApiBase)).replace(/\/$/, '');
-    this.timeout = options.timeout ?? 30000;
+    this.timeout = options.timeout ?? 90000;
   }
 
   private headers(): Record<string, string> {
@@ -178,11 +191,12 @@ export class IntegrationsAPI {
     path: string,
     body?: any,
     query?: Record<string, string | number | Array<string | number>>,
+    extraHeaders?: Record<string, string>,
   ): Promise<T> {
     const response = await requestWithRetry({
       method,
       url: `${this.apiBase}${path}`,
-      headers: this.headers(),
+      headers: { ...this.headers(), ...extraHeaders },
       body,
       params: query,
       retries: method === 'GET' ? 3 : 1,
@@ -206,8 +220,11 @@ export class IntegrationsAPI {
   }
 
   /** POST /connections/{provider}/start — begin an OAuth connect session. */
-  async startConnection(provider: string): Promise<ConnectSession> {
-    const data = await this.request('POST', `/connections/${encodeRef(provider)}/start`);
+  async startConnection(provider: string, connectionId?: string, newConnection = false): Promise<ConnectSession> {
+    const query: Record<string, string> = {};
+    if (connectionId) query.connection_id = connectionId;
+    if (newConnection) query.new_connection = 'true';
+    const data = await this.request('POST', `/connections/${encodeRef(provider)}/start`, undefined, query);
     return connectSessionFromDict(data);
   }
 
@@ -215,8 +232,8 @@ export class IntegrationsAPI {
    * POST /connections/{provider}/complete — verify and enable the connection.
    * Throws APIError 409 while the OAuth flow is still unfinished (pollable).
    */
-  async completeConnection(provider: string): Promise<{ provider: string; connected: boolean; connection: ConnectionInfo | null; stack: string }> {
-    const data = await this.request<any>('POST', `/connections/${encodeRef(provider)}/complete`);
+  async completeConnection(provider: string, connectionId?: string): Promise<{ provider: string; connected: boolean; connection: ConnectionInfo | null; stack: string }> {
+    const data = await this.request<any>('POST', `/connections/${encodeRef(provider)}/complete`, undefined, connectionId ? { connection_id: connectionId } : undefined);
     return {
       provider: data?.provider || '',
       connected: Boolean(data?.connected),
@@ -226,19 +243,32 @@ export class IntegrationsAPI {
   }
 
   /** PATCH /connections/{provider} — enable/disable without disconnecting. */
-  async setConnectionEnabled(provider: string, enabled: boolean): Promise<{ provider: string; enabled: boolean }> {
-    return this.request('PATCH', `/connections/${encodeRef(provider)}`, { enabled });
+  async setConnectionEnabled(provider: string, enabled: boolean, connectionId?: string): Promise<{ provider: string; enabled: boolean }> {
+    return this.request('PATCH', `/connections/${encodeRef(provider)}`, { enabled }, connectionId ? { connection_id: connectionId } : undefined);
   }
 
   /** DELETE /connections/{provider}. */
-  async disconnect(provider: string): Promise<{ provider: string; deleted: boolean }> {
-    return this.request('DELETE', `/connections/${encodeRef(provider)}`);
+  async disconnect(provider: string, connectionId?: string): Promise<{ provider: string; deleted: boolean }> {
+    return this.request('DELETE', `/connections/${encodeRef(provider)}`, undefined, connectionId ? { connection_id: connectionId } : undefined);
   }
 
   /** POST /token/{provider} — mint a fresh access token for the connection. */
-  async mintToken(provider: string): Promise<TokenResponse> {
-    const data = await this.request('POST', `/token/${encodeRef(provider)}`);
+  async mintToken(provider: string, connectionId?: string): Promise<TokenResponse> {
+    const data = await this.request('POST', `/token/${encodeRef(provider)}`, undefined, connectionId ? { connection_id: connectionId } : undefined);
     return tokenResponseFromDict(data);
+  }
+
+  /** Native Nango credentials; can include long-lived secrets. Requires credentials mode. */
+  async credentials(provider: string, connectionId?: string): Promise<CredentialsResponse> {
+    const data = await this.request('POST', `/credentials/${encodeRef(provider)}`, undefined, connectionId ? { connection_id: connectionId } : undefined);
+    return { provider: data.provider, connectionId: data.connection_id, credentials: data.credentials, stack: data.stack };
+  }
+
+  /** Import native Nango credentials. Existing connection IDs must belong to the caller. */
+  async importConnection(provider: string, credentials: Record<string, unknown>, options: { connectionId?: string; connectionConfig?: Record<string, unknown> } = {}): Promise<ConnectionInfo> {
+    const data = await this.request('POST', `/connections/${encodeRef(provider)}/import`,
+      { credentials, connection_config: options.connectionConfig ?? {} }, options.connectionId ? { connection_id: options.connectionId } : undefined);
+    return connectionInfoFromDict(data.connection);
   }
 
   /**
@@ -247,6 +277,11 @@ export class IntegrationsAPI {
    */
   async proxy(provider: string, path: string, options: ProxyOptions = {}): Promise<any> {
     const method = (options.method || 'GET').toUpperCase();
-    return this.request(method, `/proxy/${encodeRef(provider)}/${encodePath(path)}`, options.body, options.query);
+    const headers: Record<string, string> = {};
+    if (options.connectionId) headers['X-HyperCLI-Connection-Id'] = options.connectionId;
+    for (const [key, value] of Object.entries(options.headers ?? {})) headers[`Nango-Proxy-${key}`] = value;
+    const [pathname, queryString] = path.split('?', 2);
+    const query = { ...Object.fromEntries(new URLSearchParams(queryString)), ...options.query };
+    return this.request(method, `/proxy/${encodeRef(provider)}/${encodePath(pathname)}`, options.body, query, headers);
   }
 }

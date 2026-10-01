@@ -12,6 +12,7 @@ import * as flow from './commands/flow.js';
 import * as integrations from './commands/integrations.js';
 import * as jobs from './commands/jobs.js';
 import * as me from './commands/me.js';
+import * as memory from './commands/memory.js';
 import * as routines from './commands/routines.js';
 import * as skills from './commands/skills.js';
 import * as voice from './commands/voice.js';
@@ -20,6 +21,7 @@ import type { CommandGroup } from './core/types.js';
 
 export const GROUPS: readonly CommandGroup[] = [
   me,
+  memory,
   configure,
   skills,
   agents,

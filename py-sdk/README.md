@@ -321,6 +321,25 @@ agent.delete_secret("SERVICE_TOKEN")
 These methods return `AgentLaunchValueMutation` metadata. Secret writes never
 echo the secret value in their response.
 
+## Platform session metadata
+
+```python
+from hypercli import HyperCLI, SessionRecord
+
+client = HyperCLI()
+# Platform ID from /ws/acp session/new or deployments.list_sessions(), not a leg ID.
+session: SessionRecord = client.deployments.get_session(platform_session_id)
+print(session.source, session.summary_text, session.participants)
+```
+
+`get_session()` calls `GET /agents/sessions/{id}` using the existing caller
+credentials and the same `SessionRecord` decoder as `list_sessions()`. Nullable
+source values are forward-compatible strings; the title is `summary_text`.
+Timestamps and participant dictionaries retain the existing catalog shape.
+Reads work offline without runtime connections or receipt advancement. HTTP
+errors propagate as `APIError`: 404 unknown session, 403 outside participation
+scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occurs.
+
 ## ACP Client (coding agent bridge)
 
 `hypercli.acp.ACPClient` is a minimal async client for the ACP bridge hosted in

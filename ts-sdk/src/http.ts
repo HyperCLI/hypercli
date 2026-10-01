@@ -196,11 +196,13 @@ export async function responseAPIError(
 ): Promise<APIError> {
   const fallback = response.statusText || 'Request failed';
   const url = response.url || requestUrl || undefined;
+  const retryAfter = response.headers.get('retry-after')?.trim();
+  const retryAfterSeconds = retryAfter !== undefined && /^\d+$/.test(retryAfter) ? Number(retryAfter) : undefined;
   let text: string;
   try {
     text = await response.text();
   } catch {
-    return new APIError(response.status, fallback, method, url, '');
+    return new APIError(response.status, fallback, method, url, '', retryAfterSeconds);
   }
   let detail = text || fallback;
   if (text) {
@@ -215,7 +217,7 @@ export async function responseAPIError(
       // Plain-text error bodies are valid API responses.
     }
   }
-  return new APIError(response.status, detail, method, url, text);
+  return new APIError(response.status, detail, method, url, text, retryAfterSeconds);
 }
 
 /**
