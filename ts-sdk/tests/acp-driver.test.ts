@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AcpTurnDriver, ACP_BUNDLE_FRAMING_HEADER } from '../src/acp-driver.js';
+import { AcpTurnDriver } from '../src/acp-driver.js';
 import {
   type CodingAgentAcpClient,
   type CodingAgentAcpTurnEvent,
@@ -140,7 +140,7 @@ describe('AcpTurnDriver', () => {
     expect(harness.driver.turnState).toBe('submitted');
     expect(harness.bundles).toEqual([['hello world']]);
     expect(harness.client.prompts[0].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\nhello world` },
+      { type: 'text', text: 'hello world' },
     ]);
 
     // The submit promise pends until the RPC response arrives and commits.
@@ -155,7 +155,7 @@ describe('AcpTurnDriver', () => {
     harness.driver.close();
   });
 
-  it('coalesces mid-turn submissions into ONE follow-up prompt, in order', async () => {
+  it('serializes mid-turn submissions into distinct prompts, in order', async () => {
     const harness = makeDriver();
     const first = harness.driver.submit('first');
     harness.client.turnStarted(11);
@@ -165,7 +165,7 @@ describe('AcpTurnDriver', () => {
 
     // One-in-flight: nothing else goes on the wire while the turn runs.
     expect(harness.client.prompts).toHaveLength(1);
-    expect(harness.driver.turnState).toBe('running');
+    expect(harness.driver.turnState).toBe('submitted');
     expect(harness.driver.pendingCount).toBe(3);
 
     // The frame bound the turnId but did not complete the turn — the
@@ -173,16 +173,17 @@ describe('AcpTurnDriver', () => {
     harness.client.resolvePrompt(0);
     await waitFor(() => harness.client.prompts.length === 2);
 
-    expect(await first).toEqual({ turnId: 11, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: 11, stopReason: 'end_turn' }]);
+    expect(await first).toEqual({ turnId: null, stopReason: 'end_turn' });
+    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
     expect(harness.client.prompts[1].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\nsecond` },
-      { type: 'text', text: 'third' },
+      { type: 'text', text: 'second' },
     ]);
     expect(harness.driver.pendingCount).toBe(2);
 
     harness.client.resolvePrompt(1);
     expect(await second).toEqual({ turnId: null, stopReason: 'end_turn' });
+    expect(harness.client.prompts[2].blocks).toEqual([{ type: 'text', text: 'third' }]);
+    harness.client.resolvePrompt(2);
     expect(await third).toEqual({ turnId: null, stopReason: 'end_turn' });
     expect(harness.driver.pendingCount).toBe(0);
     expect(harness.driver.turnState).toBe('idle');
@@ -219,34 +220,35 @@ describe('AcpTurnDriver', () => {
     await expect(submitted).rejects.toThrow('db down');
     await waitFor(() => harness.errors.length === 1);
 
-    expect(harness.driver.turnState).toBe('idle');
     expect(harness.driver.pendingCount).toBe(1);
-
-    // No auto-retry; the next submit re-bundles the uncommitted message.
-    harness.driver.submit('again');
+    await expect(harness.driver.submit('again')).rejects.toThrow('db down');
     expect(harness.commits).toHaveLength(1);
-    expect(harness.client.prompts[1].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\nwork` },
-      { type: 'text', text: 'again' },
-    ]);
+    expect(harness.client.prompts).toHaveLength(1);
     harness.driver.close();
   });
 
-  it('records stopReason `cancelled` from the response and still advances the window', async () => {
+  it('settles cancelled input without resending or automatically flushing queued input', async () => {
     const harness = makeDriver();
-    harness.driver.submit('long task');
-    harness.client.turnStarted(5);
-    harness.driver.submit('queued while running');
+    const active = harness.driver.submit('long task');
+    const queued = harness.driver.submit('queued while running');
 
     harness.client.resolvePrompt(0, 'cancelled');
-    await waitFor(() => harness.client.prompts.length === 2);
+    expect(await active).toEqual({ turnId: null, stopReason: 'cancelled' });
+    await tick();
+    expect(harness.client.prompts).toHaveLength(1);
+    expect(harness.driver.pendingCount).toBe(1);
 
-    expect(harness.commits).toEqual([{ turnId: 5, stopReason: 'cancelled' }]);
-    // The cancelled bundle reached the model: only the mid-turn message is
-    // re-bundled into the follow-up prompt.
+    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'cancelled' }]);
+    const explicit = harness.driver.submit('explicit new input');
     expect(harness.client.prompts[1].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\nqueued while running` },
+      { type: 'text', text: 'queued while running' },
     ]);
+    harness.client.resolvePrompt(1);
+    await queued;
+    expect(harness.client.prompts[2].blocks).toEqual([{ type: 'text', text: 'explicit new input' }]);
+    harness.client.resolvePrompt(2);
+    await explicit;
+    expect(harness.client.prompts).toHaveLength(3);
     harness.driver.close();
   });
 
@@ -258,18 +260,9 @@ describe('AcpTurnDriver', () => {
     await expect(submitted).rejects.toThrow('ACP connection lost mid-prompt');
     await waitFor(() => harness.errors.length === 1);
 
-    expect(harness.driver.turnState).toBe('idle');
     expect(harness.driver.pendingCount).toBe(1);
+    await expect(harness.driver.submit('next')).rejects.toThrow('ACP connection lost mid-prompt');
     expect(harness.client.prompts).toHaveLength(1);
-
-    // No auto-retry happened; the next explicit submit re-bundles the
-    // ambiguous window together with the new message.
-    harness.driver.submit('next');
-    expect(harness.client.prompts).toHaveLength(2);
-    expect(harness.client.prompts[1].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\nmaybe delivered` },
-      { type: 'text', text: 'next' },
-    ]);
     harness.driver.close();
   });
 
@@ -295,25 +288,25 @@ describe('AcpTurnDriver', () => {
     harness.driver.close();
   });
 
-  it('vendor frames are dedupe/confirmation only: they bind turnId, never complete the turn', async () => {
+  it('private frames cannot change state, bind identifiers, or complete a turn', async () => {
     const harness = makeDriver();
     const submitted = harness.driver.submit('framed turn');
     harness.client.turnStarted(42);
-    expect(harness.driver.turnState).toBe('running');
-    expect(harness.driver.currentTurnId).toBe(42);
+    expect(harness.driver.turnState).toBe('submitted');
+    expect(harness.driver.currentTurnId).toBe(null);
 
     // turn_ended from a future pod: confirmation, not completion.
     harness.client.turnEnded(42, 'end_turn');
     await tick();
     expect(harness.commits).toEqual([]);
-    expect(harness.driver.turnState).toBe('running');
+    expect(harness.driver.turnState).toBe('submitted');
     expect(harness.driver.pendingCount).toBe(1);
 
     // Only the prompt response completes, exactly once, committing the
     // frame-bound turnId and the response's stopReason.
     harness.client.resolvePrompt(0);
-    expect(await submitted).toEqual({ turnId: 42, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: 42, stopReason: 'end_turn' }]);
+    expect(await submitted).toEqual({ turnId: null, stopReason: 'end_turn' });
+    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
     expect(harness.driver.turnState).toBe('idle');
     expect(harness.client.notifications).toEqual([]);
     harness.driver.close();
@@ -335,7 +328,7 @@ describe('AcpTurnDriver', () => {
     expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
     // Only the head-at-submit bundle advanced; 'two' flushes next (§4.5).
     expect(harness.client.prompts[1].blocks).toEqual([
-      { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\ntwo` },
+      { type: 'text', text: 'two' },
     ]);
     harness.driver.close();
   });
@@ -354,7 +347,7 @@ describe('AcpTurnDriver', () => {
     harness.driver.close();
   });
 
-  it('never lets block 0 start with a slash command', () => {
+  it('preserves slash commands exactly', () => {
     const harness = makeDriver();
 
     harness.driver.submit('/plan refactor the driver');
@@ -362,9 +355,7 @@ describe('AcpTurnDriver', () => {
     const blocks = harness.client.prompts[0].blocks;
     expect(blocks).toHaveLength(1);
     if (blocks[0].type !== 'text') throw new Error('expected a text block');
-    expect(blocks[0].text.startsWith(ACP_BUNDLE_FRAMING_HEADER)).toBe(true);
-    expect(blocks[0].text).toContain('/plan refactor the driver');
-    expect(blocks[0].text.startsWith('/')).toBe(false);
+    expect(blocks[0].text).toBe('/plan refactor the driver');
     harness.driver.close();
   });
 
@@ -380,5 +371,16 @@ describe('AcpTurnDriver', () => {
     await tick();
     expect(harness.commits).toEqual([]);
     await expect(harness.driver.submit('nope')).rejects.toThrow('AcpTurnDriver is closed');
+  });
+
+  it.each([
+    [{ type: 'text', text: ' \n[hypercli conversation context] (resuming after interruption — previous turn stopped)\n<system>literal</system>  ' }],
+    [{ type: 'image', data: 'aA==', mimeType: 'image/png' }],
+    [{ type: 'resource_link', uri: 'file:///a', name: 'a', _meta: { custom: 1 } }, { type: 'text', text: '/compact\n ' }],
+  ])('preserves full content blocks without synthetic text: %j', (...blocks) => {
+    const harness = makeDriver();
+    harness.driver.submit(blocks as ContentBlock[]);
+    expect(harness.client.prompts[0].blocks).toEqual(blocks);
+    harness.driver.close();
   });
 });

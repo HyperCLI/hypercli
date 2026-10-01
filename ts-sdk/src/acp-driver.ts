@@ -1,57 +1,15 @@
 /**
- * Per-leg turn driver for centrally managed ACP sessions (sessions/README §4).
- *
- * One {@link AcpTurnDriver} instance drives one (agent, sessionId) leg over a
- * {@link CodingAgentAcpClient} (or a pooled lease). It owns three disciplines
- * the adapters must never be relied on for:
- *
- * - **Pending-window-is-the-queue**: `submit()` appends to the window; an idle
- *   leg flushes the whole window as ONE `session/prompt`. Turn state per leg:
- *   `idle → submitted (prompt RPC sent) → running (turn_started, when a pod
- *   emits it) → idle`.
- * - **One in-flight turn per leg**, enforced here — codex corrupts cancel
- *   routing on concurrent prompts, so the window never sends prompt N+1 before
- *   turn N is committed.
- * - **Commit-before-settlement**: a turn completes on the `session/prompt`
- *   RESPONSE (stopReason) — hyper-acp is a pure passthrough and emits no
- *   vendor frames, so the response is the only turn-end evidence the RPC
- *   owner needs. The window's half-cursor advances (bundled messages leave
- *   the window, waiting `submit()` promises resolve, the next bundle
- *   flushes) ONLY after the caller's durable `commit` hook resolves.
- *
- * Vendor frames (`_hypercli.dev/turn_started` / `_hypercli.dev/turn_ended`)
- * are CONFIRMATION-ONLY when a pod emits them: they bind the turnId (the
- * prompt's JSON-RPC request id) for commit, but never complete a turn. The
- * driver is fully functional with zero vendor frames; `turn_ended_ack` is
- * not part of the wire contract and is never sent.
- *
- * Error semantics mirror the py-sdk AmbiguousDelivery fence: a prompt send
- * failure leaves the window UNTOUCHED (bundled messages re-bundle on the next
- * `submit()`), surfaces the error, and never auto-retries. Caller-side
- * timeouts are not turn end: the driver keeps awaiting the real response,
- * so abandoning the `submit()` promise never abandons completion tracking.
- *
- * Protocol-version awareness: the driver's whole surface (`session/prompt`,
- * `session/cancel`, `session/update`, vendor turn frames) is identical in
- * ACP v1 and v2, so the fallback-completion discipline above is
- * version-agnostic by construction.
+ * Serializes original messages through CodingAgentAcpClient.prompt(), which
+ * waits for version-specific foreground completion. Commit precedes settlement.
+ * Cancelled completion pauses queued input until a new explicit submission;
+ * uncertain delivery or commit failure fences this driver without resending.
  */
 import {
   type CodingAgentAcpClient,
-  type CodingAgentAcpTurnEvent,
   type CodingAgentAcpTurnId,
   type ContentBlock,
 } from './acp.js';
 import type { AcpLease } from './acp-pool.js';
-
-/**
- * Framing header prepended to the first text block of every bundle so a
- * bundled transcript never STARTS with `/` — claude/codex/pi adapters parse
- * block 0 for slash commands with side effects (`/plan`, `/compact`,
- * `/clear`) and a window whose first message is a slash command would
- * misfire (sessions/README §4.2 step 4).
- */
-export const ACP_BUNDLE_FRAMING_HEADER = '[hypercli conversation context]';
 
 export type AcpTurnDriverState = 'idle' | 'submitted' | 'running';
 
@@ -63,7 +21,7 @@ export interface AcpTurnOutcome {
    * current hyper-acp) complete with `null`.
    */
   turnId: CodingAgentAcpTurnId | null;
-  stopReason: string;
+  stopReason: string | null;
 }
 
 export interface AcpTurnBundle {
@@ -84,7 +42,7 @@ export interface AcpTurnDriverOptions {
    * one (otherwise `null` — see {@link AcpTurnOutcome.turnId}); cancelled
    * turns commit normally — their bundled messages reached the model.
    */
-  commit: (turnId: CodingAgentAcpTurnId | null, stopReason: string) => Promise<void>;
+  commit: (turnId: CodingAgentAcpTurnId | null, stopReason: string | null) => Promise<void>;
   /** Fired once per flush with the bundle going on the wire. */
   onBundleOpen?: (bundle: AcpTurnBundle) => void;
   /**
@@ -103,7 +61,7 @@ interface TurnWaiter {
 }
 
 interface PendingMessage {
-  text: string;
+  blocks: ContentBlock[];
   waiter: TurnWaiter;
 }
 
@@ -135,11 +93,11 @@ export class AcpTurnDriver {
   private readonly client: CodingAgentAcpClient;
   private readonly leaseRelease: (() => void) | null = null;
   private readonly options: AcpTurnDriverOptions;
-  private readonly unsubscribe: () => void;
   private readonly window: PendingMessage[] = [];
   private state: AcpTurnDriverState = 'idle';
   private inFlight: InFlightTurn | null = null;
   private closed = false;
+  private failure: Error | null = null;
 
   constructor(source: CodingAgentAcpClient | AcpLease, options: AcpTurnDriverOptions) {
     // Duck-typed: an AcpLease carries `client` + `release`, the bare client
@@ -152,7 +110,6 @@ export class AcpTurnDriver {
       this.client = source as CodingAgentAcpClient;
     }
     this.options = options;
-    this.unsubscribe = this.client.onTurnEvent((event) => this.handleTurnEvent(event));
   }
 
   get sessionId(): string {
@@ -174,24 +131,16 @@ export class AcpTurnDriver {
     return this.window.length;
   }
 
-  /**
-   * Append a message to the pending window. An idle leg flushes the whole
-   * window as one bundle immediately; a busy leg picks it up as a single
-   * follow-up bundle when the current turn commits.
-   *
-   * The returned promise resolves when the turn that first bundles this
-   * message commits; it rejects when that attempt's send or commit fails
-   * (the message stays queued and rides the next bundle's attempt). Callers
-   * may always walk away — a caller-side timeout on this promise is NOT turn
-   * end, the driver keeps awaiting the real response and settles normally.
-   */
-  submit(text: string): Promise<AcpTurnOutcome> {
+  /** Queue one original message; a new explicit submission resumes paused input. */
+  submit(content: string | ContentBlock[]): Promise<AcpTurnOutcome> {
     if (this.closed) return Promise.reject(new Error('AcpTurnDriver is closed'));
-    if (text.length === 0) {
-      return Promise.reject(new Error('AcpTurnDriver.submit() expects a non-empty text message'));
+    if (this.failure) return Promise.reject(this.failure);
+    const blocks: ContentBlock[] = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
+    if (blocks.length === 0) {
+      return Promise.reject(new Error('AcpTurnDriver.submit() expects a non-empty content-block array'));
     }
     const waiter = newTurnWaiter();
-    this.window.push({ text, waiter });
+    this.window.push({ blocks: structuredClone(blocks), waiter });
     this.flush();
     return waiter.promise;
   }
@@ -206,7 +155,6 @@ export class AcpTurnDriver {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.unsubscribe();
     // Every in-flight bundle entry is still in the window (entries leave only
     // on commit), so rejecting the whole window settles every live waiter.
     const error = new Error('AcpTurnDriver is closed');
@@ -217,11 +165,10 @@ export class AcpTurnDriver {
   }
 
   private flush(): void {
-    if (this.closed || this.state !== 'idle' || this.window.length === 0) return;
-    const entries = [...this.window];
-    const texts = entries.map((entry) => entry.text);
-    const blocks: ContentBlock[] = texts.map((text) => ({ type: 'text', text }));
-    blocks[0] = { type: 'text', text: `${ACP_BUNDLE_FRAMING_HEADER}\n${texts[0]}` };
+    if (this.closed || this.state !== 'idle' || this.window.length === 0 || this.inFlight !== null) return;
+    const entries = this.window.slice(0, 1);
+    const blocks = structuredClone(entries[0].blocks);
+    const texts = blocks.filter((block) => block.type === 'text').map((block) => block.text);
     const flight: InFlightTurn = { entries, turnId: null };
     this.state = 'submitted';
     this.inFlight = flight;
@@ -241,44 +188,31 @@ export class AcpTurnDriver {
     );
   }
 
-  /**
-   * The prompt response IS turn end (pure-passthrough hyper-acp emits no
-   * frames). It is awaited internally for as long as it takes — a caller who
-   * timed out its `submit()` promise changes nothing here.
-   */
-  private onPromptResponse(flight: InFlightTurn, response: { stopReason: string }): void {
+  /** The client's prompt helper waits for completion, not just v2 acceptance. */
+  private onPromptResponse(flight: InFlightTurn, response: { stopReason?: string | null }): void {
     if (this.closed || this.inFlight !== flight) return;
-    void this.completeTurn(flight, response.stopReason);
+    void this.completeTurn(flight, response.stopReason ?? null);
   }
 
-  /**
-   * AmbiguousDelivery discipline: the prompt may or may not have landed, so
-   * the window is NOT advanced (its messages re-bundle on the next submit),
-   * the turn's waiters reject, the leg returns to idle with the error
-   * surfaced, and nothing retries.
-   */
   private onPromptFailed(flight: InFlightTurn, error: unknown): void {
     if (this.closed || this.inFlight !== flight) return;
-    this.inFlight = null;
-    this.state = 'idle';
+    // Delivery is uncertain. Retain the flight as a fence until the caller
+    // reconciles/closes this driver; later submissions must not resend it.
     const failure = toError(error);
-    for (const entry of flight.entries) entry.waiter.reject(failure);
+    this.failure = failure;
+    for (const entry of this.window) entry.waiter.reject(failure);
     this.emitError(failure);
   }
 
-  private async completeTurn(flight: InFlightTurn, stopReason: string): Promise<void> {
+  private async completeTurn(flight: InFlightTurn, stopReason: string | null): Promise<void> {
     try {
       await this.options.commit(flight.turnId, stopReason);
     } catch (error) {
-      // The turn ran but its result is not durable. No pod-side retention or
-      // re-delivery exists (hyper-acp is a pure passthrough), so settle the
-      // leg back to idle with the window intact: waiters reject and the
-      // messages re-bundle on the next submit. The caller owns any retry.
       if (this.closed || this.inFlight !== flight) return;
-      this.inFlight = null;
-      this.state = 'idle';
+      // The runtime completed but persistence failed. Never resend its input.
       const failure = toError(error);
-      for (const entry of flight.entries) entry.waiter.reject(failure);
+      this.failure = failure;
+      for (const entry of this.window) entry.waiter.reject(failure);
       this.emitError(failure);
       return;
     }
@@ -288,25 +222,7 @@ export class AcpTurnDriver {
     this.window.splice(0, flight.entries.length);
     const outcome: AcpTurnOutcome = { turnId: flight.turnId, stopReason };
     for (const entry of flight.entries) entry.waiter.resolve(outcome);
-    // Messages accumulated mid-turn belong to the NEXT bundle (§4.5), flushed
-    // now that the leg is idle.
-    this.flush();
-  }
-
-  /**
-   * Vendor frames are confirmation/dedupe only (forward-compat with pods
-   * that may emit them): they bind the turnId so `commit` can carry the
-   * prompt's request id, but they never complete the turn — the
-   * `session/prompt` response does.
-   */
-  private handleTurnEvent(event: CodingAgentAcpTurnEvent): void {
-    if (this.closed || event.sessionId !== this.options.sessionId) return;
-    const flight = this.inFlight;
-    if (flight === null || this.state === 'idle') return;
-    // Exact-one-in-flight: an unbound turn adopts the frame's id; a bound
-    // turn keeps it (a mismatched frame is a stale re-delivery, ignored).
-    if (flight.turnId === null) flight.turnId = event.turnId;
-    if (event.kind === 'turn_started') this.state = 'running';
+    if (stopReason !== 'cancelled') this.flush();
   }
 
   private emitError(error: Error): void {

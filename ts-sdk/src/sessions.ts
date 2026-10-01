@@ -70,6 +70,7 @@ export interface AcpSessionPage<T> {
 }
 
 export interface AcpSessionListOptions {
+  agentId?: string;
   cursor?: string | null;
   limit?: number;
 }
@@ -148,9 +149,21 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
 export class SessionsAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get'>) {}
 
+  /**
+   * Stored metadata for one platform session ID (not an agent/runtime session ID).
+   * Uses the caller's existing participation scope; no runtime connection or read receipt.
+   */
+  async getSession(platformSessionId: string): Promise<AcpSessionRecord> {
+    const payload = await this.http.get<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(platformSessionId)}`,
+    );
+    return sessionFromWire(payload);
+  }
+
   /** Session catalog page, newest activity first (`(updated_at, id)` keyset). */
   async listSessions(options: AcpSessionListOptions = {}): Promise<AcpSessionPage<AcpSessionRecord>> {
     const payload = await this.http.get<Record<string, unknown>>('/sessions', {
+      ...(options.agentId ? { agent_id: options.agentId } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });

@@ -39,6 +39,47 @@ describe('deriveIntegrationsApiBase', () => {
 });
 
 describe('IntegrationsAPI', () => {
+  it('uses optional connection selectors without stealing provider query parameters', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new IntegrationsAPI('key', { apiBase: 'http://integrations.test/integrations' });
+    await api.proxy('notion', '/v1/search?connection_id=provider-param', {
+      connectionId: 'owned-connection', headers: { 'Notion-Version': '2022-06-28' },
+    });
+    expect(fetchMock.mock.calls[0][0]).toContain('?connection_id=provider-param');
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      Authorization: 'Bearer key', 'X-HyperCLI-Connection-Id': 'owned-connection', 'Nango-Proxy-Notion-Version': '2022-06-28',
+    });
+    await api.disconnect('notion', 'owned/connection');
+    expect(fetchMock.mock.calls[1][0]).toContain('/connections/notion?connection_id=owned%2Fconnection');
+  });
+
+  it('returns native multi-field credentials and imports without provider adapters', async () => {
+    const native = { type: 'OAUTH1', oauth_token: 'synthetic', oauth_token_secret: 'synthetic' };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ provider: 'fourth', connection_id: 'c1', credentials: native, stack: 'dev' }))
+      .mockResolvedValueOnce(jsonResponse({ connection: { connection_id: 'c2', enabled: true } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new IntegrationsAPI('key', { apiBase: 'http://integrations.test/integrations' });
+    expect((await api.credentials('fourth', 'c1')).credentials).toEqual(native);
+    expect(fetchMock.mock.calls[0][0]).toContain('/credentials/fourth?connection_id=c1');
+    expect((await api.importConnection('fourth', native, { connectionConfig: { tenant: 'example' } })).id).toBe('c2');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ credentials: native, connection_config: { tenant: 'example' } });
+  });
+
+  it('preserves multiple connections and non-JSON proxy responses', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ connections: { fourth: { connected: true, connection: null,
+        connections: [{ connection_id: 'c1', enabled: true }, { connection_id: 'c2', enabled: false }] } } }))
+      .mockResolvedValueOnce(new Response('plain text', { headers: { 'Content-Type': 'text/plain' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new IntegrationsAPI('key', { apiBase: 'http://integrations.test/integrations' });
+    const rows = await api.listConnections();
+    expect(rows[0].connection).toBeNull();
+    expect(rows[0].connections?.map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(await api.proxy('fourth', 'text')).toBe('plain text');
+  });
+
   it('requires an API key', () => {
     expect(() => new IntegrationsAPI('', { apiBase: 'http://x' })).toThrow('API key required');
   });

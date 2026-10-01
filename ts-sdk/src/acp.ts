@@ -8,16 +8,13 @@
  * `initialize` handshake, and exposes typed session helpers plus a raw
  * JSON-RPC escape hatch.
  *
- * Version negotiation follows the upstream ACP contract: `initialize` offers
- * the highest protocol version this client speaks (v2 by default, pinned via
- * {@link CodingAgentAcpConnectOptions.protocolVersion}) and includes BOTH the
- * v1 param shape (`clientCapabilities`/`clientInfo`) and the v2 shape
- * (`capabilities`/`info`) so a v1-only and a v2 agent can each decode the
- * handshake — the same normalization upstream's AgentProtocolRouter applies
- * when downgrading an offered v2 initialize. The agent answers with the
- * version it supports (spec: its latest if it doesn't support the offer);
- * the answered version is the negotiated version for the rest of the session
- * and is exposed as {@link CodingAgentAcpClient.negotiatedProtocolVersion}.
+ * The default frontend profile is schema-v2.0.0-alpha.5 using the actual
+ * upstream experimental/v2 SDK runtime. An explicit protocolVersion: 1 selects
+ * the separate stable runtime. A connection never parses one version through
+ * the other's handlers. The backend independently negotiates its runtime legs.
+ * submitPrompt returns the v2 inserted messageId; prompt is a convenience that
+ * additionally waits for the session's foreground idle transition. Neither
+ * helper retries input after uncertain delivery.
  * On v2 there is no `session/load` — reattach and history replay go through
  * `session/resume` with a `replayFrom` cursor instead.
  *
@@ -30,6 +27,7 @@
  */
 import NodeWebSocket from 'ws';
 import * as acp from '@agentclientprotocol/sdk';
+import * as acp2 from '@agentclientprotocol/sdk/experimental/v2';
 import type {
   InitializeResponse as AcpV2InitializeResponse,
   ReplayFrom as AcpReplayFrom,
@@ -46,6 +44,22 @@ export type { AcpReplayFrom };
 
 /** ACP major protocol versions this client can negotiate. */
 export type CodingAgentAcpProtocolVersion = 1 | 2;
+
+/** Observed foreground stop, not a per-message execution receipt. */
+export interface CodingAgentAcpPromptResult {
+  messageId?: string;
+  stopReason?: string | null;
+  _meta?: Record<string, unknown> | null;
+}
+
+interface ForegroundObservation {
+  running: boolean;
+  inputs: Set<string>;
+  messageId?: string;
+  idle?: CodingAgentAcpPromptResult;
+  resolve(result: CodingAgentAcpPromptResult): void;
+  reject(error: Error): void;
+}
 
 /**
  * Which backend socket `acpConnect` dials (sessions/README §14):
@@ -199,11 +213,9 @@ export interface CodingAgentAcpConnectOptions {
   /** Override the `clientInfo` sent with `initialize`. */
   clientInfo?: { name?: string; version?: string };
   /**
-   * Protocol version offered in `initialize`. Defaults to 2; the agent
-   * answers with the version it supports and that answer is the negotiated
-   * version for the session (see
-   * {@link CodingAgentAcpClient.negotiatedProtocolVersion}). Pin to 1 only to
-   * interop with a pre-negotiation runtime that rejects an unknown offer.
+   * Concrete frontend protocol profile. Defaults to v2 alpha.5. Explicitly
+   * choose 1 for a v1 endpoint; this client does not silently downgrade the
+   * frontend or mix handlers after initialize.
    */
   protocolVersion?: CodingAgentAcpProtocolVersion;
   /** MCP servers attached to every session created or replayed by this client. */
@@ -239,6 +251,8 @@ export interface CodingAgentAcpConnectOptions {
   onPermissionRequest?: (
     params: acp.RequestPermissionRequest,
   ) => acp.MaybePromise<acp.RequestPermissionResponse>;
+  /** Full standard v2 permission surface, including command and absent subjects. */
+  onV2PermissionRequest?: (params: acp2.RequestPermissionRequest) => acp2.MaybePromise<acp2.RequestPermissionResponse>;
   /** Opt-in `fs/read_text_file` handler; unhandled by default (method-not-found). */
   onReadTextFile?: (
     params: acp.ReadTextFileRequest,
@@ -272,6 +286,19 @@ interface Deferred {
   reject(error: Error): void;
 }
 
+// Version-neutral RPC plumbing. The concrete app below selects the actual
+// versioned SDK handlers; this interface does not turn v1 schemas into v2.
+interface WireContext {
+  request<T = unknown>(method: string, params?: unknown): Promise<T>;
+  notify(method: string, params?: unknown): Promise<void>;
+}
+interface WireConnection {
+  agent: WireContext;
+  signal: AbortSignal;
+  closed: Promise<unknown>;
+  close(error?: Error): void;
+}
+
 function trackSocketClose(socket: WebSocketLike, closeInfo: { code?: number; reason: string }): void {
   if (typeof socket.on === 'function') {
     socket.on('close', (...args: unknown[]) => {
@@ -302,7 +329,9 @@ export class CodingAgentAcpClient {
   private readonly clientVersion: string;
   private readonly cookieStore = new MemoryAcpCookieStore();
   private readonly offeredProtocolVersion: CodingAgentAcpProtocolVersion;
-  private connection: acp.ClientConnection | null = null;
+  private connection: WireConnection | null = null;
+  private readonly foreground = new Map<string, ForegroundObservation>();
+  private readonly foregroundStates = new Map<string, string>();
   private initializeResponseValue: acp.InitializeResponse | AcpV2InitializeResponse | null = null;
   private negotiatedVersionValue: CodingAgentAcpProtocolVersion | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
@@ -475,26 +504,23 @@ export class CodingAgentAcpClient {
     });
   }
 
-  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[]; systemPrompt?: string; title?: string } = {}): Promise<acp.NewSessionResponse> {
+  async newSession(options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.NewSessionResponse> {
+    if ('systemPrompt' in options || 'title' in options) {
+      throw new CodingAgentAcpUnavailableError('session/new', 'system instructions use native configuration; titles use platform REST');
+    }
     const context = this.requireContext();
     const cwd = options.cwd ?? this.cwd;
     const mcpServers = options.mcpServers ?? this.mcpServers;
-    const response = await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
+    const response = this.localSessionState(await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
       cwd,
-      mcpServers,
-      // Pass-through hyper-acp param: the pod host layers this last as
-      // <session-context> and routes it through the per-adapter channel.
-      systemPrompt: options.systemPrompt,
-      // Pass-through hyper-acp param: catalog title for the new session row.
-      // Omitted entirely when unset so existing callers keep their wire shape.
-      ...(options.title !== undefined ? { title: options.title } : {}),
-    });
+      mcpServers: this.wireMcpServers(mcpServers),
+    }));
     this.sessions.set(response.sessionId, {
       cwd,
       mcpServers,
       modes: response.modes ?? null,
       configOptions: response.configOptions ?? null,
-      title: options.title ?? null,
+      title: null,
     });
     return response;
   }
@@ -566,16 +592,16 @@ export class CodingAgentAcpClient {
     const params: Record<string, unknown> = {
       sessionId,
       cwd: previous?.cwd ?? this.cwd,
-      mcpServers: previous?.mcpServers ?? this.mcpServers,
+      mcpServers: this.wireMcpServers(previous?.mcpServers ?? this.mcpServers),
     };
     if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
     const requestResume = () => context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
     // A replaying resume streams history before its response resolves (the
     // same boundary problem as v1 session/load), so it gets an epoch bracket.
     const replaying = options.replayFrom !== undefined && options.replayFrom !== null;
-    const response = replaying
+    const response = this.localSessionState(replaying
       ? await this.performReplayBracket(sessionId, requestResume)
-      : await requestResume();
+      : await requestResume());
     this.sessions.set(sessionId, {
       cwd: previous?.cwd ?? this.cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
@@ -607,7 +633,7 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     this.requireSessionCapability('session/fork', 'fork');
     const previous = this.sessions.get(sessionId);
-    const response = await context.request(acp.methods.agent.session.fork, {
+    const response = await context.request<acp.ForkSessionResponse>(acp.methods.agent.session.fork, {
       sessionId,
       cwd: previous?.cwd ?? this.cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
@@ -632,13 +658,35 @@ export class CodingAgentAcpClient {
   async prompt(
     sessionId: string,
     prompt: string | acp.ContentBlock | acp.ContentBlock[],
-  ): Promise<acp.PromptResponse> {
+  ): Promise<CodingAgentAcpPromptResult> {
     const connection = this.requireConnection();
     const blocks: acp.ContentBlock[] = typeof prompt === 'string'
       ? [{ type: 'text', text: prompt }]
       : Array.isArray(prompt)
         ? prompt
         : [prompt];
+    if (this.negotiatedVersionValue === 2) {
+      if (this.foreground.has(sessionId) || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '')) {
+        throw new Error('Session foreground is active; use submitPrompt for concurrent admission');
+      }
+      let resolve!: (result: CodingAgentAcpPromptResult) => void;
+      let reject!: (error: Error) => void;
+      const completed = new Promise<CodingAgentAcpPromptResult>((res, rej) => { resolve = res; reject = rej; });
+      // Both lanes can arrive before acceptance; register first.
+      const pending: ForegroundObservation = { running: false, inputs: new Set<string>(), resolve, reject };
+      this.foreground.set(sessionId, pending);
+      void completed.catch(() => {});
+      try {
+        const acceptance = this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
+        return await Promise.race([completed, acceptance.then(async (accepted) => {
+          pending.messageId = accepted.messageId;
+          this.settleForeground(sessionId);
+          return completed;
+        })]);
+      } finally {
+        this.foreground.delete(sessionId);
+      }
+    }
     try {
       return await connection.agent.request<acp.PromptResponse>(acp.methods.agent.session.prompt, {
         sessionId,
@@ -655,6 +703,23 @@ export class CodingAgentAcpClient {
     }
   }
 
+  /** V2 insertion acknowledgement, not foreground completion. */
+  async submitPrompt(sessionId: string, prompt: acp.ContentBlock[]): Promise<acp2.PromptResponse> {
+    if (this.negotiatedVersionValue !== 2) throw new CodingAgentAcpUnavailableError('session/prompt', 'insertion acknowledgements require v2');
+    if (this.foreground.has(sessionId)) throw new Error('Cannot mix submitPrompt with an isolated prompt observation');
+    return this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt });
+  }
+
+  private settleForeground(sessionId: string): void {
+    const pending = this.foreground.get(sessionId);
+    if (!pending?.messageId) return;
+    if ([...pending.inputs].some((id) => id !== pending.messageId)) {
+      pending.reject(new Error('Concurrent admission prevents isolated foreground observation; use submitPrompt and session updates'));
+    } else if (pending.idle && pending.inputs.has(pending.messageId)) {
+      pending.resolve({ ...pending.idle, messageId: pending.messageId });
+    }
+  }
+
   async cancel(sessionId: string): Promise<void> {
     await this.requireContext().notify(acp.methods.agent.session.cancel, { sessionId });
   }
@@ -662,7 +727,13 @@ export class CodingAgentAcpClient {
   /** `session/set_mode`; ungated — agents may accept modes outside the tracked state. */
   async setMode(sessionId: string, modeId: string): Promise<void> {
     const context = this.requireContext();
-    await context.request(acp.methods.agent.session.setMode, { sessionId, modeId });
+    if (this.negotiatedVersionValue === 2) {
+      const option = this.sessions.get(sessionId)?.configOptions?.find((entry) => entry.category === 'mode');
+      if (!option) throw new CodingAgentAcpUnavailableError('session/set_config_option', 'no mode option advertised');
+      await this.setConfigOption(sessionId, option.id, modeId);
+    } else {
+      await context.request(acp.methods.agent.session.setMode, { sessionId, modeId });
+    }
     const tracked = this.sessions.get(sessionId);
     if (tracked?.modes) tracked.modes = { ...tracked.modes, currentModeId: modeId };
   }
@@ -678,10 +749,10 @@ export class CodingAgentAcpClient {
       typeof value === 'string'
         ? { sessionId, configId, value }
         : { sessionId, configId, value: value.value, type: value.type };
-    const response = await context.request<acp.SetSessionConfigOptionResponse>(
+    const response = this.localSessionState(await context.request<acp.SetSessionConfigOptionResponse>(
       acp.methods.agent.session.setConfigOption,
       payload,
-    );
+    ));
     const tracked = this.sessions.get(sessionId);
     if (tracked) tracked.configOptions = response.configOptions ?? tracked.configOptions;
     return response;
@@ -728,6 +799,8 @@ export class CodingAgentAcpClient {
   }
 
   close(): void {
+    for (const pending of this.foreground.values()) pending.reject(new CodingAgentAcpConnectionError('ACP connection closed; delivery is unresolved'));
+    this.foreground.clear();
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
@@ -757,7 +830,7 @@ export class CodingAgentAcpClient {
     }
     this.options.signal?.addEventListener('abort', this.onAbort, { once: true });
     let dialed: {
-      connection: acp.ClientConnection;
+      connection: WireConnection;
       initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
       negotiatedVersion: CodingAgentAcpProtocolVersion;
     };
@@ -782,14 +855,12 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * The `initialize` offer: the highest protocol version we speak (v2 unless
-   * pinned) plus BOTH capability shapes, so the params decode on either side
-   * — a v1 agent reads `clientCapabilities`/`clientInfo`, a v2 agent reads
-   * `capabilities`/`info`, and unknown keys are ignored by both. v2 has no
-   * `fs/*` or `terminal/*` client methods, so the v2 `capabilities` payload
-   * is the empty baseline; the v1 shape keeps advertising the fs handlers.
+   * Version-specific initialization; v2 has no client fs/terminal methods.
    */
-  private initializeParams(): acp.InitializeRequest {
+  private initializeParams(): acp.InitializeRequest | acp2.InitializeRequest {
+    if (this.offeredProtocolVersion === 2) return {
+      protocolVersion: 2, capabilities: {}, info: { name: this.clientName, version: this.clientVersion },
+    };
     return {
       protocolVersion: this.offeredProtocolVersion,
       clientCapabilities: {
@@ -800,9 +871,65 @@ export class CodingAgentAcpClient {
         terminal: false,
       },
       clientInfo: { name: this.clientName, version: this.clientVersion },
-      capabilities: {},
-      info: { name: this.clientName, version: this.clientVersion },
     } as acp.InitializeRequest;
+  }
+
+  private wireMcpServers(servers: acp.McpServer[]): unknown[] {
+    return servers.map((server) => this.negotiatedVersionValue === 2 && !('type' in server)
+      ? { ...server, type: 'stdio' } : server);
+  }
+
+  /** Local compatibility view only; configId remains unchanged on the wire. */
+  private localSessionState<T extends { configOptions?: acp.SessionConfigOption[] | null }>(response: T): T {
+    if (this.negotiatedVersionValue !== 2 || !response?.configOptions) return response;
+    return { ...response, configOptions: response.configOptions.map((option) => {
+      const raw = option as unknown as acp2.SessionConfigOption;
+      return { ...option, id: raw.configId };
+    }) };
+  }
+
+  private buildV2App(): acp2.ClientApp {
+    const app = acp2.client({ name: this.clientName });
+    app.onRequest('session/request_permission', async (context) => {
+      const request = context.params;
+      if (this.options.onV2PermissionRequest) return this.options.onV2PermissionRequest(request);
+      const handler = this.permissionHandler ?? this.options.onPermissionRequest;
+      if (!handler) return { outcome: { outcome: 'cancelled' as const } };
+      // Local compatibility view for existing UIs. The actual request and
+      // response remain v2, including command and subject-less approvals.
+      const subject = request.subject;
+      if (!request.options.every((option) => ['allow_once', 'allow_always', 'reject_once', 'reject_always'].includes(option.kind))) {
+        return { outcome: { outcome: 'cancelled' as const } };
+      }
+      return handler({ sessionId: request.sessionId, options: request.options as acp.PermissionOption[],
+        toolCall: subject?.type === 'tool_call' ? subject.toolCall as acp.ToolCallUpdate
+          : { toolCallId: '', title: request.title, rawInput: subject ?? undefined } });
+    });
+    app.onNotification('session/update', (context) => {
+      const notification = context.params;
+      const update = notification.update;
+      const pending = this.foreground.get(notification.sessionId);
+      if (pending && (update.sessionUpdate === 'user_message' || update.sessionUpdate === 'user_message_chunk') && typeof update.messageId === 'string') {
+        pending.inputs.add(update.messageId);
+      }
+      if (pending && update.sessionUpdate === 'notice' && update.severity === 'error') {
+        pending.reject(new Error(`ACP session error: ${update.title}: ${update.description ?? ''}`));
+      }
+      if (acp2.SessionUpdate.isStateUpdate(update)) {
+        this.foregroundStates.set(notification.sessionId, update.state);
+        if (pending && update.state === 'running') pending.running = true;
+        if (pending && update.state === 'idle' && pending.running) {
+          pending.idle = { ...(update.stopReason !== undefined ? { stopReason: update.stopReason as string | null } : {}),
+            ...(update._meta !== undefined ? { _meta: update._meta as Record<string, unknown> | null } : {}) };
+        }
+      }
+      this.settleForeground(notification.sessionId);
+      // Existing subscribers accept structurally open session updates. Do not
+      // rewrite v2 snapshots into append-only v1 chunks.
+      this.options.onUpdate?.(notification as unknown as acp.SessionNotification);
+      for (const listener of [...this.updateListeners]) listener(notification as unknown as acp.SessionNotification);
+    });
+    return app;
   }
 
   private buildApp(): acp.ClientApp {
@@ -872,7 +999,7 @@ export class CodingAgentAcpClient {
     return app;
   }
 
-  private dial(): { connection: acp.ClientConnection; closeInfo: { code?: number; reason: string } } {
+  private dial(): { connection: WireConnection; closeInfo: { code?: number; reason: string } } {
     const closeInfo: { code?: number; reason: string } = { reason: '' };
     const WebSocketImpl = (NodeWebSocket ?? globalThis.WebSocket) as unknown as WebSocketConstructor;
     const TrackedWebSocket = class {
@@ -892,7 +1019,9 @@ export class CodingAgentAcpClient {
       headers,
       cookieStore: this.cookieStore,
     });
-    const connection = this.buildApp().connect(stream);
+    const connection: WireConnection = this.offeredProtocolVersion === 2
+      ? this.buildV2App().connect(stream)
+      : this.buildApp().connect(stream);
     void connection.closed.then(() => this.onConnectionClosed(connection, closeInfo));
     return { connection, closeInfo };
   }
@@ -904,7 +1033,7 @@ export class CodingAgentAcpClient {
    * attempts consume backoff budget).
    */
   private async dialAndInitialize(): Promise<{
-    connection: acp.ClientConnection;
+    connection: WireConnection;
     initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
     negotiatedVersion: CodingAgentAcpProtocolVersion;
   }> {
@@ -916,12 +1045,12 @@ export class CodingAgentAcpClient {
     this.options.signal?.addEventListener('abort', abortDial, { once: true });
     if (this.options.signal?.aborted) abortDial();
     try {
-      const initializeResponse = await connection.agent.request(
+      const initializeResponse = await connection.agent.request<acp.InitializeResponse | AcpV2InitializeResponse>(
         acp.methods.agent.initialize,
         this.initializeParams(),
       );
       const answered = (initializeResponse as { protocolVersion?: unknown }).protocolVersion;
-      if (answered !== 1 && answered !== 2) {
+      if ((answered !== 1 && answered !== 2) || answered !== this.offeredProtocolVersion) {
         // Per the ACP version-negotiation contract the client closes a
         // connection whose answered version it does not support.
         connection.close(new CodingAgentAcpConnectionError(`unsupported ACP protocol version ${String(answered)}`));
@@ -948,12 +1077,14 @@ export class CodingAgentAcpClient {
   }
 
   private onConnectionClosed(
-    connection: acp.ClientConnection,
+    connection: WireConnection,
     closeInfo: { code?: number; reason: string },
   ): void {
     if (this.closedFlag || connection !== this.connection) return;
     this.connection = null;
     const code = closeInfo.code ?? 1006;
+    for (const pending of this.foreground.values()) pending.reject(new CodingAgentAcpConnectionError('Connection lost during foreground work; input is not retried', { code }));
+    this.foreground.clear();
     const reason = closeInfo.reason ?? '';
     this.lastCloseCode = code;
     if (ACP_TERMINAL_CLOSE_CODES.has(code)) {
@@ -994,7 +1125,7 @@ export class CodingAgentAcpClient {
   private async reconnect(): Promise<void> {
     if (this.closedFlag) return;
     const generation = ++this.generation;
-    let connection: acp.ClientConnection;
+    let connection: WireConnection;
     let initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
     let negotiatedVersion: CodingAgentAcpProtocolVersion;
     try {
@@ -1024,7 +1155,7 @@ export class CodingAgentAcpClient {
    * cannot be replayed is dropped with a soft
    * {@link CodingAgentAcpReplayGapError} and the connection stays alive.
    */
-  private async replaySessions(connection: acp.ClientConnection, generation: number): Promise<void> {
+  private async replaySessions(connection: WireConnection, generation: number): Promise<void> {
     const useV2Resume = this.negotiatedVersionValue === 2;
     const canReplay = useV2Resume ? this.v2SessionSurface() !== null : this.v1Capabilities().load;
     for (const [sessionId, tracked] of [...this.sessions]) {
@@ -1090,7 +1221,7 @@ export class CodingAgentAcpClient {
   }
 
   private performLoad(
-    context: acp.ClientContext,
+    context: WireContext,
     sessionId: string,
     cwd: string,
     mcpServers: acp.McpServer[],
@@ -1104,7 +1235,7 @@ export class CodingAgentAcpClient {
   }
 
   private performResumeReplay(
-    context: acp.ClientContext,
+    context: WireContext,
     sessionId: string,
     cwd: string,
     mcpServers: acp.McpServer[],
@@ -1113,7 +1244,7 @@ export class CodingAgentAcpClient {
       context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, {
         sessionId,
         cwd,
-        mcpServers,
+        mcpServers: this.wireMcpServers(mcpServers),
         replayFrom: { type: 'start' },
       }));
   }
@@ -1160,7 +1291,7 @@ export class CodingAgentAcpClient {
     this.options.onError?.(error);
   }
 
-  private requireConnection(): acp.ClientConnection {
+  private requireConnection(): WireConnection {
     const connection = this.connection;
     if (!connection || this.closedFlag) {
       throw (
@@ -1174,7 +1305,7 @@ export class CodingAgentAcpClient {
     return connection;
   }
 
-  private requireContext(): acp.ClientContext {
+  private requireContext(): WireContext {
     return this.requireConnection().agent;
   }
 

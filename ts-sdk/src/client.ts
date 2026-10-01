@@ -26,6 +26,7 @@ import { WorkspacesAPI } from './workspaces.js';
 import { RoutinesAPI } from './routines.js';
 import { RunnersAPI } from './runners.js';
 import { SessionsAPI } from './sessions.js';
+import { MemoryAPI } from './memory.js';
 import { IntegrationsAPI } from './integrations.js';
 
 function deriveAgentsApiBase(apiUrl: string, agentDev: boolean): string {
@@ -109,6 +110,7 @@ export class HyperCLI {
   public readonly runners: RunnersAPI;
   /** §15 session read surface (catalog + history); the `/ws/acp` proxy is the write path. */
   public readonly sessions: SessionsAPI;
+  public readonly memory: MemoryAPI;
   public readonly integrations: IntegrationsAPI;
   public readonly agent: HyperAgent;
   public readonly deployments: Deployments;
@@ -162,6 +164,7 @@ export class HyperCLI {
       timeout: options.timeout,
     });
     this.sessions = new SessionsAPI(this._agentsHttp);
+    this.memory = new MemoryAPI(this._agentsHttp);
     this.integrations = new IntegrationsAPI(this._apiKey, {
       agentsApiBase: resolvedAgentsApiBase,
       timeout: options.timeout,

@@ -41,7 +41,7 @@ import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
-from .sessions import SessionPage
+from .sessions import SessionPage, SessionRecord
 
 
 AGENTS_API_BASE = "https://api.hypercli.com/agents"
@@ -3919,6 +3919,16 @@ class Deployments:
     def acp_ws_url(self) -> str:
         """Client-facing ACP session proxy URL derived from the agents WS tunnel URL."""
         return agents_acp_proxy_ws_url(self._agents_ws_url)
+
+    def get_session(self, platform_session_id: str) -> SessionRecord:
+        """Read stored metadata by platform session ID, never a runtime/leg ID.
+
+        Uses the existing user/runtime-key participation scope. Does not connect
+        to the runtime, bind participants, or advance read receipts.
+        """
+        return SessionRecord.from_dict(
+            self._get(f"/sessions/{quote(platform_session_id, safe='')}")
+        )
 
     def list_sessions(
         self, *, agent_id: str | None = None, cursor: str | None = None, limit: int = 50,

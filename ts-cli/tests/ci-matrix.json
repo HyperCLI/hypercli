@@ -16,6 +16,18 @@
       "windows": false,
       "smokes": [{ "argv": ["--help"] }]
     },
+    "memory": {
+      "tests": ["memory"],
+      "windows": true,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["search", "--help"] },
+        { "argv": ["summary", "--help"] },
+        { "argv": ["chunks", "--help"] },
+        { "argv": ["tail", "--help"] },
+        { "argv": ["rebuild", "--help"] }
+      ]
+    },
     "configure": {
       "tests": [],
       "windows": false,
@@ -120,7 +132,7 @@
       ]
     },
     "integrations": {
-      "tests": ["integrations"],
+      "tests": ["integrations", "integrations-mcp", "integrations-contract"],
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
@@ -133,6 +145,8 @@
         { "argv": ["disable", "--help"] },
         { "argv": ["unset", "--help"] },
         { "argv": ["token", "--help"] },
+        { "argv": ["credentials", "--help"] },
+        { "argv": ["import", "--help"] },
         { "argv": ["call", "--help"] }
       ]
     },

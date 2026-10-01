@@ -77,7 +77,6 @@ export {
 } from './acp.js';
 export {
   AcpTurnDriver,
-  ACP_BUNDLE_FRAMING_HEADER,
   type AcpTurnBundle,
   type AcpTurnDriverOptions,
   type AcpTurnDriverState,
@@ -2884,12 +2883,21 @@ export class Agent {
     );
     url.searchParams.set('agent_id', this.id);
     url.searchParams.set('token', options.token ?? deployments.agentApiKey);
-    if (options.sessionId) url.searchParams.set('session_id', options.sessionId);
     const syncRoot = this.launchConfig?.sync_root;
-    return CodingAgentAcpClient.connect(
+    const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT) },
     );
+    if (options.sessionId) {
+      try {
+        if (client.negotiatedProtocolVersion === 2) await client.resumeSession(options.sessionId);
+        else await client.loadSession(options.sessionId);
+      } catch (error) {
+        client.close();
+        throw error;
+      }
+    }
+    return client;
   }
 
   private acpPoolValue: CodingAgentAcpPool | null = null;

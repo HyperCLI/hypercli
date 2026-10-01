@@ -50,6 +50,7 @@ from .workspaces import (
     WorkspacesAPI,
 )
 from .routines import Routine, RoutinesAPI
+from .sessions import SessionPage, SessionRecord
 from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
 from .files import File
@@ -157,6 +158,8 @@ from .acp import (
 __version__ = "2026.6.26"
 __all__ = [
     "HyperCLI",
+    "SessionPage",
+    "SessionRecord",
     "configure",
     "get_api_key",
     "get_agent_api_key",

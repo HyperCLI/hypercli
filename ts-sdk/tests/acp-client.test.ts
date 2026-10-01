@@ -13,7 +13,7 @@ import {
   type CodingAgentAcpReplayEvent,
 } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
-import { ACP_BUNDLE_FRAMING_HEADER, AcpTurnDriver } from '../src/acp-driver.js';
+import { AcpTurnDriver } from '../src/acp-driver.js';
 
 const AGENT_ID = 'c0ffee00-0000-4000-8000-000000000001';
 
@@ -142,6 +142,13 @@ class FakeAcpPeer {
   }
 
   finishPrompt(promptFrame: WireFrame, stopReason: string): void {
+    if (this.server.protocolVersion === 2) {
+      const sessionId = promptFrame.params?.sessionId;
+      this.result(promptFrame, { messageId: `accepted-${promptFrame.id}` });
+      this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'running' } });
+      this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
+      return;
+    }
     this.result(promptFrame, { stopReason });
   }
 
@@ -252,6 +259,10 @@ function acpAgent(bridge: FakeAcpBridge): Agent {
     runtime: 'opencode',
   });
   agent._deployments = deployments;
+  // These legacy tests deliberately exercise each concrete protocol profile.
+  // Default frontend-v2 behavior is exercised against the real SDK in acp-v2.
+  const connect = agent.acpConnect.bind(agent);
+  agent.acpConnect = (options = {}) => connect({ protocolVersion: bridge.protocolVersion, ...options });
   return agent;
 }
 
@@ -311,14 +322,12 @@ describe('Agent.acpConnect', () => {
     // v2 is offered by default with both capability shapes present so v1-only
     // and v2 agents can each decode the handshake.
     expect(init[0].params).toMatchObject({
-      protocolVersion: 2,
+      protocolVersion: 1,
       clientInfo: { name: 'hypercli-ts-sdk' },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
-      info: { name: 'hypercli-ts-sdk' },
-      capabilities: {},
     });
     // The v1-only fake answered 1, so the session negotiates down.
     expect(client.negotiatedProtocolVersion).toBe(1);
@@ -371,18 +380,15 @@ describe('Agent.acpConnect', () => {
     });
   });
 
-  it('passes newSession systemPrompt through to session/new params', async () => {
+  it('rejects nonstandard session/new instructions instead of sending them', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect());
 
-    await client.newSession({ cwd: '/home/node', systemPrompt: 'client session context' });
-    expect(bridge.currentPeer.framesFor('session/new')[0].params).toMatchObject({
-      cwd: '/home/node',
-      systemPrompt: 'client session context',
-    });
+    // @ts-expect-error Intentionally exercise a legacy JavaScript caller.
+    await expect(client.newSession({ cwd: '/home/node', systemPrompt: 'client session context' })).rejects.toThrow(/native configuration/);
 
     await client.newSession({ cwd: '/home/node' });
-    expect(bridge.currentPeer.framesFor('session/new')[1].params.systemPrompt).toBeUndefined();
+    expect(bridge.currentPeer.framesFor('session/new')[0].params.systemPrompt).toBeUndefined();
   });
 
   it('gates listSessions/loadSession on advertised capabilities with typed errors', async () => {
@@ -671,10 +677,10 @@ describe('ACP version negotiation', () => {
     expect(client.sessionIds).toEqual([]);
   });
 
-  it('a v1-only agent negotiates v1 even when offered 2, and load/resume behave as before', async () => {
+  it('an explicit v1 profile retains load semantics', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect());
-    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({ protocolVersion: 2 });
+    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({ protocolVersion: 1 });
     expect(client.negotiatedProtocolVersion).toBe(1);
 
     await client.newSession();
@@ -1064,7 +1070,7 @@ describe('Agent.acpTurnDriver', () => {
     const prompts = bridge.currentPeer.framesFor('session/prompt');
     expect(prompts).toHaveLength(1);
     const blocks = (prompts[0].params as { prompt: { type: string; text?: string }[] }).prompt;
-    expect(blocks[0].text?.startsWith(ACP_BUNDLE_FRAMING_HEADER)).toBe(true);
+    expect(blocks).toEqual([{ type: 'text', text: 'hello from the pane' }]);
 
     // Passthrough pod: no frame binds the request id, so commit sees null.
     expect(commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);

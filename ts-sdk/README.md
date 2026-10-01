@@ -70,6 +70,21 @@ configure('your_api_key');
 
 ## Examples
 
+### Platform session metadata
+
+```typescript
+// The platform ID returned by /ws/acp session/new or the REST session catalog.
+const session = await client.sessions.getSession(platformSessionId);
+console.log(session.source, session.summaryText, session.participants);
+```
+
+Returns the existing `AcpSessionRecord` shape, just like `sessions.listSessions()`.
+This calls `GET /agents/sessions/{id}` with the current caller's credentials;
+runtime/leg IDs are not resolved. `source` is `string | null` and unknown values
+are preserved. It reads stored metadata even while the agent is offline, without
+connecting to the runtime or advancing read receipts. HTTP errors propagate as
+`APIError`: 404 unknown session, 403 outside participation scope, 422 invalid UUID.
+
 ### Billing
 
 ```typescript
