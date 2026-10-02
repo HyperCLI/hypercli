@@ -391,10 +391,9 @@ impl AcpClient {
             })
     }
 
-    /// Resume a session with `session/load`, gated on the advertised
-    /// `agentCapabilities.loadSession` capability. When the gate fails this
-    /// returns [`AcpError::Unavailable`]; the documented caller fallback is
-    /// [`AcpClient::new_session`].
+    /// Resume a session by id. Kept as the v1-era name for `session/resume`
+    /// (`resume_session` with replay); never substitutes a new session on
+    /// failure.
     pub async fn load_session(&self, cwd: &str, session_id: &str) -> Result<Value, AcpError> {
         self.resume_session(cwd, session_id, true).await
     }

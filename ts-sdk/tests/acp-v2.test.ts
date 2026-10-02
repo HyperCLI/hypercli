@@ -129,7 +129,7 @@ it('rejects a foreground observation on backend failure notices rather than hang
 });
 
 it('does not associate another admission with the next foreground idle', async () => {
-  const { client, emit, frames, finish } = await peer();
+  const { client, emit, frames } = await peer();
   const { sessionId } = await client.newSession({ cwd: '/workspace' });
   const observation = client.prompt(sessionId, 'original');
   const rejected = expect(observation).rejects.toThrow('completion receipt');

@@ -3599,9 +3599,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
 export type CodingAgent = Agent;
 
 export class Deployments {
-  getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
-    return new SessionsAPI(this.agentHttp).getPromptCompletion(sessionId, messageId, agentId);
-  }
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
@@ -3627,6 +3624,10 @@ export class Deployments {
 
   get agentApiBase(): string {
     return this.apiBase;
+  }
+
+  getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
+    return new SessionsAPI(this.agentHttp).getPromptCompletion(sessionId, messageId, agentId);
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
