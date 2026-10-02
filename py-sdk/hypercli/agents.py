@@ -3932,7 +3932,6 @@ class Deployments:
 
     def get_prompt_completion(self, session_id: str, message_id: str, agent_id: str) -> dict | None:
         """Read exact message/leg completion from existing paged REST history."""
-        from urllib.parse import quote
         turns = {}
         cursor = None
         visited = set()
