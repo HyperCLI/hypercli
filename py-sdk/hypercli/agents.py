@@ -3930,6 +3930,33 @@ class Deployments:
             self._get(f"/sessions/{quote(platform_session_id, safe='')}")
         )
 
+    def get_prompt_completion(self, session_id: str, message_id: str, agent_id: str) -> dict | None:
+        """Read exact message/leg completion from existing paged REST history."""
+        from urllib.parse import quote
+        turns = {}
+        cursor = None
+        visited = set()
+        while True:
+            page = self._get(f"/sessions/{quote(session_id, safe='')}/messages",
+                             params={"limit": 100, **({"cursor": cursor} if cursor else {})})
+            for row in page.get("items", []):
+                if row.get("session_id") != session_id:
+                    continue
+                frame = row.get("acp") or {}
+                if (frame.get("type") == "turn_result" and row.get("participant_kind") == "agent"
+                        and row.get("participant_id") == agent_id and row.get("completed_at")):
+                    turns[frame.get("messageSeq")] = row
+                if (frame.get("type") == "user_message" and frame.get("messageId") == message_id
+                        and frame.get("agentId") == agent_id and row.get("role") == "user"):
+                    terminal = turns.get(row.get("seq"))
+                    if row.get("completed_at") and terminal and isinstance(terminal.get("stop_reason"), str):
+                        return {"stopReason": terminal["stop_reason"]}
+                    return None
+            cursor = page.get("next_cursor")
+            if not page.get("has_more") or not cursor or cursor in visited:
+                return None
+            visited.add(cursor)
+
     def list_sessions(
         self, *, agent_id: str | None = None, cursor: str | None = None, limit: int = 50,
     ) -> SessionPage:

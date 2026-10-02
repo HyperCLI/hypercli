@@ -1109,6 +1109,8 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_RELAY_OBSERVER",
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
+    // No longer minted by the SDK (dead: nothing reads them); kept listed so
+    // caller-supplied values are stripped.
     "BUZZ_ACP_REQUIRE_REPLY",
     "BUZZ_AGENT_REQUIRE_REPLY",
     "CLAUDE_CODE_EXECUTABLE",
@@ -1155,7 +1157,6 @@ pub struct BuzzLaunchConfig {
     pub respond_to_allowlist: Vec<String>,
     pub display_name: Option<String>,
     pub text_mentions: bool,
-    pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
     /// Retained for source compatibility. Hosted Buzz now always uses the raw
@@ -1179,7 +1180,6 @@ impl BuzzLaunchConfig {
             respond_to_allowlist: Vec::new(),
             display_name: None,
             text_mentions: false,
-            require_reply: true,
             session_title: None,
             rust_log: None,
             activity: true,
@@ -1314,20 +1314,6 @@ impl BuzzLaunchConfig {
             request
                 .env
                 .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
-        }
-        if self.require_reply {
-            request
-                .env
-                .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
-            if request.runtime == ManagedRuntime::BuzzAgent {
-                request
-                    .env
-                    .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned());
-            }
-        } else if request.runtime == ManagedRuntime::BuzzAgent {
-            request
-                .env
-                .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned());
         }
         insert_nonempty(
             &mut request.env,
@@ -2537,7 +2523,6 @@ mod tests {
         buzz.parallelism = 3;
         buzz.display_name = Some("Fizz4".to_owned());
         buzz.text_mentions = true;
-        buzz.require_reply = true;
         buzz.auth_tag = Some("[\"auth\",\"owner\",\"\",\"sig\"]".to_owned());
         buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
 
@@ -2581,7 +2566,8 @@ mod tests {
             request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
             Some("Fizz4")
         );
-        assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+        // Dead env keys are stripped as reserved, never minted.
+        assert!(!request.env.contains_key("BUZZ_ACP_REQUIRE_REPLY"));
         assert!(!request.env.contains_key("BUZZ_AGENT_REQUIRE_REPLY"));
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
         assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
@@ -2629,13 +2615,6 @@ mod tests {
         assert_eq!(
             agent_request.env.get("BUZZ_ACP_MODEL").map(String::as_str),
             Some("kimi-k3")
-        );
-        assert_eq!(
-            agent_request
-                .env
-                .get("BUZZ_AGENT_REQUIRE_REPLY")
-                .map(String::as_str),
-            Some("0")
         );
         assert_eq!(
             agent_request
@@ -2916,13 +2895,6 @@ mod tests {
             let expected_env = contract["env"].as_object().unwrap();
             for (key, value) in expected_env {
                 assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
-            }
-            for key in ["BUZZ_AGENT_REQUIRE_REPLY"] {
-                if !golden["common_env"].as_object().unwrap().contains_key(key)
-                    && !expected_env.contains_key(key)
-                {
-                    assert!(!request.env.contains_key(key));
-                }
             }
             let wire = serde_json::to_value(&request).unwrap();
             assert_eq!(wire["command"], golden["common"]["command"]);

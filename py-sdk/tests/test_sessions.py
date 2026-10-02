@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import httpx
 import pytest
@@ -108,3 +108,49 @@ def test_detail_propagates_http_errors_without_fallback(monkeypatch, status):
     assert exc.value.status_code == status
     assert "Denied or invalid session" in str(exc.value)
     assert len(requests) == 1
+
+
+def receipt_rows():
+    common = {"session_id": SESSION_ID, "completed_at": "2026-10-02T00:00:00Z"}
+    return (
+        {**common, "seq": 7, "role": "user", "acp": {"type": "user_message", "messageId": "accepted", "agentId": "agent"}},
+        {**common, "seq": 9, "participant_kind": "agent", "participant_id": "agent", "stop_reason": "end_turn",
+         "acp": {"type": "turn_result", "messageSeq": 7}},
+    )
+
+
+def test_completion_joins_exact_rows_across_pages_without_contiguous_cursor():
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    original, terminal = receipt_rows()
+    api._get = MagicMock(side_effect=[
+        {"items": [terminal], "has_more": True, "next_cursor": "older"},
+        {"items": [original], "has_more": False},
+    ])
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") == {"stopReason": "end_turn"}
+    assert api._get.call_args_list == [
+        call(f"/sessions/{SESSION_ID}/messages", params={"limit": 100}),
+        call(f"/sessions/{SESSION_ID}/messages", params={"limit": 100, "cursor": "older"}),
+    ]
+
+
+@pytest.mark.parametrize("which,field,value", [
+    (0, "completed_at", None), (0, "session_id", "other"), (0, "role", "assistant"),
+    (0, "messageId", "other"), (0, "agentId", "other"),
+    (1, "completed_at", None), (1, "session_id", "other"), (1, "participant_id", "other"),
+    (1, "messageSeq", 8), (1, "stop_reason", None),
+])
+def test_completion_rejects_incomplete_or_foreign_evidence(which, field, value):
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    rows = receipt_rows()
+    target = rows[which]["acp"] if field in {"messageId", "agentId", "messageSeq"} else rows[which]
+    target[field] = value
+    api._get = MagicMock(return_value={"items": list(reversed(rows)), "has_more": False})
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") is None
+
+
+def test_completion_stops_on_repeated_cursor():
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    _, terminal = receipt_rows()
+    api._get = MagicMock(return_value={"items": [terminal], "has_more": True, "next_cursor": "same"})
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") is None
+    assert api._get.call_count == 2

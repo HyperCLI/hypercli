@@ -45,7 +45,7 @@ export type { AcpReplayFrom };
 /** ACP major protocol versions this client can negotiate. */
 export type CodingAgentAcpProtocolVersion = 1 | 2;
 
-/** Observed foreground stop, not a per-message execution receipt. */
+/** Completion result verified by the configured authoritative receipt reader. */
 export interface CodingAgentAcpPromptResult {
   messageId?: string;
   stopReason?: string | null;
@@ -53,10 +53,9 @@ export interface CodingAgentAcpPromptResult {
 }
 
 interface ForegroundObservation {
-  running: boolean;
-  inputs: Set<string>;
   messageId?: string;
-  idle?: CodingAgentAcpPromptResult;
+  idle?: boolean;
+  checking?: boolean;
   resolve(result: CodingAgentAcpPromptResult): void;
   reject(error: Error): void;
 }
@@ -83,19 +82,6 @@ export const ACP_RECONNECT_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000];
  */
 export const ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404;
 
-/**
- * Vendor turn-lifecycle frames from sessions/README §4. The deployed
- * hyper-acp is a pure passthrough and emits NONE of these — the registrations
- * and the `onTurnEvent` listener are forward-compat for pods that may emit
- * them later (frames are confirmation-only there; the `session/prompt`
- * response remains the turn-end evidence). `turnId` is the JSON-RPC request
- * id of the `session/prompt` the turn belongs to. All frames are
- * notifications. `_hypercli.dev/turn_ended_ack` was dropped from the wire
- * contract: no pod-side retention, no acks.
- */
-export const ACP_TURN_STARTED_METHOD = '_hypercli.dev/turn_started';
-export const ACP_TURN_ENDED_METHOD = '_hypercli.dev/turn_ended';
-
 // USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the REST history read
 // advances the caller's participant cursor — there is NO client→proxy
 // read-ack frame, and this client emits none. (Earlier versions sent a
@@ -107,25 +93,6 @@ export const ACP_TURN_ENDED_METHOD = '_hypercli.dev/turn_ended';
 // 2026-09-29): the proxy tee is 100% vanilla ACP (owner ruling, final
 // 2026-09-28), so teed frames arrive unannotated and delivery gaps are
 // recovered with a keyset re-read over the REST history endpoint.
-
-/** JSON-RPC request id of a `session/prompt`, used to key a turn. */
-export type CodingAgentAcpTurnId = string | number;
-
-export interface CodingAgentAcpTurnStartedEvent {
-  kind: 'turn_started';
-  sessionId: string;
-  turnId: CodingAgentAcpTurnId;
-}
-
-export interface CodingAgentAcpTurnEndedEvent {
-  kind: 'turn_ended';
-  sessionId: string;
-  turnId: CodingAgentAcpTurnId;
-  stopReason: string;
-  partial?: boolean;
-}
-
-export type CodingAgentAcpTurnEvent = CodingAgentAcpTurnStartedEvent | CodingAgentAcpTurnEndedEvent;
 
 /**
  * Bridge close codes that must not be retried: the identity/binding itself is
@@ -158,6 +125,14 @@ export class CodingAgentAcpConnectionError extends Error {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'CodingAgentAcpConnectionError';
     this.code = options.code ?? null;
+  }
+}
+
+/** Prompt was sent, but foreground observation failed; never resubmit it automatically. */
+export class CodingAgentAcpObservationError extends Error {
+  constructor(message: string, public readonly messageId?: string) {
+    super(message);
+    this.name = 'CodingAgentAcpObservationError';
   }
 }
 
@@ -200,6 +175,8 @@ export class CodingAgentAcpReplayGapError extends Error {
 }
 
 export interface CodingAgentAcpConnectOptions {
+  /** Existing platform REST evidence, required by the v2 completion convenience. */
+  getPromptCompletion?: (sessionId: string, messageId: string) => Promise<{ stopReason: string } | null>;
   /** Abort before connect rejects the promise; abort after connect closes the client. */
   signal?: AbortSignal;
   /**
@@ -227,13 +204,12 @@ export interface CodingAgentAcpConnectOptions {
    */
   transport?: CodingAgentAcpTransport;
   /**
-   * Proxy transport only: the backend session id to attach at dial time
-   * (create-or-attach semantics — no `sessionId` means the socket starts
+   * Proxy transport only: the backend session id this connection works with
+   * (create-or-attach semantics — no `sessionId` means the socket stays
    * session-less and `newSession()` mints one through the proxy; a provided
-   * id dials `/ws/acp?agent_id&token&session_id=…`, joining the session's live
-   * tee before any replay call so a following `loadSession`/`resumeSession`
-   * history stream actually reaches this connection). An id the store does
-   * not hold closes the socket with
+   * id is resumed AFTER the initialize handshake, via `session/resume` on
+   * v2, over the already-connected socket). Backend-side, an attach naming
+   * an id the store does not hold is refused with
    * {@link ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE} (4404). Combining it with
    * `transport: 'direct'` throws — the `/ws` bridge has no session binding.
    */
@@ -246,13 +222,15 @@ export interface CodingAgentAcpConnectOptions {
   /**
    * Permission handler. When omitted, every `session/request_permission`
    * request is answered with the `cancelled` outcome — a raw SDK never
-   * auto-approves.
+   * auto-approves. The optional signal follows standard per-request
+   * cancellation and connection closure; use it to retire pending UI.
    */
   onPermissionRequest?: (
     params: acp.RequestPermissionRequest,
+    signal?: AbortSignal,
   ) => acp.MaybePromise<acp.RequestPermissionResponse>;
   /** Full standard v2 permission surface, including command and absent subjects. */
-  onV2PermissionRequest?: (params: acp2.RequestPermissionRequest) => acp2.MaybePromise<acp2.RequestPermissionResponse>;
+  onV2PermissionRequest?: (params: acp2.RequestPermissionRequest, signal?: AbortSignal) => acp2.MaybePromise<acp2.RequestPermissionResponse>;
   /** Opt-in `fs/read_text_file` handler; unhandled by default (method-not-found). */
   onReadTextFile?: (
     params: acp.ReadTextFileRequest,
@@ -337,12 +315,11 @@ export class CodingAgentAcpClient {
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
-  private readonly turnListeners = new Set<(event: CodingAgentAcpTurnEvent) => void>();
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   /** In-memory only: sessionId → latest epoch + in-flight load count. */
   private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
-  private permissionHandler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null = null;
+  private permissionHandler: ((request: acp.RequestPermissionRequest, signal?: AbortSignal) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
   private terminalError: CodingAgentAcpConnectionError | null = null;
   private lastCloseCode: number | null = null;
@@ -432,21 +409,6 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Register a listener for the vendor turn-lifecycle frames
-   * (`_hypercli.dev/turn_started` / `_hypercli.dev/turn_ended`) emitted by
-   * the pod-side hyper-acp. Frames for sessions other than the caller's are
-   * included; listeners key off `sessionId`/`turnId`. Returns an unsubscribe
-   * function; a throwing listener is logged and does not break the others.
-   * `close()` clears all listeners.
-   */
-  onTurnEvent(listener: (event: CodingAgentAcpTurnEvent) => void): () => void {
-    this.turnListeners.add(listener);
-    return () => {
-      this.turnListeners.delete(listener);
-    };
-  }
-
-  /**
    * Register a listener for replay-boundary events (see
    * {@link CodingAgentAcpReplayEvent}). Fires for both explicit `loadSession`
    * calls and the internal reconnect replay. Returns an unsubscribe function;
@@ -488,7 +450,7 @@ export class CodingAgentAcpClient {
    * restores the default cancel-unanswered behavior. `close()` clears it.
    */
   setPermissionHandler(
-    handler: ((request: acp.RequestPermissionRequest) => Promise<acp.RequestPermissionResponse>) | null,
+    handler: ((request: acp.RequestPermissionRequest, signal?: AbortSignal) => Promise<acp.RequestPermissionResponse>) | null,
   ): void {
     this.permissionHandler = handler;
   }
@@ -649,15 +611,19 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Run one prompt turn. Strings become a single text block. Streams
-   * `session/update` notifications to `onUpdate`. Resolves with the full
-   * response (stop reason, usage); if the socket dies mid-turn the promise
-   * rejects with {@link CodingAgentAcpConnectionError} and the turn is NOT
-   * retried.
+   * Submit once and verify this exact input's completion through platform REST.
+   * V2 refuses before sending when no receipt reader is configured. An idle
+   * notification triggers the lookup but proves nothing itself. Missing
+   * evidence (including older queued work's idle) rejects, never reports success.
+   * onAccepted exposes the standard insertion response before idle (useful
+   * for binding an optimistic UI item by identity rather than equal text).
+   * Agent.acpConnect supplies the existing SessionsAPI reader. Direct callers
+   * may supply it explicitly or use submitPrompt + updates. Nothing is retried.
    */
   async prompt(
     sessionId: string,
     prompt: string | acp.ContentBlock | acp.ContentBlock[],
+    options: { onAccepted?: (accepted: acp2.PromptResponse) => void } = {},
   ): Promise<CodingAgentAcpPromptResult> {
     const connection = this.requireConnection();
     const blocks: acp.ContentBlock[] = typeof prompt === 'string'
@@ -666,6 +632,7 @@ export class CodingAgentAcpClient {
         ? prompt
         : [prompt];
     if (this.negotiatedVersionValue === 2) {
+      if (!this.options.getPromptCompletion) throw new CodingAgentAcpUnavailableError('prompt', 'v2 has no per-message completion event; use submitPrompt, or supply an exact platform REST receipt reader');
       if (this.foreground.has(sessionId) || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '')) {
         throw new Error('Session foreground is active; use submitPrompt for concurrent admission');
       }
@@ -673,13 +640,14 @@ export class CodingAgentAcpClient {
       let reject!: (error: Error) => void;
       const completed = new Promise<CodingAgentAcpPromptResult>((res, rej) => { resolve = res; reject = rej; });
       // Both lanes can arrive before acceptance; register first.
-      const pending: ForegroundObservation = { running: false, inputs: new Set<string>(), resolve, reject };
+      const pending: ForegroundObservation = { resolve, reject };
       this.foreground.set(sessionId, pending);
       void completed.catch(() => {});
       try {
         const acceptance = this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
         return await Promise.race([completed, acceptance.then(async (accepted) => {
           pending.messageId = accepted.messageId;
+          options.onAccepted?.(accepted);
           this.settleForeground(sessionId);
           return completed;
         })]);
@@ -713,10 +681,14 @@ export class CodingAgentAcpClient {
   private settleForeground(sessionId: string): void {
     const pending = this.foreground.get(sessionId);
     if (!pending?.messageId) return;
-    if ([...pending.inputs].some((id) => id !== pending.messageId)) {
-      pending.reject(new Error('Concurrent admission prevents isolated foreground observation; use submitPrompt and session updates'));
-    } else if (pending.idle && pending.inputs.has(pending.messageId)) {
-      pending.resolve({ ...pending.idle, messageId: pending.messageId });
+    if (pending.idle && !pending.checking) {
+      pending.checking = true;
+      const messageId = pending.messageId;
+      void this.options.getPromptCompletion!(sessionId, messageId).then((proof) => {
+        if (this.foreground.get(sessionId) !== pending) return;
+        if (!proof) pending.reject(new CodingAgentAcpObservationError('Input accepted, but no completion receipt exists for this message; follow session history without resubmitting', messageId));
+        else pending.resolve({ stopReason: proof.stopReason, messageId });
+      }, (error: unknown) => pending.reject(new CodingAgentAcpObservationError(`Completion receipt unavailable: ${String(error)}`, messageId)));
     }
   }
 
@@ -747,7 +719,7 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     const payload =
       typeof value === 'string'
-        ? { sessionId, configId, value }
+        ? { sessionId, configId, value, ...(this.negotiatedVersionValue === 2 ? { type: 'id' as const } : {}) }
         : { sessionId, configId, value: value.value, type: value.type };
     const response = this.localSessionState(await context.request<acp.SetSessionConfigOptionResponse>(
       acp.methods.agent.session.setConfigOption,
@@ -804,7 +776,6 @@ export class CodingAgentAcpClient {
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
-    this.turnListeners.clear();
     this.replayListeners.clear();
     this.closeListeners.clear();
     this.permissionHandler = null;
@@ -892,7 +863,7 @@ export class CodingAgentAcpClient {
     const app = acp2.client({ name: this.clientName });
     app.onRequest('session/request_permission', async (context) => {
       const request = context.params;
-      if (this.options.onV2PermissionRequest) return this.options.onV2PermissionRequest(request);
+      if (this.options.onV2PermissionRequest) return this.options.onV2PermissionRequest(request, context.signal);
       const handler = this.permissionHandler ?? this.options.onPermissionRequest;
       if (!handler) return { outcome: { outcome: 'cancelled' as const } };
       // Local compatibility view for existing UIs. The actual request and
@@ -903,25 +874,18 @@ export class CodingAgentAcpClient {
       }
       return handler({ sessionId: request.sessionId, options: request.options as acp.PermissionOption[],
         toolCall: subject?.type === 'tool_call' ? subject.toolCall as acp.ToolCallUpdate
-          : { toolCallId: '', title: request.title, rawInput: subject ?? undefined } });
+          : { toolCallId: '', title: request.title, rawInput: subject ?? undefined } }, context.signal);
     });
     app.onNotification('session/update', (context) => {
       const notification = context.params;
       const update = notification.update;
       const pending = this.foreground.get(notification.sessionId);
-      if (pending && (update.sessionUpdate === 'user_message' || update.sessionUpdate === 'user_message_chunk') && typeof update.messageId === 'string') {
-        pending.inputs.add(update.messageId);
-      }
       if (pending && update.sessionUpdate === 'notice' && update.severity === 'error') {
-        pending.reject(new Error(`ACP session error: ${update.title}: ${update.description ?? ''}`));
+        pending.reject(new CodingAgentAcpObservationError(`ACP session error: ${update.title}: ${update.description ?? ''}`, pending.messageId));
       }
       if (acp2.SessionUpdate.isStateUpdate(update)) {
         this.foregroundStates.set(notification.sessionId, update.state);
-        if (pending && update.state === 'running') pending.running = true;
-        if (pending && update.state === 'idle' && pending.running) {
-          pending.idle = { ...(update.stopReason !== undefined ? { stopReason: update.stopReason as string | null } : {}),
-            ...(update._meta !== undefined ? { _meta: update._meta as Record<string, unknown> | null } : {}) };
-        }
+        if (pending && update.state === 'idle') pending.idle = true;
       }
       this.settleForeground(notification.sessionId);
       // Existing subscribers accept structurally open session updates. Do not
@@ -936,10 +900,10 @@ export class CodingAgentAcpClient {
     const app = acp.client({ name: this.clientName });
     app.onRequest(acp.methods.client.session.requestPermission, (context) => {
       if (this.permissionHandler) {
-        return this.permissionHandler(context.params);
+        return this.permissionHandler(context.params, context.signal);
       }
       if (this.options.onPermissionRequest) {
-        return this.options.onPermissionRequest(context.params);
+        return this.options.onPermissionRequest(context.params, context.signal);
       }
       return { outcome: { outcome: 'cancelled' as const } };
     });
@@ -952,41 +916,6 @@ export class CodingAgentAcpClient {
           console.error('ACP session/update listener threw', error);
         }
       }
-    });
-    // Vendor turn frames use the params-parser overload with an identity
-    // parser: they are hyper-acp extensions the generated ACP schemas do not
-    // know. Malformed frames are dropped rather than thrown into the
-    // connection's notification pipeline.
-    app.onNotification(ACP_TURN_STARTED_METHOD, (params: unknown) => params, (context) => {
-      const params = context.params as { sessionId?: unknown; turnId?: unknown } | null;
-      if (
-        typeof params?.sessionId !== 'string'
-        || (typeof params.turnId !== 'string' && typeof params.turnId !== 'number')
-      ) {
-        return;
-      }
-      this.emitTurnEvent({ kind: 'turn_started', sessionId: params.sessionId, turnId: params.turnId });
-    });
-    app.onNotification(ACP_TURN_ENDED_METHOD, (params: unknown) => params, (context) => {
-      const params = context.params as {
-        sessionId?: unknown;
-        turnId?: unknown;
-        stopReason?: unknown;
-        partial?: unknown;
-      } | null;
-      if (
-        typeof params?.sessionId !== 'string'
-        || (typeof params.turnId !== 'string' && typeof params.turnId !== 'number')
-      ) {
-        return;
-      }
-      this.emitTurnEvent({
-        kind: 'turn_ended',
-        sessionId: params.sessionId,
-        turnId: params.turnId,
-        stopReason: typeof params.stopReason === 'string' ? params.stopReason : 'unknown',
-        partial: params.partial === true ? true : undefined,
-      });
     });
     if (this.options.onReadTextFile) {
       const handler = this.options.onReadTextFile;
@@ -1265,16 +1194,6 @@ export class CodingAgentAcpClient {
       if (state.inFlight <= 0) this.replayEpochs.delete(sessionId);
     }
     this.emitReplay({ sessionId, phase: 'end', epoch, ok });
-  }
-
-  private emitTurnEvent(event: CodingAgentAcpTurnEvent): void {
-    for (const listener of [...this.turnListeners]) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('ACP turn event listener threw', error);
-      }
-    }
   }
 
   private emitReplay(event: CodingAgentAcpReplayEvent): void {

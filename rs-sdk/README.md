@@ -188,9 +188,7 @@ stopped instead of having the runtime automatically restart it. The hosted
 terminal-state observer then completes runtime cleanup, marks the deployment
 `stopped`, and releases its slot. Desktop receives no provider
 acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
-caller-selected. Native Buzz Agent requests additionally set upstream's
-`BUZZ_AGENT_REQUIRE_REPLY=1`; other Buzz-hosted coding runtimes do not receive
-that native-only variable. The config does not implement `Debug` or `Serialize` because
+caller-selected. The config does not implement `Debug` or `Serialize` because
 it owns the agent nsec.
 
 `Deployment::is_buzz_managed()` recognizes both the stable tag and legacy
@@ -202,8 +200,8 @@ the backend's `stopped` state.
 `/home/node/shared` remains reserved for Workspace projections. The
 Buzz-specialized images reconcile their nest after mount and run the harness
 from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
-Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
-`hyper-acp`.
+Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` is compiled into
+`hyper-acp` (compiled, not copied to disk).
 
 For a generic `CreateDeploymentRequest`, whole-root sync is represented by
 omitting both selectors or by `sync_exclude: Some(vec![])`. An explicit empty
@@ -226,10 +224,9 @@ described above, but Desktop neither acknowledges nor reconciles that remote
 transition. Use authenticated HyperCLI lifecycle APIs when reliable
 infrastructure stop/delete is required.
 
-Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
-`agent_message_chunk` is activity telemetry rather than a channel reply. There
-is no plaintext fallback; a visible response requires the agent to invoke the
-Buzz send command/tool. The six-runtime SDK matrix, including native
+Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout and there is no
+plaintext fallback; the hosted connector auto-publishes completed assistant
+text to the channel. The six-runtime SDK matrix, including native
 `buzz-agent`, validates representative
 rendered request shapes only.
 

@@ -5,7 +5,6 @@ import type { AddressInfo } from 'node:net';
 import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import {
-  ACP_TURN_STARTED_METHOD,
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpReplayGapError,
@@ -145,6 +144,8 @@ class FakeAcpPeer {
     if (this.server.protocolVersion === 2) {
       const sessionId = promptFrame.params?.sessionId;
       this.result(promptFrame, { messageId: `accepted-${promptFrame.id}` });
+      this.notify('session/update', { sessionId, update: { sessionUpdate: 'user_message',
+        messageId: `accepted-${promptFrame.id}`, content: promptFrame.params?.prompt } });
       this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'running' } });
       this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
       return;
@@ -641,7 +642,7 @@ describe('ACP version negotiation', () => {
     });
 
     holdPrompt = false;
-    await expect(client.prompt('session-1', 'after reconnect')).resolves.toMatchObject({ stopReason: 'end_turn' });
+    await expect(client.submitPrompt('session-1', [{ type: 'text', text: 'after reconnect' }])).resolves.toHaveProperty('messageId');
   });
 
   it('v2: a failed resume replay after reconnect surfaces a replay gap and drops the session', async () => {
@@ -1051,12 +1052,12 @@ describe('Agent.acpTurnDriver', () => {
     const agent = acpAgent(bridge);
     // The default promptHook answers with stopReason and emits NO vendor
     // frames: hyper-acp is a pure passthrough, the response is the turn end.
-    const commits: { turnId: unknown; stopReason: string }[] = [];
+    const commits: { stopReason: string | null }[] = [];
 
     const driver = await agent.acpTurnDriver({
       sessionId: 'session-1',
-      commit: async (turnId, stopReason) => {
-        commits.push({ turnId, stopReason });
+      commit: async (stopReason) => {
+        commits.push({ stopReason });
       },
     });
 
@@ -1072,9 +1073,9 @@ describe('Agent.acpTurnDriver', () => {
     const blocks = (prompts[0].params as { prompt: { type: string; text?: string }[] }).prompt;
     expect(blocks).toEqual([{ type: 'text', text: 'hello from the pane' }]);
 
-    // Passthrough pod: no frame binds the request id, so commit sees null.
-    expect(commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
-    // turn_ended_ack is not part of the wire contract: nothing is sent.
+    // The prompt response completes the turn: commit sees its stopReason.
+    expect(commits).toEqual([{ stopReason: 'end_turn' }]);
+    // No ack frames exist on the wire contract: nothing is sent.
     expect(bridge.currentPeer.framesFor('_hypercli.dev/turn_ended_ack')).toEqual([]);
     driver.close();
     await waitFor(() => bridge.currentPeer.socketClosed);
@@ -1088,14 +1089,14 @@ describe('Agent.acpTurnDriver', () => {
 
     const driverA = await agent.acpTurnDriver({
       sessionId: 'session-1',
-      commit: async (turnId) => {
-        commitsA.push(turnId);
+      commit: async (stopReason) => {
+        commitsA.push(stopReason);
       },
     });
     const driverB = await agent.acpTurnDriver({
       sessionId: 'session-2',
-      commit: async (turnId) => {
-        commitsB.push(turnId);
+      commit: async (stopReason) => {
+        commitsB.push(stopReason);
       },
     });
 
@@ -1109,13 +1110,11 @@ describe('Agent.acpTurnDriver', () => {
     await waitFor(() => commitsA.length === 1);
     expect(commitsB).toEqual([]);
 
-    // Stray vendor frames (a future pod) for foreign sessions are ignored by
-    // both drivers: delivered, bound to nothing, no state mutation.
-    bridge.currentPeer.notify(ACP_TURN_STARTED_METHOD, { sessionId: 'session-2', turnId: 99 });
+    // A notification for a foreign session mutates neither driver's state.
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-2', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'x' } } });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(driverA.turnState).toBe('idle');
     expect(driverB.turnState).toBe('idle');
-    expect(driverB.currentTurnId).toBeNull();
 
     // Lease discipline: a pane-style lease + driver leases on one connection;
     // closing one never tears the connection down under the others.

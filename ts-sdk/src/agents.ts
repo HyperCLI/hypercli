@@ -91,6 +91,7 @@ export {
 } from './buzz-activity.js';
 import { APIError } from './errors.js';
 import { HTTPClient, type RequestOverrides } from './http.js';
+import { SessionsAPI } from './sessions.js';
 import { normalizeSlackRelayBaseUrl } from './channels.js';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
@@ -226,6 +227,8 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_RELAY_OBSERVER',
   'BUZZ_ACP_DISPLAY_NAME',
   'BUZZ_ACP_TEXT_MENTIONS',
+  // No longer minted by the SDK (dead: nothing reads them); kept listed so
+  // caller-supplied values are stripped.
   'BUZZ_ACP_REQUIRE_REPLY',
   'BUZZ_AGENT_REQUIRE_REPLY',
   'CLAUDE_CODE_EXECUTABLE',
@@ -1290,7 +1293,6 @@ export interface BuzzLaunchConfig {
   respondToAllowlist?: string[];
   displayName?: string | null;
   textMentions?: boolean;
-  requireReply?: boolean;
   sessionTitle?: string | null;
   rustLog?: string;
 }
@@ -1341,10 +1343,6 @@ function buildBuzzLaunchEnv(
     if (value) env[key] = value;
   }
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
-  if (buzz.requireReply !== false) {
-    env.BUZZ_ACP_REQUIRE_REPLY = 'true';
-  }
-  if (runtime === 'buzz-agent') env.BUZZ_AGENT_REQUIRE_REPLY = '0';
   return env;
 }
 
@@ -2844,21 +2842,23 @@ export class Agent {
    *
    * - omitted: the socket starts session-less; `newSession()` runs the
    *   proxy's `session/new`, minting the backend session.
-   * - provided: the dial attaches to that session (`?session_id=...`),
-   *   joining its live tee first — attach BEFORE `loadSession`/
-   *   `resumeSession` so the replayed history stream reaches this
-   *   connection. An id the store does not hold fails the connect with
-   *   close code 4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
+   * - provided: the dial itself is session-less; AFTER the `initialize`
+   *   handshake the client resumes the session over the connected socket
+   *   (`session/resume` on v2, `session/load` on v1), so the replayed
+   *   history stream reaches this connection. Backend-side, an attach
+   *   naming an id the store does not hold is refused with close code
+   *   4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
    *
    * `transport: 'direct'` dials the agent-keyed `/ws` bridge instead
    * (`?agent_id&token`), the pre-proxy path. Infra/debug only: `/ws` is
    * being hardened to runtime + backend-service identities, and combining
    * it with `sessionId` throws (the bridge has no session binding).
    *
-   * The ACP `initialize` handshake offers protocol version 2 by default and
-   * negotiates down to v1 for v1-only runtimes (see
-   * `client.negotiatedProtocolVersion`; through the proxy the answer is the
-   * min of the offer and the leg's version). The `cwd` default is the agent
+   * The ACP `initialize` handshake offers protocol version 2 by default
+   * (see `client.negotiatedProtocolVersion`). The proxy authority is
+   * v2-only — it rejects a v1 `initialize` outright — so
+   * `protocolVersion: 1` applies to the direct `/ws` bridge only.
+   * The `cwd` default is the agent
    * workspace root (the launch's sync root, `/home/node` for coding-agent
    * runtimes, `/home/hermes` for hermes-agent).
    *
@@ -2886,7 +2886,9 @@ export class Agent {
     const syncRoot = this.launchConfig?.sync_root;
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
-      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT) },
+      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT),
+        getPromptCompletion: options.getPromptCompletion ?? (transport === 'proxy'
+          ? (sid, mid) => deployments.getPromptCompletion(sid, mid, this.id) : undefined) },
     );
     if (options.sessionId) {
       try {
@@ -2930,8 +2932,8 @@ export class Agent {
    * per-session {@link AcpTurnDriver} bound to it. `options.sessionId` is the
    * pinned ACP session id (the id the app persists, e.g. under
    * `localStorage["acp-session:<agentId>"]`); drivers are cheap — one per
-   * session, all sharing the same lease-held connection — and turn frames for
-   * other sessions are ignored per-session. The driver holds its lease until
+   * session, all sharing the same lease-held connection. The driver holds
+   * its lease until
    * `driver.close()`; the pooled connection stays up for other leaseholders.
    */
   async acpTurnDriver(options: AcpTurnDriverOptions): Promise<AcpTurnDriver> {
@@ -3597,6 +3599,9 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
 export type CodingAgent = Agent;
 
 export class Deployments {
+  getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
+    return new SessionsAPI(this.agentHttp).getPromptCompletion(sessionId, messageId, agentId);
+  }
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;

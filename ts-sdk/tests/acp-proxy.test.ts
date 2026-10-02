@@ -7,7 +7,6 @@ import type { HTTPClient } from '../src/http.js';
 import {
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
   CodingAgentAcpClient,
-  CodingAgentAcpConnectionError,
 } from '../src/acp.js';
 
 const AGENT_ID = 'c0ffee00-0000-4000-8000-00000000000a';
@@ -65,26 +64,37 @@ class FakeAcpProxy {
     switch (frame.method) {
       case 'initialize':
         reply({
-          protocolVersion: 1,
-          agentInfo: { name: 'fake-acp-proxy', version: '1.0.0' },
-          agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } },
+          protocolVersion: 2,
+          info: { name: 'fake-acp-proxy', version: '1.0.0' },
+          capabilities: { session: {} },
         });
         return;
       case 'session/new':
         reply({ sessionId: BACKEND_SESSION_ID });
         return;
-      case 'session/load': {
+      case 'session/resume': {
         const sessionId = (frame.params as { sessionId: string }).sessionId;
-        this.update(socket, sessionId, 'history-1');
-        this.update(socket, sessionId, 'history-2');
+        if (sessionId !== BACKEND_SESSION_ID) {
+          socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, error: { code: -32602, message: 'Unknown session' } }));
+          return;
+        }
+        if ((frame.params as { replayFrom?: unknown }).replayFrom) {
+          this.update(socket, sessionId, 'history-1');
+          this.update(socket, sessionId, 'history-2');
+        }
         reply({});
         return;
       }
       case 'session/prompt': {
         this.promptCalls += 1;
         const sessionId = (frame.params as { sessionId: string }).sessionId;
+        const messageId = `input-${this.promptCalls}`;
+        const notify = (update: unknown) => socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update } }));
+        notify({ sessionUpdate: 'user_message', messageId, content: (frame.params as { prompt: unknown }).prompt });
+        notify({ sessionUpdate: 'state_update', state: 'running' });
         this.update(socket, sessionId, 'chunk');
-        reply({ stopReason: 'end_turn' });
+        notify({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+        reply({ messageId });
         return;
       }
       default:
@@ -102,7 +112,7 @@ class FakeAcpProxy {
       method: 'session/update',
       params: {
         sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+        update: { sessionUpdate: 'agent_message_chunk', messageId: `reply-${text}`, content: { type: 'text', text } },
       },
     }));
   }
@@ -179,14 +189,14 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     // The proxy's session/new answers with its own backend session record id.
     expect(created.sessionId).toBe(BACKEND_SESSION_ID);
     expect(client.sessionIds).toEqual([BACKEND_SESSION_ID]);
-    const turn = await client.prompt(BACKEND_SESSION_ID, 'hi');
-    expect(turn.stopReason).toBe('end_turn');
+    const accepted = await client.submitPrompt(BACKEND_SESSION_ID, [{ type: 'text', text: 'hi' }]);
+    expect(accepted.messageId).toBeTruthy();
     expect(proxy.promptCalls).toBe(1);
     // Prompts address the backend session id verbatim (no client-side remap).
     expect((proxy.framesFor('session/prompt')[0].params as { sessionId: string }).sessionId).toBe(BACKEND_SESSION_ID);
   });
 
-  it('attach: a provided sessionId rides the dial query before any session call', async () => {
+  it('attach: a provided sessionId uses standard resume, not a private dial prerequisite', async () => {
     const proxy = await startProxy();
     const updates: string[] = [];
     const client = track(await acpAgent(proxy).acpConnect({
@@ -201,14 +211,15 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
 
     const url = proxy.upgradeUrls()[0];
     expect(url.pathname).toBe('/ws/acp');
-    expect(url.searchParams.get('session_id')).toBe(BACKEND_SESSION_ID);
+    expect(url.searchParams.has('session_id')).toBe(false);
+    expect(proxy.framesFor('session/resume')[0].params).toMatchObject({ sessionId: BACKEND_SESSION_ID });
 
     // Tee membership precedes the replay, so the load's history stream lands.
-    await client.loadSession(BACKEND_SESSION_ID);
+    await client.resumeSession(BACKEND_SESSION_ID, { replayFrom: { type: 'start' } });
     expect(updates).toEqual(['history-1', 'history-2']);
   });
 
-  it('attach: an unknown session_id rejects the connect with code 4404 and never re-dials', async () => {
+  it('attach: an unknown standard session/resume fails without redial', async () => {
     const proxy = await startProxy();
     const error = await acpAgent(proxy)
       .acpConnect({ sessionId: 'not-a-real-session' })
@@ -216,8 +227,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
         () => null,
         (err: unknown) => err,
       );
-    expect(error).toBeInstanceOf(CodingAgentAcpConnectionError);
-    expect((error as CodingAgentAcpConnectionError).code).toBe(ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE);
+    expect(error).toMatchObject({ code: -32602 });
     expect(proxy.upgrades).toHaveLength(1);
   });
 
@@ -229,7 +239,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     expect(url.pathname).toBe('/ws');
     expect(url.searchParams.get('agent_id')).toBe(AGENT_ID);
     expect(url.searchParams.has('session_id')).toBe(false);
-    expect(client.negotiatedProtocolVersion).toBe(1);
+    expect(client.negotiatedProtocolVersion).toBe(2);
   });
 
   it("transport 'direct' + sessionId throws without dialing", async () => {

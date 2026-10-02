@@ -6,7 +6,6 @@
  */
 import {
   type CodingAgentAcpClient,
-  type CodingAgentAcpTurnId,
   type ContentBlock,
 } from './acp.js';
 import type { AcpLease } from './acp-pool.js';
@@ -15,12 +14,6 @@ export type AcpTurnDriverState = 'idle' | 'submitted' | 'running';
 
 /** Settlement of one turn covering a submitted message. */
 export interface AcpTurnOutcome {
-  /**
-   * The session/prompt JSON-RPC request id. Only recoverable when the pod
-   * emitted a vendor turn frame for this turn; pure-passthrough pods (the
-   * current hyper-acp) complete with `null`.
-   */
-  turnId: CodingAgentAcpTurnId | null;
   stopReason: string | null;
 }
 
@@ -38,11 +31,10 @@ export interface AcpTurnDriverOptions {
    * Durable-commit hook run when a turn completes (on the prompt response).
    * Window advance, submit-promise resolution, and the next bundle's flush
    * all happen only after this resolves. Receives the stopReason verbatim
-   * (`end_turn`, `cancelled`, ...) and the turnId when a vendor frame bound
-   * one (otherwise `null` — see {@link AcpTurnOutcome.turnId}); cancelled
-   * turns commit normally — their bundled messages reached the model.
+   * (`end_turn`, `cancelled`, ...); cancelled turns commit normally — their
+   * bundled messages reached the model.
    */
-  commit: (turnId: CodingAgentAcpTurnId | null, stopReason: string | null) => Promise<void>;
+  commit: (stopReason: string | null) => Promise<void>;
   /** Fired once per flush with the bundle going on the wire. */
   onBundleOpen?: (bundle: AcpTurnBundle) => void;
   /**
@@ -68,8 +60,6 @@ interface PendingMessage {
 interface InFlightTurn {
   /** Window entries covered by this turn (dropped from the window on commit). */
   entries: PendingMessage[];
-  /** Bound by a vendor turn frame when one arrives; `null` on passthrough pods. */
-  turnId: CodingAgentAcpTurnId | null;
 }
 
 function newTurnWaiter(): TurnWaiter {
@@ -121,11 +111,6 @@ export class AcpTurnDriver {
     return this.state;
   }
 
-  /** turnId of the in-flight turn once a vendor frame has bound it. */
-  get currentTurnId(): CodingAgentAcpTurnId | null {
-    return this.inFlight?.turnId ?? null;
-  }
-
   /** Messages waiting in the pending window, including the in-flight bundle. */
   get pendingCount(): number {
     return this.window.length;
@@ -146,7 +131,7 @@ export class AcpTurnDriver {
   }
 
   /**
-   * Detach from the client's turn events and release the pool lease when this
+   * Stop consuming settlement and release the pool lease when this
    * driver was built from one. A client passed directly is NOT closed.
    * Outstanding `submit()` promises reject; an in-flight turn keeps running
    * pod-side but its response is no longer consumed here (mirrors the py-sdk
@@ -169,7 +154,7 @@ export class AcpTurnDriver {
     const entries = this.window.slice(0, 1);
     const blocks = structuredClone(entries[0].blocks);
     const texts = blocks.filter((block) => block.type === 'text').map((block) => block.text);
-    const flight: InFlightTurn = { entries, turnId: null };
+    const flight: InFlightTurn = { entries };
     this.state = 'submitted';
     this.inFlight = flight;
     const bundle: AcpTurnBundle = {
@@ -206,7 +191,7 @@ export class AcpTurnDriver {
 
   private async completeTurn(flight: InFlightTurn, stopReason: string | null): Promise<void> {
     try {
-      await this.options.commit(flight.turnId, stopReason);
+      await this.options.commit(stopReason);
     } catch (error) {
       if (this.closed || this.inFlight !== flight) return;
       // The runtime completed but persistence failed. Never resend its input.
@@ -220,7 +205,7 @@ export class AcpTurnDriver {
     this.inFlight = null;
     this.state = 'idle';
     this.window.splice(0, flight.entries.length);
-    const outcome: AcpTurnOutcome = { turnId: flight.turnId, stopReason };
+    const outcome: AcpTurnOutcome = { stopReason };
     for (const entry of flight.entries) entry.waiter.resolve(outcome);
     if (stopReason !== 'cancelled') this.flush();
   }

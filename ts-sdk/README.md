@@ -318,6 +318,35 @@ to build the launch env.
 
 Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 
+### ACP v2 conversation operations
+
+The Backend `/ws/acp` surface accepts v2 clients only. Runtime legs negotiate
+their own v1/v2 version; frontend code must not downgrade to a v1 prompt contract.
+The SDK uses `@agentclientprotocol/sdk` 1.5.0's experimental v2 profile.
+
+```typescript
+const acp = await agent.acpConnect({ onUpdate: handleSessionUpdate });
+const { sessionId } = await acp.newSession({ cwd: '/home/node' });
+const accepted = await acp.submitPrompt(sessionId, [{ type: 'text', text: '  /plan\n' }]);
+// accepted.messageId is durable conversation insertion, NOT execution.
+await acp.resumeSession(sessionId, { replayFrom: { type: 'start' } });
+await acp.cancel(sessionId); // standard notification; never a replacement prompt
+```
+
+`prompt()` requires authoritative completion evidence, separate from admission.
+`Agent.acpConnect()` supplies the existing `SessionsAPI.getPromptCompletion`
+reader. Direct `CodingAgentAcpClient.connect()` callers must supply
+`getPromptCompletion(sessionId, messageId)` or use `submitPrompt` instead.
+The reader matches the accepted ID, stored user sequence, agent and terminal
+record through the existing history endpoint. Idle only triggers that check:
+older queued work's idle cannot complete this input. Missing evidence fails
+truthfully; error notices/disconnects also reject without resending. An optional
+local `onAccepted` callback exposes the insertion acknowledgement before completion.
+
+Messages retain standard ID-based append, replacement, omission and clear
+semantics. Platform source/title/detail and reader receipts remain on REST.
+Unknown legacy workspace setup is not guessed into ACP catalog entries.
+
 ### Managed Coding Agents and Buzz ACP
 
 Native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code use
@@ -357,8 +386,6 @@ await agent.auth.logout();
 
 The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
 runtime. Do not copy an account API key into the launch environment.
-Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;
-other Buzz-hosted coding runtimes do not receive that native-only variable.
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and
@@ -372,8 +399,8 @@ logout command through this SDK surface.
 All seven runtimes launch through one helper, `createCodingAgent(runtime,
 ...)` — `buzz-agent`, `opencode`, `codex`, `claude-code`, `goose`,
 `kimi-code`, and `pi`. Set
-the typed `buzz` object to derive the canonical child command, arguments, MCP
-command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
+the typed `buzz` object to derive the canonical child command, arguments,
+lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
 Buzz launches keep the runtime's normal default image; only native Buzz
@@ -406,11 +433,10 @@ reports `stopping`, completes runtime cleanup, marks the deployment `stopped`,
 and releases its slot. Desktop receives no provider acknowledgement and keeps
 its local deployed record.
 
-Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
-`agent_message_chunk` is activity telemetry rather than a channel reply. There
-is no plaintext fallback; a visible reply requires the agent to invoke the Buzz
-send command/tool. The six-runtime SDK coverage validates request rendering,
-not live launches.
+Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout and there is no
+plaintext fallback; the hosted connector auto-publishes completed assistant
+text to the channel (see `docs/agents/buzz.mdx` → “Message behavior”). The
+six-runtime SDK coverage validates request rendering, not live launches.
 
 The agent nsec and caller environment become raw deployment environment values.
 The HyperClaw backend currently persists them in `Agent.launch_config`, and

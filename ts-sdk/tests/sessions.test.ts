@@ -54,6 +54,44 @@ const messageRow = {
   completed_at: '2026-09-26T08:30:07+00:00',
 };
 
+describe('exact prompt completion evidence', () => {
+  const input = { ...messageRow, seq: 7, role: 'user', participant_kind: 'user', participant_id: USER_ID,
+    acp: { type: 'user_message', messageId: 'accepted', agentId: AGENT_ID } };
+  const terminal = { ...messageRow, seq: 9, acp: { type: 'turn_result', messageSeq: 7 } };
+
+  it('joins across pages by accepted ID, input seq and agent, not a contiguous cursor', async () => {
+    const http = { get: vi.fn().mockResolvedValueOnce({ items: [terminal], has_more: true, next_cursor: 'older' })
+      .mockResolvedValueOnce({ items: [input], has_more: false }) };
+    expect(await new SessionsAPI(http as never).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toEqual({ stopReason: 'end_turn' });
+    expect(http.get.mock.calls).toEqual([
+      [`/sessions/${SESSION_ID}/messages`, { limit: 100 }],
+      [`/sessions/${SESSION_ID}/messages`, { limit: 100, cursor: 'older' }],
+    ]);
+  });
+
+  it.each([
+    ['uncompleted input', { completed_at: null }, {}],
+    ['other input ID', { acp: { ...input.acp, messageId: 'other' } }, {}],
+    ['other input leg', { acp: { ...input.acp, agentId: 'other' } }, {}],
+    ['other session input', { session_id: 'other' }, {}],
+    ['assistant input', { role: 'assistant' }, {}],
+    ['uncompleted terminal', {}, { completed_at: null }],
+    ['other terminal seq', {}, { acp: { ...terminal.acp, messageSeq: 8 } }],
+    ['other terminal leg', {}, { participant_id: 'other' }],
+    ['other terminal session', {}, { session_id: 'other' }],
+    ['no stop reason', {}, { stop_reason: null }],
+  ])('rejects %s', async (_name, inputPatch, terminalPatch) => {
+    const http = fakeHttp({ items: [{ ...terminal, ...terminalPatch }, { ...input, ...inputPatch }], has_more: false });
+    expect(await new SessionsAPI(http as never).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toBeNull();
+  });
+
+  it('stops on a repeated opaque cursor without inventing evidence', async () => {
+    const http = fakeHttp({ items: [terminal], has_more: true, next_cursor: 'same' });
+    expect(await new SessionsAPI(http as never).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toBeNull();
+    expect(http.get).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('session detail HTTP contract', () => {
   afterEach(() => vi.unstubAllGlobals());
 

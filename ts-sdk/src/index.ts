@@ -426,21 +426,17 @@ export {
 export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
+  CodingAgentAcpObservationError,
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
   ACP_RECONNECT_DELAYS_MS,
   type CodingAgentAcpConnectOptions,
   type CodingAgentAcpProtocolVersion,
+  type CodingAgentAcpPromptResult,
   type CodingAgentAcpTransport,
   type AcpReplayFrom,
   type CodingAgentAcpTarget,
-  ACP_TURN_STARTED_METHOD,
-  ACP_TURN_ENDED_METHOD,
-  type CodingAgentAcpTurnId,
-  type CodingAgentAcpTurnStartedEvent,
-  type CodingAgentAcpTurnEndedEvent,
-  type CodingAgentAcpTurnEvent,
 } from './acp.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 export { defaultAcpProxyWsUrl } from './agent-urls.js';
