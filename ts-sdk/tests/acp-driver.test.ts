@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { AcpTurnDriver } from '../src/acp-driver.js';
 import {
   type CodingAgentAcpClient,
-  type CodingAgentAcpTurnEvent,
-  type CodingAgentAcpTurnId,
   type ContentBlock,
 } from '../src/acp.js';
 
@@ -38,8 +36,8 @@ interface RecordedPrompt {
 /**
  * Structural stand-in for CodingAgentAcpClient: records prompts (each held
  * until the test settles it — the prompt response is the ONLY turn-end
- * evidence), records outbound notifications (must stay empty: no acks on the
- * wire), and replays registered turn-event listeners for frame-injection.
+ * evidence) and outbound notifications (must stay empty: no acks on the
+ * wire).
  */
 class FakeAcpClient {
   public readonly prompts: RecordedPrompt[] = [];
@@ -47,7 +45,6 @@ class FakeAcpClient {
   /** When set, the next prompt() rejects with this error (AmbiguousDelivery fence). */
   public promptFailure: Error | null = null;
   private readonly gates: { resolve(response: { stopReason: string }): void }[] = [];
-  private readonly turnListeners = new Set<(event: CodingAgentAcpTurnEvent) => void>();
 
   prompt(sessionId: string, blocks: ContentBlock[]): Promise<{ stopReason: string }> {
     this.prompts.push({ sessionId, blocks });
@@ -61,7 +58,7 @@ class FakeAcpClient {
     return gate.promise;
   }
 
-  /** Settle prompt `index`'s RPC response — this, not a frame, completes the turn. */
+  /** Settle prompt `index`'s RPC response — the only turn-end evidence. */
   resolvePrompt(index: number, stopReason = 'end_turn'): void {
     this.gates[index].resolve({ stopReason });
   }
@@ -70,31 +67,12 @@ class FakeAcpClient {
     this.notifications.push({ method, params });
     return Promise.resolve();
   }
-
-  onTurnEvent(listener: (event: CodingAgentAcpTurnEvent) => void): () => void {
-    this.turnListeners.add(listener);
-    return () => {
-      this.turnListeners.delete(listener);
-    };
-  }
-
-  emit(event: CodingAgentAcpTurnEvent): void {
-    for (const listener of [...this.turnListeners]) listener(event);
-  }
-
-  turnStarted(turnId: CodingAgentAcpTurnId, sessionId = SESSION_ID): void {
-    this.emit({ kind: 'turn_started', sessionId, turnId });
-  }
-
-  turnEnded(turnId: CodingAgentAcpTurnId, stopReason = 'end_turn', sessionId = SESSION_ID): void {
-    this.emit({ kind: 'turn_ended', sessionId, turnId, stopReason });
-  }
 }
 
 interface DriverHarness {
   client: FakeAcpClient;
   driver: AcpTurnDriver;
-  commits: { turnId: CodingAgentAcpTurnId | null; stopReason: string }[];
+  commits: { stopReason: string | null }[];
   errors: Error[];
   bundles: string[][];
   /** Hold the durable-commit hook until the test resolves it. */
@@ -109,8 +87,8 @@ function makeDriver(options: { commitFailure?: Error } = {}): DriverHarness {
   let gate: ReturnType<typeof deferred> | null = null;
   const driver = new AcpTurnDriver(client as unknown as CodingAgentAcpClient, {
     sessionId: SESSION_ID,
-    commit: async (turnId, stopReason) => {
-      commits.push({ turnId, stopReason });
+    commit: async (stopReason) => {
+      commits.push({ stopReason });
       if (options.commitFailure) throw options.commitFailure;
       if (gate) await gate.promise;
     },
@@ -146,8 +124,8 @@ describe('AcpTurnDriver', () => {
     // The submit promise pends until the RPC response arrives and commits.
     harness.client.resolvePrompt(0);
     const outcome = await submitted;
-    expect(outcome).toEqual({ turnId: null, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    expect(outcome).toEqual({ stopReason: 'end_turn' });
+    expect(harness.commits).toEqual([{ stopReason: 'end_turn' }]);
     expect(harness.driver.turnState).toBe('idle');
     expect(harness.driver.pendingCount).toBe(0);
     // No ack frames exist on the wire contract.
@@ -158,7 +136,6 @@ describe('AcpTurnDriver', () => {
   it('serializes mid-turn submissions into distinct prompts, in order', async () => {
     const harness = makeDriver();
     const first = harness.driver.submit('first');
-    harness.client.turnStarted(11);
 
     const second = harness.driver.submit('second');
     const third = harness.driver.submit('third');
@@ -168,23 +145,21 @@ describe('AcpTurnDriver', () => {
     expect(harness.driver.turnState).toBe('submitted');
     expect(harness.driver.pendingCount).toBe(3);
 
-    // The frame bound the turnId but did not complete the turn — the
-    // prompt response does.
     harness.client.resolvePrompt(0);
     await waitFor(() => harness.client.prompts.length === 2);
 
-    expect(await first).toEqual({ turnId: null, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    expect(await first).toEqual({ stopReason: 'end_turn' });
+    expect(harness.commits).toEqual([{ stopReason: 'end_turn' }]);
     expect(harness.client.prompts[1].blocks).toEqual([
       { type: 'text', text: 'second' },
     ]);
     expect(harness.driver.pendingCount).toBe(2);
 
     harness.client.resolvePrompt(1);
-    expect(await second).toEqual({ turnId: null, stopReason: 'end_turn' });
+    expect(await second).toEqual({ stopReason: 'end_turn' });
     expect(harness.client.prompts[2].blocks).toEqual([{ type: 'text', text: 'third' }]);
     harness.client.resolvePrompt(2);
-    expect(await third).toEqual({ turnId: null, stopReason: 'end_turn' });
+    expect(await third).toEqual({ stopReason: 'end_turn' });
     expect(harness.driver.pendingCount).toBe(0);
     expect(harness.driver.turnState).toBe('idle');
     harness.driver.close();
@@ -200,7 +175,7 @@ describe('AcpTurnDriver', () => {
     // must not advance and the follow-up must not flush before commit lands.
     harness.client.resolvePrompt(0);
     await tick();
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    expect(harness.commits).toEqual([{ stopReason: 'end_turn' }]);
     expect(harness.client.prompts).toHaveLength(1);
     expect(harness.driver.pendingCount).toBe(2);
     expect(harness.driver.turnState).not.toBe('idle');
@@ -233,12 +208,12 @@ describe('AcpTurnDriver', () => {
     const queued = harness.driver.submit('queued while running');
 
     harness.client.resolvePrompt(0, 'cancelled');
-    expect(await active).toEqual({ turnId: null, stopReason: 'cancelled' });
+    expect(await active).toEqual({ stopReason: 'cancelled' });
     await tick();
     expect(harness.client.prompts).toHaveLength(1);
     expect(harness.driver.pendingCount).toBe(1);
 
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'cancelled' }]);
+    expect(harness.commits).toEqual([{ stopReason: 'cancelled' }]);
     const explicit = harness.driver.submit('explicit new input');
     expect(harness.client.prompts[1].blocks).toEqual([
       { type: 'text', text: 'queued while running' },
@@ -281,41 +256,17 @@ describe('AcpTurnDriver', () => {
 
     // The real response arrives whenever it arrives: commit + settle normally.
     harness.client.resolvePrompt(0);
-    expect(await submitted).toEqual({ turnId: null, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    expect(await submitted).toEqual({ stopReason: 'end_turn' });
+    expect(harness.commits).toEqual([{ stopReason: 'end_turn' }]);
     expect(harness.driver.turnState).toBe('idle');
     expect(harness.driver.pendingCount).toBe(0);
-    harness.driver.close();
-  });
-
-  it('private frames cannot change state, bind identifiers, or complete a turn', async () => {
-    const harness = makeDriver();
-    const submitted = harness.driver.submit('framed turn');
-    harness.client.turnStarted(42);
-    expect(harness.driver.turnState).toBe('submitted');
-    expect(harness.driver.currentTurnId).toBe(null);
-
-    // turn_ended from a future pod: confirmation, not completion.
-    harness.client.turnEnded(42, 'end_turn');
-    await tick();
-    expect(harness.commits).toEqual([]);
-    expect(harness.driver.turnState).toBe('submitted');
-    expect(harness.driver.pendingCount).toBe(1);
-
-    // Only the prompt response completes, exactly once, committing the
-    // frame-bound turnId and the response's stopReason.
-    harness.client.resolvePrompt(0);
-    expect(await submitted).toEqual({ turnId: null, stopReason: 'end_turn' });
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
-    expect(harness.driver.turnState).toBe('idle');
-    expect(harness.client.notifications).toEqual([]);
     harness.driver.close();
   });
 
   it('blocks a second in-flight prompt even if submissions race the submitted state', async () => {
     const harness = makeDriver();
     harness.driver.submit('one');
-    // Still `submitted` (no turn_started ever, per the passthrough contract):
+    // Still `submitted` (only the prompt response completes a turn):
     // the window must not flush.
     harness.driver.submit('two');
 
@@ -325,25 +276,11 @@ describe('AcpTurnDriver', () => {
 
     harness.client.resolvePrompt(0);
     await waitFor(() => harness.client.prompts.length === 2);
-    expect(harness.commits).toEqual([{ turnId: null, stopReason: 'end_turn' }]);
+    expect(harness.commits).toEqual([{ stopReason: 'end_turn' }]);
     // Only the head-at-submit bundle advanced; 'two' flushes next (§4.5).
     expect(harness.client.prompts[1].blocks).toEqual([
       { type: 'text', text: 'two' },
     ]);
-    harness.driver.close();
-  });
-
-  it('ignores frames for other sessions', async () => {
-    const harness = makeDriver();
-    harness.driver.submit('mine');
-    harness.client.turnStarted(3, 'someone-else');
-    harness.client.turnEnded(3, 'end_turn', 'someone-else');
-    await tick();
-
-    expect(harness.driver.turnState).toBe('submitted');
-    expect(harness.driver.currentTurnId).toBeNull();
-    expect(harness.commits).toEqual([]);
-    expect(harness.driver.pendingCount).toBe(1);
     harness.driver.close();
   });
 

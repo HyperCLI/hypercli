@@ -8,7 +8,7 @@ import { AcpTurnDriver } from '../src/acp-driver.js';
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function peer() {
+async function peer(withReceipts = true) {
   const frames: Record<string, unknown>[] = [];
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -17,6 +17,7 @@ async function peer() {
   let emit: ((update: v2.SessionUpdate) => Promise<void>) | undefined;
   let messages = 0;
   const updates: Array<Record<string, unknown>> = [];
+  const receipts = new Map<string, { stopReason: string }>();
   server.on('connection', (socket) => {
     const app = v2.agent({ name: 'fixture' })
       .onRequest('initialize', () => ({ protocolVersion: 2, info: { name: 'fixture', version: '1' }, capabilities: { session: {} } }))
@@ -24,6 +25,7 @@ async function peer() {
       .onRequest('session/resume', () => ({}))
       .onRequest('session/list', () => ({ sessions: [{ sessionId: 'opaque/session', cwd: '/workspace' }] }))
       .onRequest('session/close', () => ({}))
+      .onRequest('session/set_config_option', () => ({ configOptions: [] }))
       .onRequest('session/prompt', async ({ params, client }) => {
         const messageId = `user-${++messages}`;
         emit = (update) => client.notify('session/update', { sessionId: params.sessionId, update });
@@ -31,8 +33,11 @@ async function peer() {
           update: { sessionUpdate: 'user_message', messageId, content: params.prompt } });
         await client.notify('session/update', { sessionId: params.sessionId,
           update: { sessionUpdate: 'state_update', state: 'running' } });
-        finish = (stopReason) => client.notify('session/update', { sessionId: params.sessionId,
-          update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
+        finish = (stopReason) => {
+          receipts.set(messageId, { stopReason });
+          return client.notify('session/update', { sessionId: params.sessionId,
+            update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
+        };
         return { messageId };
       })
       .onNotification('session/cancel', async () => { await finish?.('cancelled'); });
@@ -47,7 +52,8 @@ async function peer() {
     cleanup.push(() => connection.close());
   });
   const client = await CodingAgentAcpClient.connect({ url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, token: '' },
-    { onUpdate: (notification) => updates.push(notification.update as unknown as Record<string, unknown>) });
+    { onUpdate: (notification) => updates.push(notification.update as unknown as Record<string, unknown>),
+      ...(withReceipts ? { getPromptCompletion: async (_sid: string, mid: string) => receipts.get(mid) ?? null } : {}) });
   cleanup.push(() => client.close());
   return { client, frames, emit: async (update: v2.SessionUpdate) => { await vi.waitFor(() => expect(emit).toBeDefined()); await emit!(update); },
     finish: async (reason: 'end_turn' | 'cancelled') => {
@@ -57,6 +63,14 @@ async function peer() {
       await vi.waitFor(() => expect(updates.slice(count).some((u) => u.state === 'idle')).toBe(true));
     } };
 }
+
+it('requires an explicit receipt reader for completion, while standard admission remains available', async () => {
+  const { client, frames } = await peer(false);
+  const { sessionId } = await client.newSession({ cwd: '/workspace' });
+  await expect(client.prompt(sessionId, 'not sent')).rejects.toThrow('no per-message completion event');
+  expect(frames.filter((f) => f.method === 'session/prompt')).toHaveLength(0);
+  expect((await client.submitPrompt(sessionId, [{ type: 'text', text: 'accepted' }])).messageId).toBe('user-1');
+});
 
 it('uses the real alpha.5 v2 SDK, preserving input and separating acceptance from foreground completion', async () => {
   const { client, frames, finish } = await peer();
@@ -68,8 +82,11 @@ it('uses the real alpha.5 v2 SDK, preserving input and separating acceptance fro
   expect(accepted).toEqual({ messageId: 'user-1' });
   await finish('end_turn');
   let settled = false;
-  const completed = client.prompt(created.sessionId, blocks).then((result) => { settled = true; return result; });
+  let inserted: string | undefined;
+  const completed = client.prompt(created.sessionId, blocks, { onAccepted: (ack) => { inserted = ack.messageId; } })
+    .then((result) => { settled = true; return result; });
   await vi.waitFor(() => expect(frames.filter((frame) => frame.method === 'session/prompt')).toHaveLength(2));
+  await vi.waitFor(() => expect(inserted).toBe('user-2'));
   expect(settled).toBe(false);
   await finish('end_turn');
   expect(await completed).toEqual({ stopReason: 'end_turn', messageId: 'user-2' });
@@ -89,6 +106,17 @@ it('cancels using the standard notification and waits for cancelled state withou
   expect(frames.filter((frame) => frame.method === 'session/prompt')).toHaveLength(1);
 });
 
+it('sends the standard v2 discriminator through the real SDK config router', async () => {
+  const { client, frames } = await peer();
+  const { sessionId } = await client.newSession({ cwd: '/workspace' });
+  await client.setConfigOption(sessionId, 'mode', 'code');
+  await client.setConfigOption(sessionId, 'confirm', { type: 'boolean', value: false });
+  expect(frames.filter((f) => f.method === 'session/set_config_option').map((f) => f.params)).toEqual([
+    { sessionId, configId: 'mode', type: 'id', value: 'code' },
+    { sessionId, configId: 'confirm', type: 'boolean', value: false },
+  ]);
+});
+
 it('rejects a foreground observation on backend failure notices rather than hanging', async () => {
   const { client, frames, emit } = await peer();
   const { sessionId } = await client.newSession({ cwd: '/workspace' });
@@ -104,10 +132,10 @@ it('does not associate another admission with the next foreground idle', async (
   const { client, emit, frames, finish } = await peer();
   const { sessionId } = await client.newSession({ cwd: '/workspace' });
   const observation = client.prompt(sessionId, 'original');
-  const rejected = expect(observation).rejects.toThrow('Concurrent admission');
+  const rejected = expect(observation).rejects.toThrow('completion receipt');
   await vi.waitFor(() => expect(frames.filter((f) => f.method === 'session/prompt')).toHaveLength(1));
   await emit({ sessionUpdate: 'user_message', messageId: 'another-client', content: [{ type: 'text', text: 'B' }] });
-  await finish('end_turn');
+  await emit({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
   await rejected;
 });
 

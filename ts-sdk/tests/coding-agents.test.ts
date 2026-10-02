@@ -439,11 +439,6 @@ describe('coding agents', () => {
     for (const [key, value] of Object.entries(expectedRuntime.env)) {
       expect(payload.env[key]).toBe(value);
     }
-    for (const key of ['BUZZ_AGENT_REQUIRE_REPLY']) {
-      if (!(key in buzzGolden.common_env) && !(key in expectedRuntime.env)) {
-        expect(payload.env[key]).toBeUndefined();
-      }
-    }
     expect(payload.env.BUZZ_PRIVATE_KEY).toBeUndefined();
     expect(payload.env.NOSTR_PRIVATE_KEY).toBeUndefined();
     expect(payload.secrets).toEqual({
@@ -502,7 +497,6 @@ describe('coding agents', () => {
         relayUrl: 'wss://buzz.example.test',
         model: 'hypercli/kimi-k2.6-anthropic',
         parallelism: 3,
-        requireReply: true,
       },
     });
 
@@ -522,12 +516,10 @@ describe('coding agents', () => {
         BUZZ_ACP_LAZY_POOL: 'true',
         BUZZ_ACP_RELAY_OBSERVER: 'true',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
-        BUZZ_ACP_REQUIRE_REPLY: 'true',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
     });
-    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBeUndefined();
     expect(post.mock.calls[0][1].env.HYPER_ACP_AUTO_APPROVE_PERMISSION).toBeUndefined();
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
@@ -578,8 +570,6 @@ describe('coding agents', () => {
     });
 
     expect(post.mock.calls[0][1].runtime).toBe('buzz-agent');
-    expect(post.mock.calls[0][1].env.BUZZ_ACP_REQUIRE_REPLY).toBe('true');
-    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBe('0');
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {

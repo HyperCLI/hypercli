@@ -432,8 +432,9 @@ inference path.
 Buzz launches keep `sync_root=/home/node` and reserve `/home/node/shared` for
 Workspace projections, and run from the image-managed `/home/node/.buzz` nest.
 The nest is reconciled after the persistent home mount, but prompt delivery
-stays in the ACP session path. `base_prompt.md` remains compiled into the Buzz
-ACP plugin. An explicit `image=` overrides the default.
+stays in the ACP session path. `base_prompt.md` is compiled into the Buzz ACP
+plugin (compiled, not copied to disk). An explicit `image=` overrides the
+default.
 
 The Desktop provider maps structured Goose model/provider fields to
 `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific

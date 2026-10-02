@@ -25,6 +25,8 @@ describe('Config', () => {
   const originalAgentsApiBaseUrl = process.env.AGENTS_API_BASE_URL;
   const originalAgentsWsUrl = process.env.AGENTS_WS_URL;
   const originalHyperHome = process.env.HYPER_HOME;
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -36,6 +38,10 @@ describe('Config', () => {
     delete process.env.AGENTS_API_BASE_URL;
     delete process.env.AGENTS_WS_URL;
     delete process.env.HYPER_HOME;
+    const fakeHome = mkdtempSync(join(tmpdir(), 'hypercli-config-home-'));
+    tempDirs.push(fakeHome);
+    process.env.HOME = fakeHome;
+    process.env.USERPROFILE = fakeHome;
   });
 
   afterEach(() => {
@@ -62,6 +68,12 @@ describe('Config', () => {
 
     if (originalHyperHome === undefined) delete process.env.HYPER_HOME;
     else process.env.HYPER_HOME = originalHyperHome;
+
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
 
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });

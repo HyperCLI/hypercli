@@ -3,6 +3,7 @@
 Backend ASGI -> v1/v2 runtime coverage is in agents/test_acp_v2_pipe.py.
 """
 import asyncio
+import gc
 import json
 from contextlib import asynccontextmanager
 
@@ -59,7 +60,12 @@ class Peer:
         self.hold_initialize = False
         self.hold_close = False
         self.early_close = None
+        self.close_on_upgrade = False
+        self.receipts = {}
         self.echo_after_response = False
+
+    async def completion(self, sid, mid):
+        return self.receipts.get((sid, mid))
 
     async def initialize(self, **kwargs):
         if self.early_close:
@@ -83,7 +89,7 @@ class Peer:
         return v2.schema.CloseSessionResponse()
 
     async def prompt(self, session_id, prompt, **kwargs):
-        self.prompts.append([b.model_dump(by_alias=True, exclude_unset=True) for b in prompt])
+        self.prompts.append([b.model_dump(mode="json", by_alias=True, exclude_unset=True) for b in prompt])
         self.entered.set()
         if self.reject_prompt:
             raise RequestError(-32012, "fixture refusal", {"detail": "retained"})
@@ -95,6 +101,7 @@ class Peer:
             await self.emit(session_id, {"sessionUpdate": "state_update", "state": "running"})
             await self.release.wait()
             await self.emit(session_id, {"sessionUpdate": "agent_message_chunk", "messageId": "answer", "content": {"type": "text", "text": "answer"}})
+            self.receipts[session_id, message_id] = {"stopReason": "cancelled" if self.cancelled else "end_turn"}
             await self.emit(session_id, {"sessionUpdate": "state_update", "state": "idle", "stopReason": "cancelled" if self.cancelled else "end_turn"})
         task = asyncio.create_task(work())
         self.tasks.add(task)
@@ -119,6 +126,9 @@ async def server():
     async def handler(socket):
         peer.socket = socket
         peer.paths.append(socket.request.path)
+        if peer.close_on_upgrade:
+            await socket.close(code=peer.early_close, reason="fixture refusal")
+            return
         await AgentProtocolRouter(v2=factory).run(Transport(socket, peer))
     async with serve(handler, "127.0.0.1", 0) as listener:
         try:
@@ -145,7 +155,7 @@ async def test_v2_handshake_source_and_setup_use_standard_shapes():
 
 @pytest.mark.parametrize("late_echo", [False, True])
 async def test_foreground_waits_for_echo_acceptance_and_idle(late_echo):
-    async with server() as (peer, url), await ACPClient.connect(url, on_update=peer.updates.append) as client:
+    async with server() as (peer, url), await ACPClient.connect(url, on_update=peer.updates.append, get_prompt_completion=peer.completion) as client:
         peer.echo_after_response = late_echo
         sid = await client.new_session(cwd="/workspace")
         blocks = [{"type": "text", "text": "  /compact\n[hypercli conversation context] \n"},
@@ -170,8 +180,17 @@ async def test_submit_accepts_separate_messages_without_waiting_for_idle():
         assert not peer.release.is_set()
 
 
-async def test_cancel_active_never_resubmits():
+async def test_completion_without_receipt_reader_is_refused_before_sending():
     async with server() as (peer, url), await ACPClient.connect(url) as client:
+        sid = await client.new_session(cwd="/workspace")
+        with pytest.raises(ACPError, match="no per-message completion event"):
+            await client.prompt(sid, "not sent")
+        assert peer.prompts == []
+        assert (await client.submit_prompt(sid, "accepted")).message_id
+
+
+async def test_cancel_active_never_resubmits():
+    async with server() as (peer, url), await ACPClient.connect(url, get_prompt_completion=peer.completion) as client:
         sid = await client.new_session(cwd="/workspace")
         task = asyncio.create_task(client.prompt(sid, "stop", timeout=5))
         await peer.entered.wait()
@@ -195,7 +214,7 @@ async def test_runtime_error_preserves_code_message_and_data():
 
 @pytest.mark.parametrize("kind", ["notice", "other_input"])
 async def test_foreground_fails_on_notice_or_competing_admission(kind):
-    async with server() as (peer, url), await ACPClient.connect(url) as client:
+    async with server() as (peer, url), await ACPClient.connect(url, get_prompt_completion=peer.completion) as client:
         sid = await client.new_session(cwd="/workspace")
         task = asyncio.create_task(client.prompt(sid, "A", timeout=5))
         await peer.entered.wait()
@@ -203,13 +222,14 @@ async def test_foreground_fails_on_notice_or_competing_admission(kind):
             await peer.emit(sid, {"sessionUpdate": "notice", "severity": "error", "title": "Runtime refused input"})
         else:
             await peer.emit(sid, {"sessionUpdate": "user_message", "messageId": "other", "content": [{"type": "text", "text": "B"}]})
+            await peer.emit(sid, {"sessionUpdate": "state_update", "state": "idle", "stopReason": "end_turn"})
         with pytest.raises(ACPError):
             await task
         assert len(peer.prompts) == 1
 
 
 async def test_prompt_timeout_never_sends_cancel_or_retries():
-    async with server() as (peer, url), await ACPClient.connect(url) as client:
+    async with server() as (peer, url), await ACPClient.connect(url, get_prompt_completion=peer.completion) as client:
         sid = await client.new_session(cwd="/workspace")
         with pytest.raises(TimeoutError):
             await client.prompt(sid, "once", timeout=.05)
@@ -218,7 +238,7 @@ async def test_prompt_timeout_never_sends_cancel_or_retries():
 
 
 async def test_disconnect_after_acceptance_rejects_foreground_observation():
-    async with server() as (peer, url), await ACPClient.connect(url) as client:
+    async with server() as (peer, url), await ACPClient.connect(url, get_prompt_completion=peer.completion) as client:
         sid = await client.new_session(cwd="/workspace")
         task = asyncio.create_task(client.prompt(sid, "once", timeout=5))
         await peer.entered.wait()
@@ -246,9 +266,11 @@ async def test_silent_initialize_times_out():
 
 
 @pytest.mark.parametrize("code", sorted(ACP_TERMINAL_CLOSE_CODES))
-async def test_terminal_refusal_is_not_retryable(code):
+@pytest.mark.parametrize("immediate", [False, True])
+async def test_terminal_refusal_is_not_retryable(code, immediate):
     async with server() as (peer, url):
         peer.early_close = code
+        peer.close_on_upgrade = immediate
         with pytest.raises(ACPTerminalCloseError) as error:
             await ACPClient.connect(url)
         assert error.value.code == code
@@ -300,3 +322,49 @@ async def test_unknown_standard_request_is_not_silently_served():
         with pytest.raises(RequestError) as error:
             await peer.connected._conn.send_request("fs/read_text_file", {"path": "/tmp/input"})
         assert error.value.code == -32601
+
+
+async def test_reader_failure_racing_write_does_not_leak_duplicate_future_error(monkeypatch):
+    import hypercli.acp as implementation
+    class InterruptedTransport:
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+            self.sending = asyncio.Event()
+            self.fail = asyncio.Event()
+
+        async def send(self, message):
+            if message["method"] == "initialize":
+                await self.incoming.put({"jsonrpc": "2.0", "id": message["id"], "result": {
+                    "protocolVersion": 2, "info": {"name": "fixture", "version": "1"}, "capabilities": {"session": {}}}})
+                return
+            self.sending.set()
+            await self.fail.wait()
+            raise OSError("PRIVATE fixture send failure")
+
+        async def receive(self):
+            return await self.incoming.get()
+
+        async def close(self):
+            self.fail.set()
+
+    transport = InterruptedTransport()
+    async def connect(*args, **kwargs):
+        return transport
+    monkeypatch.setattr(implementation, "create_websocket_stream", connect)
+    diagnostics = []
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _, context: diagnostics.append(context))
+    try:
+        async with await ACPClient.connect("ws://fixture") as client:
+            pending = asyncio.create_task(client.submit_prompt("s", "original"))
+            await transport.sending.wait()
+            await transport.incoming.put(None)
+            await asyncio.sleep(0)
+            transport.fail.set()
+            with pytest.raises(AmbiguousDeliveryError):
+                await pending
+        gc.collect()
+        assert not diagnostics
+    finally:
+        loop.set_exception_handler(previous)

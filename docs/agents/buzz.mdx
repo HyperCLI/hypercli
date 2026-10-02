@@ -240,9 +240,7 @@ Default runtime mapping:
 | Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `/usr/local/bin/goose acp` |
 | Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `/opt/hypercli/bin/kimi acp` |
 
-These absolute child paths are executed verbatim. Codex uses
-`BUZZ_ACP_MCP_COMMAND=/usr/local/lib/acp/buzz/sprig`; native Buzz keeps
-`BUZZ_ACP_MCP_COMMAND=/usr/local/bin/buzz-dev-mcp`. Claude Code also sets
+These absolute child paths are executed verbatim. Claude Code also sets
 `CLAUDE_CODE_EXECUTABLE=/opt/hypercli/bin/claude` so its ACP adapter launches
 the image's bundled Claude executable.
 
@@ -265,7 +263,8 @@ Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
 It creates the standard Buzz directories and skill links without materializing a
 prompt Markdown file into the workspace. Prompt delivery stays in the ACP
-session path; `base_prompt.md` remains compiled into `hyper-acp plugin buzz`.
+session path; `base_prompt.md` is compiled into `hyper-acp plugin buzz`
+(compiled, not copied to disk).
 
 The provider owns the identity, relay, ACP command, response policy, and timeout
 environment. It validates stock Buzz's `turn_timeout_seconds`,
@@ -279,13 +278,10 @@ Use only a trusted immutable image reference.
 ### Message behavior
 
 Stock Buzz delivers inbound conversation events to the remote `buzz-acp`
-harness, but ordinary ACP assistant chunks are activity telemetry—not channel
-messages. Non-JSON child output is skipped; there is no plaintext fallback. A
-runtime must explicitly invoke the Buzz send command/tool, such as
-`buzz messages send`, for the response to appear in chat.
+harness. Non-JSON child output is skipped; there is no plaintext fallback. The
+hosted connector auto-publishes the completed assistant text to the channel—no
+agent-callable send command/tool exists on the hosted lane.
 
-The hosted OpenCode path has connected successfully and explicitly published a
-message. That does not mean arbitrary ACP text is automatically forwarded.
 The default `RUST_LOG` filter sets `acp::stream=off` to keep generated content
 out of centralized container logs. Overriding that filter can expose message
 content.
@@ -368,7 +364,7 @@ workspace ownership, passwordless sudo, and idempotent retry.
 
 It handcrafts the provider request; it does not start the official Buzz Desktop
 binary, send a relay prompt, or prove a Desktop-visible tool response. A real
-Desktop → relay → `buzz-acp` → runtime → explicit send-tool E2E remains a
+Desktop → relay → `buzz-acp` → runtime → published-response E2E remains a
 production acceptance requirement.
 
 ### Security boundaries

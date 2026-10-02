@@ -1,7 +1,34 @@
 ---
 title: hyper memory
-description: Convert captions and documents into OpenClaw-indexable Markdown memory artifacts.
+description: Search hosted ACP session memory (this CLI), or convert captions and documents into OpenClaw-indexable Markdown memory artifacts (Python CLI).
 ---
+
+This page covers two different surfaces that share the `hyper memory` name:
+
+- **Session memory (this CLI)**: `search`, `summary`, `chunks`, `tail`, and
+  `rebuild` query the hosted session-memory API for an agent's ACP sessions.
+- **Local import (Python CLI `hypercli-cli` only)**: `hyper memory import`
+  converts local captions/documents into OpenClaw-indexable Markdown. The
+  TypeScript CLI has no `import` command.
+
+## Session memory
+
+```bash
+hyper memory search <query...> [-s|--session-id ID] [--limit N] [--json]
+hyper memory summary <ID> [--json]
+hyper memory chunks <ID> [--cursor CURSOR] [--limit N] [--json]
+hyper memory tail <ID> [--n N] [--json]
+hyper memory rebuild <ID> [--json]
+```
+
+`search` accepts free-text terms, optionally scoped to one session with
+`--session-id`; `--limit` must be 1-100. `summary` prints a session's summary
+(or its pending state). `chunks` pages a session's summarized chunks, printing
+the next cursor for further pages. `tail` prints the last `--n` messages
+(default 20). `rebuild` triggers the once-per-24h summary rebuild; a rate-limited
+call reports its retry-after delay.
+
+## Import (Python CLI `hypercli-cli`)
 
 `hyper memory import` is primarily local file preparation. It accepts one file
 or recursively discovers supported files in a directory:
@@ -12,8 +39,6 @@ or recursively discovers supported files in a directory:
 Install document parsers with `pip install "hypercli-cli[documents]"` before
 importing PDF, DOCX, or EPUB sources. Plain text/Markdown and caption support do
 not require that extra.
-
-## Import
 
 `--collection` is required and selects a path below the memory root:
 

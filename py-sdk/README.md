@@ -340,35 +340,47 @@ Reads work offline without runtime connections or receipt advancement. HTTP
 errors propagate as `APIError`: 404 unknown session, 403 outside participation
 scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occurs.
 
-## ACP Client (coding agent bridge)
+## ACP v2 conversation client
 
-`hypercli.acp.ACPClient` is a minimal async client for the ACP bridge hosted in
-each coding-agent pod: connect, `initialize`, `new_session` / `load_session`
-(gated on the advertised `loadSession` capability), and one-shot `prompt`
-turns with `session/update` notification sinks.
+`hypercli.acp.ACPClient` connects to the backend `/ws/acp` authority using the
+pinned upstream experimental v2 SDK (alpha.5 schema, Git commit
+`9d07d7871ef4b220b8507e15fc4b1560f0950a64`). Install with a Git-enabled pip
+environment; pip provisions the upstream declared `pdm-backend` build prerequisite
+in build isolation. The frontend is v2; runtime leg negotiation belongs to Backend.
 
 ```python
 from hypercli.acp import ACPClient, AmbiguousDeliveryError, RetryableACPError
 
-async with await ACPClient.connect(bridge_url, token=api_key) as acp:
+async with await ACPClient.connect(proxy_url, token=api_key, on_update=handle_update) as acp:
     session_id = await acp.new_session(cwd="/home/node")
-    turn = await acp.prompt(session_id, "Summarize overnight mail")
-    print(turn.stop_reason)
+    accepted = await acp.submit_prompt(session_id, "Summarize overnight mail")
+    print(accepted.message_id)  # conversation insertion, not execution
 ```
 
-Retry classification is first-class: `RetryableACPError` covers pre-prompt
-failures (connect/handshake/initialize/session setup) that are safe to redo,
-while `AmbiguousDeliveryError` marks a transport failure after a prompt frame
-was sent — the turn is never resent, and callers should inspect the agent's
-session state (`session/load`) before re-issuing. There is no auto-reconnect;
-callers own retry semantics.
+Use `resume_session(id, cwd=..., replay=True)` to restore and replay via standard
+ACP, without a private URL attachment prerequisite. `load_session` is a local
+compatibility helper name for that v2 operation; it does not send `session/load`.
+`cancel(id)` sends the standard notification, never a replacement prompt.
 
-SDK parity: the TypeScript SDK ships a full `CodingAgentAcpClient` (reconnect
-backoff, session replay, pooled listeners); this Python module is the one-shot
-counterpart with the same policy; the Rust SDK ships `AcpClient` mirroring the
-Python module's framing, capability gate, and error classification (including
-terminal `AcpError::Closed` on explicit close, mirrored here by
-`ACPClosedError`).
+`prompt(id, blocks, timeout=...)` requires a `get_prompt_completion(session_id,
+message_id)` async callback at connect time. The callback must read authoritative
+completion evidence for that exact insertion. `Deployments.get_prompt_completion`
+does this using the existing paged session-history endpoint, matching the accepted
+ID, user row sequence, target agent and terminal record. Wrap this synchronous
+getter with `asyncio.to_thread` for the async callback.
+
+Idle only triggers verification. If this input has no receipt (for example older
+queued work stopped first, or a v2 runtime provided only acceptance), the helper
+fails rather than guessing success. Without a reader it refuses before sending.
+`submit_prompt` remains standard admission-only and needs no REST reader.
+
+Known pre-write failures raise `RetryableACPError`; uncertain post-write/foreground
+outcomes raise `AmbiguousDeliveryError`. Neither is automatically retried. Protocol
+errors preserve code, message and data through `ACPRequestError`. Metadata and read
+receipts stay on the existing platform REST APIs, not ACP fields or `_meta`.
+
+The TypeScript SDK exposes the same separation as `submitPrompt` versus `prompt`.
+Python is one-shot: it does not reconnect or replay submissions automatically.
 
 ## Error Handling
 

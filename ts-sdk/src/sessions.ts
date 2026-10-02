@@ -185,4 +185,27 @@ export class SessionsAPI {
     );
     return pageFromWire(payload ?? {}, messageFromWire);
   }
+
+  /** Exact Backend completion evidence. Session idle is deliberately not used. */
+  async getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
+    const turns = new Map<number, AcpSessionMessage>();
+    const visited = new Set<string>();
+    let cursor: string | null = null;
+    for (;;) {
+      const page = await this.getMessages(sessionId, { cursor, limit: 100 });
+      for (const row of page.items) {
+        if (row.sessionId !== sessionId) continue;
+        if (row.acp.type === 'turn_result' && row.participantKind === 'agent' && row.participantId === agentId &&
+            typeof row.acp.messageSeq === 'number' && row.completedAt) turns.set(row.acp.messageSeq, row);
+        if (row.acp.type === 'user_message' && row.acp.messageId === messageId && row.acp.agentId === agentId && row.role === 'user') {
+          const terminal = turns.get(row.seq);
+          return row.completedAt && terminal && typeof terminal.stopReason === 'string'
+            ? { stopReason: terminal.stopReason } : null;
+        }
+      }
+      if (!page.hasMore || !page.nextCursor || visited.has(page.nextCursor)) return null;
+      cursor = page.nextCursor;
+      visited.add(cursor);
+    }
+  }
 }
