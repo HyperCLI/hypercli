@@ -24,16 +24,14 @@ const DEFAULT_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 /// Derive the workspaces API base URL from an agents API base URL.
 ///
 /// Mirrors the TypeScript SDK's `deriveWorkspacesApiBase`: an explicit
-/// `HYPER_WORKSPACES_API_BASE` environment override wins, then the given
-/// agents base, then the default agents base. A path ending in `/workspaces`
-/// is kept; a trailing `/agents` segment is replaced; anything else gets
-/// `/workspaces` appended.
+/// `HYPER_WORKSPACES_API_BASE` override (env first, then the config file)
+/// wins, then the given agents base, then the default agents base. A path
+/// ending in `/workspaces` is kept; a trailing `/agents` segment is replaced;
+/// anything else gets `/workspaces` appended.
 pub fn derive_workspaces_api_base(
     agents_api_base: Option<&str>,
 ) -> Result<Url, WorkspacesApiError> {
-    let configured = std::env::var("HYPER_WORKSPACES_API_BASE")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let configured = crate::config::discover_config_value("HYPER_WORKSPACES_API_BASE");
     derive_workspaces_api_base_from(configured.as_deref(), agents_api_base)
 }
 
@@ -822,7 +820,7 @@ impl WorkspacesApiClient {
     }
 
     /// Build a client from an agents API base URL, honoring the
-    /// `HYPER_WORKSPACES_API_BASE` environment override.
+    /// `HYPER_WORKSPACES_API_BASE` env/config-file override.
     pub fn from_agents_api_base(
         agents_api_base: Option<&str>,
         api_key: impl Into<SecretString>,

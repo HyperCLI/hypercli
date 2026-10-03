@@ -35,8 +35,6 @@ app = typer.Typer(help="Manage agent deployments")
 routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
 app.add_typer(routes_app, name="routes")
 console = Console()
-PROD_API_BASE = "https://api.hypercli.com"
-DEV_API_BASE = "https://api.dev.hypercli.com"
 _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
 
@@ -246,15 +244,11 @@ def _get_agent_api_key() -> str:
 
 def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
     """Create a Deployments client using the HyperCLI API key."""
+    from hypercli.config import get_agents_api_base_url, get_agents_ws_url
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
-    api_base = (
-        os.environ.get("AGENTS_API_BASE_URL")
-        or os.environ.get("HYPER_API_BASE")
-        or os.environ.get("HYPERCLI_API_URL")
-        or (DEV_API_BASE if _GLOBAL_DEV else PROD_API_BASE)
-    )
-    resolved_agents_ws_url = agents_ws_url or _GLOBAL_AGENTS_WS_URL or os.environ.get("AGENTS_WS_URL")
+    api_base = get_agents_api_base_url(dev=_GLOBAL_DEV)
+    resolved_agents_ws_url = agents_ws_url or _GLOBAL_AGENTS_WS_URL or get_agents_ws_url(dev=_GLOBAL_DEV)
     http = HTTPClient(api_base, api_key)
     return Deployments(http, api_key=api_key, api_base=api_base, agents_ws_url=resolved_agents_ws_url)
 

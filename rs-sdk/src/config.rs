@@ -240,16 +240,108 @@ fn discover_api_base(
     env: &BTreeMap<String, String>,
     file_config: &BTreeMap<String, String>,
 ) -> Result<Url, ConfigError> {
-    let configured_base = first_nonempty([
-        env.get("AGENTS_API_BASE_URL"),
-        file_config.get("AGENTS_API_BASE_URL"),
-        env.get("HYPER_API_BASE"),
-        file_config.get("HYPER_API_BASE"),
-        env.get("HYPERCLI_API_URL"),
-        file_config.get("HYPERCLI_API_URL"),
-    ])
-    .unwrap_or(DEFAULT_AGENTS_API_BASE);
+    // Strict derive-only: the agents API base is derived from the product
+    // API base (HYPER_API_BASE), never from legacy agents-specific overrides.
+    let configured_base = first_nonempty([env.get("HYPER_API_BASE"), file_config.get("HYPER_API_BASE")])
+        .unwrap_or(DEFAULT_AGENTS_API_BASE);
     normalize_agents_api_base(configured_base)
+}
+
+/// Env-then-config-file lookup for feature-specific base-URL overrides,
+/// mirroring the py/ts `get_config_value` precedence.
+pub fn discover_config_value(key: &str) -> Option<String> {
+    if let Ok(value) = std::env::var(key) {
+        let value = value.trim();
+        if !value.is_empty() {
+            return Some(value.to_owned());
+        }
+    }
+    let env: BTreeMap<String, String> = std::env::vars().collect();
+    let config_dir = config_dir_from_home(&env, dirs::home_dir().as_deref())?;
+    load_kv_file(&config_dir.join("config"))
+        .ok()?
+        .get(key)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+pub const DEFAULT_AGENTS_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
+const DEV_AGENTS_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
+
+/// Normalize an agents WebSocket URL: http(s) schemes map to ws(s), and a
+/// missing `/ws` path suffix is appended. Mirrors the Python SDK's
+/// `_normalize_agents_ws_url` (agents.py) and ts-sdk `normalizeAgentsWsUrl`.
+pub fn normalize_agents_ws_url(raw: &str) -> Result<Url, ConfigError> {
+    let input = raw.trim();
+    if input.is_empty() {
+        return Err(ConfigError::InvalidApiBase);
+    }
+    let mut url = Url::parse(input).map_err(|_| ConfigError::InvalidApiBase)?;
+    match url.scheme() {
+        "https" => url.set_scheme("wss").map_err(|_| ConfigError::InvalidApiBase)?,
+        "http" => url.set_scheme("ws").map_err(|_| ConfigError::InvalidApiBase)?,
+        "wss" | "ws" => {}
+        _ => return Err(ConfigError::InvalidApiBase),
+    }
+    let path = url.path().trim_end_matches('/');
+    let path = if path.ends_with("/ws") { path.to_owned() } else { format!("{path}/ws") };
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+/// Default agents WebSocket URL for an agents API base: alias hosts map to
+/// the fixed agents WS hosts; anything else is scheme-swapped and `/ws`
+/// suffixed. Mirrors py `_default_agents_ws_url` / ts `defaultAgentsWsUrl`.
+fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
+    let host = api_base.host_str().unwrap_or_default().to_ascii_lowercase();
+    let netloc = match api_base.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    };
+    if matches!(
+        netloc.as_str(),
+        "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
+    ) {
+        return Url::parse(DEFAULT_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
+    }
+    if matches!(
+        netloc.as_str(),
+        "api.agents.dev.hypercli.com"
+            | "api.dev.hypercli.com"
+            | "api.dev.hyperclaw.app"
+            | "dev-api.hyperclaw.app"
+    ) {
+        return Url::parse(DEV_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
+    }
+    normalize_agents_ws_url(api_base.as_str())
+}
+
+/// Resolve the agents WebSocket URL from env and HyperCLI data-dir config
+/// (derive-only; there is no `AGENTS_WS_URL` override), mirroring
+/// [`discover_agents_api_base`].
+pub fn discover_agents_ws_url() -> Result<Url, ConfigError> {
+    let env: BTreeMap<String, String> = std::env::vars().collect();
+    discover_agents_ws_url_from(&env, dirs::home_dir().as_deref())
+}
+
+/// Path-parameterized variant of [`discover_agents_ws_url`].
+pub fn discover_agents_ws_url_from(
+    env: &BTreeMap<String, String>,
+    home: Option<&Path>,
+) -> Result<Url, ConfigError> {
+    let config_dir = config_dir_from_home(env, home);
+    discover_agents_ws_url_from_config_dir(env, config_dir.as_deref())
+}
+
+/// Resolve the agents WebSocket URL using a HyperCLI data directory directly.
+pub fn discover_agents_ws_url_from_config_dir(
+    env: &BTreeMap<String, String>,
+    config_dir: Option<&Path>,
+) -> Result<Url, ConfigError> {
+    let api_base = discover_agents_api_base_from_config_dir(env, config_dir)?;
+    default_agents_ws_url(&api_base)
 }
 
 fn first_nonempty<'a>(values: impl IntoIterator<Item = Option<&'a String>>) -> Option<&'a str> {
@@ -462,8 +554,31 @@ mod tests {
 
         let config = discover_client_config_from(&env, Some(temp.path())).unwrap();
         assert_eq!(config.api_key.expose_secret(), "env-key");
-        assert_eq!(config.api_base.as_str(), "http://env.test/base/agents");
+        // Strict derive-only: legacy agents overrides are ignored entirely.
+        assert_eq!(config.api_base.as_str(), DEFAULT_AGENTS_API_BASE);
         assert_eq!(config.trace_file, None);
+    }
+
+    #[test]
+    fn api_base_derives_from_product_base_env_then_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=file-key\nHYPER_API_BASE=http://file.test/base\n",
+        )
+        .unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(config.api_base.as_str(), "http://file.test/base/agents");
+
+        let env = BTreeMap::from([(
+            "HYPER_API_BASE".to_owned(),
+            "https://api.dev.hypercli.com".to_owned(),
+        )]);
+        let config = discover_client_config_from(&env, Some(temp.path())).unwrap();
+        assert_eq!(config.api_base.as_str(), "https://api.dev.hypercli.com/agents");
     }
 
     #[test]
@@ -500,7 +615,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join(".hypercli");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("config"), "AGENTS_API_BASE_URL=http://file.test\n").unwrap();
+        fs::write(dir.join("config"), "HYPER_API_BASE=http://file.test\n").unwrap();
 
         let base = discover_agents_api_base_from(&BTreeMap::new(), Some(temp.path())).unwrap();
         assert_eq!(base.as_str(), "http://file.test/agents");
@@ -509,12 +624,75 @@ mod tests {
     #[test]
     fn discovers_agents_api_base_from_env_without_home() {
         let env = BTreeMap::from([(
-            "AGENTS_API_BASE_URL".to_owned(),
+            "HYPER_API_BASE".to_owned(),
             "http://env.test/base".to_owned(),
         )]);
 
         let base = discover_agents_api_base_from(&env, None).unwrap();
         assert_eq!(base.as_str(), "http://env.test/base/agents");
+    }
+
+    #[test]
+    fn legacy_agents_overrides_are_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "AGENTS_API_BASE_URL=http://file.test\nHYPERCLI_API_URL=http://legacy.test\n",
+        )
+        .unwrap();
+        let env = BTreeMap::from([
+            ("AGENTS_API_BASE_URL".to_owned(), "http://env.test/base".to_owned()),
+            ("AGENTS_WS_URL".to_owned(), "wss://env.test/ws".to_owned()),
+        ]);
+
+        let base = discover_agents_api_base_from(&env, Some(temp.path())).unwrap();
+        assert_eq!(base.as_str(), DEFAULT_AGENTS_API_BASE);
+        let ws = discover_agents_ws_url_from(&env, Some(temp.path())).unwrap();
+        assert_eq!(ws.as_str(), DEFAULT_AGENTS_WS_URL);
+    }
+
+    #[test]
+    fn discovers_agents_ws_url_derived_from_product_base() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config"), "HYPER_API_BASE=https://api.dev.hypercli.com\n").unwrap();
+
+        let ws = discover_agents_ws_url_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(ws.as_str(), "wss://api.agents.dev.hypercli.com/ws");
+
+        let env = BTreeMap::from([(
+            "HYPER_API_BASE".to_owned(),
+            "http://127.0.0.1:8787".to_owned(),
+        )]);
+        let ws = discover_agents_ws_url_from(&env, Some(temp.path())).unwrap();
+        assert_eq!(ws.as_str(), "ws://127.0.0.1:8787/agents/ws");
+    }
+
+    #[test]
+    fn agents_ws_url_defaults_to_agents_host() {
+        let ws = discover_agents_ws_url_from(&BTreeMap::new(), None).unwrap();
+        assert_eq!(ws.as_str(), DEFAULT_AGENTS_WS_URL);
+    }
+
+    #[test]
+    fn normalize_agents_ws_url_swaps_scheme_and_appends_ws_suffix() {
+        assert_eq!(
+            normalize_agents_ws_url("https://example.com/agents").unwrap().as_str(),
+            "wss://example.com/agents/ws"
+        );
+        assert_eq!(
+            normalize_agents_ws_url("http://127.0.0.1:8787/agents").unwrap().as_str(),
+            "ws://127.0.0.1:8787/agents/ws"
+        );
+        assert_eq!(
+            normalize_agents_ws_url("wss://example.com/agents/ws/").unwrap().as_str(),
+            "wss://example.com/agents/ws"
+        );
+        assert!(normalize_agents_ws_url("").is_err());
+        assert!(normalize_agents_ws_url("ftp://example.com/ws").is_err());
     }
 
     #[test]

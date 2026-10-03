@@ -8,6 +8,7 @@ import {
   getApiUrl,
   getAgentsApiBaseUrl,
   getAgentsApiBaseUrlFromProductBase,
+  getAgentsAdminApiBaseUrlFromProductBase,
   getAgentsWsUrl,
   getAgentsWsUrlFromProductBase,
   getWsUrl,
@@ -159,23 +160,45 @@ describe('Config', () => {
     expect(getAgentsWsUrl(true)).toBe('wss://api.agents.dev.hypercli.com/ws');
   });
 
-  it('should respect agents env overrides', () => {
+  it('ignores legacy override envs; only HYPER_API_BASE steers resolution', () => {
     process.env.AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
     process.env.AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
+    process.env.HYPERCLI_API_URL = 'https://api.dev.hypercli.com';
+    process.env.HYPERCLI_WS_URL = 'wss://api.dev.hypercli.com';
 
-    expect(getAgentsApiBaseUrl()).toBe('https://api.dev.hypercli.com/agents');
-    expect(getAgentsWsUrl()).toBe('wss://api.agents.dev.hypercli.com/ws');
+    expect(getApiUrl()).toBe(DEFAULT_API_URL);
+    expect(getWsUrl()).toBe('wss://api.hypercli.com');
+    expect(getAgentsApiBaseUrl()).toBe(DEFAULT_AGENTS_API_BASE_URL);
+    expect(getAgentsWsUrl()).toBe(DEFAULT_AGENTS_WS_URL);
   });
 
-  it('should derive agents endpoints from product base when direct base is unset', () => {
+  it('should derive agents endpoints from product base', () => {
     process.env.HYPER_API_BASE = 'https://api.dev.hypercli.com';
 
     expect(getAgentsApiBaseUrl()).toBe('https://api.dev.hypercli.com/agents');
     expect(getAgentsWsUrl()).toBe('wss://api.agents.dev.hypercli.com/ws');
   });
 
+  it('normalizes product bases with lowercase host and no default port', () => {
+    process.env.HYPER_API_BASE = 'HTTPS://API.HYPERCLI.COM:443';
+
+    expect(getApiUrl()).toBe('HTTPS://API.HYPERCLI.COM:443');
+    expect(getAgentsApiBaseUrl()).toBe(DEFAULT_AGENTS_API_BASE_URL);
+    expect(getAgentsWsUrl()).toBe(DEFAULT_AGENTS_WS_URL);
+  });
+
   it('should derive agents endpoints from an explicit product base', () => {
     expect(getAgentsApiBaseUrlFromProductBase('https://api.dev.hypercli.com')).toBe('https://api.dev.hypercli.com/agents');
     expect(getAgentsWsUrlFromProductBase('https://api.dev.hypercli.com')).toBe('wss://api.agents.dev.hypercli.com/ws');
+  });
+
+  it('should derive the agents admin base from an explicit product base', () => {
+    expect(getAgentsAdminApiBaseUrlFromProductBase('')).toBe('https://api.agents.hypercli.com');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('https://api.hypercli.com')).toBe('https://api.agents.hypercli.com');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('https://api.hypercli.com/api')).toBe('https://api.agents.hypercli.com');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('https://api.dev.hypercli.com')).toBe('https://api.agents.dev.hypercli.com');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('https://api.dev.hypercli.com/agents')).toBe('https://api.agents.dev.hypercli.com');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('http://127.0.0.1:8787')).toBe('http://127.0.0.1:8787');
+    expect(getAgentsAdminApiBaseUrlFromProductBase('http://127.0.0.1:8787/api')).toBe('http://127.0.0.1:8787');
   });
 });

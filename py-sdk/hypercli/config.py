@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 def _hyper_home() -> Path:
     configured = os.getenv("HYPER_HOME", "").strip()
@@ -30,6 +30,8 @@ DEFAULT_AGENTS_API_BASE_URL = "https://api.hypercli.com/agents"
 DEFAULT_AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+DEFAULT_AGENTS_ADMIN_API_BASE_URL = "https://api.agents.hypercli.com"
+DEV_AGENTS_ADMIN_API_BASE_URL = "https://api.agents.dev.hypercli.com"
 WS_LOGS_PATH = "/orchestra/ws/logs"  # WebSocket path for job logs: {WS_URL}{WS_LOGS_PATH}/{job_key}
 
 # GHCR images
@@ -76,10 +78,7 @@ def get_agent_api_key() -> Optional[str]:
 
 def get_api_url() -> str:
     """Get product API URL."""
-    return (
-        get_config_value("HYPER_API_BASE")
-        or get_config_value("HYPERCLI_API_URL", DEFAULT_API_URL)
-    )
+    return get_config_value("HYPER_API_BASE") or DEFAULT_API_URL
 
 
 def _normalize_agents_api_base(url: str) -> str:
@@ -132,24 +131,17 @@ def _default_agents_ws_url(api_base: str) -> str:
 
 
 def get_ws_url() -> str:
-    """Get WebSocket URL"""
-    ws = get_config_value("HYPERCLI_WS_URL")
-    if ws:
-        return ws
-    # Derive from API URL
+    """Get WebSocket URL, derived from the product API URL."""
     api = get_api_url()
     return api.replace("https://", "wss://").replace("http://", "ws://")
 
 
 def get_agents_api_base_url(dev: bool = False) -> str:
-    """Get HyperClaw agents API base URL."""
+    """Get HyperClaw agents API base URL, derived from the product API base."""
     default = DEV_AGENTS_API_BASE_URL if dev else DEFAULT_AGENTS_API_BASE_URL
-    configured = get_config_value("AGENTS_API_BASE_URL")
-    if configured:
-        return _normalize_agents_api_base(configured)
     if dev:
         return default
-    product_base = get_config_value("HYPER_API_BASE") or get_config_value("HYPERCLI_API_URL")
+    product_base = get_config_value("HYPER_API_BASE")
     if product_base:
         return _normalize_agents_api_base(product_base)
     return default
@@ -161,10 +153,7 @@ def get_agents_api_base_url_from_product_base(product_base: str) -> str:
 
 
 def get_agents_ws_url(dev: bool = False) -> str:
-    """Get HyperClaw agents WebSocket base URL."""
-    ws = get_config_value("AGENTS_WS_URL")
-    if ws:
-        return ws
+    """Get HyperClaw agents WebSocket base URL, derived from the agents API base."""
     return _default_agents_ws_url(get_agents_api_base_url(dev))
 
 
@@ -173,12 +162,36 @@ def get_agents_ws_url_from_product_base(product_base: str) -> str:
     return _default_agents_ws_url(get_agents_api_base_url_from_product_base(product_base))
 
 
-def configure(
-    api_key: str,
-    api_url: str = None,
-    agents_api_base_url: str = None,
-    agents_ws_url: str = None,
-):
+_AGENTS_ADMIN_PROD_HOSTS = {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}
+_AGENTS_ADMIN_DEV_HOSTS = {
+    "api.dev.hypercli.com",
+    "api.dev.hyperclaw.app",
+    "dev-api.hyperclaw.app",
+    "api.agents.dev.hypercli.com",
+}
+
+
+def get_agents_admin_api_base_url_from_product_base(product_base: str) -> str:
+    """Derive the agents admin API base (service-key surface) from a product API base."""
+    raw = (product_base or "").strip()
+    if not raw:
+        return DEFAULT_AGENTS_ADMIN_API_BASE_URL
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    scheme = parsed.scheme or "https"
+    host = parsed.netloc.lower()
+    if host in _AGENTS_ADMIN_PROD_HOSTS:
+        return DEFAULT_AGENTS_ADMIN_API_BASE_URL
+    if host in _AGENTS_ADMIN_DEV_HOSTS:
+        return DEV_AGENTS_ADMIN_API_BASE_URL
+    path = parsed.path.rstrip("/")
+    for suffix in ("/agents/admin", "/agents", "/admin", "/api"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    return urlunsplit((scheme, parsed.netloc, path, "", "")).rstrip("/")
+
+
+def configure(api_key: str, api_url: str = None):
     """Save configuration to ~/.hypercli/config"""
     config_file = _config_file()
     config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -187,10 +200,6 @@ def configure(
     config["HYPER_API_KEY"] = api_key
     if api_url:
         config["HYPER_API_BASE"] = api_url
-    if agents_api_base_url:
-        config["AGENTS_API_BASE_URL"] = agents_api_base_url
-    if agents_ws_url:
-        config["AGENTS_WS_URL"] = agents_ws_url
 
     lines = [f"{k}={v}" for k, v in config.items()]
     config_file.write_text("\n".join(lines) + "\n")
