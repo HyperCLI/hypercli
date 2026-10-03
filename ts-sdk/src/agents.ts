@@ -460,16 +460,6 @@ export interface AgentLogsTokenResponse {
 }
 
 /**
- * Minted by POST /agents/{id}/acp-ws-token: a very short-lived (~60s),
- * agent-scoped ES256 ticket the backend ACP session proxy (`/ws/acp`) accepts
- * on the `token` query param in place of a raw API key or app JWT.
- */
-export interface AgentAcpWsTokenResponse {
-  token: string;
-  expires_at: string;
-}
-
-/**
  * One decoded frame from the agent logs WebSocket.
  *
  * The socket opens with the replayed history as `log` frames, sends
@@ -2092,15 +2082,6 @@ function validateDeploymentEventToken(value: unknown): { token: string; ws_url: 
   return { token: value.token, ws_url: value.ws_url };
 }
 
-function validateAgentAcpWsToken(value: unknown): AgentAcpWsTokenResponse {
-  const invalid = () => new Error('Backend returned an invalid Agent ACP WS token response');
-  if (!isPlainRecord(value)) throw invalid();
-  if (!ownKeysEqual(value, ['expires_at', 'token'])) throw invalid();
-  if (typeof value.token !== 'string' || !value.token) throw invalid();
-  if (typeof value.expires_at !== 'string' || !value.expires_at) throw invalid();
-  return value as unknown as AgentAcpWsTokenResponse;
-}
-
 function validateAgentLogsToken(value: unknown): AgentLogsTokenResponse {
   const invalid = () => new Error('Backend returned an invalid Agent logs token response');
   if (!isPlainRecord(value)) throw invalid();
@@ -2861,11 +2842,10 @@ export class Agent {
    * The `cwd` default is the agent
    * workspace root (the launch's sync root, `/home/node` for coding-agent
    * runtimes, `/home/hermes` for hermes-agent).
-   *
-   * Auth: the dial carries the client API key on the `token` query param;
-   * pass `options.token` (e.g. from `Deployments.mintAcpWsToken`) to dial
-   * with a short-lived, agent-scoped ticket instead.
-   */
+    *
+    * Auth: the dial carries the client API key on the `token` query param;
+    * `options.token` overrides that credential.
+    */
   async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
     this.requireAcpCapable();
     const deployments = this.requireDeployments();
@@ -4931,20 +4911,6 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     return validateAgentLogsToken(await this.agentHttp.post<AgentLogsTokenResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`,
-    ));
-  }
-
-  /**
-   * Mint a very short-lived (~60s), agent-scoped ticket for the ACP session
-   * proxy (`/ws/acp`). Pass the returned `token` as
-   * `acpConnect({ token })` to dial without exposing the raw API key; raw
-   * API-key/JWT credentials remain accepted by the proxy for server-side and
-   * Node consumers.
-   */
-  async mintAcpWsToken(agentIdOrName: string): Promise<AgentAcpWsTokenResponse> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    return validateAgentAcpWsToken(await this.agentHttp.post<AgentAcpWsTokenResponse>(
-      `${DEPLOYMENTS_API_PREFIX}/${agentId}/acp-ws-token`,
     ));
   }
 

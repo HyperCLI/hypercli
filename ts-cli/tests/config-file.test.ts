@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -38,22 +38,6 @@ describe('HYPER_HOME paths', () => {
 
     expect(cliConfigDir()).toContain('.hypercli');
     expect(cliConfigFile()).toContain(join('.hypercli', 'config'));
-  });
-
-  // py-sdk `_hyper_home` tilde-expands the configured HYPER_HOME; mirror it
-  // so the CLI and the py SDK relocate to the same config dir.
-  it('tilde-expands HYPER_HOME like the py SDK', () => {
-    process.env.HYPER_HOME = '~/hyper-data';
-
-    expect(cliConfigDir()).toBe(join(homedir(), 'hyper-data'));
-    expect(cliConfigFile()).toBe(join(homedir(), 'hyper-data', 'config'));
-  });
-
-  it('tilde-expands a bare ~ HYPER_HOME', () => {
-    process.env.HYPER_HOME = '~';
-
-    expect(cliConfigDir()).toBe(homedir());
-    expect(cliConfigFile()).toBe(join(homedir(), 'config'));
   });
 
   it('keeps non-leading tildes in HYPER_HOME literal', () => {

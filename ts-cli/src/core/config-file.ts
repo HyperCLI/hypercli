@@ -5,20 +5,14 @@ import { join } from 'node:path';
 /**
  * CLI config file ($HYPER_HOME/config or ~/.hypercli/config).
  *
- * Only HYPER_API_KEY and HYPER_API_BASE are honored. HYPER_HOME is
- * tilde-expanded to match the py SDK's `_hyper_home`, and retired legacy
- * override keys are scrubbed at save time so stale persisted values cannot
- * shadow the derive-only URL resolution.
+ * Only HYPER_API_KEY and HYPER_API_BASE are honored. HYPER_HOME is used
+ * verbatim (no tilde expansion), matching the rs and py SDKs, and retired
+ * legacy override keys are scrubbed at save time so stale persisted values
+ * cannot shadow the derive-only URL resolution.
  */
-function expandTilde(value: string): string {
-  if (value === '~') return homedir();
-  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homedir(), value.slice(2));
-  return value;
-}
-
 export function cliConfigDir(): string {
   const hyperHome = process.env.HYPER_HOME?.trim();
-  return hyperHome ? expandTilde(hyperHome) : join(homedir(), '.hypercli');
+  return hyperHome || join(homedir(), '.hypercli');
 }
 
 export function cliConfigFile(): string {

@@ -250,31 +250,13 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     expect(proxy.upgrades).toHaveLength(0);
   });
 
-  it('ticket: acpConnect({ token }) dials with the pre-minted ticket, not the API key', async () => {
+  it('acpConnect({ token }) dials with the credential override, not the API key', async () => {
     const proxy = await startProxy();
-    track(await acpAgent(proxy).acpConnect({ token: 'minted-acp-ticket' }));
+    track(await acpAgent(proxy).acpConnect({ token: 'override-credential' }));
 
     const url = proxy.upgradeUrls()[0];
     expect(url.pathname).toBe('/ws/acp');
     expect(url.searchParams.get('agent_id')).toBe(AGENT_ID);
-    expect(url.searchParams.get('token')).toBe('minted-acp-ticket');
-  });
-
-  it('mintAcpWsToken posts to the agent-scoped endpoint and exact-validates the response', async () => {
-    const post = vi.fn().mockResolvedValue({ token: 'ticket-jwt', expires_at: '2026-09-28T00:01:00.000Z' });
-    const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
-      'hyper_api_test',
-      'https://api.test.hypercli.com/agents',
-    );
-
-    const ticket = await deployments.mintAcpWsToken(AGENT_ID);
-    expect(post).toHaveBeenCalledWith(`/deployments/${AGENT_ID}/acp-ws-token`);
-    expect(ticket).toEqual({ token: 'ticket-jwt', expires_at: '2026-09-28T00:01:00.000Z' });
-
-    post.mockResolvedValue({ token: 'ticket-jwt' });
-    await expect(deployments.mintAcpWsToken(AGENT_ID)).rejects.toThrow(/invalid Agent ACP WS token/);
-    post.mockResolvedValue({ token: 'ticket-jwt', expires_at: '2026-09-28T00:01:00.000Z', agent_id: AGENT_ID });
-    await expect(deployments.mintAcpWsToken(AGENT_ID)).rejects.toThrow(/invalid Agent ACP WS token/);
+    expect(url.searchParams.get('token')).toBe('override-credential');
   });
 });
