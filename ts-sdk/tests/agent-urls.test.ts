@@ -4,9 +4,6 @@ import {
   defaultAgentsWsUrl,
   defaultHyperAcpWsUrl,
   DEFAULT_AGENTS_API_BASE_URL,
-  DEFAULT_AGENTS_WS_URL,
-  DEV_AGENTS_API_BASE_URL,
-  DEV_AGENTS_WS_URL,
   normalizeAgentsWsUrl,
   resolveAgentsApiBase,
 } from '../src/agent-urls.js';
@@ -17,26 +14,26 @@ import {
 describe('resolveAgentsApiBase parity with py-sdk', () => {
   it.each([
     // empty / blank input falls back to the prod default
-    ['', DEFAULT_AGENTS_API_BASE_URL],
-    ['   ', DEFAULT_AGENTS_API_BASE_URL],
+    ['', 'https://api.hypercli.com/agents'],
+    ['   ', 'https://api.hypercli.com/agents'],
     // a trailing /agents path is kept verbatim (with slashes collapsed)
-    ['https://api.hypercli.com/agents', DEFAULT_AGENTS_API_BASE_URL],
-    ['https://api.hypercli.com/agents/', DEFAULT_AGENTS_API_BASE_URL],
+    ['https://api.hypercli.com/agents', 'https://api.hypercli.com/agents'],
+    ['https://api.hypercli.com/agents/', 'https://api.hypercli.com/agents'],
     ['https://custom.example.com/agents', 'https://custom.example.com/agents'],
     // a trailing /api path is rewritten to /agents, with agents alias hosts pinned
-    ['https://api.agents.hypercli.com/api', DEFAULT_AGENTS_API_BASE_URL],
-    ['https://api.agents.dev.hypercli.com/api', DEV_AGENTS_API_BASE_URL],
+    ['https://api.agents.hypercli.com/api', 'https://api.hypercli.com/agents'],
+    ['https://api.agents.dev.hypercli.com/api', 'https://api.dev.hypercli.com/agents'],
     ['https://tenant.example.com/api', 'https://tenant.example.com/agents'],
     ['https://tenant.example.com/api/', 'https://tenant.example.com/agents'],
     // bare prod alias hosts map to the prod default
-    ['https://api.hypercli.com', DEFAULT_AGENTS_API_BASE_URL],
-    ['https://api.hyperclaw.app', DEFAULT_AGENTS_API_BASE_URL],
-    ['https://api.agents.hypercli.com', DEFAULT_AGENTS_API_BASE_URL],
+    ['https://api.hypercli.com', 'https://api.hypercli.com/agents'],
+    ['https://api.hyperclaw.app', 'https://api.hypercli.com/agents'],
+    ['https://api.agents.hypercli.com', 'https://api.hypercli.com/agents'],
     // bare dev alias hosts map to the dev default
-    ['https://api.dev.hypercli.com', DEV_AGENTS_API_BASE_URL],
-    ['https://api.agents.dev.hypercli.com', DEV_AGENTS_API_BASE_URL],
-    ['https://api.dev.hyperclaw.app', DEV_AGENTS_API_BASE_URL],
-    ['https://dev-api.hyperclaw.app', DEV_AGENTS_API_BASE_URL],
+    ['https://api.dev.hypercli.com', 'https://api.dev.hypercli.com/agents'],
+    ['https://api.agents.dev.hypercli.com', 'https://api.dev.hypercli.com/agents'],
+    ['https://api.dev.hyperclaw.app', 'https://api.dev.hypercli.com/agents'],
+    ['https://dev-api.hyperclaw.app', 'https://api.dev.hypercli.com/agents'],
     // unknown subdomains of known zones stay custom
     ['https://gateway.hypercli.com', 'https://gateway.hypercli.com/agents'],
     // custom hosts get /agents appended; prefix paths are preserved
@@ -45,7 +42,7 @@ describe('resolveAgentsApiBase parity with py-sdk', () => {
     ['https://staging.internal/v2', 'https://staging.internal/v2/agents'],
     // scheme-less input parses under an implied https://; known hosts still map,
     // custom hosts echo scheme-less like py
-    ['api.hypercli.com', DEFAULT_AGENTS_API_BASE_URL],
+    ['api.hypercli.com', 'https://api.hypercli.com/agents'],
   ])('%j -> %s', (input, expected) => {
     expect(resolveAgentsApiBase(input)).toBe(expected);
   });
@@ -70,12 +67,12 @@ describe('resolveAgentsApiBase shared-normalize hardening', () => {
 
 describe('defaultAgentsWsUrl parity with py-sdk', () => {
   it.each([
-    ['', DEFAULT_AGENTS_WS_URL],
-    ['https://api.hypercli.com', DEFAULT_AGENTS_WS_URL],
-    ['https://api.hyperclaw.app', DEFAULT_AGENTS_WS_URL],
+    ['', 'wss://api.agents.hypercli.com/ws'],
+    ['https://api.hypercli.com', 'wss://api.agents.hypercli.com/ws'],
+    ['https://api.hyperclaw.app', 'wss://api.agents.hypercli.com/ws'],
     ['https://custom.example.com/agents', 'wss://custom.example.com/agents/ws'],
-    ['https://api.dev.hypercli.com', DEV_AGENTS_WS_URL],
-    ['https://dev-api.hyperclaw.app', DEV_AGENTS_WS_URL],
+    ['https://api.dev.hypercli.com', 'wss://api.agents.dev.hypercli.com/ws'],
+    ['https://dev-api.hyperclaw.app', 'wss://api.agents.dev.hypercli.com/ws'],
     ['http://127.0.0.1:8787', 'ws://127.0.0.1:8787/agents/ws'],
     ['https://staging.internal/v2', 'wss://staging.internal/v2/agents/ws'],
   ])('%j -> %s', (input, expected) => {
@@ -85,8 +82,8 @@ describe('defaultAgentsWsUrl parity with py-sdk', () => {
 
 describe('agents ACP ws urls parity with py-sdk', () => {
   it('maps alias hosts to the fixed ACP endpoints', () => {
-    expect(defaultHyperAcpWsUrl('https://api.hypercli.com')).toBe(DEFAULT_AGENTS_WS_URL);
-    expect(defaultHyperAcpWsUrl('https://api.dev.hypercli.com')).toBe(DEV_AGENTS_WS_URL);
+    expect(defaultHyperAcpWsUrl('https://api.hypercli.com')).toBe('wss://api.agents.hypercli.com/ws');
+    expect(defaultHyperAcpWsUrl('https://api.dev.hypercli.com')).toBe('wss://api.agents.dev.hypercli.com/ws');
     expect(defaultAcpProxyWsUrl('https://api.hypercli.com')).toBe('wss://api.agents.hypercli.com/ws/acp');
     expect(defaultAcpProxyWsUrl('https://api.dev.hypercli.com')).toBe('wss://api.agents.dev.hypercli.com/ws/acp');
   });

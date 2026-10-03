@@ -676,15 +676,6 @@ def _default_agents_acp_ws_url(api_base: str) -> str:
     return agents_acp_proxy_ws_url(_normalize_agents_ws_url(raw.removesuffix("/agents")))
 
 
-def _agents_admin_base(api_base: str) -> str:
-    """Service-key admin surface (``/admin/...``); same origin as the agents API."""
-    base = (api_base or "").rstrip("/")
-    suffix = "/agents"
-    if not base.endswith(suffix):
-        raise ValueError(f"agents api base must end with /agents: {api_base!r}")
-    return f"{base[: -len(suffix)]}/admin"
-
-
 MAX_SYNC_OWNER_ID = 4_294_967_294
 REQUIRED_START_LAUNCH_CONFIG_KEYS = frozenset(
     {
@@ -3938,39 +3929,6 @@ class Deployments:
         if cursor is not None:
             params["cursor"] = cursor
         return SessionPage.from_dict(self._get("/sessions", params=params))
-
-    def acp_ws_token(self, agent_id: str) -> dict:
-        """Mint a very short-lived (~60s), agent-scoped ticket for the ACP session
-        proxy (``/ws/acp``). Pass the returned ``token`` as the ``token`` query
-        param on the dial instead of a raw account credential.
-
-        Call shape mirrors ts-sdk ``Deployments.mintAcpWsToken`` but posts
-        through the service-key admin surface — this credential path exists
-        for backend consumers (the routines executor) holding the backend key.
-        """
-        resolved_agent_id = self.resolve_agent_id(agent_id)
-        with httpx.Client(timeout=self._timeout) as client:
-            resp = client.post(
-                f"{_agents_admin_base(self._api_base)}/agents/{resolved_agent_id}/acp-ws-token",
-                headers={**self._headers, "X-BACKEND-API-KEY": self._api_key},
-            )
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json().get("detail", resp.text)
-            except Exception:  # noqa: BLE001 - match _post's detail fallback
-                detail = resp.text
-            raise APIError(resp.status_code, detail)
-        data = resp.json()
-        if (
-            not isinstance(data, dict)
-            or set(data) != {"token", "expires_at"}
-            or not isinstance(data.get("token"), str)
-            or not data["token"]
-            or not isinstance(data.get("expires_at"), str)
-            or not data["expires_at"]
-        ):
-            raise ValueError("Backend returned an invalid Agent ACP WS token response")
-        return data
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
         """Redeem a promo/activation grant code via POST /billing/grants/redeem.

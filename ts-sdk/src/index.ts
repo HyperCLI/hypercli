@@ -357,7 +357,6 @@ export {
   type AttachSlackRelayAgentResult,
   type AgentShellTokenResponse,
   type AgentShellConnectOptions,
-  type AgentAcpWsTokenResponse,
   type AgentCorsConfig,
   type AgentRouteConfig,
   type AgentRoutesState,

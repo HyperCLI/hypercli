@@ -17,8 +17,16 @@ on:
     branches: [main]
   pull_request:
   # Reusable by the mono: its cli-ci.yml collapses the offline gates into a
-  # single `uses:` job against this file.
+  # single `uses:` job against this file. Reusable workflows run in the
+  # caller's context, so every checkout here pins repository+ref explicitly;
+  # the mono passes no input and public CI tracks this repo's main.
   workflow_call:
+    inputs:
+      sha:
+        description: Ref/sha of HyperCLI/hypercli to check out; empty tracks main.
+        type: string
+        required: false
+        default: ""
 
 concurrency:
   group: ci-cli-public-${{ github.ref }}
@@ -42,6 +50,9 @@ jobs:
       smokes: ${{ steps.matrices.outputs.smokes }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
       - name: Expand ts-cli/tests/ci-matrix.json into the group and smoke matrices
         id: matrices
         working-directory: ts-cli
@@ -54,6 +65,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -73,6 +87,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -84,6 +101,13 @@ jobs:
         run: npm ci --prefix ts-cli
       - name: Full vitest suite
         run: npm --prefix ts-cli test
+      # Offline harness for tests/live-lifecycle/{live.sh,lifecycle.sh}: bash
+      # runs the real scripts against a stateful mock CLI; no secrets, no
+      # network. Already covered by the full suite above; pinned as its own
+      # step so drift in vitest include patterns can never silently drop it.
+      - name: Lifecycle shell harness (offline mock)
+        working-directory: ts-cli
+        run: npx vitest run tests/live-lifecycle.test.mjs
 
   # One gate per command group: the group's vitest files plus the bare
   # `node dist/index.js <group> --help` smoke.
@@ -98,6 +122,9 @@ jobs:
         group: ${{ fromJSON(needs.expand.outputs.groups) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -141,6 +168,9 @@ jobs:
         include: ${{ fromJSON(needs.expand.outputs.smokes) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -153,3 +183,70 @@ jobs:
       - name: Offline --help smoke
         working-directory: ts-cli
         run: node dist/index.js ${{ matrix.argv }} > /dev/null
+
+  # ts-sdk vitest suite (the npm test list is offline contract tests only;
+  # tests/integration is live and stays out of CI). Build first:
+  # tests/dist-exports.test.ts imports dist/index.js.
+  ts-sdk-test:
+    name: cli / ts-sdk test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install and build ts-sdk
+        run: |
+          npm ci --prefix ts-sdk
+          npm --prefix ts-sdk run build
+      - name: ts-sdk vitest suite
+        run: npm --prefix ts-sdk test
+
+  # py-sdk + py-cli pytest, offline subset: `-k 'not integration'` drops the
+  # tests/integration trees and integration-named files (live agent lifecycle,
+  # docker wallet migration), `-m 'not integration'` drops marker-only cases.
+  # --import-mode=importlib mirrors each package's pyproject and keeps the
+  # same-named tests/test_exec_shell_dryrun.py in both trees importable.
+  py-test:
+    name: cli / py test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install py-sdk and py-cli (editable, dev extras)
+        # documents/wallet extras: the offline subset still imports pypdf,
+        # python-docx, ebooklib (test_memory_documents) and monkeypatches the
+        # module-level x402Client that only exists when x402 is installed
+        # (test_agent_subscribe_command).
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "py-sdk[dev]"
+          pip install -e "py-cli[dev,documents,wallet]"
+      - name: pytest (charm-free subset)
+        run: pytest -q --import-mode=importlib py-sdk/tests py-cli/tests -k 'not integration' -m 'not integration'
+
+  # rs-sdk cargo test. rs-sdk is the only member of the repo-root workspace;
+  # --locked pins the checked-in Cargo.lock.
+  rs-test:
+    name: cli / rs-sdk test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test
+        working-directory: rs-sdk
+        run: cargo test --locked
