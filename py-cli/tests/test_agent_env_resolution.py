@@ -166,3 +166,44 @@ def test_voice_cli_posts_to_agents_voice_prefix(monkeypatch, tmp_path):
     assert called["api_key"] == "hyper_api_product"
     assert called["kwargs"] == {"text": "hello", "voice": "serena"}
     assert out.read_bytes() == b"audio"
+
+
+def test_agent_admin_base_derives_through_sdk_helper(monkeypatch):
+    """The admin inference base is derived from the product base via the
+    py-sdk LOCKSTEP helper, not a local alias-host fork."""
+    import hypercli_cli.agent as agent
+
+    importlib.reload(agent)
+
+    monkeypatch.delenv("HYPER_API_BASE", raising=False)
+    assert agent._resolve_api_base() == "https://api.agents.hypercli.com"
+    assert agent._resolve_api_base(dev=True) == "https://api.agents.dev.hypercli.com"
+
+    for product_base, admin_base in [
+        ("https://api.hypercli.com", "https://api.agents.hypercli.com"),
+        ("https://api.hyperclaw.app", "https://api.agents.hypercli.com"),
+        ("https://api.hypercli.com:443/agents", "https://api.agents.hypercli.com"),
+        ("HTTPS://API.DEV.HYPERCLI.COM", "https://api.agents.dev.hypercli.com"),
+        ("https://api.dev.hyperclaw.app", "https://api.agents.dev.hypercli.com"),
+        ("https://staging.example.com:8443", "https://staging.example.com:8443"),
+        ("https://staging.example.com/agents", "https://staging.example.com"),
+        ("https://staging.example.com/agents/", "https://staging.example.com"),
+        ("http://127.0.0.1:8787", "http://127.0.0.1:8787"),
+    ]:
+        monkeypatch.setenv("HYPER_API_BASE", product_base)
+        assert agent._resolve_api_base() == admin_base, product_base
+        monkeypatch.delenv("HYPER_API_BASE")
+        assert agent._resolve_api_base(base_url=product_base) == admin_base, product_base
+
+
+def test_py_cli_hyper_home_tilde_is_used_verbatim(monkeypatch):
+    """HYPER_HOME is not tilde-expanded, matching ts-cli and rs-sdk."""
+    monkeypatch.setenv("HYPER_HOME", "~/hyper-tilde-test")
+
+    from pathlib import Path
+
+    from hypercli_cli import paths
+
+    importlib.reload(paths)
+
+    assert paths.hyper_home() == Path("~/hyper-tilde-test")

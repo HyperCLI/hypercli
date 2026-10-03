@@ -2,9 +2,23 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'n
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+/**
+ * CLI config file ($HYPER_HOME/config or ~/.hypercli/config).
+ *
+ * Only HYPER_API_KEY and HYPER_API_BASE are honored. HYPER_HOME is
+ * tilde-expanded to match the py SDK's `_hyper_home`, and retired legacy
+ * override keys are scrubbed at save time so stale persisted values cannot
+ * shadow the derive-only URL resolution.
+ */
+function expandTilde(value: string): string {
+  if (value === '~') return homedir();
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(homedir(), value.slice(2));
+  return value;
+}
+
 export function cliConfigDir(): string {
   const hyperHome = process.env.HYPER_HOME?.trim();
-  return hyperHome || join(homedir(), '.hypercli');
+  return hyperHome ? expandTilde(hyperHome) : join(homedir(), '.hypercli');
 }
 
 export function cliConfigFile(): string {
@@ -51,8 +65,12 @@ export function applyCliConfigFile(): void {
 export function saveCliConfig(apiKey: string, apiBase?: string): void {
   const config = loadCliConfigFile();
   config.HYPER_API_KEY = apiKey;
+  // Drop retired legacy overrides so stale values cannot shadow derive-only
+  // resolution; the file keeps only HYPER_API_KEY / HYPER_API_BASE.
   delete config.HYPERCLI_API_KEY;
   delete config.HYPERCLI_API_URL;
+  delete config.AGENTS_API_BASE_URL;
+  delete config.AGENTS_WS_URL;
 
   if (apiBase) {
     config.HYPER_API_BASE = apiBase;

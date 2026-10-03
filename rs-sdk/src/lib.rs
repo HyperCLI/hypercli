@@ -31,13 +31,14 @@ pub use client::{
     DEFAULT_REQUEST_TIMEOUT, RUNNER_FILE_MAX_BYTES,
 };
 pub use config::{
+    agents_admin_base_url_from_product_base, agents_ws_url_from_product_base,
     discover_agents_api_base, discover_agents_api_base_from,
     discover_agents_api_base_from_config_dir, discover_agents_ws_url, discover_agents_ws_url_from,
     discover_agents_ws_url_from_config_dir, discover_client_config, discover_client_config_from,
     discover_client_config_from_config_dir, normalize_agents_api_base, normalize_agents_ws_url,
     remove_config_api_keys, remove_config_api_keys_in_data_dir, save_api_key,
     save_api_key_in_data_dir, write_config_values, ClientConfig, ConfigError, API_KEY_CONFIG_KEYS,
-    DEFAULT_AGENTS_API_BASE, DEFAULT_AGENTS_WS_URL,
+    DEFAULT_AGENTS_ADMIN_API_BASE, DEFAULT_AGENTS_API_BASE, DEFAULT_AGENTS_WS_URL,
 };
 pub use files::{File, FilesClient};
 pub use instances::{GpuConfig, GpuPricing, GpuType, InstancesClient, PricingTier, Region};

@@ -203,49 +203,35 @@ def test_request_retries_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(calls) == 2
 
 
-def test_dev_bootstrap_uses_canonical_orchestra_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEST_API_BASE_URL", "https://api.dev.hypercli.com")
-    monkeypatch.setenv("ORCHESTRA_API_BASE_URL", "https://api.dev.hypercli.com/api")
-    monkeypatch.delenv("TEST_API_BASE", raising=False)
+@pytest.mark.parametrize(
+    "hyper_api_base",
+    ["https://api.dev.hypercli.com", "https://api.dev.hypercli.com/api"],
+)
+def test_dev_bootstrap_derives_orchestra_api_base_from_product_base(
+    hyper_api_base: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HYPER_API_BASE", hyper_api_base)
 
     product_base = MODULE._configured_product_base()
-    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
-
-    assert product_base == "https://api.dev.hypercli.com"
-    assert orchestra_api_base == "https://api.dev.hypercli.com/api"
-
-
-def test_dev_bootstrap_accepts_legacy_test_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TEST_API_BASE_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRA_API_BASE_URL", raising=False)
-    monkeypatch.setenv("TEST_API_BASE", "https://api.dev.hypercli.com/api")
-
-    product_base = MODULE._configured_product_base()
-    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
+    orchestra_api_base = MODULE._orchestra_api_base(product_base)
 
     assert product_base == "https://api.dev.hypercli.com"
     assert orchestra_api_base == "https://api.dev.hypercli.com/api"
 
 
 @pytest.mark.parametrize(
-    ("configured", "expected"),
+    "product_base",
     [
-        ("https://api.dev.hypercli.com", "https://api.agents.dev.hypercli.com"),
-        ("https://api.dev.hypercli.com/api", "https://api.agents.dev.hypercli.com"),
-        ("https://api.dev.hypercli.com/agents", "https://api.agents.dev.hypercli.com"),
-        ("https://api.dev.hypercli.com/agents/admin", "https://api.agents.dev.hypercli.com"),
-        ("https://api.agents.dev.hypercli.com", "https://api.agents.dev.hypercli.com"),
-        ("https://api.agents.dev.hypercli.com/admin", "https://api.agents.dev.hypercli.com"),
+        "https://api.dev.hypercli.com",
+        "https://api.dev.hypercli.com/api",
+        "https://api.dev.hypercli.com/agents",
+        "https://api.dev.hypercli.com/agents/admin",
+        "https://api.agents.dev.hypercli.com",
+        "https://api.agents.dev.hypercli.com/admin",
     ],
 )
-def test_agents_admin_base_targets_private_admin_host(configured: str, expected: str) -> None:
-    assert (
-        MODULE._normalize_agents_admin_base(
-            configured,
-            product_base="https://api.dev.hypercli.com",
-        )
-        == expected
-    )
+def test_agents_admin_base_targets_private_admin_host(product_base: str) -> None:
+    assert MODULE._agents_admin_base(product_base) == "https://api.agents.dev.hypercli.com"
 
 
 def test_create_or_get_hyperclaw_user_resolves_conflict(monkeypatch: pytest.MonkeyPatch) -> None:

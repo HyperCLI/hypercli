@@ -25,22 +25,30 @@ const DEFAULT_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 ///
 /// Mirrors the TypeScript SDK's `deriveWorkspacesApiBase`: an explicit
 /// `HYPER_WORKSPACES_API_BASE` override (env first, then the config file)
-/// wins, then the given agents base, then the default agents base. A path
-/// ending in `/workspaces` is kept; a trailing `/agents` segment is replaced;
-/// anything else gets `/workspaces` appended.
+/// wins, then the given agents base, then the agents base discovered from
+/// `HYPER_API_BASE` (env first, then the config file), then the prod
+/// default agents base. A path ending in `/workspaces` is kept; a trailing
+/// `/agents` segment is replaced; anything else gets `/workspaces` appended.
 pub fn derive_workspaces_api_base(
     agents_api_base: Option<&str>,
 ) -> Result<Url, WorkspacesApiError> {
     let configured = crate::config::discover_config_value("HYPER_WORKSPACES_API_BASE");
-    derive_workspaces_api_base_from(configured.as_deref(), agents_api_base)
+    let fallback = match configured.as_deref().or(agents_api_base) {
+        Some(_) => None,
+        None => Some(crate::config::discover_agents_api_base()?.to_string()),
+    };
+    derive_workspaces_api_base_from(configured.as_deref(), agents_api_base, fallback.as_deref())
 }
 
 fn derive_workspaces_api_base_from(
     configured: Option<&str>,
     agents_api_base: Option<&str>,
+    fallback_agents_api_base: Option<&str>,
 ) -> Result<Url, WorkspacesApiError> {
     let raw = configured
         .or(agents_api_base)
+        .filter(|base| !base.trim().is_empty())
+        .or(fallback_agents_api_base)
         .unwrap_or(DEFAULT_AGENTS_API_BASE)
         .trim_end_matches('/');
     let with_scheme = if raw.contains("://") {
@@ -68,6 +76,8 @@ pub enum WorkspacesApiError {
     MissingApiKey,
     #[error("workspaces base URL must be an http(s) hierarchical URL")]
     InvalidBaseUrl,
+    #[error("could not resolve the agents API base for workspaces derivation: {0}")]
+    BaseDiscovery(#[from] crate::config::ConfigError),
     #[error("workspaces request could not be sent: {0}")]
     Transport(String),
     #[error("workspaces returned HTTP {status}: {detail}")]
@@ -1530,29 +1540,58 @@ mod tests {
         assert_eq!(
             derive_workspaces_api_base_from(
                 None,
-                Some("https://api.agents.dev.hypercli.com/agents")
+                Some("https://api.agents.dev.hypercli.com/agents"),
+                None,
             )
             .unwrap()
             .as_str(),
             "https://api.agents.dev.hypercli.com/workspaces"
         );
         assert_eq!(
-            derive_workspaces_api_base_from(None, Some("https://example.com/workspaces"))
+            derive_workspaces_api_base_from(None, Some("https://example.com/workspaces"), None)
                 .unwrap()
                 .as_str(),
             "https://example.com/workspaces"
         );
         assert_eq!(
-            derive_workspaces_api_base_from(Some("https://override.example.com/api"), None)
+            derive_workspaces_api_base_from(Some("https://override.example.com/api"), None, None)
                 .unwrap()
                 .as_str(),
             "https://override.example.com/api/workspaces"
         );
         assert_eq!(
-            derive_workspaces_api_base_from(None, None)
+            derive_workspaces_api_base_from(None, None, None)
                 .unwrap()
                 .as_str(),
             "https://api.hypercli.com/workspaces"
+        );
+    }
+
+    #[test]
+    fn workspaces_base_chains_through_discovered_agents_base() {
+        // PR-A parity with ts `deriveWorkspacesApiBase` (whose fallback is
+        // `getAgentsApiBaseUrl()`): without an override or explicit agents
+        // base, a dev-configured product base must not bleed the prod
+        // default into the derivation.
+        assert_eq!(
+            derive_workspaces_api_base_from(
+                None,
+                None,
+                Some("https://api.dev.hypercli.com/agents"),
+            )
+            .unwrap()
+            .as_str(),
+            "https://api.dev.hypercli.com/workspaces"
+        );
+        assert_eq!(
+            derive_workspaces_api_base_from(
+                Some("https://override.example.com/api"),
+                None,
+                Some("https://api.dev.hypercli.com/agents"),
+            )
+            .unwrap()
+            .as_str(),
+            "https://override.example.com/api/workspaces"
         );
     }
 

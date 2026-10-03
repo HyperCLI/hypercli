@@ -1,12 +1,13 @@
-// Expands cli/tests/ci-matrix.json into the smoke job matrix for
-// .github/workflows/cli.yml. Emits a `smokes` output (a bare list of
-// {group, sub, argv} entries) to $GITHUB_OUTPUT. Kept as a file (not a
-// heredoc) so YAML indentation can never corrupt it. All jobs run
-// self-hosted Linux; Windows is not gated.
+// Expands ts-cli/tests/ci-matrix.json into the job matrices for
+// .github/workflows/ci.yml. Emits `groups` (the manifest's group keys) and
+// `smokes` (a bare list of {group, sub, argv} entries) to $GITHUB_OUTPUT.
+// Kept as a file (not a heredoc) so YAML indentation can never corrupt it.
+// Linux only; Windows is not gated.
 import { appendFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 
 const manifest = JSON.parse(readFileSync('tests/ci-matrix.json', 'utf8'));
+const groups = Object.keys(manifest.groups);
 const smokes = [];
 
 for (const [group, spec] of Object.entries(manifest.groups)) {
@@ -24,5 +25,6 @@ for (const [group, spec] of Object.entries(manifest.groups)) {
 
 const out = process.env.GITHUB_OUTPUT;
 if (!out) throw new Error('GITHUB_OUTPUT is not set');
+appendFileSync(out, `groups=${JSON.stringify(groups)}\n`);
 appendFileSync(out, `smokes=${JSON.stringify(smokes)}\n`);
-console.log(`smokes: ${smokes.length}`);
+console.log(`groups: ${groups.length}, smokes: ${smokes.length}`);

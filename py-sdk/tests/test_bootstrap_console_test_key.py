@@ -66,25 +66,17 @@ def test_request_retries_transient_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(calls) == 2
 
 
-def test_console_bootstrap_uses_canonical_orchestra_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEST_API_BASE_URL", "https://api.dev.hypercli.com")
-    monkeypatch.setenv("ORCHESTRA_API_BASE_URL", "https://api.dev.hypercli.com/api")
-    monkeypatch.delenv("TEST_API_BASE", raising=False)
+@pytest.mark.parametrize(
+    "hyper_api_base",
+    ["https://api.dev.hypercli.com", "https://api.dev.hypercli.com/api"],
+)
+def test_console_bootstrap_derives_orchestra_api_base_from_product_base(
+    hyper_api_base: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HYPER_API_BASE", hyper_api_base)
 
     product_base = MODULE._configured_product_base()
-    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
-
-    assert product_base == "https://api.dev.hypercli.com"
-    assert orchestra_api_base == "https://api.dev.hypercli.com/api"
-
-
-def test_console_bootstrap_accepts_legacy_test_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TEST_API_BASE_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRA_API_BASE_URL", raising=False)
-    monkeypatch.setenv("TEST_API_BASE", "https://api.dev.hypercli.com/api")
-
-    product_base = MODULE._configured_product_base()
-    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
+    orchestra_api_base = MODULE._orchestra_api_base(product_base)
 
     assert product_base == "https://api.dev.hypercli.com"
     assert orchestra_api_base == "https://api.dev.hypercli.com/api"
