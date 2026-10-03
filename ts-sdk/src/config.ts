@@ -5,6 +5,10 @@
 import {
   agentsAdminApiBaseFromProductBase,
   defaultAgentsWsUrl,
+  DEFAULT_AGENTS_API_BASE_URL,
+  DEFAULT_AGENTS_WS_URL,
+  DEV_AGENTS_API_BASE_URL,
+  DEV_AGENTS_WS_URL,
   resolveAgentsApiBase,
 } from './agent-urls.js';
 
@@ -42,10 +46,14 @@ function getNodeConfigPaths(): { configDir: string; configFile: string } | null 
 }
 
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
-export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.hypercli.com/agents';
-export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
-export const DEV_AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
-export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
+// The agents defaults live in agent-urls.ts (single source for derivation);
+// re-exported here for SDK surface compatibility.
+export {
+  DEFAULT_AGENTS_API_BASE_URL,
+  DEFAULT_AGENTS_WS_URL,
+  DEV_AGENTS_API_BASE_URL,
+  DEV_AGENTS_WS_URL,
+};
 export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 
 // GHCR images

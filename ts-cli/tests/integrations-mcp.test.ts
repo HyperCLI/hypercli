@@ -33,7 +33,7 @@ const stdout = () => chunks.join('');
 beforeEach(() => {
   vi.resetAllMocks();
   home = mkdtempSync(join(tmpdir(), 'hyper-mcp-test-'));
-  for (const key of ['HYPER_API_KEY', 'HYPER_AGENTS_API_KEY', 'HYPER_API_BASE', 'HYPERCLI_API_URL', 'AGENTS_API_BASE_URL', 'HYPER_INTEGRATIONS_API_BASE']) {
+  for (const key of ['HYPER_API_KEY', 'HYPER_AGENTS_API_KEY', 'HYPER_API_BASE', 'HYPER_INTEGRATIONS_API_BASE']) {
     vi.stubEnv(key, '');
   }
   vi.stubEnv('HYPER_HOME', home);
@@ -163,10 +163,10 @@ describe('integrations MCP uses REST credential and URL selection', () => {
     [false, {}, 'https://api.hypercli.com/integrations/mcp'],
     [true, {}, 'https://api.dev.hypercli.com/integrations/mcp'],
     [false, { HYPER_API_BASE: 'https://product.example/prefix' }, 'https://product.example/prefix/integrations/mcp'],
-    [false, { HYPERCLI_API_URL: 'https://legacy.example' }, 'https://legacy.example/integrations/mcp'],
+    [false, { HYPER_API_BASE: 'https://legacy.example' }, 'https://legacy.example/integrations/mcp'],
     [true, { HYPER_API_BASE: 'https://product.example' }, 'https://api.dev.hypercli.com/integrations/mcp'],
-    [true, { AGENTS_API_BASE_URL: 'http://localhost:9000/prefix/agents/' }, 'http://localhost:9000/prefix/integrations/mcp'],
-    [true, { HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', AGENTS_API_BASE_URL: 'https://agents.example' }, 'https://facade.example/custom/integrations/mcp'],
+    [false, { HYPER_API_BASE: 'http://localhost:9000/prefix' }, 'http://localhost:9000/prefix/integrations/mcp'],
+    [false, { HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', HYPER_API_BASE: 'https://agents.example' }, 'https://facade.example/custom/integrations/mcp'],
   ] as const)('dev=%s config=%j selects %s', async (dev, env, expected) => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
     await run(ctx('json', dev), ['--mcp']);

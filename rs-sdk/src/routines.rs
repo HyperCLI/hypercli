@@ -22,20 +22,28 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// Mirrors the Python SDK's `_derive_routines_base`: an explicit
 /// `HYPER_ROUTINES_API_BASE` override (env first, then the config file)
-/// wins, then the given agents base, then the default agents base. A path
-/// ending in `/routines` is kept; a trailing `/agents` segment is stripped;
-/// anything else gets `/routines` appended.
+/// wins, then the given agents base, then the agents base discovered from
+/// `HYPER_API_BASE` (env first, then the config file), then the prod
+/// default agents base. A path ending in `/routines` is kept; a trailing
+/// `/agents` segment is stripped; anything else gets `/routines` appended.
 pub fn derive_routines_api_base(agents_api_base: Option<&str>) -> Result<Url, RoutinesApiError> {
     let configured = crate::config::discover_config_value("HYPER_ROUTINES_API_BASE");
-    derive_routines_api_base_from(configured.as_deref(), agents_api_base)
+    let fallback = match configured.as_deref().or(agents_api_base) {
+        Some(_) => None,
+        None => Some(crate::config::discover_agents_api_base()?.to_string()),
+    };
+    derive_routines_api_base_from(configured.as_deref(), agents_api_base, fallback.as_deref())
 }
 
 fn derive_routines_api_base_from(
     configured: Option<&str>,
     agents_api_base: Option<&str>,
+    fallback_agents_api_base: Option<&str>,
 ) -> Result<Url, RoutinesApiError> {
     let raw = configured
         .or(agents_api_base)
+        .filter(|base| !base.trim().is_empty())
+        .or(fallback_agents_api_base)
         .unwrap_or(DEFAULT_AGENTS_API_BASE)
         .trim_end_matches('/');
     let with_scheme = if raw.contains("://") {
@@ -63,6 +71,8 @@ pub enum RoutinesApiError {
     MissingApiKey,
     #[error("routines base URL must be an http(s) hierarchical URL")]
     InvalidBaseUrl,
+    #[error("could not resolve the agents API base for routines derivation: {0}")]
+    BaseDiscovery(#[from] crate::config::ConfigError),
     #[error("routines request could not be sent: {0}")]
     Transport(String),
     #[error("routines returned HTTP {status}: {detail}")]
@@ -443,32 +453,61 @@ mod tests {
     #[test]
     fn derives_routines_base_from_agents_base() {
         assert_eq!(
-            derive_routines_api_base_from(None, Some("https://api.hypercli.com/agents"))
+            derive_routines_api_base_from(None, Some("https://api.hypercli.com/agents"), None)
                 .unwrap()
                 .as_str(),
             "https://api.hypercli.com/routines"
         );
         assert_eq!(
-            derive_routines_api_base_from(None, Some("https://example.com/routines"))
+            derive_routines_api_base_from(None, Some("https://example.com/routines"), None)
                 .unwrap()
                 .as_str(),
             "https://example.com/routines"
         );
         assert_eq!(
-            derive_routines_api_base_from(Some("https://override.example.com/api"), None)
+            derive_routines_api_base_from(Some("https://override.example.com/api"), None, None)
                 .unwrap()
                 .as_str(),
             "https://override.example.com/api/routines"
         );
         assert_eq!(
-            derive_routines_api_base_from(None, None).unwrap().as_str(),
+            derive_routines_api_base_from(None, None, None).unwrap().as_str(),
             "https://api.hypercli.com/routines"
         );
         assert_eq!(
-            derive_routines_api_base_from(None, Some("api.hypercli.com/agents"))
+            derive_routines_api_base_from(None, Some("api.hypercli.com/agents"), None)
                 .unwrap()
                 .as_str(),
             "https://api.hypercli.com/routines"
+        );
+    }
+
+    #[test]
+    fn routines_base_chains_through_discovered_agents_base() {
+        // PR-A parity with py `_derive_routines_base` (whose fallback is
+        // `get_agents_api_base_url()`, i.e. HYPER_API_BASE env-then-file):
+        // without an override or explicit agents base, a dev-configured
+        // product base must not bleed the prod default into the derivation.
+        assert_eq!(
+            derive_routines_api_base_from(
+                None,
+                None,
+                Some("https://api.dev.hypercli.com/agents"),
+            )
+            .unwrap()
+            .as_str(),
+            "https://api.dev.hypercli.com/routines"
+        );
+        // The explicit override still wins over the discovered fallback.
+        assert_eq!(
+            derive_routines_api_base_from(
+                Some("https://override.example.com/api"),
+                None,
+                Some("https://api.dev.hypercli.com/agents"),
+            )
+            .unwrap()
+            .as_str(),
+            "https://override.example.com/api/routines"
         );
     }
 

@@ -127,21 +127,22 @@ Notes:
 The Python SDK uses separate URLs for the primary product API and the agents API:
 
 - `client.api_url`
-  - main HyperCLI API
+  - main HyperCLI API (`HYPER_API_BASE`)
 - `client.deployments`
-  - uses `AGENTS_API_BASE_URL`
+  - uses the agents REST base derived from `HYPER_API_BASE`
 - deployment shell/log streams
-  - use `AGENTS_WS_URL`
+  - use the agents WebSocket base derived from the agents REST base
 - `client.agent`
-  - uses the agents host for inference, deriving `/v1` from `AGENTS_API_BASE_URL`
+  - uses the agents host for inference, deriving `/v1` from the agents REST base
 
-Recommended defaults:
+Recommended setting:
 
 ```bash
 HYPER_API_BASE=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
+
+This derives `https://api.hypercli.com/agents` as the agents REST base and
+`wss://api.agents.hypercli.com/ws` as the agents WebSocket base.
 
 ## `client.deployments`
 

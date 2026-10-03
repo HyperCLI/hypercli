@@ -5,8 +5,10 @@ from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 def _hyper_home() -> Path:
+    # HYPER_HOME is used verbatim (no `~` expansion), matching ts-cli
+    # `cliConfigDir` and rs-sdk `config_dir_from_home`.
     configured = os.getenv("HYPER_HOME", "").strip()
-    return Path(configured).expanduser() if configured else Path.home() / ".hypercli"
+    return Path(configured) if configured else Path.home() / ".hypercli"
 
 
 CONFIG_DIR = _hyper_home()
@@ -81,6 +83,32 @@ def get_api_url() -> str:
     return get_config_value("HYPER_API_BASE") or DEFAULT_API_URL
 
 
+_AGENTS_PROD_HOSTS = ("api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app")
+_AGENTS_DEV_HOSTS = (
+    "api.agents.dev.hypercli.com",
+    "api.dev.hypercli.com",
+    "api.dev.hyperclaw.app",
+    "dev-api.hyperclaw.app",
+)
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+
+def _normalized_netloc(parsed) -> str:
+    """Lowercased host with the scheme-default port dropped, matching the
+    JS `URL.host`/`.origin` and rust `url::Url` serialization the ts-sdk
+    (agent-urls.ts) and rs-sdk (config.rs) LOCKSTEP layers emit."""
+    host = (parsed.hostname or "").lower()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is not None and port != _DEFAULT_PORTS.get(parsed.scheme or "https"):
+        return f"{host}:{port}"
+    return host
+
+
 def _normalize_agents_api_base(url: str) -> str:
     raw = (url or "").strip()
     if not raw:
@@ -88,23 +116,18 @@ def _normalize_agents_api_base(url: str) -> str:
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     scheme = parsed.scheme or "https"
     normalized_path = parsed.path.rstrip("/")
-    host = parsed.netloc.lower()
+    netloc = _normalized_netloc(parsed)
     if normalized_path.endswith("/agents"):
-        return f"{scheme}://{parsed.netloc}{normalized_path}"
+        return f"{scheme}://{netloc}{normalized_path}"
     if normalized_path.endswith("/api"):
-        if host == "api.agents.hypercli.com":
+        if netloc == "api.agents.hypercli.com":
             return DEFAULT_AGENTS_API_BASE_URL
-        if host == "api.agents.dev.hypercli.com":
+        if netloc == "api.agents.dev.hypercli.com":
             return DEV_AGENTS_API_BASE_URL
-        return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return f"{scheme}://{netloc}{normalized_path[:-4]}/agents"
+    if netloc in _AGENTS_PROD_HOSTS:
         return DEFAULT_AGENTS_API_BASE_URL
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
+    if netloc in _AGENTS_DEV_HOSTS:
         return DEV_AGENTS_API_BASE_URL
     normalized = raw.rstrip("/")
     return f"{normalized}/agents"
@@ -113,15 +136,10 @@ def _normalize_agents_api_base(url: str) -> str:
 def _default_agents_ws_url(api_base: str) -> str:
     raw = _normalize_agents_api_base(api_base)
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    host = parsed.netloc.lower()
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+    netloc = _normalized_netloc(parsed)
+    if netloc in _AGENTS_PROD_HOSTS:
         return DEFAULT_AGENTS_WS_URL
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
+    if netloc in _AGENTS_DEV_HOSTS:
         return DEV_AGENTS_WS_URL
     if raw.startswith("https://"):
         return f"wss://{raw[len('https://'):].rstrip('/')}/ws"
@@ -162,13 +180,8 @@ def get_agents_ws_url_from_product_base(product_base: str) -> str:
     return _default_agents_ws_url(get_agents_api_base_url_from_product_base(product_base))
 
 
-_AGENTS_ADMIN_PROD_HOSTS = {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}
-_AGENTS_ADMIN_DEV_HOSTS = {
-    "api.dev.hypercli.com",
-    "api.dev.hyperclaw.app",
-    "dev-api.hyperclaw.app",
-    "api.agents.dev.hypercli.com",
-}
+_AGENTS_ADMIN_PROD_HOSTS = frozenset(_AGENTS_PROD_HOSTS)
+_AGENTS_ADMIN_DEV_HOSTS = frozenset(_AGENTS_DEV_HOSTS)
 
 
 def get_agents_admin_api_base_url_from_product_base(product_base: str) -> str:
@@ -178,17 +191,28 @@ def get_agents_admin_api_base_url_from_product_base(product_base: str) -> str:
         return DEFAULT_AGENTS_ADMIN_API_BASE_URL
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     scheme = parsed.scheme or "https"
-    host = parsed.netloc.lower()
-    if host in _AGENTS_ADMIN_PROD_HOSTS:
+    netloc = _normalized_netloc(parsed)
+    if netloc in _AGENTS_ADMIN_PROD_HOSTS:
         return DEFAULT_AGENTS_ADMIN_API_BASE_URL
-    if host in _AGENTS_ADMIN_DEV_HOSTS:
+    if netloc in _AGENTS_ADMIN_DEV_HOSTS:
         return DEV_AGENTS_ADMIN_API_BASE_URL
     path = parsed.path.rstrip("/")
     for suffix in ("/agents/admin", "/agents", "/admin", "/api"):
         if path.endswith(suffix):
             path = path[: -len(suffix)]
             break
-    return urlunsplit((scheme, parsed.netloc, path, "", "")).rstrip("/")
+    return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
+
+
+# Legacy keys pruned on write so stale config-file values cannot shadow the
+# derive-only resolution (mirrors the ts-cli `saveCliConfig` scrub).
+_LEGACY_CONFIG_KEYS = (
+    "HYPERCLI_API_KEY",
+    "HYPERCLI_API_URL",
+    "HYPERCLI_WS_URL",
+    "AGENTS_API_BASE_URL",
+    "AGENTS_WS_URL",
+)
 
 
 def configure(api_key: str, api_url: str = None):
@@ -197,6 +221,8 @@ def configure(api_key: str, api_url: str = None):
     config_file.parent.mkdir(parents=True, exist_ok=True)
 
     config = _load_config_file()
+    for legacy_key in _LEGACY_CONFIG_KEYS:
+        config.pop(legacy_key, None)
     config["HYPER_API_KEY"] = api_key
     if api_url:
         config["HYPER_API_BASE"] = api_url

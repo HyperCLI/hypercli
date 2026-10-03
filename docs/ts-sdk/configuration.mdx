@@ -16,15 +16,13 @@ The SDK reads configuration using the same precedence as the CLI:
 | Variable | Description |
 | --- | --- |
 | `HYPER_API_KEY` | Main REST API key used by `HyperCLI` |
-| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com`; the agents REST and WebSocket bases are derived from it |
 | `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
-| `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
-| `AGENTS_API_BASE_URL` | HyperCLI deployments API base. Defaults to `https://api.hypercli.com/agents` |
-| `AGENTS_WS_URL` | HyperCLI backend WebSocket base. Defaults to `wss://api.agents.hypercli.com/ws` |
 
 ## URL Model
 
-The TS SDK uses four URL concepts:
+The TS SDK derives every per-service base from one setting. `HYPER_API_BASE`
+is the only base URL setting:
 
 - `HYPER_API_BASE`
   - main product API
@@ -32,36 +30,36 @@ The TS SDK uses four URL concepts:
   - billing
   - keys
   - user/account APIs
-- `HYPERCLI_WS_URL`
-  - main WebSocket base for flows derived from the primary API
-- `AGENTS_API_BASE_URL`
-  - HyperCLI deployments API
+- product WebSocket base
+  - derived from `HYPER_API_BASE` by scheme swap
+- agents REST base
+  - derived from `HYPER_API_BASE`
   - `create`, `start`, `stop`, `delete`
   - files
   - exec
   - desktop token/bootstrap APIs
-- `AGENTS_WS_URL`
-  - HyperCLI backend WebSocket base
+- agents WebSocket base
+  - derived from the agents REST base
   - shell
   - logs
 
-Production defaults:
+Production default:
 
 ```bash
 HYPER_API_BASE=https://api.hypercli.com
-HYPERCLI_WS_URL=wss://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
-Dev defaults:
+Dev default:
 
 ```bash
 HYPER_API_BASE=https://api.dev.hypercli.com
-HYPERCLI_WS_URL=wss://api.dev.hypercli.com
-AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 ```
+
+Production derives `https://api.hypercli.com/agents` as the agents REST base
+and `wss://api.agents.hypercli.com/ws` as the agents WebSocket base; dev
+derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
+equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
+path suffix for the agents REST base.
 
 ### OpenClaw / Inference Base URLs
 
@@ -87,8 +85,6 @@ Format:
 ```bash
 HYPER_API_KEY=hyper_...
 HYPER_API_BASE=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
 `configure()` creates the directory if needed and writes the file with `0600` permissions when the platform supports it.
@@ -98,12 +94,6 @@ import { configure } from "@hypercli.com/sdk";
 
 configure("hyper_...");
 configure("hyper_...", "https://api.dev.hypercli.com");
-configure(
-  "hyper_...",
-  "https://api.hypercli.com",
-  "https://api.hypercli.com/agents",
-  "wss://api.agents.hypercli.com/ws",
-);
 ```
 
 ## Runtime Helpers

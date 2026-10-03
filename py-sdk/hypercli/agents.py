@@ -42,15 +42,17 @@ import httpx
 from .config import (
     DEFAULT_AGENTS_WS_URL as AGENTS_WS_URL,
     DEV_AGENTS_WS_URL,
+    _AGENTS_DEV_HOSTS,
+    _AGENTS_PROD_HOSTS,
+    _normalized_netloc,
     get_agents_api_base_url,
+    get_agents_api_base_url_from_product_base,
 )
 from .http import HTTPClient, APIError
 from .sessions import SessionPage, SessionRecord
 
 
-AGENTS_API_BASE = "https://api.hypercli.com/agents"
 AGENTS_API_PREFIX = "/deployments"
-DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.hypercli.com/ws/acp"
 DEV_AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.dev.hypercli.com/ws/acp"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
@@ -637,46 +639,16 @@ def _normalize_slack_relay_base_url(url: str) -> str:
 
 
 def _normalize_agents_api_base(url: str) -> str:
-    raw = (url or "").strip()
-    if not raw:
-        return AGENTS_API_BASE
-    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    scheme = parsed.scheme or "https"
-    normalized_path = parsed.path.rstrip("/")
-    host = parsed.netloc.lower()
-    if normalized_path.endswith("/agents"):
-        return f"{scheme}://{parsed.netloc}{normalized_path}"
-    if normalized_path.endswith("/api"):
-        if host == "api.agents.hypercli.com":
-            return AGENTS_API_BASE
-        if host == "api.agents.dev.hypercli.com":
-            return DEV_AGENTS_API_BASE
-        return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
-        return AGENTS_API_BASE
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
-        return DEV_AGENTS_API_BASE
-    normalized = raw.rstrip("/")
-    return f"{normalized}/agents"
+    return get_agents_api_base_url_from_product_base(url)
 
 
 def _default_agents_ws_url(api_base: str) -> str:
     raw = _normalize_agents_api_base(api_base)
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    host = parsed.netloc.lower()
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+    netloc = _normalized_netloc(parsed)
+    if netloc in _AGENTS_PROD_HOSTS:
         return AGENTS_WS_URL
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
+    if netloc in _AGENTS_DEV_HOSTS:
         return DEV_AGENTS_WS_URL
     return _normalize_agents_ws_url(raw)
 
@@ -695,15 +667,10 @@ def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
 def _default_agents_acp_ws_url(api_base: str) -> str:
     raw = _normalize_agents_api_base(api_base)
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    host = parsed.netloc.lower()
-    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+    netloc = _normalized_netloc(parsed)
+    if netloc in _AGENTS_PROD_HOSTS:
         return AGENTS_ACP_PROXY_WS_URL
-    if host in {
-        "api.agents.dev.hypercli.com",
-        "api.dev.hypercli.com",
-        "api.dev.hyperclaw.app",
-        "dev-api.hyperclaw.app",
-    }:
+    if netloc in _AGENTS_DEV_HOSTS:
         return DEV_AGENTS_ACP_PROXY_WS_URL
     # _normalize_agents_api_base always returns a URL ending in /agents.
     return agents_acp_proxy_ws_url(_normalize_agents_ws_url(raw.removesuffix("/agents")))

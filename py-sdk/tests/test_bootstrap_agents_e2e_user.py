@@ -42,7 +42,7 @@ def test_bootstrap_creates_unpaid_projections_without_seeding_capacity(
     calls: list[tuple[str, str, dict[str, object] | None]] = []
 
     monkeypatch.setenv("BACKEND_API_KEY", "admin-key")
-    monkeypatch.setenv("TEST_API_BASE_URL", "https://api.dev.hypercli.com")
+    monkeypatch.setenv("HYPER_API_BASE", "https://api.dev.hypercli.com")
     monkeypatch.setattr(MODULE, "_new_test_identity", lambda suite: identity)
 
     def fake_request(method, url, *, json_body=None, **kwargs):
@@ -223,7 +223,7 @@ def test_partial_bootstrap_failure_removes_orchestra_projection(
     calls: list[tuple[str, str]] = []
 
     monkeypatch.setenv("BACKEND_API_KEY", "admin-key")
-    monkeypatch.setenv("TEST_API_BASE_URL", "https://api.dev.hypercli.com")
+    monkeypatch.setenv("HYPER_API_BASE", "https://api.dev.hypercli.com")
     monkeypatch.setattr(MODULE, "_new_test_identity", lambda suite: identity)
 
     def fake_request(method, url, **kwargs):

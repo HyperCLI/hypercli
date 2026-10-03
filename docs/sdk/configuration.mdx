@@ -17,15 +17,14 @@ The Python SDK resolves config in this order:
 | Variable | Description |
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
-| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com`; the agents REST and WebSocket bases are derived from it |
 | `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
-| `HYPERCLI_WS_URL` | Optional override for log and shell WebSocket base URLs |
-| `AGENTS_API_BASE_URL` | HyperCLI deployments API base. Defaults to `https://api.hypercli.com/agents` |
-| `AGENTS_WS_URL` | HyperCLI backend WebSocket base for logs and shell. Defaults to `wss://api.agents.hypercli.com/ws` |
 
 ## URL Model
 
-The Python SDK now treats the main API and the agents API as separate surfaces:
+The Python SDK treats the main API and the agents API as separate surfaces.
+`HYPER_API_BASE` is the only base URL setting; every per-service base is
+derived from it:
 
 - `HYPER_API_BASE`
   - primary product/backend API
@@ -33,37 +32,37 @@ The Python SDK now treats the main API and the agents API as separate surfaces:
   - jobs
   - keys
   - user/account APIs
-- `HYPERCLI_WS_URL`
-  - primary WebSocket base for non-agent flows that derive from the main API
-- `AGENTS_API_BASE_URL`
-  - HyperCLI deployments REST base
+- product WebSocket base
+  - derived from `HYPER_API_BASE` by scheme swap
+- agents REST base
+  - derived from `HYPER_API_BASE`
   - agent lifecycle
   - files
   - exec
   - desktop tokens
   - deployment metadata
-- `AGENTS_WS_URL`
-  - HyperCLI backend WS base
+- agents WebSocket base
+  - derived from the agents REST base
   - `/logs/{agent_id}`
   - `/shell/{agent_id}`
 
-Default production values:
+Default production value:
 
 ```bash
 HYPER_API_BASE=https://api.hypercli.com
-HYPERCLI_WS_URL=wss://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
-Default dev values:
+Default dev value:
 
 ```bash
 HYPER_API_BASE=https://api.dev.hypercli.com
-HYPERCLI_WS_URL=wss://api.dev.hypercli.com
-AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 ```
+
+Production derives `https://api.hypercli.com/agents` as the agents REST base
+and `wss://api.agents.hypercli.com/ws` as the agents WebSocket base; dev
+derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
+equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
+path suffix for the agents REST base.
 
 ## Shared Config File
 
@@ -78,8 +77,6 @@ Example:
 ```bash
 HYPER_API_KEY=hyper_...
 HYPER_API_BASE=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
 Use the SDK helper to write it:
@@ -89,12 +86,6 @@ from hypercli import configure
 
 configure("hyper_...")
 configure("hyper_...", "https://api.dev.hypercli.com")
-configure(
-    "hyper_...",
-    "https://api.hypercli.com",
-    "https://api.hypercli.com/agents",
-    "wss://api.agents.hypercli.com/ws",
-)
 ```
 
 ## Constructor Overrides

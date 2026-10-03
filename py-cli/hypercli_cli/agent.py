@@ -13,7 +13,14 @@ from rich.table import Table
 
 from hypercli import HyperCLI, issue_api_key_from_jwt
 from hypercli.agents import Agent as DeploymentAgent, Deployments
-from hypercli.config import get_agent_api_key, get_agents_api_base_url, get_agents_api_base_url_from_product_base
+from hypercli.config import (
+    DEFAULT_AGENTS_ADMIN_API_BASE_URL,
+    DEV_AGENTS_ADMIN_API_BASE_URL,
+    get_agent_api_key,
+    get_agents_admin_api_base_url_from_product_base,
+    get_agents_api_base_url,
+    get_agents_api_base_url_from_product_base,
+)
 from hypercli.http import HTTPClient
 
 from .onboard import onboard as _onboard_fn
@@ -49,11 +56,11 @@ HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEV_API_BASE = "https://api.dev.hypercli.com"
 PROD_API_BASE = "https://api.hypercli.com"
-DEV_INFERENCE_API_BASE = "https://api.agents.dev.hypercli.com"
-PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
+DEV_INFERENCE_API_BASE = DEV_AGENTS_ADMIN_API_BASE_URL
+PROD_INFERENCE_API_BASE = DEFAULT_AGENTS_ADMIN_API_BASE_URL
 DEFAULT_X402_TIMEOUT_SECONDS = 60.0
-DEV_SLACK_RELAY_BASE = "https://api.agents.dev.hypercli.com"
-PROD_SLACK_RELAY_BASE = "https://api.agents.hypercli.com"
+DEV_SLACK_RELAY_BASE = DEV_AGENTS_ADMIN_API_BASE_URL
+PROD_SLACK_RELAY_BASE = DEFAULT_AGENTS_ADMIN_API_BASE_URL
 
 
 def require_x402_deps():
@@ -1000,12 +1007,11 @@ OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
 def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
-    """Resolve API base from flag/env, then fall back to dev/prod defaults."""
-    return (
-        base_url
-        or os.environ.get("HYPER_API_BASE")
-        or (DEV_INFERENCE_API_BASE if dev else PROD_INFERENCE_API_BASE)
-    ).rstrip("/")
+    """Resolve the agents admin API base from flag/env, else dev/prod defaults."""
+    configured = base_url or os.environ.get("HYPER_API_BASE")
+    if configured:
+        return get_agents_admin_api_base_url_from_product_base(configured)
+    return DEV_INFERENCE_API_BASE if dev else PROD_INFERENCE_API_BASE
 
 
 def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[dict]:

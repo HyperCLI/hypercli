@@ -267,6 +267,26 @@ pub fn discover_config_value(key: &str) -> Option<String> {
 
 pub const DEFAULT_AGENTS_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
 const DEV_AGENTS_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
+pub const DEFAULT_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.hypercli.com";
+const DEV_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.dev.hypercli.com";
+
+/// Lowercased host with the scheme-default port dropped and non-default
+/// ports kept; IPv6 literals are bracket-wrapped. Matches the py-sdk
+/// `_normalized_netloc` (config.py), the ts-sdk `URL.host`/`.origin`
+/// serialization, and the rust `url::Url` semantics (`port()` already
+/// suppresses the default port for http/https/ws/wss).
+fn normalized_netloc(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host
+    };
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    }
+}
 
 /// Normalize an agents WebSocket URL: http(s) schemes map to ws(s), and a
 /// missing `/ws` path suffix is appended. Mirrors the Python SDK's
@@ -295,11 +315,7 @@ pub fn normalize_agents_ws_url(raw: &str) -> Result<Url, ConfigError> {
 /// the fixed agents WS hosts; anything else is scheme-swapped and `/ws`
 /// suffixed. Mirrors py `_default_agents_ws_url` / ts `defaultAgentsWsUrl`.
 fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
-    let host = api_base.host_str().unwrap_or_default().to_ascii_lowercase();
-    let netloc = match api_base.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host,
-    };
+    let netloc = normalized_netloc(api_base);
     if matches!(
         netloc.as_str(),
         "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
@@ -439,11 +455,7 @@ pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
 
     // Python compares the lowercased netloc, i.e. the host plus any explicit
     // non-default port, so a custom port never matches an alias host.
-    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-    let netloc = match parsed.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host,
-    };
+    let netloc = normalized_netloc(&parsed);
 
     let path = parsed.path().trim_end_matches('/').to_owned();
     let normalized_path = if path.ends_with("/agents") {
@@ -474,6 +486,66 @@ pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
     parsed.set_query(None);
     parsed.set_fragment(None);
     Ok(parsed)
+}
+
+/// Resolve the agents WebSocket URL from an explicit product API base:
+/// normalize the base, then apply the alias-host map / scheme swap /
+/// `/ws` suffix. Mirrors py `get_agents_ws_url_from_product_base` and ts
+/// `defaultAgentsWsUrl`.
+pub fn agents_ws_url_from_product_base(product_base: &str) -> Result<Url, ConfigError> {
+    let api_base = normalize_agents_api_base(product_base)?;
+    default_agents_ws_url(&api_base)
+}
+
+/// Derive the agents admin API base (service-key surface) from a product
+/// API base. Mirrors py `get_agents_admin_api_base_url_from_product_base`
+/// and ts `agentsAdminApiBaseFromProductBase`: the public prod/dev alias
+/// hosts map to the private admin hosts (compared against the normalized
+/// netloc, so default ports and host case never matter); anything else
+/// keeps its origin with one trailing `/agents/admin`, `/agents`, `/admin`,
+/// or `/api` path suffix stripped.
+///
+/// Returns a plain `String` (not a typed `Url`) because the byte-match
+/// contract with py/ts requires origin-only outputs without the trailing
+/// slash `Url` serialization always emits.
+pub fn agents_admin_base_url_from_product_base(product_base: &str) -> Result<String, ConfigError> {
+    let input = product_base.trim();
+    if input.is_empty() {
+        return Ok(DEFAULT_AGENTS_ADMIN_API_BASE.to_owned());
+    }
+    let with_scheme = if input.contains("://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    let parsed = Url::parse(&with_scheme).map_err(|_| ConfigError::InvalidApiBase)?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(ConfigError::InvalidApiBase);
+    }
+    let netloc = normalized_netloc(&parsed);
+    if matches!(
+        netloc.as_str(),
+        "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
+    ) {
+        return Ok(DEFAULT_AGENTS_ADMIN_API_BASE.to_owned());
+    }
+    if matches!(
+        netloc.as_str(),
+        "api.agents.dev.hypercli.com"
+            | "api.dev.hypercli.com"
+            | "api.dev.hyperclaw.app"
+            | "dev-api.hyperclaw.app"
+    ) {
+        return Ok(DEV_AGENTS_ADMIN_API_BASE.to_owned());
+    }
+    let path = parsed.path().trim_end_matches('/');
+    let kept = ["/agents/admin", "/agents", "/admin", "/api"]
+        .iter()
+        .find_map(|suffix| path.strip_suffix(suffix))
+        .unwrap_or(path);
+    Ok(format!("{}://{}{}", parsed.scheme(), netloc, kept)
+        .trim_end_matches('/')
+        .to_owned())
 }
 
 #[cfg(test)]
@@ -864,6 +936,225 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "http://env.test/base/agents"
+        );
+    }
+
+    // LOCKSTEP cross-SDK byte-match vector table, mirrored with py-sdk
+    // (tests/test_config.py `_LOCKSTEP_URL_VECTORS`) and ts-sdk
+    // (agent-urls.ts: resolveAgentsApiBase / defaultAgentsWsUrl /
+    // agentsAdminApiBaseFromProductBase). Every row must produce
+    // byte-identical output in all three SDKs: host case is lowercased,
+    // default ports are stripped, non-default ports are preserved, and
+    // trailing slashes collapse before derivation.
+    // Columns: (input, agents_api_base, agents_ws_url, agents_admin_base).
+    const LOCKSTEP_URL_VECTORS: [(&str, &str, &str, &str); 20] = [
+        (
+            "",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://api.hypercli.com",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://api.hyperclaw.app",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://api.agents.hypercli.com",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "api.hypercli.com",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://api.dev.hypercli.com",
+            "https://api.dev.hypercli.com/agents",
+            "wss://api.agents.dev.hypercli.com/ws",
+            "https://api.agents.dev.hypercli.com",
+        ),
+        (
+            "https://api.dev.hyperclaw.app",
+            "https://api.dev.hypercli.com/agents",
+            "wss://api.agents.dev.hypercli.com/ws",
+            "https://api.agents.dev.hypercli.com",
+        ),
+        (
+            "https://dev-api.hyperclaw.app",
+            "https://api.dev.hypercli.com/agents",
+            "wss://api.agents.dev.hypercli.com/ws",
+            "https://api.agents.dev.hypercli.com",
+        ),
+        (
+            "api.agents.dev.hypercli.com",
+            "https://api.dev.hypercli.com/agents",
+            "wss://api.agents.dev.hypercli.com/ws",
+            "https://api.agents.dev.hypercli.com",
+        ),
+        (
+            "https://api.hypercli.com:443/agents",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "HTTPS://API.HYPERCLI.COM",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://API.AGENTS.HYPERCLI.COM/api",
+            "https://api.hypercli.com/agents",
+            "wss://api.agents.hypercli.com/ws",
+            "https://api.agents.hypercli.com",
+        ),
+        (
+            "https://staging.eu.example.com",
+            "https://staging.eu.example.com/agents",
+            "wss://staging.eu.example.com/agents/ws",
+            "https://staging.eu.example.com",
+        ),
+        (
+            "https://staging.example.com:8443",
+            "https://staging.example.com:8443/agents",
+            "wss://staging.example.com:8443/agents/ws",
+            "https://staging.example.com:8443",
+        ),
+        (
+            "https://edge.example.com/api",
+            "https://edge.example.com/agents",
+            "wss://edge.example.com/agents/ws",
+            "https://edge.example.com",
+        ),
+        (
+            "https://edge.example.com/agents",
+            "https://edge.example.com/agents",
+            "wss://edge.example.com/agents/ws",
+            "https://edge.example.com",
+        ),
+        (
+            "https://edge.example.com/agents/",
+            "https://edge.example.com/agents",
+            "wss://edge.example.com/agents/ws",
+            "https://edge.example.com",
+        ),
+        (
+            "http://127.0.0.1:8080",
+            "http://127.0.0.1:8080/agents",
+            "ws://127.0.0.1:8080/agents/ws",
+            "http://127.0.0.1:8080",
+        ),
+        (
+            "http://127.0.0.1:80/api",
+            "http://127.0.0.1/agents",
+            "ws://127.0.0.1/agents/ws",
+            "http://127.0.0.1",
+        ),
+        (
+            "https://edge.example.com/agents/admin",
+            "https://edge.example.com/agents/admin/agents",
+            "wss://edge.example.com/agents/admin/agents/ws",
+            "https://edge.example.com",
+        ),
+    ];
+
+    #[test]
+    fn agents_url_lockstep_vectors_byte_match_cross_sdk() {
+        for (product_base, api_base, ws_url, admin_base) in LOCKSTEP_URL_VECTORS {
+            assert_eq!(
+                normalize_agents_api_base(product_base).unwrap().as_str(),
+                api_base,
+                "agents api base for {product_base:?}"
+            );
+            assert_eq!(
+                agents_ws_url_from_product_base(product_base).unwrap().as_str(),
+                ws_url,
+                "agents ws url for {product_base:?}"
+            );
+            assert_eq!(
+                agents_admin_base_url_from_product_base(product_base).unwrap(),
+                admin_base,
+                "agents admin base for {product_base:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scheme_less_custom_host_carries_implied_https_scheme() {
+        // Documented divergence from py/ts (mirrored by py
+        // `test_agents_url_vectors_schemeless_custom_host_echoes_raw_input`):
+        // they echo scheme-less custom input verbatim while the typed `Url`
+        // output here carries the implied `https://` prefix, so these inputs
+        // stay out of the shared LOCKSTEP table.
+        assert_eq!(
+            normalize_agents_api_base("staging.eu.example.com").unwrap().as_str(),
+            "https://staging.eu.example.com/agents"
+        );
+        // The WS/admin derivations re-normalize their input in every SDK,
+        // upgrading the scheme-less echo to the implied https<->wss scheme —
+        // these three byte-match py/ts anyway.
+        assert_eq!(
+            agents_ws_url_from_product_base("staging.eu.example.com").unwrap().as_str(),
+            "wss://staging.eu.example.com/agents/ws"
+        );
+        assert_eq!(
+            agents_admin_base_url_from_product_base("staging.eu.example.com").unwrap(),
+            "https://staging.eu.example.com"
+        );
+    }
+
+    #[test]
+    fn ipv6_hosts_keep_brackets_and_ports_cross_sdk() {
+        // Not an alias host, so py's raw-echo fallback and the typed `Url`
+        // output byte-match (`url::Url` keeps the brackets; the normalized
+        // netloc re-wraps them for the admin string).
+        assert_eq!(
+            normalize_agents_api_base("http://[::1]:8080").unwrap().as_str(),
+            "http://[::1]:8080/agents"
+        );
+        assert_eq!(
+            agents_ws_url_from_product_base("http://[::1]:8080").unwrap().as_str(),
+            "ws://[::1]:8080/agents/ws"
+        );
+        assert_eq!(
+            agents_admin_base_url_from_product_base("http://[::1]:8080").unwrap(),
+            "http://[::1]:8080"
+        );
+        // Default-port IPv6 input strips the port everywhere.
+        assert_eq!(
+            agents_admin_base_url_from_product_base("http://[::1]:80/api").unwrap(),
+            "http://[::1]"
+        );
+    }
+
+    #[test]
+    fn default_port_on_alias_host_still_maps_to_defaults() {
+        // `url::Url::port()` suppresses the scheme-default port, so the
+        // alias-host compare succeeds and `/agents` is derived.
+        assert_eq!(
+            normalize_agents_api_base("https://api.hypercli.com:443").unwrap().as_str(),
+            DEFAULT_AGENTS_API_BASE
+        );
+        assert_eq!(
+            normalize_agents_api_base("https://api.dev.hypercli.com:443").unwrap().as_str(),
+            "https://api.dev.hypercli.com/agents"
+        );
+        // A non-default port never matches an alias host.
+        assert_eq!(
+            normalize_agents_api_base("https://api.hypercli.com:8443").unwrap().as_str(),
+            "https://api.hypercli.com:8443/agents"
         );
     }
 }

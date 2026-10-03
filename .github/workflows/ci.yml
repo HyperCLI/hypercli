@@ -1,0 +1,155 @@
+name: CI CLI (public)
+run-name: CI CLI (public)
+
+# Canonical offline CLI gates for the public repo layout, on GitHub-hosted
+# ubuntu-latest: no self-hosted runners, no registries, no secrets, no
+# internal URLs. Live/e2e/publish stay in the mono (hypercli-mono
+# .github/workflows/cli-ci.yml reuses this file via workflow_call for its
+# offline gates).
+#
+# expand reads ts-cli/tests/ci-matrix.json and fans out one gate per command
+# group (checks read `cli / agents`, `cli / jobs`, ...) plus one smoke per
+# subcommand (`cli / agents / chat`, ...); ts-cli/tests/ci-matrix.test.ts
+# fails the run when code and manifest drift apart.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Reusable by the mono: its cli-ci.yml collapses the offline gates into a
+  # single `uses:` job against this file.
+  workflow_call:
+
+concurrency:
+  group: ci-cli-public-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  # Expands the group and smoke matrices from the manifest.
+  expand:
+    name: cli / expand
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      groups: ${{ steps.matrices.outputs.groups }}
+      smokes: ${{ steps.matrices.outputs.smokes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand ts-cli/tests/ci-matrix.json into the group and smoke matrices
+        id: matrices
+        working-directory: ts-cli
+        run: node scripts/expand-ci-matrix.mjs
+
+  # tsc --noEmit for the CLI (against a built ts-sdk).
+  typecheck:
+    name: cli / typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install and build ts-sdk
+        run: |
+          npm ci --prefix ts-sdk
+          npm --prefix ts-sdk run build
+      - name: Install ts-cli
+        run: npm ci --prefix ts-cli
+      - name: Typecheck (tsc -p ts-cli --noEmit)
+        run: npm --prefix ts-cli run typecheck
+
+  # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts).
+  test:
+    name: cli / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install and build ts-sdk
+        run: |
+          npm ci --prefix ts-sdk
+          npm --prefix ts-sdk run build
+      - name: Install ts-cli
+        run: npm ci --prefix ts-cli
+      - name: Full vitest suite
+        run: npm --prefix ts-cli test
+
+  # One gate per command group: the group's vitest files plus the bare
+  # `node dist/index.js <group> --help` smoke.
+  gate:
+    name: cli / ${{ matrix.group }}
+    needs: expand
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.expand.outputs.groups) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install and build ts-sdk and ts-cli
+        run: |
+          npm ci --prefix ts-sdk
+          npm --prefix ts-sdk run build
+          npm ci --prefix ts-cli
+          npm --prefix ts-cli run build
+      - name: Group vitest files
+        working-directory: ts-cli
+        run: |
+          set -euo pipefail
+          tests="$(node -p "require('./tests/ci-matrix.json').groups['${{ matrix.group }}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
+          if [ -n "${tests}" ]; then
+            npx vitest run ${tests}
+          else
+            echo "no vitest files declared for group '${{ matrix.group }}' in tests/ci-matrix.json"
+          fi
+      - name: Bare group --help smoke (offline, no API key)
+        working-directory: ts-cli
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.group }}" = "core" ]; then
+            node dist/index.js > /dev/null
+            node dist/index.js --help > /dev/null
+          else
+            node dist/index.js "${{ matrix.group }}" --help > /dev/null
+          fi
+
+  # Smoke matrix: every non-bare smoke in the manifest, one check per
+  # subcommand (grouped by command group in the run graph).
+  smoke:
+    name: cli / ${{ matrix.group }} / ${{ matrix.sub }}
+    needs: expand
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.expand.outputs.smokes) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install and build ts-sdk and ts-cli
+        run: |
+          npm ci --prefix ts-sdk
+          npm --prefix ts-sdk run build
+          npm ci --prefix ts-cli
+          npm --prefix ts-cli run build
+      - name: Offline --help smoke
+        working-directory: ts-cli
+        run: node dist/index.js ${{ matrix.argv }} > /dev/null
