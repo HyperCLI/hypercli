@@ -32,10 +32,12 @@ pub use client::{
 };
 pub use config::{
     discover_agents_api_base, discover_agents_api_base_from,
-    discover_agents_api_base_from_config_dir, discover_client_config, discover_client_config_from,
-    discover_client_config_from_config_dir, normalize_agents_api_base, remove_config_api_keys,
-    remove_config_api_keys_in_data_dir, save_api_key, save_api_key_in_data_dir, write_config_values,
-    ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
+    discover_agents_api_base_from_config_dir, discover_agents_ws_url, discover_agents_ws_url_from,
+    discover_agents_ws_url_from_config_dir, discover_client_config, discover_client_config_from,
+    discover_client_config_from_config_dir, normalize_agents_api_base, normalize_agents_ws_url,
+    remove_config_api_keys, remove_config_api_keys_in_data_dir, save_api_key,
+    save_api_key_in_data_dir, write_config_values, ClientConfig, ConfigError, API_KEY_CONFIG_KEYS,
+    DEFAULT_AGENTS_API_BASE, DEFAULT_AGENTS_WS_URL,
 };
 pub use files::{File, FilesClient};
 pub use instances::{GpuConfig, GpuPricing, GpuType, InstancesClient, PricingTier, Region};

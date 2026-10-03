@@ -53,13 +53,10 @@ def _get_api_key(key: str | None) -> str:
 
 
 def _resolve_api_base(base_url: str | None) -> str:
-    """Resolve API base: --base-url > HYPER_API_BASE > HYPERCLI_API_URL > default."""
+    """Resolve API base: --base-url > HYPER_API_BASE > default."""
     if base_url:
         return base_url.rstrip("/")
     env_base = os.environ.get("HYPER_API_BASE", "").strip()
-    if env_base:
-        return env_base.rstrip("/")
-    env_base = os.environ.get("HYPERCLI_API_URL", "").strip()
     if env_base:
         return env_base.rstrip("/")
     return DEFAULT_API_BASE

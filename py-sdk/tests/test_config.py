@@ -3,10 +3,7 @@ from pathlib import Path
 
 
 def test_agents_urls_default_to_agents_hosts(monkeypatch):
-    monkeypatch.delenv("AGENTS_API_BASE_URL", raising=False)
-    monkeypatch.delenv("AGENTS_WS_URL", raising=False)
     monkeypatch.delenv("HYPER_API_BASE", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_URL", raising=False)
     monkeypatch.setenv("HOME", str(Path("/tmp/hypercli-sdk-test-home")))
 
     import hypercli.config as config
@@ -19,18 +16,23 @@ def test_agents_urls_default_to_agents_hosts(monkeypatch):
     assert config.get_agents_ws_url(dev=True) == "wss://api.agents.dev.hypercli.com/ws"
 
 
-def test_agents_urls_use_env_overrides(monkeypatch):
+def test_agents_urls_ignore_legacy_override_envs(monkeypatch):
+    """Strict derive-only: only HYPER_API_BASE steers resolution."""
     monkeypatch.setenv("AGENTS_API_BASE_URL", "https://api.dev.hypercli.com/agents")
     monkeypatch.setenv("AGENTS_WS_URL", "wss://api.agents.dev.hypercli.com/ws")
+    monkeypatch.setenv("HYPERCLI_API_URL", "https://api.dev.hypercli.com")
+    monkeypatch.setenv("HYPERCLI_WS_URL", "wss://api.dev.hypercli.com")
     monkeypatch.delenv("HYPER_API_BASE", raising=False)
-    monkeypatch.delenv("HYPERCLI_API_URL", raising=False)
+    monkeypatch.setenv("HOME", str(Path("/tmp/hypercli-sdk-test-home")))
 
     import hypercli.config as config
 
     importlib.reload(config)
 
-    assert config.get_agents_api_base_url() == "https://api.dev.hypercli.com/agents"
-    assert config.get_agents_ws_url() == "wss://api.agents.dev.hypercli.com/ws"
+    assert config.get_api_url() == "https://api.hypercli.com"
+    assert config.get_ws_url() == "wss://api.hypercli.com"
+    assert config.get_agents_api_base_url() == "https://api.hypercli.com/agents"
+    assert config.get_agents_ws_url() == "wss://api.agents.hypercli.com/ws"
 
 
 def test_agent_key_prefers_product_env_then_managed_agent_env(monkeypatch):
@@ -92,17 +94,7 @@ def test_hyper_home_missing_config_does_not_read_default_home(monkeypatch, tmp_p
     assert config.get_api_key() is None
 
 
-def test_agents_base_prefers_direct_agents_base(monkeypatch):
-    monkeypatch.setenv("AGENTS_API_BASE_URL", "https://api.dev.hypercli.com/agents")
-
-    import hypercli.config as config
-
-    importlib.reload(config)
-
-    assert config.get_agents_api_base_url() == "https://api.dev.hypercli.com/agents"
-
-
-def test_agents_base_tracks_product_base_when_agents_base_missing(monkeypatch):
+def test_agents_base_tracks_product_base(monkeypatch):
     monkeypatch.setenv("HYPER_API_BASE", "https://api.dev.hypercli.com")
 
     import hypercli.config as config
@@ -118,3 +110,15 @@ def test_agents_base_can_be_derived_from_explicit_product_base():
 
     assert config.get_agents_api_base_url_from_product_base("https://api.dev.hypercli.com") == "https://api.dev.hypercli.com/agents"
     assert config.get_agents_ws_url_from_product_base("https://api.dev.hypercli.com") == "wss://api.agents.dev.hypercli.com/ws"
+
+
+def test_agents_admin_base_derives_from_product_base():
+    import hypercli.config as config
+
+    assert config.get_agents_admin_api_base_url_from_product_base("") == "https://api.agents.hypercli.com"
+    assert config.get_agents_admin_api_base_url_from_product_base("https://api.hypercli.com") == "https://api.agents.hypercli.com"
+    assert config.get_agents_admin_api_base_url_from_product_base("https://api.hypercli.com/api") == "https://api.agents.hypercli.com"
+    assert config.get_agents_admin_api_base_url_from_product_base("https://api.dev.hypercli.com") == "https://api.agents.dev.hypercli.com"
+    assert config.get_agents_admin_api_base_url_from_product_base("https://api.dev.hypercli.com/agents") == "https://api.agents.dev.hypercli.com"
+    assert config.get_agents_admin_api_base_url_from_product_base("http://127.0.0.1:8787") == "http://127.0.0.1:8787"
+    assert config.get_agents_admin_api_base_url_from_product_base("http://127.0.0.1:8787/api") == "http://127.0.0.1:8787"

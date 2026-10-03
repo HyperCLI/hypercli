@@ -84,9 +84,8 @@ def test_agent_config_and_embed_use_the_canonical_key_resolver(
     assert embed._get_api_key(None) == "hyper_api_config"
 
 
-def test_agents_cli_prefers_agent_base_env(monkeypatch):
-    monkeypatch.setenv("AGENTS_API_BASE_URL", "https://api.agents.dev.hypercli.com")
-    monkeypatch.setenv("AGENTS_WS_URL", "wss://api.agents.dev.hypercli.com/ws")
+def test_agents_cli_derives_backend_from_product_base_env(monkeypatch):
+    monkeypatch.setenv("HYPER_API_BASE", "https://api.dev.hypercli.com")
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
 
     import hypercli_cli.agents as agents
@@ -101,7 +100,6 @@ def test_voice_cli_prefers_product_envs(monkeypatch):
     monkeypatch.setenv("HYPER_API_KEY", "hyper_api_product")
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
     monkeypatch.setenv("HYPER_API_BASE", "https://api.hypercli.com")
-    monkeypatch.setenv("HYPERCLI_API_URL", "https://api.dev.hypercli.com")
 
     import hypercli_cli.voice as voice
 

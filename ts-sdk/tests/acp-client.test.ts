@@ -77,16 +77,20 @@ class FakeAcpPeer {
             capabilities: this.server.v2Capabilities,
           });
         } else {
+          // Off-version answer in an otherwise v2-decodable shape: the client
+          // must close on the version mismatch instead of negotiating down.
           this.result(frame, {
             protocolVersion: this.server.protocolVersion,
-            agentInfo: { name: 'fake-acp-child', version: '1.0.0' },
-            agentCapabilities: this.server.capabilities,
+            info: { name: 'fake-acp-child', version: '1.0.0' },
+            capabilities: {},
           });
         }
         return;
       case 'session/resume':
         if (this.server.failResume) {
           this.error(frame, -32000, 'session is gone');
+        } else if (this.server.loadHook) {
+          this.server.loadHook(this, frame);
         } else {
           this.result(frame, this.server.resumeResult ?? {});
         }
@@ -96,13 +100,7 @@ class FakeAcpPeer {
         this.result(frame, { sessionId: `session-${this.nextSession}` });
         return;
       case 'session/load':
-        if (this.server.failLoad) {
-          this.error(frame, -32000, 'session is gone');
-        } else if (this.server.loadHook) {
-          this.server.loadHook(this, frame);
-        } else {
-          this.result(frame, {});
-        }
+        this.error(frame, -32601, '"Method not found": session/load');
         return;
       case 'session/list':
         this.result(frame, { sessions: [], nextCursor: null });
@@ -136,21 +134,17 @@ class FakeAcpPeer {
   update(sessionId: string, text: string): void {
     this.notify('session/update', {
       sessionId,
-      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+      update: { sessionUpdate: 'agent_message_chunk', messageId: 'fixture-message', content: { type: 'text', text } },
     });
   }
 
   finishPrompt(promptFrame: WireFrame, stopReason: string): void {
-    if (this.server.protocolVersion === 2) {
-      const sessionId = promptFrame.params?.sessionId;
-      this.result(promptFrame, { messageId: `accepted-${promptFrame.id}` });
-      this.notify('session/update', { sessionId, update: { sessionUpdate: 'user_message',
-        messageId: `accepted-${promptFrame.id}`, content: promptFrame.params?.prompt } });
-      this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'running' } });
-      this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
-      return;
-    }
-    this.result(promptFrame, { stopReason });
+    const sessionId = promptFrame.params?.sessionId;
+    this.result(promptFrame, { messageId: `accepted-${promptFrame.id}` });
+    this.notify('session/update', { sessionId, update: { sessionUpdate: 'user_message',
+      messageId: `accepted-${promptFrame.id}`, content: promptFrame.params?.prompt } });
+    this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'running' } });
+    this.notify('session/update', { sessionId, update: { sessionUpdate: 'state_update', state: 'idle', stopReason } });
   }
 
   drop(): void {
@@ -167,8 +161,7 @@ class FakeAcpPeer {
 }
 
 interface FakeAcpBridgeOptions {
-  capabilities?: Record<string, unknown>;
-  /** The protocol version the fake agent answers in initialize. Default 1. */
+  /** The protocol version the fake agent answers in initialize. Default 2. */
   protocolVersion?: 1 | 2;
   /** v2-shaped `capabilities` payload answered when protocolVersion is 2. */
   v2Capabilities?: Record<string, unknown>;
@@ -177,26 +170,20 @@ interface FakeAcpBridgeOptions {
 class FakeAcpBridge {
   public peers: FakeAcpPeer[] = [];
   public upgrades: IncomingMessage[] = [];
-  public capabilities: Record<string, unknown>;
   public protocolVersion: 1 | 2;
   public v2Capabilities: Record<string, unknown>;
-  public failLoad = false;
   public failResume = false;
-  /** Custom payload answered for session/resume (v2 replay tests stream history via update first). */
+  /** Custom payload answered for session/resume. */
   public resumeResult: Record<string, unknown> | null = null;
   public promptHook: PromptHook = (peer, frame) => peer.finishPrompt(frame, 'end_turn');
-  /** Overrides the default empty session/load reply; the hook streams any replayed history, then answers. */
+  /** Overrides the default empty session/resume reply; the hook streams any replayed history, then answers. */
   public loadHook: PromptHook | null = null;
   public onClientResponse: ((peer: FakeAcpPeer, frame: WireFrame) => void) | null = null;
   public onClientNotification: ((peer: FakeAcpPeer, frame: WireFrame) => void) | null = null;
   private wss: WebSocketServer | null = null;
 
   constructor(options: FakeAcpBridgeOptions = {}) {
-    this.capabilities = options.capabilities ?? {
-      loadSession: true,
-      sessionCapabilities: { list: {} },
-    };
-    this.protocolVersion = options.protocolVersion ?? 1;
+    this.protocolVersion = options.protocolVersion ?? 2;
     this.v2Capabilities = options.v2Capabilities ?? { session: {} };
   }
 
@@ -260,10 +247,13 @@ function acpAgent(bridge: FakeAcpBridge): Agent {
     runtime: 'opencode',
   });
   agent._deployments = deployments;
-  // These legacy tests deliberately exercise each concrete protocol profile.
-  // Default frontend-v2 behavior is exercised against the real SDK in acp-v2.
+  // The fake bridge serves no platform REST, so prompt completions are proven
+  // by this canned receipt reader; per-test overrides win through the spread.
   const connect = agent.acpConnect.bind(agent);
-  agent.acpConnect = (options = {}) => connect({ protocolVersion: bridge.protocolVersion, ...options });
+  agent.acpConnect = (options = {}) => connect({
+    getPromptCompletion: async () => ({ stopReason: 'end_turn' }),
+    ...options,
+  });
   return agent;
 }
 
@@ -320,19 +310,10 @@ describe('Agent.acpConnect', () => {
 
     const init = bridge.currentPeer.framesFor('initialize');
     expect(init).toHaveLength(1);
-    // v2 is offered by default with both capability shapes present so v1-only
-    // and v2 agents can each decode the handshake.
-    expect(init[0].params).toMatchObject({
-      protocolVersion: 1,
-      clientInfo: { name: 'hypercli-ts-sdk' },
-      clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
-        terminal: false,
-      },
-    });
-    // The v1-only fake answered 1, so the session negotiates down.
-    expect(client.negotiatedProtocolVersion).toBe(1);
-    expect(client.initializeResponse?.agentInfo?.name).toBe('fake-acp-child');
+    // v2 is the only frontend profile; there is no v1 opt-in.
+    expect(init[0].params).toMatchObject({ protocolVersion: 2 });
+    expect(client.negotiatedProtocolVersion).toBe(2);
+    expect((client.initializeResponse as { info?: { name?: string } } | null)?.info?.name).toBe('fake-acp-child');
     expect(updates).toEqual([]);
   });
 
@@ -392,19 +373,19 @@ describe('Agent.acpConnect', () => {
     expect(bridge.currentPeer.framesFor('session/new')[0].params.systemPrompt).toBeUndefined();
   });
 
-  it('gates listSessions/loadSession on advertised capabilities with typed errors', async () => {
-    const bridge = await startBridge({ capabilities: {} });
+  it('gates listSessions on the advertised v2 session surface; loadSession always steers to resumeSession', async () => {
+    const bridge = await startBridge({ v2Capabilities: {} });
     const client = track(await acpAgent(bridge).acpConnect());
 
     await expect(client.listSessions()).rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
     await expect(client.listSessions()).rejects.toThrow(/session\/list/);
     await expect(client.loadSession('session-9')).rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
-    await expect(client.loadSession('session-9')).rejects.toThrow(/session\/load/);
+    await expect(client.loadSession('session-9')).rejects.toThrow(/resumeSession/);
     expect(bridge.currentPeer.framesFor('session/list')).toHaveLength(0);
     expect(bridge.currentPeer.framesFor('session/load')).toHaveLength(0);
   });
 
-  it('serves listSessions when the child advertises sessionCapabilities.list', async () => {
+  it('serves listSessions when the child advertises a v2 session surface', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect());
     const listed = await client.listSessions();
@@ -433,7 +414,7 @@ describe('Agent.acpConnect', () => {
     expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(2);
   });
 
-  it('rejects an in-flight prompt on socket drop, reconnects, replays session/load, and prompts again', async () => {
+  it('rejects an in-flight prompt on socket drop, reconnects, replays session/resume, and prompts again', async () => {
     const bridge = await startBridge();
     let holdPrompt = true;
     bridge.promptHook = (peer, frame) => {
@@ -452,9 +433,13 @@ describe('Agent.acpConnect', () => {
     expect(bridge.peers).toHaveLength(2);
     const second = bridge.currentPeer;
     expect(second.initializeCount).toBe(1);
-    await waitFor(() => second.framesFor('session/load').length > 0);
-    expect(second.framesFor('session/load')).toHaveLength(1);
-    expect(second.framesFor('session/load')[0].params).toMatchObject({ sessionId: 'session-1' });
+    await waitFor(() => second.framesFor('session/resume').length > 0);
+    expect(second.framesFor('session/load')).toHaveLength(0);
+    expect(second.framesFor('session/resume').length).toBe(1);
+    expect(second.framesFor('session/resume')[0].params).toMatchObject({
+      sessionId: 'session-1',
+      replayFrom: { type: 'start' },
+    });
 
     holdPrompt = false;
     await expect(client.prompt(session.sessionId, "second turn")).resolves.toMatchObject({ stopReason: "end_turn" });
@@ -467,7 +452,7 @@ describe('Agent.acpConnect', () => {
     await client.newSession();
 
     bridge.currentPeer.drop();
-    bridge.failLoad = true;
+    bridge.failResume = true;
     await client.waitConnected();
     await waitFor(() => errors.length > 0);
 
@@ -484,7 +469,8 @@ describe('Agent.acpConnect', () => {
 
     const permissionId = bridge.currentPeer.request('session/request_permission', {
       sessionId: session.sessionId,
-      toolCall: { toolCallId: 'tool-1', title: 'Run ls', kind: 'execute', status: 'pending' },
+      title: 'Run ls',
+      subject: { type: 'tool_call', toolCall: { toolCallId: 'tool-1', title: 'Run ls', kind: 'execute', status: 'pending' } },
       options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }],
     });
     await waitFor(() => bridge.currentPeer.responses.some((frame) => frame.id === permissionId));
@@ -505,7 +491,8 @@ describe('Agent.acpConnect', () => {
 
     const permissionId = bridge.currentPeer.request('session/request_permission', {
       sessionId: session.sessionId,
-      toolCall: { toolCallId: 'tool-9', title: 'Write file', kind: 'edit', status: 'pending' },
+      title: 'Write file',
+      subject: { type: 'tool_call', toolCall: { toolCallId: 'tool-9', title: 'Write file', kind: 'edit', status: 'pending' } },
       options: [{ optionId: 'allow-always', name: 'Always allow', kind: 'allow_always' }],
     });
     await waitFor(() => bridge.currentPeer.responses.some((frame) => frame.id === permissionId));
@@ -609,14 +596,13 @@ describe('ACP version negotiation', () => {
     expect(events).toEqual([]);
   });
 
-  it('v1: resumeSession with replayFrom is rejected (replay belongs to loadSession)', async () => {
-    const bridge = await startBridge();
-    const client = track(await acpAgent(bridge).acpConnect());
-    await client.newSession();
-
-    await expect(client.resumeSession('session-1', { replayFrom: { type: 'start' } }))
-      .rejects.toBeInstanceOf(CodingAgentAcpUnavailableError);
-    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
+  it('an agent answering v1 fails the connect — the client closes on version mismatch only', async () => {
+    const bridge = await startBridge({ protocolVersion: 1 });
+    const clientPromise = acpAgent(bridge).acpConnect();
+    await expect(clientPromise).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
+    await expect(clientPromise).rejects.toThrow(/initialize failed/);
+    const error = await clientPromise.catch((caught) => caught);
+    expect(String((error as { cause?: unknown }).cause)).toMatch(/protocol version/);
   });
 
   it('v2: reconnect replays sessions via session/resume, never session/load', async () => {
@@ -678,55 +664,26 @@ describe('ACP version negotiation', () => {
     expect(client.sessionIds).toEqual([]);
   });
 
-  it('an explicit v1 profile retains load semantics', async () => {
-    const bridge = await startBridge();
-    const client = track(await acpAgent(bridge).acpConnect());
-    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({ protocolVersion: 1 });
-    expect(client.negotiatedProtocolVersion).toBe(1);
-
-    await client.newSession();
-    await client.loadSession('session-1');
-    expect(bridge.currentPeer.framesFor('session/load')).toHaveLength(1);
-    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
-  });
-
   it('an unsupported answered version fails the connect', async () => {
     const bridge = await startBridge();
     (bridge as { protocolVersion: number }).protocolVersion = 99;
     const clientPromise = acpAgent(bridge).acpConnect();
     await expect(clientPromise).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
-    await expect(clientPromise).rejects.toThrow(/protocol version 99/);
+    await expect(clientPromise).rejects.toThrow(/initialize failed/);
   });
 
-  it('pinning protocolVersion: 1 offers 1 verbatim (no v2 shapes needed)', async () => {
-    const bridge = await startBridge();
-    const client = track(await acpAgent(bridge).acpConnect({ protocolVersion: 1 }));
-    expect(client.negotiatedProtocolVersion).toBe(1);
-    expect(bridge.currentPeer.lastInitializeParams).toMatchObject({
-      protocolVersion: 1,
-      clientInfo: { name: 'hypercli-ts-sdk' },
-    });
-  });
-
-  it('mixed pool: two agents at different versions negotiate independently per key', async () => {
-    const bridgeV1 = await startBridge();
+  it('pool: a v1-answering agent is rejected on version mismatch while a v2 agent connects', async () => {
+    const bridgeV1 = await startBridge({ protocolVersion: 1 });
     const bridgeV2 = await startBridge({ protocolVersion: 2 });
     const pool = new CodingAgentAcpPool({
       connect: (key) => acpAgent(key === 'v2-agent' ? bridgeV2 : bridgeV1).acpConnect(),
     });
     pools.push(pool);
 
-    const [lease1, lease2] = await Promise.all([pool.acquire('v1-agent'), pool.acquire('v2-agent')]);
-    expect(lease1.client.negotiatedProtocolVersion).toBe(1);
+    const lease2 = await pool.acquire('v2-agent');
     expect(lease2.client.negotiatedProtocolVersion).toBe(2);
+    await expect(pool.acquire('v1-agent')).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
 
-    // The v1 lease replays via load; the v2 lease has no session/load.
-    await lease1.client.newSession();
-    await lease2.client.newSession();
-    await lease1.client.loadSession('session-1');
-    await expect(lease2.client.loadSession('session-1')).rejects.toThrow(/resumeSession/);
-
-    lease1.release();
     lease2.release();
   });
 });
@@ -816,7 +773,7 @@ describe('read receipts', () => {
 });
 
 describe('CodingAgentAcpClient replay epoch tracking', () => {
-  it('brackets loadSession: replayed updates observe a live epoch, which ends when the load resolves', async () => {
+  it('brackets a replaying resume: replayed updates observe a live epoch, which ends when the resume resolves', async () => {
     const bridge = await startBridge();
     bridge.loadHook = (peer, frame) => {
       peer.update('session-1', 'history one');
@@ -832,7 +789,7 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     await client.newSession();
 
     expect(client.replayEpoch('session-1')).toBe(0);
-    await client.loadSession('session-1');
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
 
     expect(epochsAtUpdate.length).toBeGreaterThan(0);
     expect(epochsAtUpdate.every((epoch) => epoch === 1)).toBe(true);
@@ -843,15 +800,15 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     ]);
   });
 
-  it('ends the epoch on a rejected load (ok: false), leaving no replay state behind', async () => {
+  it('ends the epoch on a rejected resume (ok: false), leaving no replay state behind', async () => {
     const bridge = await startBridge();
     const events: CodingAgentAcpReplayEvent[] = [];
     const client = track(await acpAgent(bridge).acpConnect());
     client.addReplayListener((event) => events.push(event));
     await client.newSession();
 
-    bridge.failLoad = true;
-    await expect(client.loadSession('session-1')).rejects.toThrow();
+    bridge.failResume = true;
+    await expect(client.resumeSession('session-1', { replayFrom: { type: 'start' } })).rejects.toThrow();
 
     expect(client.replayEpoch('session-1')).toBe(0);
     expect(events).toEqual([
@@ -860,7 +817,7 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     ]);
   });
 
-  it('isolates epochs per session — a load on one never tags another', async () => {
+  it('isolates epochs per session — a replay on one never tags another', async () => {
     const bridge = await startBridge();
     bridge.loadHook = (peer, frame) => {
       peer.update('session-1', 'history');
@@ -877,7 +834,7 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     await client.newSession();
     await client.newSession();
 
-    await client.loadSession('session-1');
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
 
     expect(epochsAtUpdate).toEqual([
       { sessionId: 'session-1', epoch: 1 },
@@ -885,7 +842,7 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     ]);
   });
 
-  it('overlapping loads for one session increment the epoch — latest wins, stale ends do not clear it', async () => {
+  it('overlapping replays for one session increment the epoch — latest wins, stale ends do not clear it', async () => {
     const bridge = await startBridge();
     const pendingLoads: WireFrame[] = [];
     bridge.loadHook = (_peer, frame) => {
@@ -896,8 +853,9 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     client.addReplayListener((event) => events.push(event));
     await client.newSession();
 
-    const first = client.loadSession('session-1');
-    const second = client.loadSession('session-1');
+    const replayFrom = { replayFrom: { type: 'start' as const } };
+    const first = client.resumeSession('session-1', replayFrom);
+    const second = client.resumeSession('session-1', replayFrom);
     await waitFor(() => pendingLoads.length === 2);
     expect(client.replayEpoch('session-1')).toBe(2);
 

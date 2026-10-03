@@ -13,7 +13,7 @@ from rich.table import Table
 
 from hypercli import HyperCLI, issue_api_key_from_jwt
 from hypercli.agents import Agent as DeploymentAgent, Deployments
-from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base
+from hypercli.config import get_agent_api_key, get_agents_api_base_url, get_agents_api_base_url_from_product_base
 from hypercli.http import HTTPClient
 
 from .onboard import onboard as _onboard_fn
@@ -52,8 +52,6 @@ PROD_API_BASE = "https://api.hypercli.com"
 DEV_INFERENCE_API_BASE = "https://api.agents.dev.hypercli.com"
 PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
 DEFAULT_X402_TIMEOUT_SECONDS = 60.0
-DEV_AGENTS_BACKEND_BASE = "https://api.dev.hypercli.com/agents"
-PROD_AGENTS_BACKEND_BASE = "https://api.hypercli.com/agents"
 DEV_SLACK_RELAY_BASE = "https://api.agents.dev.hypercli.com"
 PROD_SLACK_RELAY_BASE = "https://api.agents.hypercli.com"
 
@@ -105,11 +103,7 @@ def _get_agent_query_client(dev: bool) -> HyperCLI:
 
 
 def _resolve_agents_backend_base(dev: bool) -> str:
-    return (
-        os.environ.get("AGENTS_API_BASE_URL")
-        or os.environ.get("HYPER_AGENTS_API_BASE")
-        or (DEV_AGENTS_BACKEND_BASE if dev else PROD_AGENTS_BACKEND_BASE)
-    ).rstrip("/")
+    return get_agents_api_base_url(dev=dev).rstrip("/")
 
 
 def _resolve_slack_relay_base(dev: bool, relay_base_url: str | None = None) -> str:

@@ -8,10 +8,10 @@
  * `initialize` handshake, and exposes typed session helpers plus a raw
  * JSON-RPC escape hatch.
  *
- * The default frontend profile is schema-v2.0.0-alpha.5 using the actual
- * upstream experimental/v2 SDK runtime. An explicit protocolVersion: 1 selects
- * the separate stable runtime. A connection never parses one version through
- * the other's handlers. The backend independently negotiates its runtime legs.
+ * The frontend profile is schema-v2.0.0-alpha.5 using the actual
+ * upstream experimental/v2 SDK runtime. There is no v1 opt-in: the client
+ * closes the connection when the agent answers anything other than version 2.
+ * The backend independently negotiates its runtime legs.
  * submitPrompt returns the v2 inserted messageId; prompt is a convenience that
  * additionally waits for the session's foreground idle transition. Neither
  * helper retries input after uncertain delivery.
@@ -189,12 +189,6 @@ export interface CodingAgentAcpConnectOptions {
   cwd?: string;
   /** Override the `clientInfo` sent with `initialize`. */
   clientInfo?: { name?: string; version?: string };
-  /**
-   * Concrete frontend protocol profile. Defaults to v2 alpha.5. Explicitly
-   * choose 1 for a v1 endpoint; this client does not silently downgrade the
-   * frontend or mix handlers after initialize.
-   */
-  protocolVersion?: CodingAgentAcpProtocolVersion;
   /** MCP servers attached to every session created or replayed by this client. */
   mcpServers?: acp.McpServer[];
   /**
@@ -231,14 +225,6 @@ export interface CodingAgentAcpConnectOptions {
   ) => acp.MaybePromise<acp.RequestPermissionResponse>;
   /** Full standard v2 permission surface, including command and absent subjects. */
   onV2PermissionRequest?: (params: acp2.RequestPermissionRequest, signal?: AbortSignal) => acp2.MaybePromise<acp2.RequestPermissionResponse>;
-  /** Opt-in `fs/read_text_file` handler; unhandled by default (method-not-found). */
-  onReadTextFile?: (
-    params: acp.ReadTextFileRequest,
-  ) => acp.MaybePromise<acp.ReadTextFileResponse>;
-  /** Opt-in `fs/write_text_file` handler; unhandled by default (method-not-found). */
-  onWriteTextFile?: (
-    params: acp.WriteTextFileRequest,
-  ) => acp.MaybePromise<acp.WriteTextFileResponse | void>;
   /** Soft errors (replay gaps); the client stays alive. */
   onError?: (error: Error) => void;
   /** Terminal close: reconnect budget exhausted or a terminal bridge close code. */
@@ -306,7 +292,6 @@ export class CodingAgentAcpClient {
   private readonly clientName: string;
   private readonly clientVersion: string;
   private readonly cookieStore = new MemoryAcpCookieStore();
-  private readonly offeredProtocolVersion: CodingAgentAcpProtocolVersion;
   private connection: WireConnection | null = null;
   private readonly foreground = new Map<string, ForegroundObservation>();
   private readonly foregroundStates = new Map<string, string>();
@@ -342,7 +327,6 @@ export class CodingAgentAcpClient {
     this.mcpServers = options.mcpServers ?? [];
     this.clientName = options.clientInfo?.name ?? 'hypercli-ts-sdk';
     this.clientVersion = options.clientInfo?.version ?? '';
-    this.offeredProtocolVersion = options.protocolVersion ?? 2;
     this.onAbort = () => this.close();
   }
 
@@ -497,46 +481,24 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Reattach a session with full history replay (`session/load`). v1 only:
-   * ACP v2 removed `session/load` — on a v2-negotiated connection callers use
-   * {@link resumeSession} with a `replayFrom` cursor instead.
+   * Removed in ACP v2: the client only negotiates v2, in which
+   * `session/load` does not exist. Use {@link resumeSession} with a
+   * `replayFrom` cursor to reattach with history replay.
    */
-  async loadSession(sessionId: string): Promise<acp.LoadSessionResponse> {
-    const context = this.requireContext();
-    if (this.negotiatedVersionValue === 2) {
-      throw new CodingAgentAcpUnavailableError(
-        'session/load',
-        'the connection negotiated ACP v2, which removed session/load; use resumeSession(sessionId, { replayFrom: { type: \'start\' } }) to reattach with history replay',
-      );
-    }
-    if (!this.v1Capabilities().load) {
-      throw new CodingAgentAcpUnavailableError(
-        'session/load',
-        'the agent did not advertise agentCapabilities.loadSession in its initialize response',
-      );
-    }
-    const previous = this.sessions.get(sessionId);
-    const cwd = previous?.cwd ?? this.cwd;
-    const mcpServers = previous?.mcpServers ?? this.mcpServers;
-    const response = await this.performLoad(context, sessionId, cwd, mcpServers);
-    this.sessions.set(sessionId, {
-      cwd,
-      mcpServers,
-      modes: response?.modes ?? null,
-      configOptions: response?.configOptions ?? null,
-      title: previous?.title ?? null,
-    });
-    return response;
+  async loadSession(_sessionId: string): Promise<acp.LoadSessionResponse> {
+    throw new CodingAgentAcpUnavailableError(
+      'session/load',
+      'the connection negotiated ACP v2, which removed session/load; use resumeSession(sessionId, { replayFrom: { type: \'start\' } }) to reattach with history replay',
+    );
   }
 
   /**
    * Restore a session's context (`session/resume`). Without `replayFrom` no
-   * history is replayed. On a v2-negotiated connection `replayFrom` requests
-   * retained history (`{ type: 'start' }` replays everything) — this is the
-   * v2 replacement for the removed `session/load`; replayed history streams
-   * as `session/update` notifications before the resume response resolves, so
-   * the call runs inside a replay-epoch bracket exactly like a v1 load. On v1
-   * `replayFrom` is unsupported (loadSession replays history there).
+   * history is replayed. `replayFrom` requests retained history
+   * (`{ type: 'start' }` replays everything) — this is the v2 replacement
+   * for the removed `session/load`; replayed history streams as
+   * `session/update` notifications before the resume response resolves, so
+   * the call runs inside a replay-epoch bracket.
    */
   async resumeSession(
     sessionId: string,
@@ -544,12 +506,6 @@ export class CodingAgentAcpClient {
   ): Promise<acp.ResumeSessionResponse> {
     const context = this.requireContext();
     this.requireSessionCapability('session/resume', 'resume');
-    if (options.replayFrom !== undefined && options.replayFrom !== null && this.negotiatedVersionValue !== 2) {
-      throw new CodingAgentAcpUnavailableError(
-        'session/resume',
-        'replayFrom is an ACP v2 parameter; the connection negotiated v1 — use loadSession for history replay',
-      );
-    }
     const previous = this.sessions.get(sessionId);
     const params: Record<string, unknown> = {
       sessionId,
@@ -625,55 +581,37 @@ export class CodingAgentAcpClient {
     prompt: string | acp.ContentBlock | acp.ContentBlock[],
     options: { onAccepted?: (accepted: acp2.PromptResponse) => void } = {},
   ): Promise<CodingAgentAcpPromptResult> {
-    const connection = this.requireConnection();
     const blocks: acp.ContentBlock[] = typeof prompt === 'string'
       ? [{ type: 'text', text: prompt }]
       : Array.isArray(prompt)
         ? prompt
         : [prompt];
-    if (this.negotiatedVersionValue === 2) {
-      if (!this.options.getPromptCompletion) throw new CodingAgentAcpUnavailableError('prompt', 'v2 has no per-message completion event; use submitPrompt, or supply an exact platform REST receipt reader');
-      if (this.foreground.has(sessionId) || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '')) {
-        throw new Error('Session foreground is active; use submitPrompt for concurrent admission');
-      }
-      let resolve!: (result: CodingAgentAcpPromptResult) => void;
-      let reject!: (error: Error) => void;
-      const completed = new Promise<CodingAgentAcpPromptResult>((res, rej) => { resolve = res; reject = rej; });
-      // Both lanes can arrive before acceptance; register first.
-      const pending: ForegroundObservation = { resolve, reject };
-      this.foreground.set(sessionId, pending);
-      void completed.catch(() => {});
-      try {
-        const acceptance = this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
-        return await Promise.race([completed, acceptance.then(async (accepted) => {
-          pending.messageId = accepted.messageId;
-          options.onAccepted?.(accepted);
-          this.settleForeground(sessionId);
-          return completed;
-        })]);
-      } finally {
-        this.foreground.delete(sessionId);
-      }
+    if (!this.options.getPromptCompletion) throw new CodingAgentAcpUnavailableError('prompt', 'v2 has no per-message completion event; use submitPrompt, or supply an exact platform REST receipt reader');
+    if (this.foreground.has(sessionId) || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '')) {
+      throw new Error('Session foreground is active; use submitPrompt for concurrent admission');
     }
+    let resolve!: (result: CodingAgentAcpPromptResult) => void;
+    let reject!: (error: Error) => void;
+    const completed = new Promise<CodingAgentAcpPromptResult>((res, rej) => { resolve = res; reject = rej; });
+    // Both lanes can arrive before acceptance; register first.
+    const pending: ForegroundObservation = { resolve, reject };
+    this.foreground.set(sessionId, pending);
+    void completed.catch(() => {});
     try {
-      return await connection.agent.request<acp.PromptResponse>(acp.methods.agent.session.prompt, {
-        sessionId,
-        prompt: blocks,
-      });
-    } catch (error) {
-      if (this.connection !== connection || connection.signal.aborted) {
-        throw new CodingAgentAcpConnectionError(
-          'ACP connection lost mid-prompt; the turn did not complete and is not retried',
-          { code: this.lastCloseCode, cause: error },
-        );
-      }
-      throw error;
+      const acceptance = this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
+      return await Promise.race([completed, acceptance.then(async (accepted) => {
+        pending.messageId = accepted.messageId;
+        options.onAccepted?.(accepted);
+        this.settleForeground(sessionId);
+        return completed;
+      })]);
+    } finally {
+      this.foreground.delete(sessionId);
     }
   }
 
   /** V2 insertion acknowledgement, not foreground completion. */
   async submitPrompt(sessionId: string, prompt: acp.ContentBlock[]): Promise<acp2.PromptResponse> {
-    if (this.negotiatedVersionValue !== 2) throw new CodingAgentAcpUnavailableError('session/prompt', 'insertion acknowledgements require v2');
     if (this.foreground.has(sessionId)) throw new Error('Cannot mix submitPrompt with an isolated prompt observation');
     return this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt });
   }
@@ -696,16 +634,11 @@ export class CodingAgentAcpClient {
     await this.requireContext().notify(acp.methods.agent.session.cancel, { sessionId });
   }
 
-  /** `session/set_mode`; ungated — agents may accept modes outside the tracked state. */
+  /** `session/set_mode` (via the v2 `mode` config option); ungated — agents may accept modes outside the tracked state. */
   async setMode(sessionId: string, modeId: string): Promise<void> {
-    const context = this.requireContext();
-    if (this.negotiatedVersionValue === 2) {
-      const option = this.sessions.get(sessionId)?.configOptions?.find((entry) => entry.category === 'mode');
-      if (!option) throw new CodingAgentAcpUnavailableError('session/set_config_option', 'no mode option advertised');
-      await this.setConfigOption(sessionId, option.id, modeId);
-    } else {
-      await context.request(acp.methods.agent.session.setMode, { sessionId, modeId });
-    }
+    const option = this.sessions.get(sessionId)?.configOptions?.find((entry) => entry.category === 'mode');
+    if (!option) throw new CodingAgentAcpUnavailableError('session/set_config_option', 'no mode option advertised');
+    await this.setConfigOption(sessionId, option.id, modeId);
     const tracked = this.sessions.get(sessionId);
     if (tracked?.modes) tracked.modes = { ...tracked.modes, currentModeId: modeId };
   }
@@ -719,7 +652,7 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     const payload =
       typeof value === 'string'
-        ? { sessionId, configId, value, ...(this.negotiatedVersionValue === 2 ? { type: 'id' as const } : {}) }
+        ? { sessionId, configId, value, type: 'id' as const }
         : { sessionId, configId, value: value.value, type: value.type };
     const response = this.localSessionState(await context.request<acp.SetSessionConfigOptionResponse>(
       acp.methods.agent.session.setConfigOption,
@@ -826,33 +759,23 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Version-specific initialization; v2 has no client fs/terminal methods.
+   * The frontend speaks exactly one profile: schema v2 (`protocolVersion: 2`).
+   * There is no v1 opt-in; an agent answering another version is closed as a
+   * version mismatch (see `dialAndInitialize`) instead of negotiating down.
    */
-  private initializeParams(): acp.InitializeRequest | acp2.InitializeRequest {
-    if (this.offeredProtocolVersion === 2) return {
+  private initializeParams(): acp2.InitializeRequest {
+    return {
       protocolVersion: 2, capabilities: {}, info: { name: this.clientName, version: this.clientVersion },
     };
-    return {
-      protocolVersion: this.offeredProtocolVersion,
-      clientCapabilities: {
-        fs: {
-          readTextFile: this.options.onReadTextFile !== undefined,
-          writeTextFile: this.options.onWriteTextFile !== undefined,
-        },
-        terminal: false,
-      },
-      clientInfo: { name: this.clientName, version: this.clientVersion },
-    } as acp.InitializeRequest;
   }
 
   private wireMcpServers(servers: acp.McpServer[]): unknown[] {
-    return servers.map((server) => this.negotiatedVersionValue === 2 && !('type' in server)
-      ? { ...server, type: 'stdio' } : server);
+    return servers.map((server) => (!('type' in server) ? { ...server, type: 'stdio' } : server));
   }
 
   /** Local compatibility view only; configId remains unchanged on the wire. */
   private localSessionState<T extends { configOptions?: acp.SessionConfigOption[] | null }>(response: T): T {
-    if (this.negotiatedVersionValue !== 2 || !response?.configOptions) return response;
+    if (!response?.configOptions) return response;
     return { ...response, configOptions: response.configOptions.map((option) => {
       const raw = option as unknown as acp2.SessionConfigOption;
       return { ...option, id: raw.configId };
@@ -891,40 +814,14 @@ export class CodingAgentAcpClient {
       // Existing subscribers accept structurally open session updates. Do not
       // rewrite v2 snapshots into append-only v1 chunks.
       this.options.onUpdate?.(notification as unknown as acp.SessionNotification);
-      for (const listener of [...this.updateListeners]) listener(notification as unknown as acp.SessionNotification);
-    });
-    return app;
-  }
-
-  private buildApp(): acp.ClientApp {
-    const app = acp.client({ name: this.clientName });
-    app.onRequest(acp.methods.client.session.requestPermission, (context) => {
-      if (this.permissionHandler) {
-        return this.permissionHandler(context.params, context.signal);
-      }
-      if (this.options.onPermissionRequest) {
-        return this.options.onPermissionRequest(context.params, context.signal);
-      }
-      return { outcome: { outcome: 'cancelled' as const } };
-    });
-    app.onNotification(acp.methods.client.session.update, (context) => {
-      this.options.onUpdate?.(context.params);
       for (const listener of [...this.updateListeners]) {
         try {
-          listener(context.params);
+          listener(notification as unknown as acp.SessionNotification);
         } catch (error) {
           console.error('ACP session/update listener threw', error);
         }
       }
     });
-    if (this.options.onReadTextFile) {
-      const handler = this.options.onReadTextFile;
-      app.onRequest(acp.methods.client.fs.readTextFile, (context) => handler(context.params));
-    }
-    if (this.options.onWriteTextFile) {
-      const handler = this.options.onWriteTextFile;
-      app.onRequest(acp.methods.client.fs.writeTextFile, (context) => handler(context.params));
-    }
     return app;
   }
 
@@ -948,9 +845,7 @@ export class CodingAgentAcpClient {
       headers,
       cookieStore: this.cookieStore,
     });
-    const connection: WireConnection = this.offeredProtocolVersion === 2
-      ? this.buildV2App().connect(stream)
-      : this.buildApp().connect(stream);
+    const connection: WireConnection = this.buildV2App().connect(stream);
     void connection.closed.then(() => this.onConnectionClosed(connection, closeInfo));
     return { connection, closeInfo };
   }
@@ -974,23 +869,14 @@ export class CodingAgentAcpClient {
     this.options.signal?.addEventListener('abort', abortDial, { once: true });
     if (this.options.signal?.aborted) abortDial();
     try {
+      // The v2 runtime rejects any initialize answer whose protocolVersion is
+      // not 2 before this promise resolves, closing the connection on the
+      // version mismatch — there is nothing further to negotiate.
       const initializeResponse = await connection.agent.request<acp.InitializeResponse | AcpV2InitializeResponse>(
         acp.methods.agent.initialize,
         this.initializeParams(),
       );
-      const answered = (initializeResponse as { protocolVersion?: unknown }).protocolVersion;
-      if ((answered !== 1 && answered !== 2) || answered !== this.offeredProtocolVersion) {
-        // Per the ACP version-negotiation contract the client closes a
-        // connection whose answered version it does not support.
-        connection.close(new CodingAgentAcpConnectionError(`unsupported ACP protocol version ${String(answered)}`));
-        const code = closeInfo.code ?? null;
-        this.lastCloseCode = code;
-        throw new CodingAgentAcpConnectionError(
-          `ACP initialize failed: the agent answered protocol version ${String(answered)}, which this client does not support (it speaks 1 and 2)`,
-          { code },
-        );
-      }
-      return { connection, initializeResponse, negotiatedVersion: answered };
+      return { connection, initializeResponse, negotiatedVersion: 2 };
     } catch (error) {
       if (error instanceof CodingAgentAcpConnectionError) throw error;
       connection.close(error instanceof Error ? error : undefined);
@@ -1077,32 +963,25 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Reattach every tracked session after a reconnect, version-aware: v1
-   * replays with `session/load` (gated on the `loadSession` capability), v2
-   * resumes with `replayFrom: { type: 'start' }` (gated on the v2 session
-   * surface — there is no `session/load` in v2). Either way a session that
-   * cannot be replayed is dropped with a soft
+   * Reattach every tracked session after a reconnect: v2 resumes with
+   * `replayFrom: { type: 'start' }` (gated on the advertised session
+   * surface). A session that cannot be replayed is dropped with a soft
    * {@link CodingAgentAcpReplayGapError} and the connection stays alive.
    */
   private async replaySessions(connection: WireConnection, generation: number): Promise<void> {
-    const useV2Resume = this.negotiatedVersionValue === 2;
-    const canReplay = useV2Resume ? this.v2SessionSurface() !== null : this.v1Capabilities().load;
+    const canReplay = this.v2SessionSurface() !== null;
     for (const [sessionId, tracked] of [...this.sessions]) {
       if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
       if (!canReplay) {
         this.sessions.delete(sessionId);
         this.softError(new CodingAgentAcpReplayGapError(
           sessionId,
-          useV2Resume
-            ? 'the v2 agent no longer advertises a session surface (capabilities.session)'
-            : 'the agent no longer advertises agentCapabilities.loadSession',
+          'the v2 agent no longer advertises a session surface (capabilities.session)',
         ));
         continue;
       }
       try {
-        const response = useV2Resume
-          ? await this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers)
-          : await this.performLoad(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
+        const response = await this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
         tracked.modes = response?.modes ?? null;
         tracked.configOptions = response?.configOptions ?? null;
       } catch (error) {
@@ -1131,11 +1010,11 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * One history-replaying round-trip (`session/load` on v1, `session/resume`
-   * with `replayFrom` on v2) bracketed by a replay epoch: `start` fires
-   * before the request goes on the wire (ahead of every replayed history
-   * notification), `end` fires once the response settles (after the full
-   * history has streamed, per the protocol's replay contract).
+   * One history-replaying round-trip (`session/resume` with `replayFrom`)
+   * bracketed by a replay epoch: `start` fires before the request goes on the
+   * wire (ahead of every replayed history notification), `end` fires once the
+   * response settles (after the full history has streamed, per the protocol's
+   * replay contract).
    */
   private async performReplayBracket<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
     const epoch = this.beginReplay(sessionId);
@@ -1147,20 +1026,6 @@ export class CodingAgentAcpClient {
       this.endReplay(sessionId, epoch, false);
       throw error;
     }
-  }
-
-  private performLoad(
-    context: WireContext,
-    sessionId: string,
-    cwd: string,
-    mcpServers: acp.McpServer[],
-  ): Promise<acp.LoadSessionResponse> {
-    return this.performReplayBracket(sessionId, () =>
-      context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
-        sessionId,
-        cwd,
-        mcpServers,
-      }));
   }
 
   private performResumeReplay(
@@ -1229,16 +1094,6 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * v1 `loadSession` capability view. v2 has no `session/load`, so this is
-   * only consulted on v1-negotiated connections.
-   */
-  private v1Capabilities(): { load: boolean } {
-    const response = this.initializeResponseValue;
-    if (!response || this.negotiatedVersionValue === 2) return { load: false };
-    return { load: (response as acp.InitializeResponse).agentCapabilities?.loadSession === true };
-  }
-
-  /**
    * The v2 session surface advertised in `capabilities.session`. Present
    * (even as `{}`) means the baseline v2 session methods — `session/new`,
    * `session/list`, `session/resume`, `session/close`, `session/prompt`,
@@ -1247,7 +1102,7 @@ export class CodingAgentAcpClient {
    */
   private v2SessionSurface(): { delete: unknown; fork: unknown } | null {
     const response = this.initializeResponseValue;
-    if (!response || this.negotiatedVersionValue !== 2) return null;
+    if (!response) return null;
     const session = (response as AcpV2InitializeResponse).capabilities?.session;
     if (session === null || session === undefined) return null;
     return { delete: session.delete ?? null, fork: session.fork ?? null };
@@ -1257,29 +1112,18 @@ export class CodingAgentAcpClient {
     method: string,
     capability: 'list' | 'delete' | 'fork' | 'resume' | 'close',
   ): void {
-    if (this.negotiatedVersionValue === 2) {
-      const surface = this.v2SessionSurface();
-      if (surface === null) {
-        throw new CodingAgentAcpUnavailableError(
-          method,
-          'the agent negotiated ACP v2 without a session surface (no capabilities.session in its initialize response)',
-        );
-      }
-      const gated = capability === 'delete' ? surface.delete : capability === 'fork' ? surface.fork : {};
-      if (gated === null || gated === undefined) {
-        throw new CodingAgentAcpUnavailableError(
-          method,
-          `the v2 agent did not advertise capabilities.session.${capability} in its initialize response`,
-        );
-      }
-      return;
-    }
-    const response = this.initializeResponseValue as acp.InitializeResponse | null;
-    const caps = response?.agentCapabilities?.sessionCapabilities;
-    if (!caps || caps[capability] === null || caps[capability] === undefined) {
+    const surface = this.v2SessionSurface();
+    if (surface === null) {
       throw new CodingAgentAcpUnavailableError(
         method,
-        `the agent did not advertise sessionCapabilities.${capability} in its initialize response`,
+        'the agent negotiated ACP v2 without a session surface (no capabilities.session in its initialize response)',
+      );
+    }
+    const gated = capability === 'delete' ? surface.delete : capability === 'fork' ? surface.fork : {};
+    if (gated === null || gated === undefined) {
+      throw new CodingAgentAcpUnavailableError(
+        method,
+        `the v2 agent did not advertise capabilities.session.${capability} in its initialize response`,
       );
     }
   }

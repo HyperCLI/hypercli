@@ -50,7 +50,7 @@ import {
   normalizeAgentsWsUrl,
   resolveAgentsApiBase,
 } from './agent-urls.js';
-import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
+import { getAgentsApiBaseUrl } from './config.js';
 export {
   parseControlUiAllowedOrigins,
 } from './openclaw-control-ui-origin.js';
@@ -2843,8 +2843,8 @@ export class Agent {
    * - omitted: the socket starts session-less; `newSession()` runs the
    *   proxy's `session/new`, minting the backend session.
    * - provided: the dial itself is session-less; AFTER the `initialize`
-   *   handshake the client resumes the session over the connected socket
-   *   (`session/resume` on v2, `session/load` on v1), so the replayed
+   * handshake the client resumes the session over the connected socket
+   * (`session/resume` on v2), so the replayed
    *   history stream reaches this connection. Backend-side, an attach
    *   naming an id the store does not hold is refused with close code
    *   4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
@@ -2854,10 +2854,10 @@ export class Agent {
    * being hardened to runtime + backend-service identities, and combining
    * it with `sessionId` throws (the bridge has no session binding).
    *
-   * The ACP `initialize` handshake offers protocol version 2 by default
+   * The ACP `initialize` handshake offers protocol version 2 only
    * (see `client.negotiatedProtocolVersion`). The proxy authority is
-   * v2-only — it rejects a v1 `initialize` outright — so
-   * `protocolVersion: 1` applies to the direct `/ws` bridge only.
+   * v2-only — it rejects a v1 `initialize` outright — and the client
+   * closes on any answered version other than 2.
    * The `cwd` default is the agent
    * workspace root (the launch's sync root, `/home/node` for coding-agent
    * runtimes, `/home/hermes` for hermes-agent).
@@ -2892,8 +2892,7 @@ export class Agent {
     );
     if (options.sessionId) {
       try {
-        if (client.negotiatedProtocolVersion === 2) await client.resumeSession(options.sessionId);
-        else await client.loadSession(options.sessionId);
+        await client.resumeSession(options.sessionId);
       } catch (error) {
         client.close();
         throw error;
@@ -3613,7 +3612,7 @@ export class Deployments {
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
-    this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
+    this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || defaultAgentsWsUrl(this.apiBase));
     const agentTimeout = requestTimeout ?? (http instanceof HTTPClient ? (http as any).timeout : undefined);
     this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey, agentTimeout) : http;
   }

@@ -3,7 +3,7 @@
 //! Mirrors the Python SDK's `RoutinesAPI` (sdk/hypercli/routines.py) and the
 //! TypeScript SDK's `RoutinesAPI` (ts-sdk/src/routines.ts), including the
 //! `/routines` host-root mount, snake_case wire payloads, and the
-//! `HYPER_ROUTINES_API_BASE` environment override.
+//! `HYPER_ROUTINES_API_BASE` override (env first, then the config file).
 
 use std::time::Duration;
 
@@ -21,14 +21,12 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Derive the routines API base URL from an agents API base URL.
 ///
 /// Mirrors the Python SDK's `_derive_routines_base`: an explicit
-/// `HYPER_ROUTINES_API_BASE` environment override wins, then the given
-/// agents base, then the default agents base. A path ending in `/routines`
-/// is kept; a trailing `/agents` segment is stripped; anything else gets
-/// `/routines` appended.
+/// `HYPER_ROUTINES_API_BASE` override (env first, then the config file)
+/// wins, then the given agents base, then the default agents base. A path
+/// ending in `/routines` is kept; a trailing `/agents` segment is stripped;
+/// anything else gets `/routines` appended.
 pub fn derive_routines_api_base(agents_api_base: Option<&str>) -> Result<Url, RoutinesApiError> {
-    let configured = std::env::var("HYPER_ROUTINES_API_BASE")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let configured = crate::config::discover_config_value("HYPER_ROUTINES_API_BASE");
     derive_routines_api_base_from(configured.as_deref(), agents_api_base)
 }
 

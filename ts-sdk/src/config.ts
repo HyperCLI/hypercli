@@ -2,6 +2,12 @@
  * Configuration handling for HyperCLI SDK
  * Priority: env vars > config file > defaults
  */
+import {
+  agentsAdminApiBaseFromProductBase,
+  defaultAgentsWsUrl,
+  resolveAgentsApiBase,
+} from './agent-urls.js';
+
 type NodeRequireFn = ((id: string) => any) | null;
 
 function getNodeRequire(): NodeRequireFn {
@@ -45,56 +51,6 @@ export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 // GHCR images
 const GHCR_IMAGES = 'ghcr.io/compute3ai/images';
 export const COMFYUI_IMAGE = `${GHCR_IMAGES}/comfyui`;
-
-function normalizeAgentsApiBase(url: string): string {
-  const raw = (url || '').trim();
-  if (!raw) return DEFAULT_AGENTS_API_BASE_URL;
-  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
-  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-  const host = parsed.host.toLowerCase();
-  if (normalizedPath.endsWith('/agents')) {
-    return `${parsed.origin}${normalizedPath}`;
-  }
-  if (normalizedPath.endsWith('/api')) {
-    if (host === 'api.agents.hypercli.com') {
-      return DEFAULT_AGENTS_API_BASE_URL;
-    }
-    if (host === 'api.agents.dev.hypercli.com') {
-      return DEV_AGENTS_API_BASE_URL;
-    }
-    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
-  }
-  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
-    return DEFAULT_AGENTS_API_BASE_URL;
-  }
-  if (
-    host === 'api.agents.dev.hypercli.com' ||
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app'
-  ) {
-    return DEV_AGENTS_API_BASE_URL;
-  }
-  return `${raw.replace(/\/+$/, '')}/agents`;
-}
-
-function defaultAgentsWsUrl(apiBase: string): string {
-  const resolvedApiBase = normalizeAgentsApiBase(apiBase);
-  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
-  const host = parsed.host.toLowerCase();
-  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
-    return DEFAULT_AGENTS_WS_URL;
-  }
-  if (
-    host === 'api.agents.dev.hypercli.com' ||
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app'
-  ) {
-    return DEV_AGENTS_WS_URL;
-  }
-  return resolvedApiBase.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/+$/, '') + '/ws';
-}
 
 /**
  * Load config from the active HyperCLI data directory.
@@ -183,54 +139,47 @@ export function getAgentApiKey(): string | undefined {
  * Get API URL
  */
 export function getApiUrl(): string {
-  return getConfigValue('HYPER_API_BASE') || getConfigValue('HYPERCLI_API_URL', DEFAULT_API_URL) || DEFAULT_API_URL;
+  return getConfigValue('HYPER_API_BASE') || DEFAULT_API_URL;
 }
 
 /**
- * Get WebSocket URL
+ * Get WebSocket URL, derived from the product API URL
  */
 export function getWsUrl(): string {
-  const ws = getConfigValue('HYPERCLI_WS_URL');
-  if (ws) {
-    return ws;
-  }
-
-  // Derive from API URL
   const apiUrl = getApiUrl();
   return apiUrl.replace('https://', 'wss://').replace('http://', 'ws://');
 }
 
 /**
- * Get HyperClaw agents API base URL
+ * Get HyperClaw agents API base URL, derived from the product API base
  */
 export function getAgentsApiBaseUrl(dev: boolean = false): string {
   const fallback = dev ? DEV_AGENTS_API_BASE_URL : DEFAULT_AGENTS_API_BASE_URL;
-  const configured = getConfigValue('AGENTS_API_BASE_URL');
-  if (configured) {
-    return normalizeAgentsApiBase(configured);
-  }
   if (dev) {
     return fallback;
   }
-  const productBase = getConfigValue('HYPER_API_BASE') || getConfigValue('HYPERCLI_API_URL');
+  const productBase = getConfigValue('HYPER_API_BASE');
   if (productBase) {
-    return normalizeAgentsApiBase(productBase);
+    return resolveAgentsApiBase(productBase);
   }
   return fallback;
 }
 
 export function getAgentsApiBaseUrlFromProductBase(productBase: string): string {
-  return normalizeAgentsApiBase(productBase);
+  return resolveAgentsApiBase(productBase);
 }
 
 /**
- * Get HyperClaw agents WebSocket URL
+ * Derive the agents admin API base (service-key surface) from a product API base
+ */
+export function getAgentsAdminApiBaseUrlFromProductBase(productBase: string): string {
+  return agentsAdminApiBaseFromProductBase(productBase);
+}
+
+/**
+ * Get HyperClaw agents WebSocket URL, derived from the agents API base
  */
 export function getAgentsWsUrl(dev: boolean = false): string {
-  const configured = getConfigValue('AGENTS_WS_URL');
-  if (configured) {
-    return configured;
-  }
   return defaultAgentsWsUrl(getAgentsApiBaseUrl(dev));
 }
 
@@ -244,8 +193,6 @@ export function getAgentsWsUrlFromProductBase(productBase: string): string {
 export function configure(
   apiKey: string,
   apiUrl?: string,
-  agentsApiBaseUrl?: string,
-  agentsWsUrl?: string,
 ): void {
   const req = getNodeRequire();
   if (!req) {
@@ -269,12 +216,6 @@ export function configure(
   config['HYPER_API_KEY'] = apiKey;
   if (apiUrl) {
     config['HYPER_API_BASE'] = apiUrl;
-  }
-  if (agentsApiBaseUrl) {
-    config['AGENTS_API_BASE_URL'] = agentsApiBaseUrl;
-  }
-  if (agentsWsUrl) {
-    config['AGENTS_WS_URL'] = agentsWsUrl;
   }
 
   // Write config file

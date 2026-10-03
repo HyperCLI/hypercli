@@ -110,6 +110,37 @@ export function defaultHyperAcpWsUrl(apiBase: string): string {
  * agent-keyed `/ws` tunnel — that route stays reserved for runtime attach
  * and backend-service legs and is re-factored here only via the URL shape.
  */
+const AGENTS_ADMIN_API_BASE = 'https://api.agents.hypercli.com';
+const DEV_AGENTS_ADMIN_API_BASE = 'https://api.agents.dev.hypercli.com';
+
+/**
+ * Agents admin API base (service-key surface) derived from a product API
+ * base: the public product hosts map to the private admin hosts, anything
+ * else keeps its origin with a trailing `/agents`/`/api`/`/admin` path
+ * suffix stripped. Mirrors py-sdk `get_agents_admin_api_base_url_from_product_base`.
+ */
+export function agentsAdminApiBaseFromProductBase(productBase: string): string {
+  const raw = (productBase || '').trim();
+  if (!raw) return AGENTS_ADMIN_API_BASE;
+  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
+    return AGENTS_ADMIN_API_BASE;
+  }
+  if (
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app' ||
+    host === 'api.agents.dev.hypercli.com'
+  ) {
+    return DEV_AGENTS_ADMIN_API_BASE;
+  }
+  const path = parsed.pathname.replace(/\/+$/, '');
+  const suffix = ['/agents/admin', '/agents', '/admin', '/api'].find((candidate) => path.endsWith(candidate));
+  const kept = suffix ? path.slice(0, -suffix.length) : path;
+  return `${parsed.protocol}//${parsed.host}${kept}`.replace(/\/+$/, '');
+}
+
 export function defaultAcpProxyWsUrl(apiBase: string): string {
   const resolvedApiBase = resolveAgentsApiBase(apiBase);
   const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);

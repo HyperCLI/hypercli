@@ -39,16 +39,18 @@ from uuid import UUID
 
 import httpx
 
-from .config import get_agents_api_base_url, get_config_value
+from .config import (
+    DEFAULT_AGENTS_WS_URL as AGENTS_WS_URL,
+    DEV_AGENTS_WS_URL,
+    get_agents_api_base_url,
+)
 from .http import HTTPClient, APIError
 from .sessions import SessionPage, SessionRecord
 
 
 AGENTS_API_BASE = "https://api.hypercli.com/agents"
 AGENTS_API_PREFIX = "/deployments"
-AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
-DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.hypercli.com/ws/acp"
 DEV_AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.dev.hypercli.com/ws/acp"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
@@ -2363,10 +2365,9 @@ class Deployments:
         self._api_base = _normalize_agents_api_base(api_base or get_agents_api_base_url()).rstrip(
             "/"
         )
-        resolved_agents_ws_url = agents_ws_url or get_config_value("AGENTS_WS_URL")
         self._agents_ws_url = (
-            _normalize_agents_ws_url(resolved_agents_ws_url)
-            if resolved_agents_ws_url
+            _normalize_agents_ws_url(agents_ws_url)
+            if agents_ws_url
             else _default_agents_ws_url(self._api_base)
         )
 

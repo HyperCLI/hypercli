@@ -66,7 +66,7 @@ describe('HyperCLI Client', () => {
 
   it('should use product auth for deployments before the managed agent fallback', () => {
     process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
-    process.env.AGENTS_API_BASE_URL = 'https://api.agents.dev.hypercli.com';
+    process.env.HYPER_API_BASE = 'https://api.dev.hypercli.com';
 
     const client = new HyperCLI();
     expect(client.apiKey).toBe('hyper_api_test_key');
