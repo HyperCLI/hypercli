@@ -1637,7 +1637,14 @@ export interface DeploymentImportStatusEvent {
   observed_at: string;
 }
 
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent;
+export interface RunnerPresenceEvent {
+  type: 'runner.presence';
+  runner_id: string;
+  presence: 'connected' | 'disconnected' | 'registered' | 'deregistered';
+  at: string;
+}
+
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -3423,6 +3430,16 @@ interface AcpRuntimeRow {
   syncRoot: string;
   syncUid: number;
   syncGid: number;
+  /**
+   * Bare agent-runtime command + args (PATH-resolved on the runner host),
+   * corresponding to the image's HYPER_ACP_AGENT_COMMAND/AGENT_ARGS env
+   * pair. Runner-verbatim-spawn contract: the process executor spawns
+   * launch_config.command unchanged, so the SDK builds the full hyper-acp
+   * argv from this at create time (see createAcpAgentDeployment); container
+   * launches never read it — their image ENV already selects the child.
+   */
+  agentCommand: readonly string[];
+
   /** Static env defaults applied before caller env (caller wins). */
   env?: Record<string, string>;
   /** Cron env builder for this family, driven by options.cronEnabled. */
@@ -3453,6 +3470,9 @@ const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
   syncRoot: DEFAULT_OPENCLAW_SYNC_ROOT,
   syncUid: 1000,
   syncGid: 1000,
+  // Mirrors the openclaw image ENV (`openclaw` resolves via PATH on the
+  // runner host; the image pins it in ENV for the container instead).
+  agentCommand: ['openclaw', 'acp'],
   env: DEFAULT_OPENCLAW_MODEL_ENV,
   cronEnv: buildOpenClawCronEnv,
   syncExclude: DEFAULT_OPENCLAW_SYNC_EXCLUDE,
@@ -3489,6 +3509,9 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_HERMES_AGENT_SYNC_ROOT,
     syncUid: DEFAULT_HERMES_AGENT_SYNC_UID,
     syncGid: DEFAULT_HERMES_AGENT_SYNC_GID,
+    // The hermes image ENV pins the venv absolute path; on the runner host
+    // the hermes-acp binary resolves via PATH instead.
+    agentCommand: ['hermes-acp'],
     env: DEFAULT_HERMES_MODEL_ENV,
     cronEnv: buildHermesCronEnv,
     syncExclude: DEFAULT_HERMES_AGENT_SYNC_EXCLUDE,
@@ -3499,6 +3522,8 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    // Coding harnesses share their agent command with the runtime-auth table.
+    agentCommand: RUNTIME_AUTH_CONFIG['buzz-agent'].agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3508,6 +3533,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG.opencode.agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3517,6 +3543,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG.codex.agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3526,6 +3553,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG['claude-code'].agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3535,6 +3563,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG.goose.agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3544,6 +3573,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG['kimi-code'].agentCommand,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3553,6 +3583,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncRoot: DEFAULT_CODING_AGENT_SYNC_ROOT,
     syncUid: 1000,
     syncGid: 1000,
+    agentCommand: RUNTIME_AUTH_CONFIG.pi.agentCommand,
     env: DEFAULT_PI_ENV,
     workspacesSyncEnv: true,
     permissionEnv: true,
@@ -3976,12 +4007,29 @@ export class Deployments {
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
         ? [hyperAcpBinary, 'plugin', 'buzz']
-        // Plain ACP launches use the image's hyper-acp binary; openclaw/
-        // hermes images already CMD hyper-acp, so no explicit command is set.
-        // The process executor has no image to CMD from, so every ACP
-        // runtime carries the bare hyper-acp binary name explicitly.
+        // Runner-verbatim-spawn contract: the runner spawns
+        // launch_config.command exactly as stored, so the SDK constructs the
+        // full hyper-acp argv per runtime at create time — hyper-acp plus
+        // `--agent-command <runtime agent command>` and one repeated
+        // `--agent-arg` per extra agent argv element, mirroring the image's
+        // HYPER_ACP_AGENT_COMMAND/HYPER_ACP_AGENT_ARGS env split. There is no
+        // HYPER_ACP_AGENT_COMMAND env injection anywhere and no backend
+        // command map or runner fallback. ACP_RUNTIME_TABLE.agentCommand
+        // covers every runtime the process executor admits, so a bare
+        // hyper-acp (which would spawn a guaranteed-dead child-less bridge)
+        // can never ship. A caller-provided `command` override still wins.
+        // Container launches are unchanged: the image ENV/CMD already
+        // carries the agent command (openclaw/hermes images need no explicit
+        // command), so only coding-harness containers keep the bare
+        // container-path hyper-acp binary.
         : options.command ?? (
-          family.codingHarness || processExecutor ? [hyperAcpBinary] : undefined
+          processExecutor
+            ? [
+                hyperAcpBinary,
+                '--agent-command', family.agentCommand[0],
+                ...family.agentCommand.slice(1).flatMap((arg) => ['--agent-arg', arg]),
+              ]
+            : family.codingHarness ? [hyperAcpBinary] : undefined
         ),
       syncRoot: options.syncRoot ?? family.syncRoot,
       syncInclude,
@@ -4277,9 +4325,15 @@ export class Deployments {
                 return;
               }
               if (
-                (frame.type === 'deployment.transition' || frame.type === 'deployment.import_status')
-                && typeof frame.agent_id === 'string'
-                && frame.agent_id.length > 0
+                (
+                  (frame.type === 'deployment.transition' || frame.type === 'deployment.import_status')
+                  && typeof frame.agent_id === 'string'
+                  && frame.agent_id.length > 0
+                ) || (
+                  frame.type === 'runner.presence'
+                  && typeof frame.runner_id === 'string'
+                  && frame.runner_id.length > 0
+                )
               ) {
                 await handler(frame as unknown as DeploymentEvent);
               }

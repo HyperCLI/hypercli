@@ -388,6 +388,7 @@ export {
   isAgentTransitionalState,
   type DeploymentEvent,
   type DeploymentSubscribeOptions,
+  type RunnerPresenceEvent,
   type AgentLogFrame,
   type AgentLogsSubscribeOptions,
   parseAgentLogFrame,

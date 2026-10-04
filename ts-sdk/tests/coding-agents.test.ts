@@ -904,9 +904,9 @@ describe('runner process executor', () => {
   }
 
   it.each([
-    'opencode',
-    'codex',
-  ] as const)('launches %s on a runner with the process executor and no image', async (runtime) => {
+    ['opencode', ['hyper-acp', '--agent-command', 'opencode', '--agent-arg', 'acp']],
+    ['codex', ['hyper-acp', '--agent-command', 'codex-acp']],
+  ] as const)('launches %s on a runner with the process executor and no image', async (runtime, expectedArgv) => {
     const post = vi.fn().mockResolvedValue(runnerResponse(runtime));
 
     await runnerDeployments(post).createAgent(runtime, {
@@ -917,8 +917,12 @@ describe('runner process executor', () => {
     const body = post.mock.calls[0][1];
     expect(body.runtime).toBe(runtime);
     expect(body.executor).toBe('process');
-    // Bare binary name, resolved via the runner host's PATH.
-    expect(body.command).toEqual(['hyper-acp']);
+    // Runner-verbatim-spawn contract: the runner spawns launch_config.command
+    // unchanged, so the SDK stores the full hyper-acp argv per runtime at
+    // create — bare `hyper-acp` (runner-host PATH) plus the runtime's agent
+    // command as --agent-command/--agent-arg flags; no HYPER_ACP_AGENT_COMMAND
+    // env injection anywhere.
+    expect(body.command).toEqual(expectedArgv);
     expect(body.runner).toEqual({ tags: ['linux', 'gpu'], runner_id: 'runner-1' });
     expect(body).not.toHaveProperty('image');
     // Env/default presets still flow: hyper-acp runs on the runner host.
@@ -957,7 +961,9 @@ describe('runner process executor', () => {
 
     const body = post.mock.calls[0][1];
     expect(body.executor).toBe('process');
-    expect(body.command).toEqual(['hyper-acp']);
+    // Runner-verbatim-spawn contract: the SDK names the openclaw agent
+    // command in argv; a bare hyper-acp would launch child-less.
+    expect(body.command).toEqual(['hyper-acp', '--agent-command', 'openclaw', '--agent-arg', 'acp']);
     expect(body).not.toHaveProperty('image');
   });
 

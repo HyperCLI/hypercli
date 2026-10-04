@@ -10,6 +10,7 @@ import {
   buildOpenClawTrustedProxiesEnv,
   type DeploymentEvent,
   Deployments,
+  type RunnerPresenceEvent,
   flattenLaunchConfig,
   launchConfigHasDesktop,
   attachSlackRelayAgent,
@@ -105,6 +106,29 @@ describe('Agents SDK', () => {
       expect(event.namespace).toBe('prod-agent-example');
       expect(event.reason).toBe('missing_bound_pvc');
     }
+  });
+
+  it('types runner presence deployment events and switches exhaustively', () => {
+    const presence: RunnerPresenceEvent = {
+      type: 'runner.presence',
+      runner_id: 'runner-1',
+      presence: 'connected',
+      at: '2026-10-04T12:00:00Z',
+    };
+    const event: DeploymentEvent = presence;
+
+    const label = (deploymentEvent: DeploymentEvent): string => {
+      switch (deploymentEvent.type) {
+        case 'deployment.transition':
+          return deploymentEvent.agent_id;
+        case 'deployment.import_status':
+          return `${deploymentEvent.agent_id}:${deploymentEvent.status}`;
+        case 'runner.presence':
+          return `${deploymentEvent.runner_id}:${deploymentEvent.presence}:${deploymentEvent.at}`;
+      }
+    };
+
+    expect(label(event)).toBe('runner-1:connected:2026-10-04T12:00:00Z');
   });
 
   it('keeps generic launch environment and secrets application-name blind', () => {
@@ -438,6 +462,125 @@ describe('Agents SDK', () => {
       namespace: 'prod-agent-example',
       reason: 'missing_bound_pvc',
     });
+  });
+
+  it('forwards runner.presence frames verbatim alongside deployment frames', async () => {
+    const post = vi.fn().mockResolvedValue({
+      token: 'event-token',
+      ws_url: 'wss://events.test/ws/deployments',
+    });
+    const http = { get: vi.fn(), post } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const controller = new AbortController();
+    const received: DeploymentEvent[] = [];
+    const firstPresenceFrame = {
+      type: 'runner.presence',
+      runner_id: 'runner-1',
+      presence: 'registered',
+      at: '2026-10-04T12:00:00Z',
+    };
+
+    class FakeWebSocket extends EventTarget {
+      constructor(public readonly url: string) {
+        super();
+        queueMicrotask(() => this.dispatchEvent(new Event('open')));
+        for (const frame of [
+          { type: 'ready' },
+          firstPresenceFrame,
+          {
+            type: 'deployment.transition',
+            agent_id: 'agent-123',
+            state: 'RUNNING',
+          },
+          {
+            type: 'runner.presence',
+            runner_id: 'runner-1',
+            presence: 'deregistered',
+            at: '2026-10-04T12:05:00Z',
+          },
+        ]) {
+          queueMicrotask(() => {
+            const event = new Event('message');
+            Object.defineProperty(event, 'data', { value: JSON.stringify(frame) });
+            this.dispatchEvent(event);
+          });
+        }
+      }
+      close() {
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+
+    await deployments.subscribe((event) => {
+      received.push(event);
+      if (event.type === 'runner.presence' && event.presence === 'deregistered') controller.abort();
+    }, { signal: controller.signal });
+
+    expect(received.map((event) => event.type)).toEqual([
+      'runner.presence',
+      'deployment.transition',
+      'runner.presence',
+    ]);
+    expect(received[0]).toEqual(firstPresenceFrame);
+    expect(received[2]).toEqual({
+      type: 'runner.presence',
+      runner_id: 'runner-1',
+      presence: 'deregistered',
+      at: '2026-10-04T12:05:00Z',
+    });
+  });
+
+  it('silently drops unknown and malformed event frames', async () => {
+    const post = vi.fn().mockResolvedValue({
+      token: 'event-token',
+      ws_url: 'wss://events.test/ws/deployments',
+    });
+    const http = { get: vi.fn(), post } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const controller = new AbortController();
+    const received: DeploymentEvent[] = [];
+
+    class FakeWebSocket extends EventTarget {
+      constructor(public readonly url: string) {
+        super();
+        queueMicrotask(() => this.dispatchEvent(new Event('open')));
+        for (const frame of [
+          { type: 'ready' },
+          { type: 'deployment.telemetry', agent_id: 'agent-123', payload: {} },
+          { type: 'runner.presence', presence: 'connected', at: '2026-10-04T12:00:00Z' },
+          { type: 'runner.presence', runner_id: '', presence: 'connected', at: '2026-10-04T12:00:00Z' },
+          {
+            type: 'runner.presence',
+            runner_id: 'runner-1',
+            presence: 'connected',
+            at: '2026-10-04T12:01:00Z',
+          },
+        ]) {
+          queueMicrotask(() => {
+            const event = new Event('message');
+            Object.defineProperty(event, 'data', { value: JSON.stringify(frame) });
+            this.dispatchEvent(event);
+          });
+        }
+      }
+      close() {
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+
+    await deployments.subscribe((event) => {
+      received.push(event);
+      controller.abort();
+    }, { signal: controller.signal });
+
+    expect(received).toEqual([{
+      type: 'runner.presence',
+      runner_id: 'runner-1',
+      presence: 'connected',
+      at: '2026-10-04T12:01:00Z',
+    }]);
   });
 
   it('rejects legacy deployment event jwt responses before dialing', async () => {
