@@ -144,6 +144,7 @@ function fakeAcpClient(chunks: string[], sessionId = 'sess-acp-1') {
   const client = {
     newSession: vi.fn(async () => ({ sessionId })),
     resumeSession: vi.fn(async () => ({})),
+    waitForIdle: vi.fn(async () => {}),
     prompt: vi.fn(async () => {
       for (const chunk of chunks) onUpdate?.(acpChunk(chunk));
       return { stopReason: 'end_turn' };
@@ -173,6 +174,7 @@ describe('hyper agents chat — family dispatch', () => {
       // No session flag: a brand-new session every invocation.
       expect(client.newSession).toHaveBeenCalledTimes(1);
       expect(client.resumeSession).not.toHaveBeenCalled();
+      expect(client.waitForIdle).not.toHaveBeenCalled();
       expect(client.prompt).toHaveBeenCalledWith('sess-acp-1', 'say hi');
       expect(client.close).toHaveBeenCalled();
       expect(stdout()).toBe('Hello world\n');
@@ -193,8 +195,34 @@ describe('hyper agents chat — sessions', () => {
 
     expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9', { replayFrom: { type: 'start' } });
     expect(client.newSession).not.toHaveBeenCalled();
+    // The resumed session's foreground epoch settles before the new prompt:
+    // resume → waitForIdle → prompt, in that order.
+    expect(client.waitForIdle).toHaveBeenCalledWith('sess-old-9');
     expect(client.prompt).toHaveBeenCalledWith('sess-old-9', 'hi');
+    const order = (fn: ReturnType<typeof vi.fn>) => fn.mock.invocationCallOrder[0];
+    expect(order(client.resumeSession)).toBeLessThan(order(client.waitForIdle));
+    expect(order(client.waitForIdle)).toBeLessThan(order(client.prompt));
     expect(stdout()).toBe('resumed\n');
+  });
+
+  it('--session with a live resumed turn: prompt waits the old epoch out instead of hitting the foreground gate', async () => {
+    const { acpConnect, client } = fakeAcpClient(['waited']);
+    // The in-flight turn at disconnect finishes while we wait: waitForIdle
+    // observes the live foreground and resolves once it goes idle.
+    let release!: () => void;
+    client.waitForIdle.mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+    const agent = chatAgentFixture({ runtime: 'opencode', acpConnect });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');
+
+    const running = agents.run(ctx, ['chat', ID_A, 'ping', '--session', 'sess-old-9']);
+
+    await vi.waitFor(() => expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9', { replayFrom: { type: 'start' } }));
+    expect(client.prompt).not.toHaveBeenCalled();
+    release();
+    await running;
+
+    expect(client.prompt).toHaveBeenCalledWith('sess-old-9', 'ping');
+    expect(stdout()).toBe('waited\n');
   });
 
   it('--session works identically on openclaw, but via the shared ACP surface', async () => {

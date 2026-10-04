@@ -78,6 +78,7 @@ function fakeAcp(overrides: MockFns = {}): MockFns {
   return {
     newSession: vi.fn(async () => ({ sessionId: 'sess-new' })),
     resumeSession: vi.fn(async () => ({})),
+    waitForIdle: vi.fn(async () => {}),
     prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
     close: vi.fn(),
     ...overrides,
@@ -365,6 +366,8 @@ describe('hyper routines run', () => {
     await routines.run(ctx, ['run', 'routine-1']);
 
     expect(acp.newSession).toHaveBeenCalled();
+    expect(acp.resumeSession).not.toHaveBeenCalled();
+    expect(acp.waitForIdle).not.toHaveBeenCalled();
     expect(acp.prompt).toHaveBeenCalledWith('sess-new', 'write the standup notes');
     const out = stdout();
     expect(out).toContain('sess-new');
@@ -376,7 +379,7 @@ describe('hyper routines run', () => {
     expect(acpConnect.mock.calls[0][0].clientInfo.name).toBe('hypercli-cli');
   });
 
-  it('bound session_id: resumes via session/resume and prompts on the bound session', async () => {
+  it('bound session_id: resumes via session/resume, waits the epoch out, and prompts on the bound session', async () => {
     const { client, acp } = runClient({ sessionId: 'sess-bound' });
     const { ctx } = makeCtx(client, 'table');
 
@@ -384,8 +387,31 @@ describe('hyper routines run', () => {
 
     expect(acp.resumeSession).toHaveBeenCalledWith('sess-bound', { replayFrom: { type: 'start' } });
     expect(acp.newSession).not.toHaveBeenCalled();
+    expect(acp.waitForIdle).toHaveBeenCalledWith('sess-bound');
     expect(acp.prompt).toHaveBeenCalledWith('sess-bound', 'write the standup notes');
+    const order = (fn: ReturnType<typeof vi.fn>) => fn.mock.invocationCallOrder[0];
+    expect(order(acp.resumeSession)).toBeLessThan(order(acp.waitForIdle));
+    expect(order(acp.waitForIdle)).toBeLessThan(order(acp.prompt));
     expect(stdout()).toContain('yes');
+  });
+
+  it('bound session with a live resumed turn: prompt waits instead of hitting the foreground gate', async () => {
+    let release!: () => void;
+    const acp = fakeAcp({
+      waitForIdle: vi.fn(() => new Promise<void>((resolve) => { release = resolve; })),
+    });
+    const { client } = runClient({ sessionId: 'sess-bound' }, {}, acp);
+    const { ctx } = makeCtx(client, 'table');
+
+    const running = routines.run(ctx, ['run', 'routine-1']);
+
+    await vi.waitFor(() => expect(acp.resumeSession).toHaveBeenCalled());
+    expect(acp.prompt).not.toHaveBeenCalled();
+    release();
+    await running;
+
+    expect(acp.prompt).toHaveBeenCalledWith('sess-bound', 'write the standup notes');
+    expect(stdout()).toContain('resumed');
   });
 
   it('bound session that fails to load falls back to a new session', async () => {
@@ -400,6 +426,7 @@ describe('hyper routines run', () => {
     await routines.run(ctx, ['run', 'routine-1']);
 
     expect(acp.newSession).toHaveBeenCalled();
+    expect(acp.waitForIdle).not.toHaveBeenCalled();
     expect(acp.prompt).toHaveBeenCalledWith('sess-new', 'write the standup notes');
     expect(stderr()).toContain('could not resume bound session sess-bound');
     expect(stdout()).toContain('sess-new');

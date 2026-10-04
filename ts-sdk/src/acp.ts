@@ -24,6 +24,13 @@
  * `replayFrom: { type: 'start' }` on v2). In-flight prompt turns are never
  * retried mid-turn; replay failures surface as soft
  * {@link CodingAgentAcpReplayGapError}s while the connection stays alive.
+ *
+ * Replayed notifications rebuild the transcript only. In particular, replayed
+ * `state_update` frames are retained history — a completed turn's `running`
+ * marker is retained while its terminal `idle` is not — so they never move
+ * the live foreground-admission marker. Only live state transitions (outside
+ * a replay epoch) do; `waitForIdle` and the `prompt` admission gate read
+ * exclusively that live view.
  */
 import NodeWebSocket from 'ws';
 import * as acp from '@agentclientprotocol/sdk';
@@ -293,6 +300,7 @@ export class CodingAgentAcpClient {
   private connection: WireConnection | null = null;
   private readonly foreground = new Map<string, ForegroundObservation>();
   private readonly foregroundStates = new Map<string, string>();
+  private readonly idleWaiters = new Map<string, Set<Deferred>>();
   private initializeResponseValue: acp.InitializeResponse | AcpV2InitializeResponse | null = null;
   private negotiatedVersionValue: CodingAgentAcpProtocolVersion | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
@@ -585,7 +593,7 @@ export class CodingAgentAcpClient {
         ? prompt
         : [prompt];
     if (!this.options.getPromptCompletion) throw new CodingAgentAcpUnavailableError('prompt', 'v2 has no per-message completion event; use submitPrompt, or supply an exact platform REST receipt reader');
-    if (this.foreground.has(sessionId) || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '')) {
+    if (this.foregroundBusy(sessionId)) {
       throw new Error('Session foreground is active; use submitPrompt for concurrent admission');
     }
     let resolve!: (result: CodingAgentAcpPromptResult) => void;
@@ -605,7 +613,51 @@ export class CodingAgentAcpClient {
       })]);
     } finally {
       this.foreground.delete(sessionId);
+      this.settleIdleWaiters(sessionId);
     }
+  }
+
+  /**
+   * Resolves once no foreground work is observed for the session: no
+   * in-flight `prompt` observation of this client and no live `running` /
+   * `requires_action` state. Resolves immediately when the session is
+   * already quiet. Use after resuming a session whose previous turn may
+   * still be live: the resume announces the current state, and this waits
+   * the old epoch out so the next `prompt` is admitted instead of refused
+   * by the foreground gate. Rejects on connection loss, terminal close, or
+   * `close()`.
+   */
+  waitForIdle(sessionId: string): Promise<void> {
+    if (!this.foregroundBusy(sessionId)) return Promise.resolve();
+    if (this.closedFlag) {
+      return Promise.reject(this.terminalError ?? new CodingAgentAcpConnectionError('ACP client is closed'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      let waiters = this.idleWaiters.get(sessionId);
+      if (!waiters) {
+        waiters = new Set();
+        this.idleWaiters.set(sessionId, waiters);
+      }
+      waiters.add({ resolve, reject });
+    });
+  }
+
+  private foregroundBusy(sessionId: string): boolean {
+    return this.foreground.has(sessionId)
+      || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '');
+  }
+
+  private settleIdleWaiters(sessionId: string): void {
+    const waiters = this.idleWaiters.get(sessionId);
+    if (!waiters || this.foregroundBusy(sessionId)) return;
+    this.idleWaiters.delete(sessionId);
+    for (const waiter of waiters) waiter.resolve();
+  }
+
+  private failIdleWaiters(error: Error): void {
+    const waiters = [...this.idleWaiters.values()].flatMap((set) => [...set]);
+    this.idleWaiters.clear();
+    for (const waiter of waiters) waiter.reject(error);
   }
 
   /** V2 insertion acknowledgement, not foreground completion. */
@@ -702,8 +754,10 @@ export class CodingAgentAcpClient {
   }
 
   close(): void {
-    for (const pending of this.foreground.values()) pending.reject(new CodingAgentAcpConnectionError('ACP connection closed; delivery is unresolved'));
+    const error = new CodingAgentAcpConnectionError('ACP connection closed; delivery is unresolved');
+    for (const pending of this.foreground.values()) pending.reject(error);
     this.foreground.clear();
+    this.failIdleWaiters(error);
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
@@ -804,11 +858,18 @@ export class CodingAgentAcpClient {
       if (pending && update.sessionUpdate === 'notice' && update.severity === 'error') {
         pending.reject(new CodingAgentAcpObservationError(`ACP session error: ${update.title}: ${update.description ?? ''}`, pending.messageId));
       }
-      if (acp2.SessionUpdate.isStateUpdate(update)) {
-        this.foregroundStates.set(notification.sessionId, update.state);
-        if (pending && update.state === 'idle') pending.idle = true;
+      // Replayed history streams inside a replay epoch; its state frames are
+      // retained past turns (a completed turn's `running` outlives its
+      // unpersisted terminal `idle`), not the live foreground. Only live
+      // transitions move the admission marker and observation idle flags.
+      if (this.replayEpoch(notification.sessionId) === 0) {
+        if (acp2.SessionUpdate.isStateUpdate(update)) {
+          this.foregroundStates.set(notification.sessionId, update.state);
+          if (pending && update.state === 'idle') pending.idle = true;
+          this.settleIdleWaiters(notification.sessionId);
+        }
+        this.settleForeground(notification.sessionId);
       }
-      this.settleForeground(notification.sessionId);
       // Existing subscribers accept structurally open session updates. Do not
       // rewrite v2 snapshots into append-only v1 chunks.
       this.options.onUpdate?.(notification as unknown as acp.SessionNotification);
@@ -896,8 +957,10 @@ export class CodingAgentAcpClient {
     if (this.closedFlag || connection !== this.connection) return;
     this.connection = null;
     const code = closeInfo.code ?? 1006;
-    for (const pending of this.foreground.values()) pending.reject(new CodingAgentAcpConnectionError('Connection lost during foreground work; input is not retried', { code }));
+    const error = new CodingAgentAcpConnectionError('Connection lost during foreground work; input is not retried', { code });
+    for (const pending of this.foreground.values()) pending.reject(error);
     this.foreground.clear();
+    this.failIdleWaiters(error);
     const reason = closeInfo.reason ?? '';
     this.lastCloseCode = code;
     if (ACP_TERMINAL_CLOSE_CODES.has(code)) {
@@ -1056,6 +1119,9 @@ export class CodingAgentAcpClient {
       state.inFlight -= 1;
       if (state.inFlight <= 0) this.replayEpochs.delete(sessionId);
     }
+    // Observations cannot settle mid-epoch (live transitions are quarantined
+    // with the replay); re-evaluate as the bracket closes.
+    this.settleForeground(sessionId);
     this.emitReplay({ sessionId, phase: 'end', epoch, ok });
   }
 

@@ -477,6 +477,11 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
           );
           sessionId = (await acp.newSession()).sessionId;
         }
+        if (resume) {
+          // A resumed session can still own a live foreground turn: wait the
+          // old epoch out before prompting (chat resume parity).
+          await acp.waitForIdle(sessionId);
+        }
       } else {
         sessionId = (await acp.newSession()).sessionId;
       }
