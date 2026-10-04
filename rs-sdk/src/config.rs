@@ -104,19 +104,15 @@ pub fn remove_config_api_keys(home: &Path) -> Result<(), ConfigError> {
     remove_config_api_keys_in_data_dir(&home.join(".hypercli"))
 }
 
-/// Remove every API-key entry from `<data_dir>/config`, preserving
-/// other lines, and delete the legacy `agent-key.json` credential so a
-/// logout is complete.
-pub fn remove_config_api_keys_in_data_dir(data_dir: &Path) -> Result<(), ConfigError> {
+/// Remove the `KEY=...` lines for `keys` from `<data_dir>/config`, preserving
+/// every other line. A missing file is not an error.
+fn remove_config_lines_in_data_dir(data_dir: &Path, keys: &[&str]) -> Result<(), ConfigError> {
     let path = data_dir.join("config");
     if let Ok(existing) = fs::read_to_string(&path) {
         let remaining: Vec<&str> = existing
             .lines()
             .filter(|line| match line.trim().split_once('=') {
-                Some((key, _)) => {
-                    !API_KEY_CONFIG_KEYS.contains(&key.trim())
-                        && !REMOVED_API_KEY_CONFIG_KEYS.contains(&key.trim())
-                }
+                Some((key, _)) => !keys.contains(&key.trim()),
                 None => true,
             })
             .collect();
@@ -126,8 +122,36 @@ pub fn remove_config_api_keys_in_data_dir(data_dir: &Path) -> Result<(), ConfigE
         }
         fs::write(&path, content).map_err(|_| ConfigError::ConfigWrite)?;
     }
+    Ok(())
+}
+
+/// Remove every API-key entry from `<data_dir>/config`, preserving
+/// other lines, and delete the legacy `agent-key.json` credential so a
+/// logout is complete.
+pub fn remove_config_api_keys_in_data_dir(data_dir: &Path) -> Result<(), ConfigError> {
+    let keys: Vec<&str> = API_KEY_CONFIG_KEYS
+        .iter()
+        .chain(REMOVED_API_KEY_CONFIG_KEYS.iter())
+        .copied()
+        .collect();
+    remove_config_lines_in_data_dir(data_dir, &keys)?;
     let _ = fs::remove_file(data_dir.join("agent-key.json"));
     Ok(())
+}
+
+/// Persist a backend-base override as `HYPER_API_BASE` in `<data_dir>/config`
+/// — the same key [`discover_api_base`] reads, so a desktop-settings change
+/// is visible to the CLI and every other client sharing the file. An empty
+/// value removes the line instead, returning discovery to the env-then-default
+/// rule.
+pub fn save_api_base_in_data_dir(data_dir: &Path, api_base: &str) -> Result<(), ConfigError> {
+    let api_base = api_base.trim();
+    if api_base.is_empty() {
+        return remove_config_lines_in_data_dir(data_dir, &["HYPER_API_BASE"]);
+    }
+    let mut values = BTreeMap::new();
+    values.insert("HYPER_API_BASE".to_owned(), api_base.to_owned());
+    write_config_values_in_data_dir(data_dir, &values)
 }
 
 pub fn discover_client_config() -> Result<ClientConfig, ConfigError> {
@@ -741,6 +765,58 @@ mod tests {
         )]);
         let ws = discover_agents_ws_url_from(&env, Some(temp.path())).unwrap();
         assert_eq!(ws.as_str(), "ws://127.0.0.1:8787/agents/ws");
+    }
+
+    #[test]
+    fn save_api_base_writes_the_override_and_seen_by_discovery() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        save_api_base_in_data_dir(&dir, "https://api.dev.hypercli.com/agents").unwrap();
+
+        let body = fs::read_to_string(dir.join("config")).unwrap();
+        assert!(body.contains("HYPER_API_BASE=https://api.dev.hypercli.com/agents"));
+
+        let base = discover_agents_api_base_from_config_dir(&BTreeMap::new(), Some(dir.as_path())).unwrap();
+        assert_eq!(base.as_str(), "https://api.dev.hypercli.com/agents");
+    }
+
+    #[test]
+    fn save_api_base_overwrites_and_an_empty_value_removes_only_its_own_line() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=file-key\nHYPER_API_BASE=https://old.example\n",
+        )
+        .unwrap();
+
+        save_api_base_in_data_dir(&dir, "  https://new.example  ").unwrap();
+        let body = fs::read_to_string(dir.join("config")).unwrap();
+        assert!(body.contains("HYPER_API_KEY=file-key"));
+        assert!(body.contains("HYPER_API_BASE=https://new.example"));
+        assert!(!body.contains("old.example"));
+
+        save_api_base_in_data_dir(&dir, "   ").unwrap();
+        let body = fs::read_to_string(dir.join("config")).unwrap();
+        assert_eq!(body, "HYPER_API_KEY=file-key\n");
+
+        // Removal from a file without the key (or no file at all) is a no-op.
+        save_api_base_in_data_dir(&dir, "").unwrap();
+        save_api_base_in_data_dir(&temp.path().join("absent"), "").unwrap();
+        assert!(!temp.path().join("absent/config").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_api_base_keeps_the_config_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        save_api_base_in_data_dir(&dir, "https://api.dev.hypercli.com/agents").unwrap();
+
+        let mode = fs::metadata(dir.join("config")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]
