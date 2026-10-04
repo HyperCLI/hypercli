@@ -27,6 +27,10 @@
     {
       "source": "/api-reference/authentication",
       "destination": "/authentication"
+    },
+    {
+      "source": "/examples/kimi-k2-5",
+      "destination": "/inference/models"
     }
   ],
   "navigation": {
@@ -51,7 +55,6 @@
             "group": "Deployment Recipes",
             "pages": [
               "examples/index",
-              "examples/kimi-k2-5",
               "examples/minimax-m2-5",
               "examples/speaches",
               "examples/whisper",

@@ -1358,7 +1358,7 @@ function openclawJsonFixture(): string {
           apiKey: 'sk-should-never-print',
           models: [
             { id: 'default-anthropic', name: 'Default Anthropic', contextWindow: 200000, reasoning: true },
-            { id: 'kimi-k2.6-anthropic' },
+            { id: 'kimi-k3-anthropic' },
           ],
         },
         broken: { baseUrl: 'https://example.com', models: [{ name: 'no id' }] },
@@ -1381,7 +1381,7 @@ describe('hyper agents models', () => {
     expect(out).toContain('PROVIDER');
     expect(out).toContain('hypercli');
     expect(out).toContain('default-anthropic');
-    expect(out).toContain('kimi-k2.6-anthropic');
+    expect(out).toContain('kimi-k3-anthropic');
     expect(out).not.toContain('sk-should-never-print');
   });
 
@@ -1398,7 +1398,7 @@ describe('hyper agents models', () => {
       providers: {
         hypercli: [
           { id: 'default-anthropic', name: 'Default Anthropic', context_window: 200000, reasoning: true },
-          { id: 'kimi-k2.6-anthropic', name: null, context_window: null, reasoning: null },
+          { id: 'kimi-k3-anthropic', name: null, context_window: null, reasoning: null },
         ],
         broken: [],
       },

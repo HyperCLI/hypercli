@@ -2519,7 +2519,7 @@ mod tests {
             .insert("RUST_LOG".to_owned(), "debug".to_owned());
 
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
-        buzz.model = Some("hypercli/kimi-k2.6-anthropic".to_owned());
+        buzz.model = Some("hypercli/kimi-k3-anthropic".to_owned());
         buzz.parallelism = 3;
         buzz.display_name = Some("Fizz4".to_owned());
         buzz.text_mentions = true;
@@ -2631,12 +2631,12 @@ mod tests {
             Some("kimi-k3")
         );
 
-        buzz.model = Some("hypercli/kimi-k2.6-anthropic".to_owned());
+        buzz.model = Some("hypercli/kimi-k3-anthropic".to_owned());
         let mut prefixed = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
         buzz.apply_to(&mut prefixed, None).unwrap();
         assert_eq!(
             prefixed.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
-            Some("kimi-k2.6-anthropic")
+            Some("kimi-k3-anthropic")
         );
     }
 
