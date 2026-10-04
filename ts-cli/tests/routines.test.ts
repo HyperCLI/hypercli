@@ -77,7 +77,7 @@ type MockFns = Record<string, ReturnType<typeof vi.fn>>;
 function fakeAcp(overrides: MockFns = {}): MockFns {
   return {
     newSession: vi.fn(async () => ({ sessionId: 'sess-new' })),
-    loadSession: vi.fn(async () => ({})),
+    resumeSession: vi.fn(async () => ({})),
     prompt: vi.fn(async () => ({ stopReason: 'end_turn' })),
     close: vi.fn(),
     ...overrides,
@@ -376,13 +376,13 @@ describe('hyper routines run', () => {
     expect(acpConnect.mock.calls[0][0].clientInfo.name).toBe('hypercli-cli');
   });
 
-  it('bound session_id: resumes via session/load and prompts on the bound session', async () => {
+  it('bound session_id: resumes via session/resume and prompts on the bound session', async () => {
     const { client, acp } = runClient({ sessionId: 'sess-bound' });
     const { ctx } = makeCtx(client, 'table');
 
     await routines.run(ctx, ['run', 'routine-1']);
 
-    expect(acp.loadSession).toHaveBeenCalledWith('sess-bound');
+    expect(acp.resumeSession).toHaveBeenCalledWith('sess-bound', { replayFrom: { type: 'start' } });
     expect(acp.newSession).not.toHaveBeenCalled();
     expect(acp.prompt).toHaveBeenCalledWith('sess-bound', 'write the standup notes');
     expect(stdout()).toContain('yes');
@@ -390,8 +390,8 @@ describe('hyper routines run', () => {
 
   it('bound session that fails to load falls back to a new session', async () => {
     const acp = fakeAcp({
-      loadSession: vi.fn(async () => {
-        throw new Error('session/load not advertised');
+      resumeSession: vi.fn(async () => {
+        throw new Error('session/resume not advertised');
       }),
     });
     const { client } = runClient({ sessionId: 'sess-bound' }, {}, acp);

@@ -467,7 +467,8 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
       let resume = false;
       if (routine.sessionId && boundAttached) {
         try {
-          await acp.loadSession(routine.sessionId);
+          // ACP v2 removed session/load; resume with a full history replay.
+          await acp.resumeSession(routine.sessionId, { replayFrom: { type: 'start' } });
           sessionId = routine.sessionId;
           resume = true;
         } catch (err) {

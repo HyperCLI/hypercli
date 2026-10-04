@@ -1574,7 +1574,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 //
 // Sessions: NO session flag means a brand-new session every invocation
 // (there is no carried-over default session). -s/--session NAME resumes via
-// session/load (the NAME is the ACP session id).
+// session/resume with replayFrom 'start' (the NAME is the ACP session id).
 // ---------------------------------------------------------------------------
 
 type ChatStage = 'start' | 'wait' | 'connect' | 'prompt';
@@ -1602,7 +1602,8 @@ function acpContentText(content: unknown): string {
 /** Open (or resume) the ACP session; part of the connect stage. */
 async function acpOpenSession(client: CodingAgentAcpClient, name: string | undefined): Promise<string> {
   if (name !== undefined) {
-    await client.loadSession(name);
+    // ACP v2 removed session/load; resume with a full history replay instead.
+    await client.resumeSession(name, { replayFrom: { type: 'start' } });
     return name;
   }
   const created = await client.newSession();
@@ -1671,7 +1672,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     let reply = '';
     let streamedText = '';
     let sessionId = '';
-    // Resumed iff acpOpenSession went loadSession (a --session NAME was given).
+    // Resumed iff acpOpenSession went resumeSession (a --session NAME was given).
     let sessionResumed = false;
     // --stream deltas go to stdout in table mode; under --json stdout belongs
     // to the result bag, so deltas ride stderr there instead.
@@ -1686,7 +1687,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     // Agent owns acpConnect and call-time gates on the runtime label (a
     // non-ACP label throws rather than dialing). The dial rides the backend
     // session proxy (/ws/acp) by default; --session attaches that session at
-    // the socket level so the loadSession replay is delivered (an unknown id
+    // the socket level so the resume replay is delivered (an unknown id
     // fails the connect — the proxy closes with 4404).
     const acp = await atStage('connect', () =>
       agent.acpConnect({

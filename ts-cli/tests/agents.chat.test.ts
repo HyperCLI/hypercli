@@ -143,7 +143,7 @@ function fakeAcpClient(chunks: string[], sessionId = 'sess-acp-1') {
   let onUpdate: ((notification: AcpNotification) => void) | undefined;
   const client = {
     newSession: vi.fn(async () => ({ sessionId })),
-    loadSession: vi.fn(async () => ({})),
+    resumeSession: vi.fn(async () => ({})),
     prompt: vi.fn(async () => {
       for (const chunk of chunks) onUpdate?.(acpChunk(chunk));
       return { stopReason: 'end_turn' };
@@ -172,7 +172,7 @@ describe('hyper agents chat — family dispatch', () => {
       expect(acpConnect).toHaveBeenCalledTimes(1);
       // No session flag: a brand-new session every invocation.
       expect(client.newSession).toHaveBeenCalledTimes(1);
-      expect(client.loadSession).not.toHaveBeenCalled();
+      expect(client.resumeSession).not.toHaveBeenCalled();
       expect(client.prompt).toHaveBeenCalledWith('sess-acp-1', 'say hi');
       expect(client.close).toHaveBeenCalled();
       expect(stdout()).toBe('Hello world\n');
@@ -184,14 +184,14 @@ describe('hyper agents chat — family dispatch', () => {
 // ---------- sessions ----------
 
 describe('hyper agents chat — sessions', () => {
-  it('--session resumes via loadSession instead of newSession', async () => {
+  it('--session resumes via resumeSession instead of newSession', async () => {
     const { acpConnect, client } = fakeAcpClient(['resumed']);
     const agent = chatAgentFixture({ runtime: 'opencode', acpConnect });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');
 
     await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'sess-old-9']);
 
-    expect(client.loadSession).toHaveBeenCalledWith('sess-old-9');
+    expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9', { replayFrom: { type: 'start' } });
     expect(client.newSession).not.toHaveBeenCalled();
     expect(client.prompt).toHaveBeenCalledWith('sess-old-9', 'hi');
     expect(stdout()).toBe('resumed\n');
@@ -204,7 +204,7 @@ describe('hyper agents chat — sessions', () => {
 
     await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'sess-old-9', '--json']);
 
-    expect(client.loadSession).toHaveBeenCalledWith('sess-old-9');
+    expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9', { replayFrom: { type: 'start' } });
     const payload = JSON.parse(stdout());
     expect(payload.session).toEqual({ id: 'sess-old-9', resumed: true });
   });
@@ -216,7 +216,7 @@ describe('hyper agents chat — sessions', () => {
 
     await agents.run(ctx, ['chat', ID_A, 'hi', '-s', 'sess-old-9']);
 
-    expect(client.loadSession).toHaveBeenCalledWith('sess-old-9');
+    expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9', { replayFrom: { type: 'start' } });
     expect(client.newSession).not.toHaveBeenCalled();
     expect(stdout()).toBe('resumed\n');
   });
@@ -303,7 +303,7 @@ describe('hyper agents chat — reply extraction', () => {
       runtime: 'openclaw_acp',
       acpConnect: vi.fn(async (options: AcpOptions) => ({
         newSession: vi.fn(async () => ({ sessionId: 's1' })),
-        loadSession: vi.fn(async () => ({})),
+        resumeSession: vi.fn(async () => ({})),
         prompt: vi.fn(async () => Promise.reject(new Error('model exploded'))),
         close: vi.fn(),
         onUpdate: options.onUpdate,
