@@ -2862,7 +2862,7 @@ mod tests {
     #[test]
     fn every_buzz_runtime_matches_the_shared_launch_golden() {
         let golden: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/buzz-launch-contract.json"
+            "../tests/fixtures/buzz-launch-contract.json"
         ))
         .unwrap();
         for (runtime_name, runtime) in [

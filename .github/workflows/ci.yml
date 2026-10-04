@@ -97,8 +97,10 @@ jobs:
         run: |
           npm ci --prefix ts-sdk
           npm --prefix ts-sdk run build
-      - name: Install ts-cli
-        run: npm ci --prefix ts-cli
+      - name: Install and build ts-cli
+        run: |
+          npm ci --prefix ts-cli
+          npm --prefix ts-cli run build
       - name: Full vitest suite
         run: npm --prefix ts-cli test
       # Offline harness for tests/live-lifecycle/{live.sh,lifecycle.sh}: bash

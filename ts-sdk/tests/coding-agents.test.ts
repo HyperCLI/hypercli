@@ -40,7 +40,7 @@ const CODEX_0146_DEVICE_AUTH_PROMPT = [
 ].join('');
 
 const buzzGolden = JSON.parse(readFileSync(
-  new URL('../../tests/fixtures/buzz-launch-contract.json', import.meta.url),
+  new URL('../../rs-sdk/tests/fixtures/buzz-launch-contract.json', import.meta.url),
   'utf8',
 )) as {
   runtime_scopes: string[];

@@ -1,3 +1,5 @@
+import re
+
 from typer.testing import CliRunner
 
 from hypercli_cli.cli import app
@@ -64,4 +66,5 @@ def test_keys_create_rejects_all_and_tag_together():
     result = runner.invoke(app, ["keys", "create", "--all", "--tag", "team=dev"])
 
     assert result.exit_code != 0
-    assert "Use either --all or --tag, not both" in result.output
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "Use either --all or --tag, not both" in plain_output

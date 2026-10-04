@@ -1,0 +1,95 @@
+{
+  "runtime_scopes": [
+    "agents:none",
+    "files:*",
+    "flows:*",
+    "models:*",
+    "voice:*",
+    "web:*",
+    "workspaces:*"
+  ],
+  "common": {
+    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+    "size": "large",
+    "routes": {},
+    "restart": false,
+    "sync_root": "/home/node",
+    "sync_uid": 1000,
+    "sync_gid": 1000
+  },
+  "common_env": {
+    "BUZZ_ACP_RELAY_OBSERVER": "true",
+    "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws"
+  },
+  "runtimes": {
+    "buzz-agent": {
+      "sync_exclude": [],
+      "image": "ghcr.io/hypercli/hypercli-buzz-agent:latest",
+      "stock_agent_command": "buzz-agent",
+      "agent_command": "/usr/local/bin/buzz-agent",
+      "agent_args": "",
+      "claude_code_executable": null,
+      "env": {}
+    },
+    "opencode": {
+      "sync_include": [
+        ".hypercli/USER.md", ".hypercli/SOUL.md",
+        ".config/opencode",
+        ".local/share/opencode",
+        ".local/state/opencode",
+        ".cache/opencode"
+      ],
+      "image": "ghcr.io/hypercli/hypercli-opencode:latest",
+      "stock_agent_command": "opencode",
+      "agent_command": "/opt/hypercli/bin/opencode",
+      "agent_args": "acp",
+      "claude_code_executable": null,
+      "env": {}
+    },
+    "codex": {
+      "sync_include": [".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "image": "ghcr.io/hypercli/hypercli-codex:latest",
+      "stock_agent_command": "codex-acp",
+      "agent_command": "/opt/hypercli/bin/codex-acp",
+      "agent_args": "",
+      "claude_code_executable": null,
+      "env": {}
+    },
+    "claude-code": {
+      "sync_include": [".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "image": "ghcr.io/hypercli/hypercli-claude:latest",
+      "stock_agent_command": "claude-agent-acp",
+      "agent_command": "/opt/hypercli/bin/claude-agent-acp",
+      "agent_args": "",
+      "claude_code_executable": "/opt/hypercli/bin/claude",
+      "env": {}
+    },
+    "goose": {
+      "sync_include": [".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "image": "ghcr.io/hypercli/hypercli-goose:latest",
+      "stock_agent_command": "goose",
+      "agent_command": "/usr/local/bin/goose",
+      "agent_args": "acp",
+      "claude_code_executable": null,
+      "env": {}
+    },
+    "pi": {
+      "sync_include": [".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "image": "ghcr.io/hypercli/hypercli-pi:latest",
+      "stock_agent_command": "pi-acp",
+      "agent_command": "/opt/hypercli/bin/pi-acp",
+      "agent_args": "",
+      "claude_code_executable": null,
+      "env": {}
+    },
+    "kimi-code": {
+      "sync_include": [".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "image": "ghcr.io/hypercli/hypercli-kimi-code:latest",
+      "stock_agent_command": "kimi",
+      "agent_command": "/opt/hypercli/bin/kimi",
+      "agent_args": "acp",
+      "claude_code_executable": null,
+      "env": {}
+    }
+  }
+}
