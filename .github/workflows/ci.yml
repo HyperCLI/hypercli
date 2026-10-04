@@ -101,6 +101,11 @@ jobs:
         run: |
           npm ci --prefix ts-cli
           npm --prefix ts-cli run build
+      # Pack smoke: ts-cli's prepack hook rebuilds dist, so the tarball must
+      # list dist/index.js even from a clean checkout. npm >=11 prints the
+      # file listing on stderr; merge before grep.
+      - name: Pack dry-run smoke (tarball lists dist/index.js)
+        run: npm --prefix ts-cli pack --dry-run 2>&1 | grep -q 'dist/index.js'
       - name: Full vitest suite
         run: npm --prefix ts-cli test
       # Offline harness for tests/live-lifecycle/{live.sh,lifecycle.sh}: bash

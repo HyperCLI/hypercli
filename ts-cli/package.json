@@ -11,6 +11,7 @@
     "skills"
   ],
   "scripts": {
+    "prepack": "npm run build",
     "build": "npm run build:skills && tsc -p tsconfig.json",
     "build:skills": "node scripts/build-skills.mjs",
     "test": "vitest run",

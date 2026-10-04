@@ -167,14 +167,16 @@ export function buildAll(srcDir = SKILLS_SRC, outDir = SKILLS_OUT, names = SKILL
 const invokedAsScript = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedAsScript) {
   const index = buildAll();
-  process.stdout.write(`built ${index.length} skill(s) into ${SKILLS_OUT}\n`);
+  // Diagnostics to stderr: `npm pack --json` forwards lifecycle-script stdout,
+  // and a stdout line here would corrupt that JSON for the pack gate.
+  process.stderr.write(`built ${index.length} skill(s) into ${SKILLS_OUT}\n`);
   if (existsSync(SKILLS_SRC)) {
     const excluded = readdirSync(SKILLS_SRC, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !SKILLS.includes(entry.name))
       .map((entry) => entry.name)
       .sort();
     if (excluded.length > 0) {
-      process.stdout.write(`excluded by SKILLS allowlist: ${excluded.join(', ')}\n`);
+      process.stderr.write(`excluded by SKILLS allowlist: ${excluded.join(', ')}\n`);
     }
   }
 }

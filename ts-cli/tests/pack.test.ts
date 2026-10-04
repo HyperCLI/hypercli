@@ -3,6 +3,8 @@
  *
  * Requires a prebuilt dist/ (run `npm run build` first). Deliberately does
  * NOT build here: the test stays fast and CI runs build before vitest.
+ * --ignore-scripts skips the package's prepack hook for the same reason; the
+ * prepack rebuild path is covered by the CI pack dry-run smoke step.
  *
  * Asserts:
  *   - every skills/*.json on disk is present in the tarball
@@ -27,7 +29,7 @@ interface PackEntry {
 function packedPaths(): Set<string> {
   // execSync (shell) rather than execFileSync: on Windows spawning npm.cmd
   // directly without a shell fails with EINVAL.
-  const out = execSync('npm pack --dry-run --json', {
+  const out = execSync('npm pack --dry-run --json --ignore-scripts', {
     cwd: PKG_DIR,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
