@@ -32,13 +32,13 @@ Use the Anthropic Messages API as the default endpoint for chat models. HyperCLI
 ```bash
 export HYPER_AGENTS_API_KEY="hyper_api_..."
 
-curl https://api.hypercli.com/v1/messages \
+curl https://api.agents.hypercli.com/v1/messages \
   -H "Authorization: Bearer $HYPER_AGENTS_API_KEY" \
   -H "x-api-key: $HYPER_AGENTS_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kimi-k2.6",
+    "model": "kimi-k3-anthropic",
     "max_tokens": 512,
     "messages": [
       {
@@ -64,7 +64,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="hyper_api_...",
-    base_url="https://api.hypercli.com/v1"
+    base_url="https://api.agents.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(
@@ -128,7 +128,7 @@ See the [x402 wallet guide](/agents/x402-wallet) for the full flow.
 ### List Models
 
 ```bash
-curl https://api.hypercli.com/v1/models \
+curl https://api.agents.hypercli.com/v1/models \
   -H "Authorization: Bearer $HYPER_AGENTS_API_KEY"
 ```
 

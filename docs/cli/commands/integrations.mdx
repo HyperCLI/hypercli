@@ -1,0 +1,97 @@
+---
+title: hyper integrations
+description: Connect third-party providers (Linear, GitHub, Notion, OpenAI, ...) to your account and agents through the server-driven catalog.
+---
+
+`hyper integrations` manages third-party provider connections. The server
+catalog and native connections drive these commands; there are no
+provider-specific commands baked into the CLI. Use `--dev` only to select the
+dev facade.
+
+## Authentication and discovery
+
+The configured product key takes precedence over the `HYPER_AGENTS_API_KEY`
+fallback. Per-agent policy applies only when the actual credential is a bound
+runtime key. Owner management requires an app JWT or an `api:self`, `api:*`, or
+`*:*` key; runtime keys can use permitted integrations but cannot manage owner
+connections.
+
+```bash
+hyper integrations providers --json
+hyper integrations connections --json
+hyper integrations status my-agent
+hyper integrations disable github --agent my-agent
+hyper integrations unset github --agent my-agent
+```
+
+Connection listing includes all IDs. When more than one account is connected,
+credential, proxy, and management operations require `--connection ID`; there
+is no arbitrary first-account selection. Agent overrides remain per-provider.
+
+## OAuth and native credential import
+
+```bash
+hyper integrations connect linear --wait
+hyper integrations connect linear --connection EXISTING_ID
+hyper integrations connect linear --new --wait
+hyper integrations disconnect linear --connection CONNECTION_ID
+```
+
+Reconnect returns a new authorization URL; `--wait` is refused for reconnect
+because existing credentials do not prove the new OAuth flow completed.
+Completion never re-enables a disabled connection; use an explicit `enable`
+when intended.
+
+For native API-key/Basic/OAuth1 import-supported auth, prepare a connection
+body in a protected file, for example:
+
+```json
+{"credentials":{"type":"API_KEY","apiKey":"<provider API key>"},"connection_config":{}}
+```
+
+```bash
+hyper integrations import openai --file /path/to/credentials.json
+# Pipe the same JSON through stdin instead:
+your-secret-reader | hyper integrations import openai --file -
+# Replace credentials on an existing owned connection:
+hyper integrations import openai --file /path/to/credentials.json --connection CONNECTION_ID
+```
+
+The credential field is camelCase `apiKey`, not `api_key`. Caller-supplied IDs
+can update only existing owned records. Unsupported native auth modes fail
+explicitly.
+
+## Credentials and REST proxy
+
+```bash
+hyper integrations token github --connection CONNECTION_ID
+hyper integrations credentials openai --connection CONNECTION_ID --field apiKey
+hyper integrations call linear POST graphql '{"query":"{ viewer { id } }"}' --connection CONNECTION_ID
+hyper integrations call notion POST v1/search '{}' --headers '{"Notion-Version":"2022-06-28"}'
+```
+
+`token` prints only the access token in table mode; metadata goes to stderr.
+`--field` selects one top-level string and is pipe-safe in table mode. No
+automatic environment/token injection occurs. Prefer the proxy or the narrower
+`token` mode when sufficient. Authorization, host, cookie, and hop-by-hop
+override headers are blocked. CLI bodies are JSON; binary streaming is not
+implemented.
+
+## Dynamic MCP calls (CLI only)
+
+```bash
+hyper integrations --mcp --json
+hyper integrations --mcp linear_request --help --json
+hyper integrations --mcp linear_request --args '{"method":"POST","path":"graphql","connection_id":"CONNECTION_ID"}' --json
+```
+
+The `--mcp` mode calls the facade `/integrations/mcp` directly: it initializes,
+paginates `tools/list`, and invokes the selected tool. Tool names and schemas
+come from the server. Calls recheck policy and connection enablement; the
+policy cache TTL is 30 seconds.
+
+## Desktop account controls
+
+The desktop app's integrations tab shows connection IDs in an account selector.
+Select an account to disconnect or reconnect. **Add account** starts a new
+OAuth flow.

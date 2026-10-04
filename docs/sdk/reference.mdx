@@ -167,7 +167,7 @@ Important methods:
 
 ### `CodingAgent`
 
-Returned by `create_coding_agent(...)`. Adds:
+Returned by `create_agent(...)` for coding runtimes. Adds:
 
 - `auth`
   runtime-specific `RuntimeAuthClient`: `methods()`, `status()`, `login()`,
@@ -178,7 +178,7 @@ Returned by `create_coding_agent(...)`. Adds:
 Major methods:
 
 - `create()`
-- `create_coding_agent(runtime, ...)`
+- `create_agent(runtime, ...)` — `create_coding_agent(...)` remains a deprecated alias that warns and forwards
 - `budget()`
 - `metrics()`
 - `list()`

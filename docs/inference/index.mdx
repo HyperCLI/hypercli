@@ -1,15 +1,18 @@
 ---
 title: Inference
-description: HyperCLI inference is provided by HyperCLI
+description: HyperCLI's hosted inference surface — Anthropic Messages and OpenAI-compatible endpoints for the current model lineup
 ---
 
-## Inference Provider
+## Endpoints
 
-HyperCLI inference is provided by **HyperCLI**.
+- Inference host: `https://api.agents.hypercli.com` (prod) / `https://api.agents.dev.hypercli.com` (dev)
+- Anthropic Messages route: `POST https://api.agents.hypercli.com/v1/messages` (recommended for chat and tool calling)
+- OpenAI-compatible route: `https://api.agents.hypercli.com/v1`
+- Dashboard and plans: [https://agents.hypercli.com](https://agents.hypercli.com)
 
-- Product: [https://hypercli.com](https://hypercli.com)
-- Inference endpoint: `https://api.hypercli.com/v1`
-- Dashboard and plans: `https://hypercli.com`
+For agent and tool-calling workloads, prefer the Anthropic Messages format. The
+OpenAI-compatible endpoint remains the compatibility surface for SDKs and
+frameworks that expect `/v1`.
 
 ## Quick Start
 
@@ -18,19 +21,43 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="hyper_api_...",
-    base_url="https://api.hypercli.com/v1"
+    base_url="https://api.agents.hypercli.com/v1"
 )
 
 resp = client.chat.completions.create(
-    model="kimi-k2.5",
+    model="kimi-k3",
     messages=[{"role": "user", "content": "hello"}],
 )
 print(resp.choices[0].message.content)
 ```
 
+## Current Model Lineup
+
+| Model | Context | Route | Notes |
+|-------|---------|-------|-------|
+| `kimi-k3` | 262K tokens | OpenAI-compatible (`/v1`) | Pinned chat model with vision input |
+| `kimi-k3-anthropic` | 262K tokens | Anthropic Messages (`/v1/messages`) | Pinned variant for best tool-calling behavior |
+| `default` / `default-anthropic` | 262K tokens | both routes | Stable aliases for the current default model (currently `kimi-k3`) |
+| `coding` / `coding-anthropic` | 262K tokens | both routes | Stable aliases for the current coding model (currently `kimi-k3`) |
+| `qwen3-embedding-4b` | 32K tokens | OpenAI-compatible | Text embeddings (`/v1/embeddings`), 2048 dimensions |
+
+The `-anthropic` names resolve to the Anthropic Messages route; the bare names
+resolve to the OpenAI-compatible route. Aliases follow the current model
+generation so hosted improvements require no config changes; pin an exact ID
+when you need a fixed revision.
+
+Discover the live catalog at any time:
+
+```bash
+curl https://api.agents.hypercli.com/v1/models \
+  -H "Authorization: Bearer hyper_api_..."
+```
+
+For key scoping (`models:*`, `models:<id>`), see [Models](/inference/models).
+
 ## Docs
 
 - [Inference Quickstart](/inference/quickstart)
-- [Inference for Agents](/agents/provider)
-- [Agents API](/agents/api)
+- [Pricing](/inference/pricing)
 - [Agent Integrations](/agents/integrations)
+- [Agents API](/agents/api)

@@ -3,12 +3,16 @@ title: API Reference
 description: HyperCLI REST API
 ---
 
-Base URL: `https://api.hypercli.com`
+Base URLs:
+
+- Orchestra / product API: `https://api.hypercli.com`
+- Agents control plane: `https://api.hypercli.com/agents`
+- Inference (LLM/embeddings): `https://api.agents.hypercli.com/v1`
 
 Live OpenAPI specs:
 
 - Orchestra: `https://api.hypercli.com/api/openapi.json`
-- Agents: `https://api.agents.hypercli.com/api/openapi.json`
+- Agents: `https://api.agents.hypercli.com/agents/openapi.json`
 
 Downloaded copies used by these docs:
 
@@ -57,8 +61,13 @@ Get your API key at [console.hypercli.com](https://console.hypercli.com).
 - `DELETE /api/keys/{id}` - Delete key
 
 ### LLM (OpenAI Compatible)
+
+Served from the inference host `https://api.agents.hypercli.com`:
+
 - `GET /v1/models` - List models
 - `POST /v1/chat/completions` - Chat completion
+- `POST /v1/messages` - Anthropic Messages completion
+- `POST /v1/embeddings` - Text embeddings
 
 ## Errors
 

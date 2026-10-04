@@ -151,18 +151,17 @@ Optimal parameters vary by template. Flux Schnell works best with 4 steps, while
 ## Example: Flux Schnell
 
 ```python
-response = httpx.post(
-    "https://api.hypercli.com/api/renders",
-    headers={"X-BACKEND-API-KEY": BACKEND_API_KEY},
-    json={
-        "user_id": "user-uuid",
-        "params": {
-            "workflow": "flux_schnell",
-            "prompt": "a cyberpunk city at night, neon lights, rain",
-            "width": 1024,
-            "height": 1024,
-            "steps": 4,  # Flux Schnell is optimized for 4 steps
-        }
+from hypercli import HyperCLI
+
+client = HyperCLI()
+
+render = client.renders.create(
+    params={
+        "template": "flux_schnell",
+        "prompt": "a cyberpunk city at night, neon lights, rain",
+        "width": 1024,
+        "height": 1024,
+        "steps": 4,  # Flux Schnell is optimized for 4 steps
     }
 )
 ```
@@ -170,16 +169,11 @@ response = httpx.post(
 ## Example: Video Generation
 
 ```python
-response = httpx.post(
-    "https://api.hypercli.com/api/renders",
-    headers={"X-BACKEND-API-KEY": BACKEND_API_KEY},
-    json={
-        "user_id": "user-uuid",
-        "params": {
-            "workflow": "video_wan2_2_14B_t2v",
-            "prompt": "a timelapse of clouds moving over mountains",
-            "gpu_type": "a100",  # Video generation needs more VRAM
-        }
+render = client.renders.create(
+    params={
+        "template": "video_wan2_2_14B_t2v",
+        "prompt": "a timelapse of clouds moving over mountains",
+        "gpu_type": "a100",  # Video generation needs more VRAM
     }
 )
 ```

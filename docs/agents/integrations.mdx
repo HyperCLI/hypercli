@@ -5,8 +5,8 @@ description: Configure your AI agent or coding tool to use HyperCLI as an LLM pr
 
 HyperCLI exposes two chat surfaces:
 
-- **Primary recommended:** Anthropic Messages API at `https://api.hypercli.com`
-- **Compatibility option:** OpenAI-compatible API at `https://api.hypercli.com/v1`
+- **Primary recommended:** Anthropic Messages API at `https://api.agents.hypercli.com`
+- **Compatibility option:** OpenAI-compatible API at `https://api.agents.hypercli.com/v1`
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
 
@@ -15,12 +15,12 @@ For chat models, prefer the Anthropic Messages format. The OpenAI-compatible end
 Use this when your tool or SDK supports Anthropic-compatible providers:
 
 ```bash
-curl https://api.hypercli.com/v1/messages \
+curl https://api.agents.hypercli.com/v1/messages \
   -H "x-api-key: hyper_api_YOUR_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
-    "model": "kimi-k2.6-anthropic",
+    "model": "kimi-k3-anthropic",
     "max_tokens": 512,
     "messages": [
       {
@@ -48,7 +48,7 @@ Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
       "npm": "@ai-sdk/anthropic",
       "name": "HyperCLI",
       "options": {
-        "baseURL": "https://api.hypercli.com/v1",
+        "baseURL": "https://api.agents.hypercli.com/v1",
         "apiKey": "{env:HYPER_AGENTS_API_KEY}"
       },
       "models": {
@@ -89,7 +89,7 @@ Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers
     "mode": "merge",
     "providers": {
       "hypercli": {
-        "baseUrl": "https://api.hypercli.com",
+        "baseUrl": "https://api.agents.hypercli.com",
         "apiKey": "hyper_api_YOUR_API_KEY",
         "api": "anthropic-messages",
         "authHeader": true,
@@ -110,7 +110,7 @@ Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers
       "provider": "openai",
       "model": "qwen3-embedding-4b",
       "remote": {
-        "baseUrl": "https://api.hypercli.com/v1",
+        "baseUrl": "https://api.agents.hypercli.com/v1",
         "apiKey": "hyper_api_YOUR_API_KEY"
       }
     }
@@ -118,7 +118,7 @@ Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers
 }
 ```
 
-For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
+For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.agents.hypercli.com`, not `.../v1`.
 For the branded HyperCLI setup, use `hypercli/default-anthropic` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
@@ -129,7 +129,7 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
     "mode": "merge",
     "providers": {
       "hypercli": {
-        "baseUrl": "https://api.hypercli.com/v1",
+        "baseUrl": "https://api.agents.hypercli.com/v1",
         "apiKey": "hyper_api_YOUR_API_KEY",
         "api": "openai-completions",
         "models": [
@@ -173,7 +173,7 @@ Use environment variables — no config file needed:
 
 ```bash
 export OPENAI_API_KEY="hyper_api_YOUR_API_KEY"
-export OPENAI_BASE_URL="https://api.hypercli.com/v1"
+export OPENAI_BASE_URL="https://api.agents.hypercli.com/v1"
 
 # Claude Code
 claude --model hypercli/default-anthropic
@@ -189,7 +189,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="hyper_api_YOUR_API_KEY",
-    base_url="https://api.hypercli.com/v1"
+    base_url="https://api.agents.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(
@@ -206,7 +206,7 @@ import OpenAI from 'openai';
 
 const client = new OpenAI({
   apiKey: 'hyper_api_YOUR_API_KEY',
-  baseURL: 'https://api.hypercli.com/v1'
+  baseURL: 'https://api.agents.hypercli.com/v1'
 });
 
 const response = await client.chat.completions.create({
@@ -218,7 +218,7 @@ const response = await client.chat.completions.create({
 ## cURL
 
 ```bash
-curl https://api.hypercli.com/v1/chat/completions \
+curl https://api.agents.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer hyper_api_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -253,13 +253,13 @@ model_list:
   - model_name: default
     litellm_params:
       model: openai/default
-      api_base: https://api.hypercli.com/v1
+      api_base: https://api.agents.hypercli.com/v1
       api_key: hyper_api_YOUR_API_KEY
 
 ```
 
 For embeddings, use the same OpenAI-compatible upstream pattern with
-`model: openai/qwen3-embedding-4b` against `https://api.hypercli.com/v1`.
+`model: openai/qwen3-embedding-4b` against `https://api.agents.hypercli.com/v1`.
 
 ### Anthropic-style upstream
 
@@ -271,7 +271,7 @@ model_list:
   - model_name: default-anthropic
     litellm_params:
       model: anthropic/default-anthropic
-      api_base: https://api.hypercli.com
+      api_base: https://api.agents.hypercli.com
       api_key: hyper_api_YOUR_API_KEY
 
 ```
@@ -285,13 +285,13 @@ model_list:
   - model_name: default
     litellm_params:
       model: openai/default
-      api_base: https://api.hypercli.com/v1
+      api_base: https://api.agents.hypercli.com/v1
       api_key: hyper_api_YOUR_API_KEY
 
   - model_name: default-anthropic
     litellm_params:
       model: anthropic/default-anthropic
-      api_base: https://api.hypercli.com
+      api_base: https://api.agents.hypercli.com
       api_key: hyper_api_YOUR_API_KEY
 ```
 
@@ -300,18 +300,9 @@ OpenAI-compatible entries for SDKs, tools, embedding workloads, and frameworks
 that expect `/v1`.
 ## Available Models
 
-| Model | Context | Description |
-|-------|---------|-------------|
-| `coding-anthropic` | 262K tokens | Stable alias for the coding model on the recommended Anthropic Messages route; currently `kimi-k3-anthropic` |
-| `default-anthropic` | 262K tokens | Stable alias for the default Anthropic-route model; currently `kimi-k3-anthropic` |
-| `coding` | 262K tokens | Stable alias for the coding model on the OpenAI-compatible route; currently `kimi-k3` |
-| `default` | 262K tokens | Stable alias for the default OpenAI-compatible route; currently `kimi-k3` |
-| `kimi-k3-anthropic` | 262K tokens | Kimi K3 on the Anthropic Messages route (pinned) |
-| `kimi-k3` | 262K tokens | Kimi K3 on the OpenAI-compatible route (pinned) |
-| `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the Anthropic Messages route (pinned) |
-| `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route (pinned) |
-| `kimi-k2.5-anthropic` | 262K tokens | Legacy compatibility alias for `kimi-k2.6-anthropic` |
-| `kimi-k2.5` | 262K tokens | Legacy compatibility alias for `kimi-k2.6` |
+See the canonical lineup and alias table in the
+[Inference overview](/inference/index#current-model-lineup). `GET /v1/models` is
+the live discovery route.
 
 For agent runtimes and tool-calling workloads, prefer the `-anthropic` model
 names. They use the Anthropic Messages route and are the expected surface for
@@ -322,7 +313,7 @@ expect `/v1`.
 Check available models at any time:
 
 ```bash
-curl https://api.hypercli.com/v1/models \
+curl https://api.agents.hypercli.com/v1/models \
   -H "Authorization: Bearer hyper_api_YOUR_API_KEY"
 ```
 
@@ -330,12 +321,12 @@ curl https://api.hypercli.com/v1/models \
 
 | Purpose | URL |
 |---------|-----|
-| **Chat Inference** (Anthropic Messages, recommended) | `https://api.hypercli.com` |
-| **LLM Inference** (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| **Chat Inference** (Anthropic Messages, recommended) | `https://api.agents.hypercli.com` |
+| **LLM Inference** (OpenAI-compatible) | `https://api.agents.hypercli.com/v1` |
 | **Account/Billing API** | `https://api.hypercli.com/agents` |
 | **Dashboard** | `https://agents.hypercli.com` |
 | **Docs** | `https://docs.hypercli.com` |
 
 <Note>
-Use `api.hypercli.com` for direct access.
+Use `api.agents.hypercli.com` for inference; use `api.hypercli.com/agents` for plans, billing, and deployment control.
 </Note>

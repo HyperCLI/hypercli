@@ -15,16 +15,15 @@ description: Deploy Qwen3-TTS with voice cloning, preset voices, and voice desig
 ## Quick Launch
 
 ```bash
-hyper jobs launch \
-  --image registry.example.com/hypercli/<qwen3-tts-image>:prod \
-  --gpu-type L40S \
-  --gpu-count 1 \
-  --region se \
-  --runtime 3600 \
+hyper instances launch registry.example.com/hypercli/<qwen3-tts-image>:prod \
+  -g l40s \
+  -n 1 \
+  -r se \
+  -t 3600 \
   --interruptible \
-  --auth \
-  --port lb=8998 \
-  --env TTS_MAX_SENTENCES=2
+  --lb-auth \
+  --lb 8998 \
+  -e TTS_MAX_SENTENCES=2
 ```
 
 ## API Endpoints

@@ -1,85 +1,67 @@
 ---
 title: CLI
-description: Detailed overview of the Python CLI for HyperCLI platform APIs, HyperCLI plans, OpenClaw deployments, and backend shells/logs.
+description: The hyper command line — implementations, install, and a map of the command groups.
 ---
 
-## Install
+## Implementations
 
-```bash
-pip install hypercli-cli
-```
+| | TypeScript CLI (current) | Python CLI (EOL) |
+| --- | --- | --- |
+| Package | `@hypercli.com/cli` | `hypercli-cli` |
+| Install | `npm install -g @hypercli.com/cli` | `pip install hypercli-cli` |
+| Runtime | Node.js >= 22 | Python 3 |
+| Status | Actively developed | End-of-life since 2026-09-09; retained for reference |
 
-Optional extras:
-
-```bash
-pip install "hypercli-cli[wallet]"
-pip install "hypercli-cli[comfyui]"
-pip install "hypercli-cli[stt]"
-```
+Both ship the `hyper` binary and read the same ~/.hypercli credentials. The
+Python CLI carries some surfaces the TypeScript CLI has not ported yet; those
+pages are marked below.
 
 ## Command Groups
 
-Every registered top-level command maps to one detailed reference:
+| Command | Purpose | Implementations | Reference |
+| --- | --- | --- | --- |
+| `hyper configure` | Save the product key and API base | TS, Python | [Configuration](/cli/configuration) |
+| `hyper me` | Resolve auth context and agent entitlement summary | TS, Python | [Configuration](/cli/configuration#diagnosing-401-errors) |
+| `hyper agents` | Managed agent lifecycle, access, and web search | TS, Python | [agents](/cli/commands/agents) |
+| `hyper jobs` | Inspect and operate GPU jobs | TS, Python | [jobs](/cli/commands/jobs) |
+| `hyper flow` | Submit and inspect simplified media flows | TS, Python | [flow](/cli/commands/flow) |
+| `hyper files` | Upload, inspect, and delete flow inputs | TS, Python | [files](/cli/commands/files) |
+| `hyper integrations` | Third-party provider connections and MCP calls | TS | [integrations](/cli/commands/integrations) |
+| `hyper memory` | Memory search and summaries | TS, Python | [memory](/cli/commands/memory) |
+| `hyper routines` | Scheduled agent prompts | TS, Python | [routines](/cli/commands/routines) |
+| `hyper skills` | Agent skill catalog and export | TS, Python | [skills](/cli/skills) |
+| `hyper voice` | TTS, voice cloning/design, and local transcription | TS, Python | [voice](/cli/commands/voice) |
+| `hyper agent` | Account, subscription, onboarding, and compatibility tools | Python | [agent](/cli/commands/agent) |
+| `hyper billing` | Balance, transactions, and invoices | Python | [billing](/cli/commands/billing) |
+| `hyper comfyui` | Run and manage ComfyUI workflow jobs | Python | [comfyui](/cli/commands/comfyui) |
+| `hyper instances` | Discover capacity and launch GPU instances | Python | [instances](/cli/commands/instances) |
+| `hyper keys` | Create, list, and disable API keys | Python | [keys](/cli/commands/keys) |
+| `hyper llm` | Direct chat and local-image inference | Python | [llm](/cli/commands/llm) |
+| `hyper renders` | Raw render API helpers | Python | [renders](/cli/commands/renders) |
+| `hyper user` | Show the current user account | Python | [user](/cli/commands/user) |
+| `hyper wallet` | Local x402 wallet and wallet login | Python | [wallet](/cli/commands/wallet) |
+| `hyper workspaces` | Shared knowledge, files, search, sync, and grants | Python | [workspaces](/cli/commands/workspaces) |
 
-| Command | Purpose | Reference |
-| --- | --- | --- |
-| `hyper configure` | Save the product key and API base | [Configuration](/cli/configuration) |
-| `hyper me` | Resolve auth context and agent entitlement summary | [Configuration](/cli/configuration#diagnosing-401-errors) |
-| `hyper status` | Query compact model and cluster health | [Configuration](/cli/configuration) |
-| `hyper launch` | Alias for `hyper instances launch` | [instances](/cli/commands/instances) |
-| `hyper agents` | Managed agent lifecycle, access, and web search | [agents](/cli/commands/agents) |
-| `hyper agent` | Account, subscription, onboarding, and compatibility tools | [agent](/cli/commands/agent) |
-| `hyper billing` | Balance, transactions, and invoices | [billing](/cli/commands/billing) |
-| `hyper comfyui` | Run and manage ComfyUI workflow jobs | [comfyui](/cli/commands/comfyui) |
-| `hyper files` | Upload, inspect, and delete flow inputs | [files](/cli/commands/files) |
-| `hyper flow` | Submit and inspect simplified media flows | [flow](/cli/commands/flow) |
-| `hyper instances` | Discover capacity and launch GPU instances | [instances](/cli/commands/instances) |
-| `hyper keys` | Create, list, and disable API keys | [keys](/cli/commands/keys) |
-| `hyper jobs` | Inspect and operate GPU jobs | [jobs](/cli/commands/jobs) |
-| `hyper llm` | Direct chat and local-image inference | [llm](/cli/commands/llm) |
-| `hyper memory` | Prepare OpenClaw memory artifacts | [memory](/cli/commands/memory) |
-| `hyper user` | Show the current user account | [user](/cli/commands/user) |
-| `hyper voice` | TTS, voice cloning/design, and local transcription | [voice](/cli/commands/voice) |
-| `hyper wallet` | Local x402 wallet and wallet login | [wallet](/cli/commands/wallet) |
-| `hyper workspaces` | Shared knowledge, files, search, sync, and grants | [workspaces](/cli/commands/workspaces) |
-
-## Split Between `hyper agent` And `hyper agents`
-
-Use:
-
-- `hyper agent`
-  - account setup
-  - plans
-  - login / subscribe
-  - embed helpers
-- `hyper voice`
-  - text-to-speech
-  - voice cloning / design
-  - local FasterWhisper transcription
-- `hyper agents`
-  - actual agent lifecycle
-  - files
-  - exec
-  - backend shell/log streams
+Differences between the two implementations are called out on each command
+page.
 
 ## Current Agent Route Model
 
 The CLI now follows the same route defaults as the SDKs:
 
-- `desktop-<host>` = desktop when launched with `--desktop`
+- `desktop-<host>` = desktop when launched with the desktop flavor
 - there is no default `shell-<host>` route
 
 So:
 
 - `hyper agents shell` uses backend `/ws/shell/{agent_id}`
-- `hyper agents logs --ws` uses backend `/ws/logs/{agent_id}`
+- `hyper agents logs` uses backend `/ws/logs/{agent_id}`
 - desktop/browser launches use the OpenClaw pro image and set `HYPER_DESKTOP_ENABLED=1`
 
 ## Recommended Reading
 
 - [CLI Quickstart](/cli/quickstart)
-- [hyper keys](/cli/commands/keys)
-- [hyper llm](/cli/commands/llm)
-- [hyper voice](/cli/commands/voice)
-- [hyper agent](/cli/commands/agent)
+- [Configuration](/cli/configuration)
 - [hyper agents](/cli/commands/agents)
+- [hyper jobs](/cli/commands/jobs)
+- [hyper flow](/cli/commands/flow)

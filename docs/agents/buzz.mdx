@@ -208,14 +208,14 @@ hyper agents list
 
 The provider resolves credentials in this order:
 
-1. `HYPER_AGENTS_API_KEY`
-2. `HYPER_API_KEY`
-3. `HYPERCLI_API_KEY`
-4. the same keys in `~/.hypercli/config`
-5. the legacy `key` in `~/.hypercli/agent-key.json`
+1. `HYPER_API_KEY` in the environment
+2. `HYPER_API_KEY` in `~/.hypercli/config`
+3. `HYPER_AGENTS_API_KEY` in the environment
+4. the legacy `key` in `~/.hypercli/agent-key.json`
 
-The agents API base uses `AGENTS_API_BASE_URL`, `HYPER_API_BASE`, or
-`HYPERCLI_API_URL`. HyperCLI credentials do not belong in the Buzz provider
+The agents API base is derived from `HYPER_API_BASE`; the retired overrides
+`AGENTS_API_BASE_URL`, `HYPERCLI_API_URL`, and `HYPERCLI_API_KEY` are not read.
+HyperCLI credentials do not belong in the Buzz provider
 form: both Buzz and the provider reject secret-looking configuration fields.
 
 ### Configure the hosted runtime

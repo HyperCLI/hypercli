@@ -3,12 +3,13 @@ title: Models
 description: HyperCLI model discovery and usage
 ---
 
-Model discovery for inference should use HyperCLI endpoints.
+Model discovery for inference uses HyperCLI endpoints. The current model lineup
+and aliases are listed in the [Inference overview](/inference/index).
 
 ## List Models
 
 ```bash
-curl https://api.hypercli.com/v1/models \
+curl https://api.agents.hypercli.com/v1/models \
   -H "Authorization: Bearer hyper_api_..."
 ```
 
@@ -17,20 +18,20 @@ curl https://api.hypercli.com/v1/models \
 ## Use a Model
 
 ```bash
-curl https://api.hypercli.com/v1/chat/completions \
+curl https://api.agents.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer hyper_api_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kimi-k2.5",
+    "model": "kimi-k3",
     "messages": [{"role": "user", "content": "Say hello"}]
   }'
 ```
 
 If you are minting narrowed keys, inference routes resolve the requested model from the request body. The key scopes are reserved `models:<id>` tags such as:
 
-- `models:kimi-k2.5`
+- `models:kimi-k3`
 - `models:qwen3-embedding-4b`
 
-Aliases such as `kimi-k2.5-anthropic` still resolve back to the same canonical model for auth.
+Aliases such as `kimi-k3-anthropic`, `default`, and `coding-anthropic` still resolve back to the same canonical model for auth.
 
 See [Inference Overview](/inference/index) and [Agent Integrations](/agents/integrations).

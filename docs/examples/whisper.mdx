@@ -19,16 +19,15 @@ For most use cases, consider [Speaches](/examples/speaches) instead — it bundl
 ## Quick Launch
 
 ```bash
-hyper jobs launch \
-  --image vllm/vllm-openai:v0.15.1 \
-  --gpu-type L40S \
-  --gpu-count 1 \
-  --region se \
-  --runtime 3600 \
+hyper instances launch vllm/vllm-openai:v0.15.1 \
+  -g l40s \
+  -n 1 \
+  -r se \
+  -t 3600 \
   --interruptible \
-  --auth \
-  --port lb=8000 \
-  --command 'vllm serve openai/whisper-large-v3 \
+  --lb-auth \
+  --lb 8000 \
+  -c 'vllm serve openai/whisper-large-v3 \
     --host 0.0.0.0 --port 8000 \
     --served-model-name whisper-large-v3 \
     --task transcription \

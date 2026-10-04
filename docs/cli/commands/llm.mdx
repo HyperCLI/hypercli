@@ -22,9 +22,8 @@ hyper llm chat "You are terse" --system "Be concise" --json
 
 - uses the configured product API base
 - uses your configured API key
-- defaults to:
-  - `kimi-k2.5` when available
-  - otherwise the first non-embedding model from `/v1/models`
+- defaults to the first non-embedding chat model from `/v1/models`; pass
+  `--model kimi-k3-anthropic` (or another id from [`GET /v1/models`](/inference/models)) to choose explicitly
 
 ### Useful flags
 

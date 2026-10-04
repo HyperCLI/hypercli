@@ -121,7 +121,7 @@ lists.
 
 Plan IDs remain `String` values so future and historical plans keep parsing;
 `HyperAgentPlan::canonical_id()` recognizes current `solo`, `team`, and `pro`
-IDs. HyperClaw plan access is active when either the subscription count or the
+IDs. Hosted plan access is active when either the subscription count or the
 direct-entitlement count is positive:
 
 ```rust
@@ -131,7 +131,7 @@ if summary.has_active_plan() {
 }
 ```
 
-This summary is the HyperClaw source of truth, not Orchestra `/api/auth/me`.
+This summary is the agents source of truth, not Orchestra `/api/auth/me`.
 A `401` or `403` is an unknown plan state for that scoped key; callers must not
 turn the error into a false no-plan result.
 
@@ -231,7 +231,7 @@ text to the channel. The six-runtime SDK matrix, including native
 rendered request shapes only.
 
 The rendered nsec and caller environment are raw launch environment values.
-The HyperClaw backend currently persists them in `Agent.launch_config`, and
+The agents backend currently persists them in `Agent.launch_config`, and
 authenticated deployment read, environment, or exec surfaces may expose them.
 Use this integration for sensitive credentials only with that limitation
 understood. The default

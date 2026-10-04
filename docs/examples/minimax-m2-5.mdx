@@ -20,18 +20,17 @@ RTX Pro 6000 is a Blackwell architecture GPU (sm_120). You must use the `-cu130`
 ## Quick Launch
 
 ```bash
-hyper jobs launch \
-  --image vllm/vllm-openai:v0.15.1-cu130 \
-  --gpu-type RTXPRO6000 \
-  --gpu-count 4 \
-  --region oh \
-  --runtime 7200 \
+hyper instances launch vllm/vllm-openai:v0.15.1-cu130 \
+  -g rtxpro6000 \
+  -n 4 \
+  -r oh \
+  -t 7200 \
   --interruptible \
-  --auth \
-  --port lb=8000 \
-  --env SAFETENSORS_FAST_GPU=1 \
-  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
-  --command 'vllm serve MiniMaxAI/MiniMax-M2.5 \
+  --lb-auth \
+  --lb 8000 \
+  -e SAFETENSORS_FAST_GPU=1 \
+  -e LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
+  -c 'vllm serve MiniMaxAI/MiniMax-M2.5 \
     --host 0.0.0.0 --port 8000 \
     -tp 4 \
     --served-model-name minimax-m2.5 \
@@ -46,18 +45,17 @@ hyper jobs launch \
 For maximum KV cache capacity (~3M tokens aggregate), deploy on 8x H200 with expert parallelism:
 
 ```bash
-hyper jobs launch \
-  --image vllm/vllm-openai:v0.15.1 \
-  --gpu-type H200 \
-  --gpu-count 8 \
-  --region se \
-  --runtime 7200 \
+hyper instances launch vllm/vllm-openai:v0.15.1 \
+  -g h200 \
+  -n 8 \
+  -r se \
+  -t 7200 \
   --interruptible \
-  --auth \
-  --port lb=8000 \
-  --env SAFETENSORS_FAST_GPU=1 \
-  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
-  --command 'vllm serve MiniMaxAI/MiniMax-M2.5 \
+  --lb-auth \
+  --lb 8000 \
+  -e SAFETENSORS_FAST_GPU=1 \
+  -e LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
+  -c 'vllm serve MiniMaxAI/MiniMax-M2.5 \
     --host 0.0.0.0 --port 8000 \
     -tp 8 \
     --served-model-name minimax-m2.5 \

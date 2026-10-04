@@ -3,7 +3,7 @@ title: Hermes Agent SDK
 description: TypeScript SDK helpers for creating, starting, and calling Hermes Agent deployments.
 ---
 
-Use `client.deployments.createAgent("hermes-agent", ...)` for the managed
+Use `client.deployments.createAgent("hermes_acp", ...)` for the managed
 Hermes runtime. The helper selects image
 `ghcr.io/hypercli/hypercli-hermes:latest`, sync root `/home/hermes`,
 `syncExclude: ["shared/**"]`, and UID/GID `10000`.
@@ -15,7 +15,7 @@ import { HyperCLI } from "@hypercli.com/sdk";
 
 const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
 
-let agent = await client.deployments.createAgent("hermes-agent", {
+let agent = await client.deployments.createAgent("hermes_acp", {
   name: "hermes",
   size: "small",
 });

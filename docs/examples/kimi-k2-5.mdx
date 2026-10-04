@@ -16,16 +16,15 @@ description: Deploy Moonshot AI's Kimi K2.5 (1T parameter MoE) on 8x H200 or B20
 ## Quick Launch
 
 ```bash
-hyper jobs launch \
-  --image vllm/vllm-openai:v0.15.1 \
-  --gpu-type H200 \
-  --gpu-count 8 \
-  --region se \
-  --runtime 7200 \
+hyper instances launch vllm/vllm-openai:v0.15.1 \
+  -g h200 \
+  -n 8 \
+  -r se \
+  -t 7200 \
   --interruptible \
-  --auth \
-  --port lb=8000 \
-  --command 'vllm serve moonshotai/Kimi-K2.5 \
+  --lb-auth \
+  --lb 8000 \
+  -c 'vllm serve moonshotai/Kimi-K2.5 \
     --host 0.0.0.0 --port 8000 \
     -tp 8 \
     --served-model-name kimi-k2.5 \
@@ -36,7 +35,7 @@ hyper jobs launch \
     --mm-encoder-tp-mode data \
     --enable-prefix-caching \
     --enable-chunked-prefill' \
-  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu
+  -e LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu
 ```
 
 ## Parameter Reference

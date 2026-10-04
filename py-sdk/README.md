@@ -78,10 +78,10 @@ user = client.user.get()
 print(f"User: {user.email}")
 ```
 
-## HyperAgent API
+## Hosted Agents & Inference
 
 Use `client.agent` for discovery and plan metadata, and point the OpenAI SDK at
-the HyperClaw inference base URL for chat completions:
+the hosted inference base URL for chat completions:
 
 ```python
 from hypercli import HyperCLI
@@ -95,20 +95,20 @@ renewal = sdk.deployments.redeem_grant_code("PROMO123", extend_existing=True)
 
 client = OpenAI(
     api_key="your_hyperagent_api_key",
-    base_url="https://api.hypercli.com/v1"
+    base_url="https://api.agents.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(
-    model="deepseek-v3.1",
+    model="kimi-k3",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
-`create_stripe_trial_checkout()` creates the account's one-time Team trial checkout session. `claim_trial_entitlement()` (the former bodyless `POST /agents/plans/trial` claim) is deprecated: the route no longer exists in the backends. `deployments.redeem_grant_code()` applies a promo/activation code to the current HyperClaw account and returns the created entitlement. Codes create new entitlements by default; pass `extend_existing=True` only for renewal/extension behavior.
+`create_stripe_trial_checkout()` creates the account's one-time Team trial checkout session. `claim_trial_entitlement()` (the former bodyless `POST /agents/plans/trial` claim) is deprecated: the route no longer exists in the backends. `deployments.redeem_grant_code()` applies a promo/activation code to the current agents account and returns the created entitlement. Codes create new entitlements by default; pass `extend_existing=True` only for renewal/extension behavior.
 
 Plan IDs are open strings on the wire so future and historical plans continue
 to parse. `plan.canonical_id` recognizes the current `solo`, `team`, and `pro`
-IDs. Plan access comes from the HyperClaw summary, including direct grants:
+IDs. Plan access comes from the agents summary, including direct grants:
 
 ```python
 summary = sdk.agent.subscription_summary()
@@ -241,7 +241,7 @@ Native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code use
 canonical managed-runtime images.
 They have no public runtime port: lifecycle, exec, shell, workspace sync, and
 authentication all use the existing authenticated deployment APIs. OpenCode
-and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
+and Goose default to HyperCLI's Anthropic-native `default-anthropic` route (currently `kimi-k3-anthropic`).
 Kimi Code keeps Moonshot's upstream device login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility
@@ -303,7 +303,7 @@ secrets — and pass the remaining `BUZZ_*` keys as launch environment for the
 managed image to parse at boot.
 
 Caller environment becomes raw deployment environment values.
-The HyperClaw backend currently persists them in `Agent.launch_config`, and
+The agents backend currently persists them in `Agent.launch_config`, and
 authenticated deployment read, environment, or exec surfaces may expose them.
 The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
 it can expose generated text in container logs.

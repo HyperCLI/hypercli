@@ -354,7 +354,7 @@ agent = client.deployments.create(
 ### Hosted Coding Agents
 
 Seven hosted coding runtimes share one launch helper,
-`create_coding_agent(runtime, ...)`:
+`create_agent(runtime, ...)`:
 
 | Runtime value | Generic default image |
 | --- | --- |
@@ -371,7 +371,7 @@ Lifecycle, files, exec, shell, workspace sync, and interactive authentication
 use the authenticated deployment API:
 
 ```python
-codex = client.deployments.create_coding_agent("codex", name="codex")
+codex = client.deployments.create_agent("codex", name="codex")
 methods = codex.auth.methods()
 status = codex.auth.status()
 
@@ -391,7 +391,8 @@ Authentication remains runtime-specific:
 | Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
 
 OpenCode and Goose images default to HyperCLI's Anthropic-native
-`kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
+`default-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps
+Moonshot's upstream service and
 login flow. Login sessions use an agent-bound shell WebSocket and never put an
 API key on the command line; runtime credentials persist under `/home/node`.
 See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
@@ -400,13 +401,12 @@ inference, authentication, and selective-sync matrix.
 #### Buzz-managed identity launches
 
 The typed Buzz launch contract is TypeScript-SDK-only
-(`createCodingAgent(runtime, { buzz: ... })`); the Python SDK's
-`create_coding_agent` accepts no `buzz` option, and passing a `buzz` keyword
-raises `TypeError`. From Python, render the raw contract over the generic
-launch surface:
+(`createAgent(runtime, { buzz: ... })`); the Python SDK's `create_agent`
+accepts no `buzz` option, and passing a `buzz` keyword raises `TypeError`.
+From Python, render the raw contract over the generic launch surface:
 
 ```python
-agent = client.deployments.create_coding_agent(
+agent = client.deployments.create_agent(
     "opencode",
     name="buzz-opencode",
     env={

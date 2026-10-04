@@ -1,13 +1,17 @@
 ---
 title: Quickstart
-description: Get started with HyperCLI jobs, flows, HyperCLI plans, and OpenClaw agents.
+description: Get started with HyperCLI jobs, flows, plans, and OpenClaw agents.
 ---
 
 ## 1. Install
 
 ```bash
-pip install hypercli-sdk hypercli-cli
+npm install -g @hypercli.com/cli
 ```
+
+Requires Node.js 22+. The legacy Python CLI (`pip install hypercli-cli`) is
+end-of-life; the command reference pages flag which implementation covers each
+command group.
 
 ## 2. Configure
 
@@ -18,39 +22,38 @@ hyper configure
 ## 3. Verify Account Access
 
 ```bash
-hyper billing balance
-hyper instances list
+hyper me
 ```
 
 ## 4. Launch A GPU Job
 
 ```bash
-hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
+hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 --gpu l40s -- nvidia-smi
 ```
 
 ## 5. Run A Flow
 
 ```bash
-hyper flow text-to-image "a cinematic landscape"
+hyper flow create text-to-image --prompt "a cinematic landscape"
 ```
 
-## 6. Optional: x402 Pay-Per-Use
+## 6. Agent Plans And Inference
 
 ```bash
-hyper wallet create
-hyper flow text-to-image "a cinematic landscape" --x402
-```
-
-## 7. HyperCLI
-
-```bash
-hyper agent plans
 hyper me
 ```
 
-## 8. OpenClaw Agents
+`hyper me` shows your active plan entitlements and pooled inference. Point an
+OpenAI-compatible client at `https://api.agents.hypercli.com/v1` with your API
+key, or use the Anthropic Messages route at `https://api.agents.hypercli.com`.
+See [Inference](/inference/index) for the current model lineup.
+
+## 7. OpenClaw Agents
 
 ```bash
-hyper agents create --name my-agent --size medium
-hyper agents shell <agent_id>
+hyper agents create my-agent --runtime openclaw
+hyper agents start my-agent
+hyper agents shell my-agent
 ```
+
+See [Agents](/agents/index) for runtimes, sizes, and desktop access.

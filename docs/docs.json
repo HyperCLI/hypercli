@@ -19,6 +19,16 @@
       "name": "Authorization"
     }
   },
+  "redirects": [
+    {
+      "source": "/inference/tiers",
+      "destination": "/inference/pricing"
+    },
+    {
+      "source": "/api-reference/authentication",
+      "destination": "/authentication"
+    }
+  ],
   "navigation": {
     "tabs": [
       {
@@ -86,8 +96,7 @@
               "inference/index",
               "inference/quickstart",
               "inference/models",
-              "inference/pricing",
-              "inference/tiers"
+              "inference/pricing"
             ]
           }
         ]
@@ -132,6 +141,7 @@
               "ts-sdk/jobs",
               "ts-sdk/renders",
               "ts-sdk/files",
+              "ts-sdk/keys",
               "ts-sdk/agents",
               "ts-sdk/hermes",
               "ts-sdk/workflows",
@@ -149,6 +159,7 @@
               "sdk/instances",
               "sdk/renders",
               "sdk/files",
+              "sdk/keys",
               "sdk/logs",
               "sdk/comfyui",
               "sdk/agents",
@@ -205,6 +216,7 @@
               "cli/commands/comfyui",
               "cli/commands/files",
               "cli/commands/instances",
+              "cli/commands/integrations",
               "cli/commands/jobs",
               "cli/commands/keys",
               "cli/commands/flow",
@@ -233,7 +245,6 @@
             "group": "Overview",
             "pages": [
               "api-reference/introduction",
-              "api-reference/authentication",
               "api-reference/job-tags",
               "api-reference/downloads"
             ]

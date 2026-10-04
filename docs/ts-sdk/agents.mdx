@@ -26,13 +26,16 @@ The TS SDK splits the product API and agents API cleanly:
 - `client.agent.baseUrl`
   - inference base derived from `agentsApiBaseUrl` by replacing `/api` with `/v1`
 
-Recommended defaults:
+Recommended setting:
 
 ```bash
 HYPER_API_BASE=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.hypercli.com/agents
-AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
+
+The retired overrides `AGENTS_API_BASE_URL` and `AGENTS_WS_URL` are not read;
+per-service bases are derived from `HYPER_API_BASE`
+(`https://api.hypercli.com/agents` and `wss://api.agents.hypercli.com/ws` in
+production).
 
 ## `client.agent`
 
@@ -179,7 +182,7 @@ such as START use the Backend-stored launch configuration and accept only
 `dryRun`; they do not accept or repair `launchConfig`. Delete and key rotation
 reject `self`.
 
-This generic path does not inject any routes. Use `createOpenClaw(...)` when you want the OpenClaw launch defaults (and the `desktop` route for pro).
+This generic path does not inject any routes. Use `createAgent("openclaw_acp", ...)` when you want the OpenClaw launch defaults (and `"openclaw-pro"` for the desktop route).
 
 Create/update launch options:
 
@@ -246,7 +249,7 @@ as immutable for public launch-config patches.
 Use the OpenClaw-specific helpers when you want the SDK to provide the OpenClaw launch defaults:
 
 ```ts
-const agent = await client.deployments.createOpenClaw({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "docs-demo",
   tags: ["team=dev"],
 });
@@ -267,7 +270,7 @@ await client.deployments.start(agent.id);
 Hosted Slack attaches through the relay on an existing agent (see
 [Slack App](/agents/slack)): the relay persists the scoping markers and
 delivers messages over the Backend `/ws/acp` proxy. An agent never dials a
-Slack transport, so the SDK mints no Slack launch env and `createOpenClaw(...)`
+Slack transport, so the SDK mints no Slack launch env and the OpenClaw launch
 takes no `slack` option.
 
 There is no default OpenClaw route: the pod gateway binds loopback with auth
@@ -287,7 +290,7 @@ Generic routes omit `remove_headers` when it is absent or an empty array.
 `gateway.trustedProxies`; `buildOpenClawTrustedProxiesEnv([...])` builds that
 launch env.
 
-Pass `runtime: "openclaw-pro"` to `createOpenClaw(...)` for the desktop/browser
+Pass runtime `"openclaw-pro"` to `createAgent(...)` for the desktop/browser
 flavor, or persist the same
 launch config through `update(...)` before a later start. The pro launch inherits
 the same OpenClaw defaults, selects the `hypercli-openclaw:pro-prod` image when no
@@ -314,10 +317,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   `HYPER_WORKSPACES_*` environment variables; there is no public
   `launch_config.workspacesSync` field
 
-Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)` or an explicit `update(...)` before start:
+Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on the OpenClaw `createAgent(...)` call or an explicit `update(...)` before start:
 
 ```ts
-const agent = await client.deployments.createOpenClaw({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "indexed-agent",
   memoryIndex: {
     onSessionStart: true,
@@ -334,7 +337,7 @@ Supported fields are `enabled`, `onSessionStart`, `onSearch`, `watch`, `watchDeb
 Registry settings are still inherited from the generic deployment API:
 
 ```ts
-const agent = await client.deployments.createOpenClaw({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "private-image-demo",
   registryUrl: "registry.example.com",
   registryAuth: { username: "ci", password: "token" },
@@ -344,7 +347,7 @@ const agent = await client.deployments.createOpenClaw({
 ## Hosted Coding Agents
 
 Seven hosted coding runtimes share one launch helper,
-`createCodingAgent(runtime, ...)`:
+`createAgent(runtime, ...)`:
 
 | Runtime value | Generic default image |
 | --- | --- |
@@ -361,7 +364,7 @@ Lifecycle, files, exec, shell, workspace sync, and interactive authentication
 use the authenticated deployment API:
 
 ```ts
-const codex = await client.deployments.createCodingAgent("codex", { name: "codex" });
+const codex = await client.deployments.createAgent("codex", { name: "codex" });
 const methods = await codex.auth.methods();
 const status = await codex.auth.status();
 const login = await codex.auth.login({ method: "device" });
@@ -381,7 +384,7 @@ Authentication remains runtime-specific:
 | Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
 
 OpenCode and Goose images default to HyperCLI's Anthropic-native
-`kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
+`default-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps Moonshot's upstream service and
 login flow. Login sessions use an agent-bound shell WebSocket and never put an
 API key on the command line; runtime credentials persist under `/home/node`.
 See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
@@ -392,13 +395,13 @@ inference, authentication, and selective-sync matrix.
 Pass the typed `buzz` object to render the identity and canonical ACP launch:
 
 ```ts
-const agent = await client.deployments.createCodingAgent("opencode", {
+const agent = await client.deployments.createAgent("opencode", {
   name: "buzz-opencode",
   buzz: {
     privateKeyNsec: agentNsec,
     relayUrl,
     authTag: ownerSignedAuthTag,
-    model: "hypercli/kimi-k2.6-anthropic",
+    model: "hypercli/coding-anthropic",
   },
 });
 ```
@@ -623,7 +626,7 @@ cookie, or subprotocol.
 
 ## `CodingAgent`
 
-Every managed runtime — `openclaw`, `openclaw-pro`, `hermes-agent`, and the
+Every managed runtime — `openclaw_acp`, `openclaw-pro`, `hermes_acp`, and the
 coding-agent runtimes — boots its pod behind `hyper-acp` and hydrates as
 `CodingAgent`, the one ACP-facing facade. Chat, sessions, runtime auth, and
 turn driving all ride the same ACP bridge; runtimes differ only in the

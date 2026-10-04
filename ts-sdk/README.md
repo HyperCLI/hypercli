@@ -8,19 +8,6 @@ TypeScript SDK for HyperCLI API - GPU cloud compute made simple.
 npm install @hypercli.com/sdk
 ```
 
-## Local Development
-
-When working inside `~/dev/hypercli`, link the local TS SDK into the frontend instead of testing against the published package:
-
-```bash
-cd ~/dev/hypercli/ts-sdk
-npm install
-npm run build
-
-cd ~/dev/hypercli/site
-npm link ../ts-sdk
-```
-
 **Dependencies:**
 - `ws` - WebSocket client for log streaming
 - Node.js 18+ (uses native `fetch`)
@@ -118,7 +105,7 @@ const ws = await client.jobs.shellConnect(jobId, '/bin/bash');
 ws.close();
 ```
 
-### HyperClaw Agent Exec/Shell
+### Agents Exec/Shell
 
 ```typescript
 const models = await client.agent.models();
@@ -152,7 +139,7 @@ backend's `avatar_audio_url`, mirroring `avatarUrl`; `null` when unset).
 
 Plan IDs remain open strings so future and historical IDs keep parsing.
 `plan.canonicalId` recognizes the current `solo`, `team`, and `pro` IDs.
-Use the HyperClaw entitlement summary—not Orchestra `auth_me`—for plan access:
+Use the agents entitlement summary—not Orchestra `auth_me`—for plan access:
 
 ```typescript
 import { hasActivePlan } from '@hypercli.com/sdk';
@@ -276,7 +263,7 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.
 
-Use `createOpenClaw({ runtime: 'openclaw-pro' })` or `update(..., { launchConfig })` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
+Use `createAgent('openclaw-pro', ...)` or `update(..., { launchConfig })` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
 
 For a running desktop-enabled agent, `client.deployments.desktopUrl(id)` returns
 a JWT-signed URL that logs straight into the noVNC page: it builds
@@ -354,7 +341,7 @@ explicit managed runtime
 discriminators while retaining the standard HyperCLI launch behavior: API-base
 env injection, workspace boot sync, and persistent `/home/node` storage. They
 do not receive an OpenClaw gateway token. OpenCode and Goose default to the
-Anthropic-native `kimi-k2.6-anthropic` route; Kimi Code uses Moonshot's
+Anthropic-native `default-anthropic` route (currently `kimi-k3-anthropic`); Kimi Code uses Moonshot's
 upstream login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility
@@ -439,7 +426,7 @@ text to the channel (see `docs/agents/buzz.mdx` → “Message behavior”). The
 six-runtime SDK coverage validates request rendering, not live launches.
 
 The agent nsec and caller environment become raw deployment environment values.
-The HyperClaw backend currently persists them in `Agent.launch_config`, and
+The agents backend currently persists them in `Agent.launch_config`, and
 authenticated deployment read, environment, or exec surfaces may expose them.
 The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
 it can expose generated text in container logs.
@@ -546,8 +533,8 @@ const response = await fetch(`${comfy.baseUrl}/prompt`, {
 - `client.renders` - Render API
 - `client.files` - File upload/download
 - `client.keys` - API keys management
-- `client.agent` - HyperClaw inference API
-- `client.agents` - HyperClaw `hypercli-openclaw` exec/shell API
+- `client.agent` - hosted inference API
+- `client.agents` - hosted agents `hypercli-openclaw` exec/shell API
 
 ### Job Helpers
 

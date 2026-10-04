@@ -7,7 +7,8 @@ description: Checkout and account API for HyperCLI inference
 
 | Surface | URL |
 |---------|-----|
-| Inference (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| Inference (OpenAI-compatible) | `https://api.agents.hypercli.com/v1` |
+| Inference (Anthropic Messages) | `https://api.agents.hypercli.com` |
 | Agents, plans, and plan billing | `https://api.hypercli.com/agents` |
 | Orchestra account, jobs, and balance | `https://api.hypercli.com/api` |
 | Product UI | `https://agents.hypercli.com` |
@@ -22,7 +23,7 @@ Vendored docs copy: [agents-openapi.json](/agents-openapi.json)
 
 ## Auth Modes
 
-- Inference endpoints (`/v1/*`): `Authorization: Bearer hyper_api_...`
+- Inference endpoints (`/v1/*` on the inference host): `Authorization: Bearer hyper_api_...`
 - Plan and plan-billing endpoints (`/agents/*`): `Authorization: Bearer <jwt>`
   unless the endpoint is public or explicitly supports an agent API key
 - x402 checkout (`/agents/x402/{plan_id}`): JWT is optional
@@ -30,7 +31,7 @@ Vendored docs copy: [agents-openapi.json](/agents-openapi.json)
 For scoped API keys:
 
 - `GET /v1/models` uses the `models:*` baseline
-- model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k2.6`
+- model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k3`
 - subscription voice routes live under `/agents/voice/*` and use the `voice:*` family
 
 ## Deployment Lifecycle Updates

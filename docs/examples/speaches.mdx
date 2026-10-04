@@ -15,15 +15,14 @@ description: Deploy an OpenAI-compatible speech-to-text and text-to-speech serve
 ## Quick Launch
 
 ```bash
-hyper jobs launch \
-  --image ghcr.io/speaches-ai/speaches:latest-cuda \
-  --gpu-type L40S \
-  --gpu-count 1 \
-  --region se \
-  --runtime 3600 \
+hyper instances launch ghcr.io/speaches-ai/speaches:latest-cuda \
+  -g l40s \
+  -n 1 \
+  -r se \
+  -t 3600 \
   --interruptible \
-  --auth \
-  --port lb=8000
+  --lb-auth \
+  --lb 8000
 ```
 
 ## Usage

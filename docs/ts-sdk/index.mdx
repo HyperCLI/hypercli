@@ -141,7 +141,7 @@ const client = new HyperCLI({
   agentApiKey: "hyper_api_...",
 });
 
-const agent = await client.deployments.createOpenClaw({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "docs-demo",
 });
 

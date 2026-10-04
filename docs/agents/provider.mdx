@@ -1,19 +1,19 @@
 ---
 title: Inference for Agents
-description: HyperCLI is HyperCLI's inference provider for agent workloads
+description: HyperCLI's hosted inference provider for agent workloads
 ---
 
-## What HyperCLI Is
+## What It Is
 
-HyperCLI is the dedicated inference provider for agentic workloads.
+HyperCLI provides dedicated inference for agentic workloads.
 
 - Product site: [https://hypercli.com](https://hypercli.com)
 - Inference API:
-  - `https://api.hypercli.com` for `anthropic-messages` (recommended)
-  - `https://api.hypercli.com/v1` for `openai-completions`
+  - `https://api.agents.hypercli.com` for `anthropic-messages` (recommended)
+  - `https://api.agents.hypercli.com/v1` for `openai-completions`
 - Account/Billing API: `https://api.hypercli.com/agents`
 
-Use HyperCLI when your agent needs LLM inference with API keys, subscription plans, and either Anthropic Messages or OpenAI-compatible clients.
+Use it when your agent needs LLM inference with API keys, subscription plans, and either Anthropic Messages or OpenAI-compatible clients.
 
 ## Why Agents Use It
 
@@ -28,18 +28,20 @@ Use HyperCLI when your agent needs LLM inference with API keys, subscription pla
 
 ```bash
 export OPENAI_API_KEY="hyper_api_..."
-export OPENAI_BASE_URL="https://api.hypercli.com/v1"
+export OPENAI_BASE_URL="https://api.agents.hypercli.com/v1"
 ```
 
 Then select a HyperCLI model in your agent toolchain.
 
-- For OpenClaw and agent setups, prefer `hypercli/kimi-k2.6-anthropic`.
-- For direct Anthropic Messages usage, use `kimi-k2.6-anthropic`.
-- For direct OpenAI-compatible usage, use `kimi-k2.6`.
+- For OpenClaw and agent setups, prefer `hypercli/coding-anthropic`.
+- For direct Anthropic Messages usage, use `default-anthropic` (currently `kimi-k3-anthropic`).
+- For direct OpenAI-compatible usage, use `default` (currently `kimi-k3`).
+- For embeddings, use `qwen3-embedding-4b`.
+
+See [Inference Overview](/inference/index) for the full lineup and aliases.
 
 ## Related Pages
 
-- [Inference Overview](/inference/index)
 - [Agents API](/agents/api)
 - [Agent Integrations](/agents/integrations)
 - [Inference Quickstart](/inference/quickstart)

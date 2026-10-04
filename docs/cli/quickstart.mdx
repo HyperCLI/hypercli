@@ -1,19 +1,17 @@
 ---
 title: CLI Quickstart
-description: Install the CLI, configure credentials, launch jobs, subscribe to HyperCLI, create an OpenClaw agent, and connect to it.
+description: Install the CLI, configure credentials, launch jobs, and create and connect to an agent.
 ---
 
 ## Install
 
 ```bash
-pip install hypercli-cli
+npm install -g @hypercli.com/cli
 ```
 
-Extras:
-
-- wallet and x402: `pip install 'hypercli-cli[wallet]'`
-- ComfyUI: `pip install 'hypercli-cli[comfyui]'`
-- local speech-to-text: `pip install 'hypercli-cli[stt]'`
+Requires Node.js 22+. The legacy Python CLI (`pip install hypercli-cli`) is
+end-of-life and retained for reference; see [CLI](/cli/index#implementations)
+for which groups ship in each implementation.
 
 ## Configure Platform Access
 
@@ -24,16 +22,16 @@ hyper configure
 Verify:
 
 ```bash
-hyper billing balance
-hyper instances list
+hyper me
+hyper jobs list
 ```
 
 ## Launch A GPU Job
 
 ```bash
-hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 \
-  -g l40s \
-  -c "nvidia-smi"
+hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 \
+  --gpu l40s \
+  -- nvidia-smi
 ```
 
 Then inspect it:
@@ -41,10 +39,14 @@ Then inspect it:
 ```bash
 hyper jobs list
 hyper jobs logs <job_id> -f
-hyper jobs shell <job_id>
 ```
 
-## Subscribe To HyperCLI
+The Python implementation adds GPU inventory browsing and interactive shells:
+`hyper instances list`, `hyper jobs shell <job_id>`.
+
+## Agent Plans, Subscriptions, And Wallet Checkout
+
+These account commands currently ship in the Python implementation:
 
 ```bash
 hyper agent plans
@@ -55,25 +57,14 @@ hyper agent status
 ## Create An Agent
 
 ```bash
-hyper agents create --name docs-demo --size small
-# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents create docs-demo --runtime openclaw
 hyper agents start docs-demo
+hyper agents status docs-demo
 ```
 
-Current defaults:
-
-- no public route on the base image (the pod gateway is loopback-only)
-- desktop is disabled on the base image
-
-For Chrome/browser automation and a noVNC desktop:
-
-```bash
-hyper agents create --name docs-demo --size small --desktop
-# after `hyper agents status docs-demo` reports STOPPED:
-hyper agents start docs-demo
-```
-
-That uses the OpenClaw pro image, sets `HYPER_DESKTOP_ENABLED=1`, and exposes `https://desktop-docs-demo.hypercli.app`.
+No public route ships on the base image (the pod gateway is loopback-only), and
+desktop is disabled by default. For a browser desktop, see
+[Remote Desktop](/agents/remote-desktop).
 
 ## Connect To The Agent
 
@@ -81,13 +72,5 @@ Shell and logs are backend WebSocket flows:
 
 ```bash
 hyper agents shell docs-demo
-hyper agents logs docs-demo --ws
+hyper agents logs docs-demo -f
 ```
-
-If the agent was launched with `--desktop`, desktop opens at the desktop route:
-
-```bash
-hyper agents status docs-demo
-```
-
-Use the printed `Desktop` URL in a browser.

@@ -117,8 +117,9 @@ flows, and browser-accessible agent runtimes.
 ## Install
 
 ```bash
-pip install hypercli-sdk hypercli-cli
-npm install @hypercli.com/sdk
+npm install -g @hypercli.com/cli        # CLI (requires Node.js >= 22)
+pip install hypercli-sdk                # Python SDK
+npm install @hypercli.com/sdk           # TypeScript SDK
 ```
 
 ## Configure
@@ -130,7 +131,7 @@ hyper configure
 Or set the API key directly:
 
 ```bash
-export HYPERCLI_API_KEY=hyper_...
+export HYPER_API_KEY=hyper_...
 ```
 
 ## Quick Examples

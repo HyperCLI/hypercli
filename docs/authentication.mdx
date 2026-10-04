@@ -379,10 +379,10 @@ Avoid hardcoding API keys in source code. Use environment variables or config fi
 from hypercli import HyperCLI
 
 # API key from environment variable or config file
-hyper = HyperCLI()
+client = HyperCLI()
 
 # Or pass directly
-hyper = HyperCLI(api_key="your_api_key_here")
+client = HyperCLI(api_key="your_api_key_here")
 
 # Make authenticated requests
 jobs = client.jobs.list()
@@ -422,12 +422,15 @@ When multiple authentication methods are configured, the priority is:
 1. Explicit SDK `api_key=` parameter, where supported
 2. Environment `HYPER_API_KEY`
 3. `HYPER_API_KEY` in `~/.hypercli/config`
-4. Environment legacy `HYPERCLI_API_KEY`
-5. Legacy `HYPERCLI_API_KEY` in `~/.hypercli/config`
 
-Agent-scoped credentials have a separate order. See [CLI
-configuration](/cli/configuration#priority-rules) for
-`HYPER_AGENTS_API_KEY` precedence and command-specific exceptions.
+The retired names `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`, and `HYPERCLI_WS_URL`
+are not read by current SDKs; `hyper configure` prunes them from the config
+file on write.
+
+Agent-scoped and inference surfaces fall back to `HYPER_AGENTS_API_KEY` when no
+product key is configured. See [CLI
+configuration](/cli/configuration#priority-rules) for the full precedence table
+and command-specific exceptions.
 
 ### Config File Format
 

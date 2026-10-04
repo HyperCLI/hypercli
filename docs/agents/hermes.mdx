@@ -11,7 +11,7 @@ session flows as the other managed runtimes.
 
 | Field | Value |
 | --- | --- |
-| Runtime | `hermes-agent` |
+| Runtime | `hermes_acp` |
 | Default image | `ghcr.io/hypercli/hypercli-hermes:latest` |
 | Persistent root | `/home/hermes` |
 | Persistent owner | UID/GID `10000` |
@@ -37,7 +37,7 @@ from hypercli import HyperCLI
 client = HyperCLI(agent_api_key="hyper_api_...")
 
 agent = client.deployments.create_agent(
-    "hermes-agent",
+    "hermes_acp",
     name="hermes",
     size="small",
 )
@@ -52,7 +52,7 @@ import { HyperCLI } from "@hypercli.com/sdk";
 
 const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
 
-let agent = await client.deployments.createAgent("hermes-agent", {
+let agent = await client.deployments.createAgent("hermes_acp", {
   name: "hermes",
   size: "small",
 });
