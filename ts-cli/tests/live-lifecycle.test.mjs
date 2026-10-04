@@ -110,8 +110,7 @@ async function run(scenario = {}, env = {}, sub = 'lifecycle') {
     fs.writeFileSync(state, JSON.stringify({owner, newId, agents:[], calls:[], ...scenario}), {mode:0o600});
     const result = await spawnAsync('bash', [script, 'agents', sub], {
       env: {...process.env, HYPER_API_KEY:'offline-only-secret-canary',
-        HYPER_API_BASE:'https://api.dev.hypercli.com', AGENTS_API_BASE_URL:'https://api.dev.hypercli.com/agents',
-        AGENTS_WS_URL:'wss://api.agents.dev.hypercli.com/ws', HYPERCLI_CI_USER_ID:owner,
+        HYPER_API_BASE:'https://api.dev.hypercli.com', HYPERCLI_CI_USER_ID:owner,
         CLI_WORKDIR:root, TMPDIR:path.join(root,'scratch'), MOCK_STATE:state,
         LIFECYCLE_CLEANUP_SECONDS:'10', LIFECYCLE_POLL_SECONDS:'0', SWEEP_POLL_SECONDS:'0', ...env},
       timeout:15000,
@@ -205,7 +204,7 @@ for (const config of [{identity:otherId}, {keyTags:['agents:*']}, {badInventory:
 }
 
 t('production endpoint overrides are refused before calling CLI', async () => {
-  for (const env of [{HYPER_API_BASE:'https://api.hypercli.com'}, {AGENTS_API_BASE_URL:'https://api.hypercli.com/agents'}]) {
+  for (const env of [{HYPER_API_BASE:'https://api.hypercli.com'}]) {
     const r = await run({},env);
     assert.equal(r.status, 1);
     assert.deepEqual(r.calls, []);

@@ -22,9 +22,6 @@ SUB="${2:?usage: live.sh <group> <sub>}"
 
 export HYPER_API_KEY="${HYPER_API_KEY:?HYPER_API_KEY is required}"
 export HYPER_API_BASE="${HYPER_API_BASE:-https://api.dev.hypercli.com}"
-# SDK reads AGENTS_WS_URL (ts-sdk config.ts); with --dev the default already
-# resolves to the dev WS, this just pins it. HYPER_AGENTS_WS_URL is not read.
-export AGENTS_WS_URL="${AGENTS_WS_URL:-wss://api.agents.dev.hypercli.com/ws}"
 
 NOID="hypercli-ci-does-not-exist"
 CLI=(node dist/index.js)

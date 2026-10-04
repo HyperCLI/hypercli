@@ -29,35 +29,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "${CLI_WORKDIR:-/opt/cli}"
 
-# The agents endpoints are DERIVED from HYPER_API_BASE, never configured
-# separately in the workflows: ts-sdk config.ts
-# getAgentsApiBaseUrlFromProductBase / getAgentsWsUrlFromProductBase are the
-# single source of that derivation. The CI image bakes the built SDK at
-# /opt/ts-sdk; when it is absent (offline harness tests) already-set env
-# values are kept. HYPER_AGENTS_WS_URL is not read by the SDK.
-derive_agents_endpoints() {
-  local config_js
-  for config_js in "${TS_SDK_CONFIG_JS:-}" /opt/ts-sdk/dist/config.js; do
-    [ -n "${config_js}" ] && [ -f "${config_js}" ] || continue
-    node --input-type=module -e '
-import { pathToFileURL } from "node:url";
-const config = await import(pathToFileURL(process.argv[1]).href);
-const base = process.argv[2];
-console.log(config.getAgentsApiBaseUrlFromProductBase(base));
-console.log(config.getAgentsWsUrlFromProductBase(base));
-' "${config_js}" "${HYPER_API_BASE}" 2>/dev/null && return 0
-  done
-  return 1
-}
-AGENTS_API_BASE_URL_DERIVED=""
-AGENTS_WS_URL_DERIVED=""
-derived="$(derive_agents_endpoints)" && {
-  AGENTS_API_BASE_URL_DERIVED="$(sed -n '1p' <<<"${derived}")"
-  AGENTS_WS_URL_DERIVED="$(sed -n '2p' <<<"${derived}")"
-}
-export AGENTS_API_BASE_URL="${AGENTS_API_BASE_URL:-${AGENTS_API_BASE_URL_DERIVED:-}}"
-export AGENTS_WS_URL="${AGENTS_WS_URL:-${AGENTS_WS_URL_DERIVED:-}}"
-
 step() { echo "==> $*"; }
 
 # ---------------------------------------------------------------------------

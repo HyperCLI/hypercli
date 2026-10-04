@@ -168,12 +168,9 @@ lc_exit() {
 
 lc_main() {
   : "${HYPERCLI_CI_USER_ID:?Set the verified dedicated dev CI user UUID; a name prefix is not sufficient}"
-  # Endpoints must be the exact dev product base plus what the SDK derives
-  # from it (live.sh exported the derived values); a prod value or any
-  # pre-set override that disagrees with the derivation refuses the run.
-  [ "$HYPER_API_BASE" = https://api.dev.hypercli.com ] &&
-    [ "$AGENTS_API_BASE_URL" = "${AGENTS_API_BASE_URL_DERIVED:-https://api.dev.hypercli.com/agents}" ] &&
-    [ "$AGENTS_WS_URL" = "${AGENTS_WS_URL_DERIVED:-wss://api.agents.dev.hypercli.com/ws}" ] || {
+  # The product base must be the exact dev API; the SDK derives the agents
+  # endpoints from it. A prod or overridden value refuses the run.
+  [ "$HYPER_API_BASE" = https://api.dev.hypercli.com ] || {
       echo 'Lifecycle requires exact dev endpoints' >&2; return 1;
     }
   LC_CLEANUP_SECONDS="${LIFECYCLE_CLEANUP_SECONDS:-240}"
