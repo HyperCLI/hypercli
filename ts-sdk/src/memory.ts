@@ -24,10 +24,19 @@ export interface MemoryChunk {
 
 export interface MemorySearchResult extends MemoryChunk {
   score: number;
+  /** Joined from the owning session; null when unset or on pre-envelope deployments. */
+  title: string | null;
+  summaryText: string | null;
+  /** Owning session's summary keywords; empty on pre-envelope deployments. */
+  summaryKeywords: string[];
 }
 
 export interface MemorySearchResponse {
   items: MemorySearchResult[];
+  /** Opaque keyset cursor over {distance, id} pairs; null when the page is exhausted. */
+  nextCursor: string | null;
+  /** LIMIT N+1 sentinel; false on pre-envelope deployments (single terminal page). */
+  hasMore: boolean;
 }
 
 export interface MemoryChunkPage {
@@ -57,6 +66,10 @@ export interface MemoryRebuildResponse {
 
 export interface MemorySearchOptions {
   sessionId?: string;
+  /** Restrict to sessions of one agent (UUID). */
+  agentId?: string;
+  /** Opaque cursor from a previous page's nextCursor; omitted starts at the best matches. */
+  cursor?: string | null;
   limit?: number;
 }
 
@@ -103,16 +116,48 @@ function chunkFromWire(row: ChunkWire): MemoryChunk {
   };
 }
 
+interface SearchHitWire extends ChunkWire {
+  score: number;
+  title?: string | null;
+  summary_text?: string | null;
+  summary_keywords?: string[] | null;
+}
+
+function searchHitFromWire(row: SearchHitWire): MemorySearchResult {
+  return {
+    ...chunkFromWire(row), score: row.score,
+    title: row.title ?? null,
+    summaryText: row.summary_text ?? null,
+    summaryKeywords: Array.isArray(row.summary_keywords) ? row.summary_keywords.map(String) : [],
+  };
+}
+
+function searchPageFromWire(payload: unknown): MemorySearchResponse {
+  // Rollout tolerance: pre-envelope deployments answer a bare array or { items }
+  // without pagination keys; both decode to a single terminal page.
+  const envelope = (Array.isArray(payload) ? { items: payload } : payload ?? {}) as {
+    items?: SearchHitWire[]; next_cursor?: string | null; has_more?: boolean;
+  };
+  return {
+    items: (Array.isArray(envelope.items) ? envelope.items : []).map(searchHitFromWire),
+    nextCursor: envelope.next_cursor ?? null,
+    hasMore: envelope.has_more === true,
+  };
+}
+
 export class MemoryAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get' | 'post'>) {}
 
+  /** Best-first page over indexed chunks; feed nextCursor back via options.cursor. */
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResponse> {
-    const payload = await this.http.get<{ items: (ChunkWire & { score: number })[] }>('/memory/search', {
+    const payload = await this.http.get<unknown>('/memory/search', {
       q: query,
       ...(options.sessionId !== undefined ? { session_id: options.sessionId } : {}),
+      ...(options.agentId !== undefined ? { agent_id: options.agentId } : {}),
+      ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });
-    return { items: payload.items.map((row) => ({ ...chunkFromWire(row), score: row.score })) };
+    return searchPageFromWire(payload);
   }
 
   async getSummary(sessionId: string): Promise<MemorySummary> {

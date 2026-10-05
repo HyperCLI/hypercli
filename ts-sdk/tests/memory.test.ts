@@ -28,16 +28,44 @@ describe('MemoryAPI HTTP contract', () => {
       'https://product.example/agents/memory/search?q=release+%26+notes%3F&session_id=id%2Fwith+spaces&limit=3',
       expect.objectContaining({ method: 'GET', headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/json' } }),
     );
+    // Legacy `{ items }` shape decodes as a terminal page with no session join.
     expect(result).toEqual({ items: [{
       id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9,
-      text: chunk.text, score: 0.9,
-    }] });
+      text: chunk.text, score: 0.9, title: null, summaryText: null, summaryKeywords: [],
+    }], nextCursor: null, hasMore: false });
+  });
+
+  it('pages with the agent filter and cursor, decoding the enriched envelope', async () => {
+    const { fetch, api } = setup({
+      items: [
+        { ...chunk, score: 0.9, title: 'Release', summary_text: 'Decided to ship.', summary_keywords: ['release', 'ship'] },
+        { ...chunk, id: 'chunk-2', score: 0.5, title: null, summary_text: null, summary_keywords: null },
+      ],
+      next_cursor: 'opaque+/=', has_more: true,
+    });
+    const page = await api.search('launch plan', { agentId: 'agent/1', cursor: 'prev+/=', limit: 5 });
+    expect(fetch.mock.calls[0][0]).toBe('https://product.example/agents/memory/search?q=launch+plan&agent_id=agent%2F1&cursor=prev%2B%2F%3D&limit=5');
+    expect(page).toEqual({
+      items: [
+        { id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.9, title: 'Release', summaryText: 'Decided to ship.', summaryKeywords: ['release', 'ship'] },
+        { id: 'chunk-2', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, title: null, summaryText: null, summaryKeywords: [] },
+      ],
+      nextCursor: 'opaque+/=', hasMore: true,
+    });
+  });
+
+  it('tolerates a bare-array legacy response as a terminal page', async () => {
+    const { api } = setup([{ ...chunk, score: 0.5 }]);
+    expect(await api.search('plan')).toEqual({
+      items: [{ id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, title: null, summaryText: null, summaryKeywords: [] }],
+      nextCursor: null, hasMore: false,
+    });
   });
 
   it('omits unspecified search options and respects an explicit agents base', async () => {
     const { fetch } = setup({ items: [] });
     const client = new HyperCLI({ apiKey: 'key', agentsApiBaseUrl: 'https://agents.example/custom' });
-    expect(await client.memory.search('hello')).toEqual({ items: [] });
+    expect(await client.memory.search('hello')).toEqual({ items: [], nextCursor: null, hasMore: false });
     expect(fetch.mock.calls[0][0]).toBe('https://agents.example/custom/memory/search?q=hello');
   });
 
