@@ -15,7 +15,8 @@ client = HyperCLI(
 ```
 
 Use canonical `api_key` and `api_url` for explicit configuration. Otherwise the
-SDK reads `HYPER_API_KEY` and `HYPER_API_BASE` from environment/config and uses
+SDK reads `HYPER_API_KEY`, product/inference `HYPER_API_BASE`, and independent
+direct Agent-control `HYPER_AGENTS_API_BASE` from environment/config and uses
 environment `HYPER_AGENTS_API_KEY` only as the final credential fallback.
 
 ## Namespaces

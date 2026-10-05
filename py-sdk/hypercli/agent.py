@@ -11,7 +11,7 @@ from math import isfinite
 from typing import Any, Dict, List
 from urllib.parse import quote, urlsplit
 
-from .config import get_agents_api_base_url
+from .config import get_agents_api_base_url, get_api_url, _normalize_agents_api_base
 from .agents import AgentSlot
 from .http import HTTPClient
 
@@ -1080,14 +1080,17 @@ class HyperAgent:
         self._http = http
         self._api_key = agent_api_key or http.api_key
         self._dev = dev
-        self._base_url = self._resolve_base_url(agents_api_base_url, dev)
-        self._control_base_url = self._resolve_control_base_url(getattr(http, "base_url", None), agents_api_base_url, dev)
+        product_base = getattr(http, "base_url", None)
+        if not isinstance(product_base, str):
+            product_base = get_api_url()
+        self._base_url = self._resolve_base_url(product_base, dev)
+        self._control_base_url = self._resolve_control_base_url(product_base, agents_api_base_url, dev)
 
     @classmethod
-    def _resolve_base_url(cls, agents_api_base_url: str | None, dev: bool) -> str:
-        raw = (agents_api_base_url or "").rstrip("/")
+    def _resolve_base_url(cls, product_api_base_url: str | None, dev: bool) -> str:
+        raw = (product_api_base_url or "").rstrip("/")
         if not raw:
-            fallback = get_agents_api_base_url(dev).rstrip("/")
+            fallback = get_api_url().rstrip("/")
             return cls._resolve_base_url(fallback, dev)
         parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
         host = parsed.netloc.lower()
@@ -1110,21 +1113,9 @@ class HyperAgent:
         agents_api_base_url: str | None,
         dev: bool,
     ) -> str:
-        raw_agents = (agents_api_base_url or "").rstrip("/")
-        if not raw_agents:
-            fallback = get_agents_api_base_url(dev).rstrip("/")
-            return cls._resolve_control_base_url(None, fallback, dev)
-        parsed = urlsplit(raw_agents if "://" in raw_agents else f"https://{raw_agents}")
-        scheme = parsed.scheme or "https"
-        normalized_path = parsed.path.rstrip("/")
-        host = parsed.netloc.lower()
-        if normalized_path.endswith("/agents"):
-            return f"{scheme}://{parsed.netloc}{normalized_path}"
-        if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
-            return "https://api.hypercli.com/agents"
-        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
-            return "https://api.dev.hypercli.com/agents"
-        return f"{scheme}://{parsed.netloc}/agents"
+        return _normalize_agents_api_base(
+            agents_api_base_url or get_agents_api_base_url(dev, product_api_base_url), preserve_origin=True
+        )
 
     def models(self) -> List[HyperAgentModel]:
         response = self._http._session.get(
@@ -1518,5 +1509,3 @@ class HyperAgent:
         bundle: dict[str, int] | None = None,
     ) -> HyperAgentX402CheckoutResponse:
         raise ValueError("A canonical plan ID is required; use purchase_via_x402(plan_id, ...) instead")
-
-

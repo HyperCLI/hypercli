@@ -3,6 +3,80 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.parametrize("ws_url", [
+    "wss://transport.example/custom/bridge",
+    "wss://transport.example/custom/bridge?token=synthetic&route=worker",
+    "ws://127.0.0.1:8787/custom/socket/",
+])
+def test_explicit_transport_url_is_preserved_verbatim(ws_url):
+    from hypercli import HyperCLI
+
+    client = HyperCLI(
+        api_key="synthetic-key", api_url="https://inference.example",
+        agents_api_base_url="https://control.example/agents", agents_ws_url=ws_url,
+    )
+    assert client.deployments._agents_ws_url == ws_url
+
+
+@pytest.mark.parametrize("source", ["env", "file", "constructor"])
+@pytest.mark.parametrize("control,rest,ws", [
+    ("https://api.agents.dev.hypercli.com", "https://api.agents.dev.hypercli.com/agents", "wss://api.agents.dev.hypercli.com/ws"),
+    ("https://api.agents.hypercli.com/api/", "https://api.agents.hypercli.com/agents", "wss://api.agents.hypercli.com/ws"),
+    ("http://control.example:8787/prefix/agents///", "http://control.example:8787/prefix/agents", "ws://control.example:8787/prefix/ws"),
+    ("https://api.agents.dev.hypercli.com/prefix/api/", "https://api.agents.dev.hypercli.com/prefix/agents", "wss://api.agents.dev.hypercli.com/prefix/ws"),
+])
+def test_explicit_control_origin_and_sibling_tunnel(monkeypatch, tmp_path, source, control, rest, ws):
+    import httpx
+    from hypercli import HyperCLI, config
+
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config")
+    monkeypatch.setenv("HYPER_API_BASE", "https://inference.example")
+    monkeypatch.setenv("HYPER_AGENTS_API_BASE", control if source == "env" else "")
+    (tmp_path / "config").write_text(f"HYPER_AGENTS_API_BASE={control}\n" if source == "file" else "")
+    client = HyperCLI(api_key="synthetic-key", agents_api_base_url=control if source == "constructor" else None)
+    assert client.deployments._api_base == rest
+    assert client.deployments._agents_ws_url == ws
+    assert client.agent._base_url == "https://inference.example/v1"
+    calls = []
+    def request(self, method, url, **kwargs):
+        calls.append(str(url))
+        payload = {"plans": []} if str(url).endswith("/plans") else []
+        return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+    monkeypatch.setattr(httpx.Client, "request", request)
+    client.jobs.list()
+    client.agent.plans()
+    client.runners.list()
+    assert calls == ["https://inference.example/api/jobs", f"{rest}/plans", f"{rest}/runners"]
+
+
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_divergent_bases_and_constructor_precedence(monkeypatch, tmp_path, source):
+    import hypercli.config as config
+    from hypercli import HyperCLI
+
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config")
+    monkeypatch.setenv("HYPER_API_BASE", "https://inference.example/prefix")
+    monkeypatch.setenv("HYPER_AGENTS_API_BASE", "https://api.dev.hypercli.com/agents///" if source == "env" else "")
+    (tmp_path / "config").write_text("HYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents///\n")
+    client = HyperCLI(api_key="synthetic-key")
+    assert client.api_url == "https://inference.example/prefix"
+    assert client.agent._base_url == "https://inference.example/prefix/v1"
+    assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
+    assert client.deployments._agents_ws_url == "wss://api.agents.dev.hypercli.com/ws"
+    assert client.agent._control_base_url == client.deployments._api_base
+    explicit = HyperCLI(api_key="synthetic-key", api_url="https://explicit-product.example", agents_api_base_url="http://explicit-control.example/prefix/api///")
+    assert explicit.api_url == "https://explicit-product.example"
+    assert explicit.deployments._api_base == "http://explicit-control.example/prefix/agents"
+    assert explicit.deployments._agents_ws_url == "ws://explicit-control.example/prefix/ws"
+    transport = HyperCLI(api_key="synthetic-key", agents_ws_url="wss://transport.example/custom/ws")
+    assert transport.deployments._agents_ws_url == "wss://transport.example/custom/ws"
+    assert HyperCLI(api_key="synthetic-key", api_url="https://external.example").deployments._api_base == client.deployments._api_base
+    monkeypatch.setenv("HYPER_AGENTS_API_BASE", "https://env-control.example/prefix/")
+    assert config.get_agents_api_base_url() == "https://env-control.example/prefix/agents"
+    monkeypatch.delenv("HYPER_API_BASE")
+    assert config.get_api_url() == config.DEFAULT_API_URL
+
+
 @pytest.mark.parametrize("quote", ["", '"', "'"])
 def test_shared_config_parsing_and_key_precedence(monkeypatch, tmp_path, quote):
     import hypercli.config as config
@@ -44,7 +118,7 @@ def test_namespace_bases_ignore_stale_overrides(monkeypatch, tmp_path, source):
     monkeypatch.setattr(config, "CONFIG_FILE", config_path)
     monkeypatch.delenv("HYPER_API_BASE", raising=False)
     stale_keys = [
-        "HYPER_AGENTS_API_BASE", "HYPER_WORKSPACES_API_BASE",
+        "HYPER_WORKSPACES_API_BASE",
         "HYPER_ROUTINES_API_BASE", "HYPER_RUNNERS_API_BASE", "HYPER_INTEGRATIONS_API_BASE",
     ]
     stale_config = "\n".join(f"{key}=https://stale.example/wrong" for key in stale_keys)
@@ -283,49 +357,49 @@ _LOCKSTEP_URL_VECTORS = [
     (
         "https://staging.eu.example.com",
         "https://staging.eu.example.com/agents",
-        "wss://staging.eu.example.com/agents/ws",
+        "wss://staging.eu.example.com/ws",
         "https://staging.eu.example.com",
     ),
     (
         "https://staging.example.com:8443",
         "https://staging.example.com:8443/agents",
-        "wss://staging.example.com:8443/agents/ws",
+        "wss://staging.example.com:8443/ws",
         "https://staging.example.com:8443",
     ),
     (
         "https://edge.example.com/api",
         "https://edge.example.com/agents",
-        "wss://edge.example.com/agents/ws",
+        "wss://edge.example.com/ws",
         "https://edge.example.com",
     ),
     (
         "https://edge.example.com/agents",
         "https://edge.example.com/agents",
-        "wss://edge.example.com/agents/ws",
+        "wss://edge.example.com/ws",
         "https://edge.example.com",
     ),
     (
         "https://edge.example.com/agents/",
         "https://edge.example.com/agents",
-        "wss://edge.example.com/agents/ws",
+        "wss://edge.example.com/ws",
         "https://edge.example.com",
     ),
     (
         "http://127.0.0.1:8080",
         "http://127.0.0.1:8080/agents",
-        "ws://127.0.0.1:8080/agents/ws",
+        "ws://127.0.0.1:8080/ws",
         "http://127.0.0.1:8080",
     ),
     (
         "http://127.0.0.1:80/api",
         "http://127.0.0.1/agents",
-        "ws://127.0.0.1/agents/ws",
+        "ws://127.0.0.1/ws",
         "http://127.0.0.1",
     ),
     (
         "https://edge.example.com/agents/admin",
         "https://edge.example.com/agents/admin/agents",
-        "wss://edge.example.com/agents/admin/agents/ws",
+        "wss://edge.example.com/agents/admin/ws",
         "https://edge.example.com",
     ),
 ]
@@ -350,7 +424,7 @@ def test_agents_url_vectors_schemeless_custom_host_echoes_raw_input():
     # The WS derivation re-normalizes its input (mirrors ts
     # defaultAgentsWsUrl → resolveAgentsApiBase), which upgrades the
     # scheme-less echo to the implied https↔wss scheme.
-    assert config.get_agents_ws_url_from_product_base("staging.eu.example.com") == "wss://staging.eu.example.com/agents/ws"
+    assert config.get_agents_ws_url_from_product_base("staging.eu.example.com") == "wss://staging.eu.example.com/ws"
     assert config.get_agents_admin_api_base_url_from_product_base("staging.eu.example.com") == "https://staging.eu.example.com"
 
 
@@ -363,6 +437,7 @@ def test_configure_prunes_legacy_keys_on_write(monkeypatch, tmp_path):
         "AGENTS_API_BASE_URL=https://legacy.example.com/agents\n"
         "AGENTS_WS_URL=wss://legacy.example.com/ws\n"
         "HYPER_API_KEY=old_key\n"
+        "HYPER_AGENTS_API_BASE=https://control.example/prefix\n"
         "UNRELATED_KEY=keepme\n"
     )
 
@@ -380,6 +455,7 @@ def test_configure_prunes_legacy_keys_on_write(monkeypatch, tmp_path):
         "UNRELATED_KEY": "keepme",
         "HYPER_API_KEY": "new_key",
         "HYPER_API_BASE": "https://api.dev.hypercli.com",
+        "HYPER_AGENTS_API_BASE": "https://control.example/prefix",
     }
 
 

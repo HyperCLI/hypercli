@@ -69,6 +69,7 @@ describe('saveCliConfig legacy scrub', () => {
       [
         'HYPER_API_KEY=hyper_api_old',
         'HYPER_API_BASE=https://kept.example',
+        'HYPER_AGENTS_API_BASE=https://control.example/prefix',
         'HYPERCLI_API_KEY=legacy-key',
         'HYPERCLI_API_URL=https://legacy.example',
         'AGENTS_API_BASE_URL=https://legacy.example/agents',
@@ -82,6 +83,7 @@ describe('saveCliConfig legacy scrub', () => {
     const saved = loadCliConfigFile();
     expect(saved.HYPER_API_KEY).toBe('hyper_api_new');
     expect(saved.HYPER_API_BASE).toBe('https://kept.example');
+    expect(saved.HYPER_AGENTS_API_BASE).toBe('https://control.example/prefix');
     expect('HYPERCLI_API_KEY' in saved).toBe(false);
     expect('HYPERCLI_API_URL' in saved).toBe(false);
     expect('AGENTS_API_BASE_URL' in saved).toBe(false);

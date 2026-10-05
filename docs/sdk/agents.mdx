@@ -129,7 +129,7 @@ The Python SDK uses separate URLs for the primary product API and the agents API
 - `client.api_url`
   - main HyperCLI API (`HYPER_API_BASE`)
 - `client.deployments`
-  - uses the agents REST base derived from `HYPER_API_BASE`
+  - uses `HYPER_AGENTS_API_BASE` for direct Agent control, or derives from `HYPER_API_BASE` when no Agents base is supplied
 - deployment shell/log streams
   - use the agents WebSocket base derived from the agents REST base
 - `client.agent`
@@ -423,13 +423,19 @@ the managed image parses them at boot. The canonical ACP elements — command
 command, empty public routes, and `restart=False` — are the caller's
 responsibility in a raw Python launch; the TS typed renderer owns them there.
 
-Lagoon injects `HYPER_API_BASE` and the platform `HYPER_AGENTS_API_KEY` by
-default. Customers may override the base in launch `env` or `secrets` and may
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
+(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
+appropriate ACP URL, and platform `HYPER_AGENTS_API_KEY`.
+Customers may override either base in launch `env` or `secrets` and may
 supply `HYPER_API_KEY` in either map. That canonical key is preserved and wins
 over the default runtime key, including for managing other agents. Clients use
 an explicit canonical credential, environment `HYPER_API_KEY`, the configured
 canonical key, then `HYPER_AGENTS_API_KEY` as the final fallback. The launch
 owner's authentication key is never automatically forwarded.
+The Agents base never selects inference. Explicit `HYPER_ACP_WS_URL` wins;
+otherwise derive from the Agents base, using the product base only if no Agents
+base is supplied. External inference URLs/keys must not implicitly redirect
+platform callbacks or reconnects; ACP uses the separate platform runtime key.
 
 Buzz launches keep `sync_root=/home/node` and reserve `/home/node/shared` for
 Workspace projections, and run from the image-managed `/home/node/.buzz` nest.

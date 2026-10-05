@@ -149,16 +149,18 @@ export function getWsUrl(): string {
 }
 
 /**
- * Get HyperClaw agents API base URL, derived from the product API base
+ * Resolve Agents independently, falling back to the selected product base.
  */
-export function getAgentsApiBaseUrl(dev: boolean = false): string {
+export function getAgentsApiBaseUrl(dev: boolean = false, productBase?: string): string {
   const fallback = dev ? DEV_AGENTS_API_BASE_URL : DEFAULT_AGENTS_API_BASE_URL;
   if (dev) {
     return fallback;
   }
-  const productBase = getConfigValue('HYPER_API_BASE');
-  if (productBase) {
-    return resolveAgentsApiBase(productBase);
+  const agentsBase = getConfigValue('HYPER_AGENTS_API_BASE');
+  if (agentsBase) return resolveAgentsApiBase(agentsBase, true);
+  const configuredBase = productBase || getConfigValue('HYPER_API_BASE');
+  if (configuredBase) {
+    return resolveAgentsApiBase(configuredBase);
   }
   return fallback;
 }

@@ -6,7 +6,7 @@ use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
 use crate::{
-    discover_agents_api_base, normalize_agents_api_base, ApiKey, ClientConfig, ConfigError,
+    normalize_agents_api_base, ApiKey, ClientConfig, ConfigError,
     CreateApiKeyRequest, HyperCliClient, HyperCliError,
 };
 
@@ -62,18 +62,18 @@ pub fn issue_api_key_from_jwt(
         return Err(IssueApiKeyError::JwtRequired);
     }
 
-    let api_base = match options.api_url.as_deref() {
-        Some(api_url) => normalize_agents_api_base(api_url)?,
-        None => discover_agents_api_base()?,
-    };
-    let client = HyperCliClient::new_with_timeout(
+    let product_base = options.api_url
+        .or_else(|| crate::config::discover_config_value("HYPER_API_BASE"))
+        .unwrap_or_else(|| crate::config::DEFAULT_API_BASE.to_owned());
+    let product_base = url::Url::parse(&product_base).map_err(|_| ConfigError::InvalidApiBase)?;
+    let client = HyperCliClient::new_with_product_api_base(
         ClientConfig {
-            api_base,
+            api_base: normalize_agents_api_base(product_base.as_str())?,
             api_key: SecretString::from(token.to_owned()),
             trace_file: None,
-            timeout: None,
+            timeout: Some(options.timeout),
         },
-        options.timeout,
+        product_base,
     )?;
     let request = CreateApiKeyRequest {
         name: options.name,
@@ -175,12 +175,12 @@ mod keys_client_tests {
     use serde_json::json;
 
     fn client(server: &Server) -> HyperCliClient {
-        HyperCliClient::new(ClientConfig {
+        HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, url::Url::parse(&server.url()).unwrap())
         .unwrap()
     }
 

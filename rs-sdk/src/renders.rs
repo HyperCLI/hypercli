@@ -663,12 +663,12 @@ mod tests {
             .with_body(json!({"id": "render-1", "state": "pending"}).to_string())
             .expect(1)
             .create();
-        let client = HyperCliClient::new(ClientConfig {
+        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap();
 
         let mut request = TextToImageRequest::new("a cat wearing sunglasses".to_owned());
@@ -706,12 +706,12 @@ mod tests {
             .with_body(json!({"render_id": "render-2", "state": "pending"}).to_string())
             .expect(1)
             .create();
-        let client = HyperCliClient::new(ClientConfig {
+        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap();
 
         let render = client
@@ -756,12 +756,12 @@ mod tests {
             .with_body(json!({"id": "render-3", "state": "pending"}).to_string())
             .expect(1)
             .create();
-        let client = HyperCliClient::new(ClientConfig {
+        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap();
 
         let render = client
@@ -802,12 +802,12 @@ mod tests {
             )
             .expect(1)
             .create();
-        let client = HyperCliClient::new(ClientConfig {
+        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap();
 
         let renders = client.renders();
@@ -846,12 +846,12 @@ mod tests {
             .with_body(json!({"id": "render-5", "state": "pending"}).to_string())
             .expect(1)
             .create();
-        let client = HyperCliClient::new(ClientConfig {
+        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap();
 
         let render = client

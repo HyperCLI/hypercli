@@ -1172,7 +1172,8 @@ def test_hypercli_dev_client_defaults_agents_urls():
     os.environ.pop("HYPER_API_BASE", None)
     client = HyperCLI(api_key="hyper_api_test_key", agent_api_key="sk-hyper-test", agent_dev=True)
     assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
-    assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"
+    # Agents-only selection does not redirect product inference.
+    assert client.agent._base_url == "https://api.agents.hypercli.com/v1"
 
 
 def test_explicit_product_key_is_used_for_agent_clients(monkeypatch):

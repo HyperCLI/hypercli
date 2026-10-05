@@ -19,7 +19,6 @@ from hypercli.config import (
     get_agent_api_key,
     get_agents_admin_api_base_url_from_product_base,
     get_agents_api_base_url,
-    get_agents_api_base_url_from_product_base,
 )
 from hypercli.http import HTTPClient
 
@@ -108,7 +107,7 @@ def _resolve_agents_backend_base() -> str:
 
 
 def _resolve_slack_relay_base() -> str:
-    return get_agents_admin_api_base_url_from_product_base(get_api_url()).rstrip("/")
+    return get_agents_admin_api_base_url_from_product_base(get_agents_api_base_url()).rstrip("/")
 
 
 def _get_deployments_client() -> Deployments:
@@ -409,7 +408,7 @@ async def _resolve_plan_purchase_url(
     http: "httpx.AsyncClient", api_base: str, plan_id: str
 ) -> str:
     normalized_api_base = api_base.rstrip("/")
-    agents_base = get_agents_api_base_url_from_product_base(normalized_api_base).rstrip(
+    agents_base = get_agents_api_base_url(product_base=normalized_api_base).rstrip(
         "/"
     )
     discovery_candidates = [
@@ -983,7 +982,7 @@ OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
 def _resolve_api_base() -> str:
-    """Derive the agents service base from canonical product configuration."""
+    """Derive the model inference host from product configuration only."""
     return get_agents_admin_api_base_url_from_product_base(get_api_url())
 
 

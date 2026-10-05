@@ -115,7 +115,7 @@ def _normalized_netloc(parsed) -> str:
     return host
 
 
-def _normalize_agents_api_base(url: str) -> str:
+def _normalize_agents_api_base(url: str, preserve_origin: bool = False) -> str:
     raw = (url or "").strip()
     if not raw:
         return DEFAULT_AGENTS_API_BASE_URL
@@ -123,6 +123,9 @@ def _normalize_agents_api_base(url: str) -> str:
     scheme = parsed.scheme or "https"
     normalized_path = parsed.path.rstrip("/")
     netloc = _normalized_netloc(parsed)
+    if preserve_origin:
+        path = normalized_path if normalized_path.endswith("/agents") else f"{normalized_path.removesuffix('/api')}/agents"
+        return f"{scheme}://{netloc}{path}"
     if normalized_path.endswith("/agents"):
         return f"{scheme}://{netloc}{normalized_path}"
     if normalized_path.endswith("/api"):
@@ -135,18 +138,19 @@ def _normalize_agents_api_base(url: str) -> str:
         return DEFAULT_AGENTS_API_BASE_URL
     if netloc in _AGENTS_DEV_HOSTS:
         return DEV_AGENTS_API_BASE_URL
-    normalized = raw.rstrip("/")
-    return f"{normalized}/agents"
+    origin = f"{scheme}://{netloc}" if "://" in raw else netloc
+    return f"{origin}{normalized_path}/agents"
 
 
 def _default_agents_ws_url(api_base: str) -> str:
-    raw = _normalize_agents_api_base(api_base)
+    raw = _normalize_agents_api_base(api_base, preserve_origin=True)
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     netloc = _normalized_netloc(parsed)
-    if netloc in _AGENTS_PROD_HOSTS:
+    if parsed.path == "/agents" and netloc in _AGENTS_PROD_HOSTS and netloc != "api.agents.hypercli.com":
         return DEFAULT_AGENTS_WS_URL
-    if netloc in _AGENTS_DEV_HOSTS:
+    if parsed.path == "/agents" and netloc in _AGENTS_DEV_HOSTS and netloc != "api.agents.dev.hypercli.com":
         return DEV_AGENTS_WS_URL
+    raw = raw.removesuffix("/agents")
     if raw.startswith("https://"):
         return f"wss://{raw[len('https://'):].rstrip('/')}/ws"
     if raw.startswith("http://"):
@@ -160,14 +164,17 @@ def get_ws_url() -> str:
     return api.replace("https://", "wss://").replace("http://", "ws://")
 
 
-def get_agents_api_base_url(dev: bool = False) -> str:
-    """Get HyperClaw agents API base URL, derived from the product API base."""
+def get_agents_api_base_url(dev: bool = False, product_base: str = None) -> str:
+    """Resolve Agents independently, falling back to the selected product base."""
     default = DEV_AGENTS_API_BASE_URL if dev else DEFAULT_AGENTS_API_BASE_URL
     if dev:
         return default
-    product_base = get_config_value("HYPER_API_BASE")
-    if product_base:
-        return _normalize_agents_api_base(product_base)
+    agents_base = get_config_value("HYPER_AGENTS_API_BASE")
+    if agents_base:
+        return _normalize_agents_api_base(agents_base, preserve_origin=True)
+    configured_base = product_base or get_config_value("HYPER_API_BASE")
+    if configured_base:
+        return _normalize_agents_api_base(configured_base)
     return default
 
 

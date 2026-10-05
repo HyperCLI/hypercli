@@ -6,6 +6,7 @@ from pathlib import Path
 
 keys = (
     "HYPER_API_BASE",
+    "HYPER_AGENTS_API_BASE",
     "HYPER_API_KEY",
     "HYPER_RUNTIME_API_KEY",
     "HYPER_EMBEDDING_MODELS",

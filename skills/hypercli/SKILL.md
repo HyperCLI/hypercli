@@ -31,8 +31,10 @@ The v1 command tree is deliberately small:
   `hyper llm image`.
 
 Every command accepts `--json`; mutations accept `--dry-run` for preflight
-validation. Select the environment through `HYPER_API_BASE` in the environment
-or canonical config. Public CLIs do not support `--dev` or `--prod`; those
+validation. Select product/inference with `HYPER_API_BASE` and direct Agent
+control independently with `HYPER_AGENTS_API_BASE` in environment/config.
+Without an Agents base, Agent endpoints derive from the product base.
+Public CLIs do not support `--dev` or `--prod`; those
 flags belong to admin tooling. Change the base only when the user intends it.
 
 ## Authentication

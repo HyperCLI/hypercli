@@ -102,6 +102,42 @@ async function browserRuntimeGraph(entry: string): Promise<{
 }
 
 describe('browser entry', () => {
+  it('preserves a direct control-plane origin independently of browser inference', () => {
+    const client = new BrowserHyperCLI({
+      apiUrl: 'https://inference.example', token: 'synthetic-key',
+      agentsApiBaseUrl: 'https://api.agents.dev.hypercli.com',
+    });
+    expect(client.agent.controlBaseUrl).toBe('https://api.agents.dev.hypercli.com/agents');
+    expect(client.agent.baseUrl).toBe('https://inference.example/v1');
+  });
+  it('routes product, inference and Agents independently without Node globals', async () => {
+    const savedProcess = globalThis.process;
+    const fetchMock = vi.fn(async () => new Response('[]', { headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      vi.stubGlobal('process', undefined);
+      const client = new BrowserHyperCLI({
+        apiUrl: 'https://inference.example/prefix/', token: 'synthetic-token',
+        agentsApiBaseUrl: 'https://control.example/tenant/api///',
+      });
+      expect(client.agent.baseUrl).toBe('https://inference.example/prefix/v1');
+      expect(client.agent.controlBaseUrl).toBe('https://control.example/tenant/agents');
+      await client.user.get();
+      await client.agent.plans();
+      await client.workspaces.list();
+      await client.voice.tts({ text: 'offline' });
+      expect(fetchMock.mock.calls.map((call: any) => String(call[0]))).toEqual([
+        'https://inference.example/prefix/api/user',
+        'https://control.example/tenant/agents/plans',
+        'https://control.example/tenant/workspaces',
+        'https://control.example/tenant/agents/voice/tts',
+      ]);
+    } finally {
+      globalThis.process = savedProcess;
+      vi.unstubAllGlobals();
+    }
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(globalThis, 'WebSocket');

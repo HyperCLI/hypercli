@@ -1,4 +1,4 @@
-import { deriveIntegrationsApiBase, getAgentsApiBaseUrlFromProductBase } from '@hypercli.com/sdk';
+import { deriveIntegrationsApiBase } from '@hypercli.com/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -13,7 +13,7 @@ hyper integrations --mcp <tool> --help [--json]
 hyper integrations --mcp <tool> [--args JSON] [--json]
   Invoke a tool with a JSON object (defaults to {}). Server permissions apply.
   --json returns the complete MCP result; tool errors exit with status 1.
-  Uses the same credentials and HYPER_API_BASE configuration as integrations REST.`;
+  Uses the same credentials and HYPER_AGENTS_API_BASE (or HYPER_API_BASE fallback) as integrations REST.`;
 
 export async function runIntegrationsMcp(ctx: CommandContext, args: string[]): Promise<number | void> {
   const parsed = parseCommandArgs(args, { mcp: { type: 'boolean' }, args: { type: 'string' } });
@@ -43,7 +43,7 @@ export async function runIntegrationsMcp(ctx: CommandContext, args: string[]): P
   try {
     // Same base resolution as lazyClient -> HyperCLI.integrations. Reuse the
     // resolved key rather than introducing a separate credential precedence.
-    const base = deriveIntegrationsApiBase(getAgentsApiBaseUrlFromProductBase(resolved.apiUrl));
+    const base = deriveIntegrationsApiBase(resolved.deployments.agentApiBase);
     transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
       requestInit: { headers: { Authorization: `Bearer ${resolved.apiKey}` } },
     });

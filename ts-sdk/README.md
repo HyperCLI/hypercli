@@ -371,12 +371,18 @@ const authenticated = await login.wait();
 await agent.auth.logout();
 ```
 
-Lagoon injects `HYPER_API_BASE` and an agent-scoped `HYPER_AGENTS_API_KEY` by
-default. Customers may override the base and supply canonical `HYPER_API_KEY`
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
+(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
+appropriate ACP URL, and agent-scoped `HYPER_AGENTS_API_KEY`.
+Customers may override either base and supply canonical `HYPER_API_KEY`
 through launch `env` or `secrets`, including for managing other agents. Clients
 prefer an explicit canonical credential, environment `HYPER_API_KEY`, then the
 configured canonical key before the platform runtime fallback. The launch
 owner's auth key is never automatically forwarded.
+The Agents base never selects inference. External inference URLs/keys must not
+implicitly redirect platform callbacks or reconnects. Explicit `HYPER_ACP_WS_URL`
+wins; otherwise derive from the Agents base, using the product base only when
+no Agents base is supplied. ACP authentication uses the separate runtime key.
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and

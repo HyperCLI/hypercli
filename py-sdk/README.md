@@ -290,12 +290,18 @@ upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
 logout command through this SDK surface.
 
 The images default to a long-lived direct shell/exec container. The managed
-platform injects `HYPER_API_BASE` and an agent-scoped `HYPER_AGENTS_API_KEY` by
-default. Customers may override the base and supply canonical `HYPER_API_KEY`
+platform (runner/Lagoon) injects consistent defaults for `HYPER_API_BASE`
+(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
+appropriate ACP URL, and agent-scoped `HYPER_AGENTS_API_KEY`.
+Customers may override either base and supply canonical `HYPER_API_KEY`
 through launch `env` or `secrets`, including for managing other agents. Clients
 prefer an explicit canonical credential, environment `HYPER_API_KEY`, then the
 configured canonical key before the platform runtime fallback. The launch
 owner's auth key is never automatically forwarded.
+The Agents base never selects inference. External inference URLs/keys must not
+implicitly redirect platform callbacks or reconnects. Explicit `HYPER_ACP_WS_URL`
+wins; otherwise derive from the Agents base, using the product base only when
+no Agents base is supplied. ACP authentication uses the separate runtime key.
 
 The typed Buzz launch contract (`BuzzLaunchConfig`) is TS-SDK-only:
 `create_agent` accepts no `buzz=` option, and passing a `buzz` keyword raises

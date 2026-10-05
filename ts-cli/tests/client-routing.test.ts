@@ -11,7 +11,7 @@ import { applyCliConfigFile } from '../src/core/config-file.js';
 import { createOutput } from '../src/core/output.js';
 
 const staleKeys = [
-  'HYPER_AGENTS_API_BASE', 'HYPER_WORKSPACES_API_BASE',
+  'HYPER_WORKSPACES_API_BASE',
   'HYPER_ROUTINES_API_BASE', 'HYPER_RUNNERS_API_BASE', 'HYPER_INTEGRATIONS_API_BASE',
 ];
 let home: string;
@@ -35,6 +35,34 @@ afterEach(() => {
 });
 
 describe('CLI single-base request routing', () => {
+  it.each(['env', 'config'])('keeps public requests on divergent bases from %s', async (source) => {
+    vi.stubEnv('HYPER_API_BASE', 'https://inference.example/prefix');
+    vi.stubEnv('HYPER_API_KEY', 'synthetic-key');
+    vi.stubEnv('HYPER_AGENTS_API_BASE', source === 'env' ? 'https://api.agents.dev.hypercli.com' : '');
+    writeFileSync(join(home, 'config'), 'HYPER_AGENTS_API_BASE=https://api.agents.dev.hypercli.com\n');
+    applyCliConfigFile();
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      requests.push(String(input));
+      return new Response('[]', { headers: { 'Content-Type': 'application/json' } });
+    }));
+    const client = await lazyClient()();
+    await client.jobs.list();
+    await client.agent.plans();
+    await client.workspaces.list();
+    await client.integrations.listProviders();
+    await client.voice.tts({ text: 'offline' });
+    expect(client.agent.baseUrl).toBe('https://inference.example/prefix/v1');
+    expect((client.deployments as any).agentsWsUrl).toBe('wss://api.agents.dev.hypercli.com/ws');
+    expect(requests).toEqual([
+      'https://inference.example/prefix/api/jobs',
+      'https://api.agents.dev.hypercli.com/agents/plans',
+      'https://api.agents.dev.hypercli.com/workspaces',
+      'https://api.agents.dev.hypercli.com/integrations/providers',
+      'https://api.agents.dev.hypercli.com/agents/voice/tts',
+    ]);
+  });
+
   it.each([
     { envBase: 'https://api.dev.hypercli.com', fileBase: '', envKey: 'canonical-env', fileKey: '', base: 'https://api.dev.hypercli.com', key: 'canonical-env' },
     { envBase: '', fileBase: 'https://api.dev.hypercli.com', envKey: '', fileKey: 'canonical-file', base: 'https://api.dev.hypercli.com', key: 'canonical-file' },

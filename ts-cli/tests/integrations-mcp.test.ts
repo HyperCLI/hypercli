@@ -165,7 +165,7 @@ describe('integrations MCP uses REST credential and URL selection', () => {
     [{ HYPER_API_BASE: 'https://product.example/prefix' }, 'https://product.example/prefix/integrations/mcp'],
     [{ HYPER_API_BASE: 'https://legacy.example' }, 'https://legacy.example/integrations/mcp'],
     [{ HYPER_API_BASE: 'http://localhost:9000/prefix' }, 'http://localhost:9000/prefix/integrations/mcp'],
-    [{ HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', HYPER_AGENTS_API_BASE: 'https://stale.example', HYPER_API_BASE: 'https://agents.example' }, 'https://agents.example/integrations/mcp'],
+    [{ HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', HYPER_AGENTS_API_BASE: 'https://control.example', HYPER_API_BASE: 'https://inference.example' }, 'https://control.example/integrations/mcp'],
   ] as const)('config=%j selects %s', async (env, expected) => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
     await run(ctx('json'), ['--mcp']);

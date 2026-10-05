@@ -36,7 +36,8 @@ key operations change remote state or expose sensitive output.
 HYPER_API_BASE=https://api.dev.hypercli.com hyper agents
 ```
 
-REST and WebSocket endpoints derive from the canonical product base;
+`HYPER_AGENTS_API_BASE` independently selects direct Agent control. REST and
+WebSocket endpoints derive from the product base only when no Agents base is supplied;
 `--agents-ws-url` is unsupported.
 
 ## Current Route Defaults
@@ -120,11 +121,17 @@ the runtime. Wait until `status` reports `STOPPED`, then use the separate
 
 Desktop/browser agents use the OpenClaw pro image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
 
-Lagoon injects `HYPER_API_BASE` and platform `HYPER_AGENTS_API_KEY` by default.
-Customer base overrides and `HYPER_API_KEY` in launch `env` or `secrets` are
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
+(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
+appropriate ACP URL, and platform `HYPER_AGENTS_API_KEY`.
+Customer overrides of either base and `HYPER_API_KEY` in launch `env` or `secrets` are
 preserved. Clients prefer explicit and configured canonical credentials before
 the runtime fallback, allowing broader uses such as managing other agents.
 The launch owner's auth key is never automatically forwarded.
+The Agents base never selects inference. Explicit `HYPER_ACP_WS_URL` wins;
+otherwise derive from the Agents base, using the product base only if no Agents
+base is supplied. External inference URLs/keys must not implicitly redirect
+platform callbacks or reconnects; ACP uses the separate platform runtime key.
 Workspaces boot sync is configured by CLI/SDK helper options that render
 `HYPER_WORKSPACES_*` environment variables. There is no public
 `launch_config.workspacesSync` field.

@@ -40,14 +40,15 @@ replace `me` when diagnosing which account a product credential resolves to.
 | Variable | Description |
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
-| `HYPER_API_BASE` | Primary HyperCLI REST API base URL; the agents REST and WebSocket bases are derived from it |
+| `HYPER_API_BASE` | Customer product/inference base URL |
+| `HYPER_AGENTS_API_BASE` | Independent direct Agent-control base; never selects inference |
 | `HYPER_AGENTS_API_KEY` | Platform runtime key; final credential fallback after all canonical key sources |
 | `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
 
 ## URL Model
 
-The CLI separates the primary product API from the agents API. `HYPER_API_BASE`
-is the only base URL setting; every per-service base is derived from it:
+The CLI separates product/inference (`HYPER_API_BASE`) from direct Agent control
+(`HYPER_AGENTS_API_BASE`):
 
 - `HYPER_API_BASE`
   - billing
@@ -57,7 +58,7 @@ is the only base URL setting; every per-service base is derived from it:
 - product WebSocket base
   - derived from `HYPER_API_BASE` by scheme swap
 - agents REST base
-  - derived from `HYPER_API_BASE`
+  - uses `HYPER_AGENTS_API_BASE` when supplied; otherwise derives from `HYPER_API_BASE`
   - create/start/stop/delete
   - files
   - exec
@@ -79,16 +80,21 @@ Recommended dev value:
 HYPER_API_BASE=https://api.dev.hypercli.com
 ```
 
-Production derives `https://api.hypercli.com/agents` as the agents REST base
+With no Agents base supplied, production derives `https://api.hypercli.com/agents` as the agents REST base
 and `wss://api.agents.hypercli.com/ws` as the agents WebSocket base; dev
 derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
 Public TS, Python, and ACP CLIs do not support `--dev` or `--prod`; these flags
-are reserved for admin tooling. Use `HYPER_API_BASE` in the environment or
-canonical config. `HYPER_AGENTS_API_BASE` and independent workspace, routine,
-runner, and integration base overrides are unsupported.
+are reserved for admin tooling. Use `HYPER_API_BASE` and, independently,
+`HYPER_AGENTS_API_BASE` in environment/config. Independent workspace, routine,
+runner, and integration base overrides remain unsupported.
+
+Each base reads environment before canonical config. With no Agents base in
+either source, derive it from the product base. Changing the product base does
+not replace an explicitly configured Agents base; when switching both to dev,
+set the Agents base to `https://api.agents.dev.hypercli.com` as well.
 
 ## Shared Config File
 
@@ -118,8 +124,8 @@ The CLI stores additional state in `~/.hypercli/`:
 
 ## Priority Rules
 
-The CLI and SDKs honor exactly three settings: `HYPER_API_KEY`,
-`HYPER_AGENTS_API_KEY`, and `HYPER_API_BASE`. The retired names
+The shared credential and endpoint settings are `HYPER_API_KEY`,
+`HYPER_AGENTS_API_KEY`, `HYPER_API_BASE`, and `HYPER_AGENTS_API_BASE`. The retired names
 `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`, `HYPERCLI_WS_URL`, `AGENTS_API_BASE_URL`, and
 `AGENTS_WS_URL` are not read; `hyper configure` (and the SDK `configure()` /
 `saveCliConfig()` helpers) prunes them from `~/.hypercli/config` on write.
@@ -138,11 +144,24 @@ The Python voice, embedding, and model commands use canonical configuration.
 Endpoint override flags such as `--base-url` are unsupported. Legacy login
 state files are not additional shared-client credential sources.
 
-Lagoon injects `HYPER_API_BASE` and `HYPER_AGENTS_API_KEY` by default. Customer
-base overrides and canonical `HYPER_API_KEY` in launch `env` or `secrets` are
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`,
+`HYPER_AGENTS_API_BASE`, the appropriate ACP URL, and `HYPER_AGENTS_API_KEY`.
+Customer overrides of either base and canonical `HYPER_API_KEY` in launch `env` or `secrets` are
 preserved. The canonical key wins over the default runtime key, including for
 broader uses such as managing other agents. The launch owner's auth key is
 never automatically forwarded.
+
+Explicit `HYPER_ACP_WS_URL` wins; otherwise derive ACP from the Agents base,
+falling back to the product base only when no Agents base is supplied. Images
+must not bake in a production Agents base that selects the wrong plane. ACP
+transport uses the separate platform runtime key. External inference URLs/keys
+must not implicitly redirect platform callbacks or reconnects.
+
+For external inference in a managed runtime, set `HYPER_API_BASE` to
+`https://inference.example.com` and supply that provider's `HYPER_API_KEY` in
+`env` or `secrets`; retain the injected platform Agents base and ACP URL. For
+a standalone runtime, also set `HYPER_AGENTS_API_BASE` to the intended control
+endpoint (for example `https://api.agents.hypercli.com` for production).
 
 ## Diagnosing 401 Errors
 

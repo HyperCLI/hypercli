@@ -70,7 +70,7 @@ export function parseUniversal(argv: string[]): ParsedUniversal {
   });
   for (const token of tokens ?? []) {
     if (token.kind === 'option' && (token.name === 'dev' || token.name === 'prod')) {
-      throw new UsageError(`--${token.name} is not supported; set HYPER_API_BASE instead`);
+      throw new UsageError(`--${token.name} is not supported; set HYPER_API_BASE and/or HYPER_AGENTS_API_BASE instead`);
     }
   }
   const firstPositional = (tokens ?? []).find((token) => token.kind === 'positional');

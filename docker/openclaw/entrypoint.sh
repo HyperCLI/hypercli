@@ -114,17 +114,9 @@ GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-loopback}"
 # URL is env-pinned to loopback: the bridge only ever dials the pod-internal gateway.
 export OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://127.0.0.1:${GATEWAY_PORT}}"
 
-# Sessions/chat are backend-authoritative — the contract authority is
-# sessions/README.md §15 (the memory-shaped session model): hyper-acp must
-# dial the backend ACP bridge over HYPER_ACP_WS_URL, or it boots into the
-# stdio fallback (acp/hyper-acp/crates/hyper-acp/src/bin/hyper-acp.rs) and
-# the pod serves no sessions/chat at all. Lagoon/Fly pods receive
-# HYPER_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
-# derive the bridge URL here from the product API base with the same rules
-# docker/agent-base/entrypoint.sh uses (canonical product hosts map to Agents
-# bridge hosts; custom hosts and path prefixes survive). An explicit HYPER_ACP_WS_URL always wins: backend
-# runners and pods pin the exact /ws bridge per launch and that override
-# must never be rewritten (agents/backend/agents/runners/launch.py).
+# Hosted sessions require the backend ACP bridge rather than stdio fallback.
+# Preserve the launcher's explicit callback; otherwise use the configured
+# Agents base, falling back to the product base only when Agents is omitted.
 if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
   HYPER_ACP_WS_URL=$(python3 /opt/hypercli/lib/runtime-config.py --acp-ws-url)
   export HYPER_ACP_WS_URL

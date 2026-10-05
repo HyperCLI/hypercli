@@ -5,14 +5,15 @@
  * Use the OpenAI Node.js SDK directly with HyperClaw endpoints.
  */
 import { responseAPIError, type HTTPClient } from './http.js';
-import { getAgentsApiBaseUrl } from './config.js';
+import { getAgentsApiBaseUrl, getApiUrl } from './config.js';
+import { resolveAgentsApiBase } from './agent-urls.js';
 import { agentSlotFromDict, type AgentSlot } from './agent-slots.js';
 
-function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
-  const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
+function resolveHyperAgentBaseUrl(productApiBaseUrl: string | undefined): string {
+  const raw = (productApiBaseUrl || '').replace(/\/+$/, '');
   if (!raw) {
-    const fallback = getAgentsApiBaseUrl(dev);
-    return resolveHyperAgentBaseUrl(fallback, dev);
+    const fallback = getApiUrl();
+    return resolveHyperAgentBaseUrl(fallback);
   }
   const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
   const host = parsed.host.toLowerCase();
@@ -37,33 +38,11 @@ function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boo
 }
 
 function resolveHyperAgentControlBaseUrl(
-  _productApiBaseUrl: string | undefined,
+  productApiBaseUrl: string | undefined,
   agentsApiBaseUrl: string | undefined,
   dev: boolean,
 ): string {
-  const rawAgents = (agentsApiBaseUrl || '').replace(/\/+$/, '');
-  if (!rawAgents) {
-    const fallback = getAgentsApiBaseUrl(dev);
-    return resolveHyperAgentControlBaseUrl(undefined, fallback, dev);
-  }
-  const parsed = new URL(rawAgents.includes('://') ? rawAgents : `https://${rawAgents}`);
-  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-  const host = parsed.host.toLowerCase();
-  if (normalizedPath.endsWith('/agents')) {
-    return `${parsed.origin}${normalizedPath}`;
-  }
-  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
-    return 'https://api.hypercli.com/agents';
-  }
-  if (
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app' ||
-    host === 'api.agents.dev.hypercli.com'
-  ) {
-    return 'https://api.dev.hypercli.com/agents';
-  }
-  return `${parsed.origin}/agents`;
+  return resolveAgentsApiBase(agentsApiBaseUrl || getAgentsApiBaseUrl(dev, productApiBaseUrl), true);
 }
 
 export const HYPER_AGENT_CANONICAL_PLAN_IDS = ['solo', 'team', 'pro'] as const;
@@ -1128,9 +1107,9 @@ export class HyperAgent {
     agentsApiBaseUrl?: string,
   ) {
     this.apiKey = agentApiKey || http['apiKey'];
-    const fallbackBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : (dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE);
-    const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || fallbackBaseUrl;
-    this.baseUrl = resolveHyperAgentBaseUrl(configuredBaseUrl, dev);
+    const productBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : getApiUrl();
+    const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev, productBaseUrl);
+    this.baseUrl = resolveHyperAgentBaseUrl(productBaseUrl);
     this.controlBaseUrl = resolveHyperAgentControlBaseUrl(http['baseUrl'], configuredBaseUrl, dev);
   }
 

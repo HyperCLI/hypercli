@@ -5,9 +5,6 @@ import { HTTPClient } from './http.js';
 import {
   getAgentApiKey,
   getAgentsApiBaseUrl,
-  getAgentsApiBaseUrlFromProductBase,
-  getAgentsWsUrl,
-  getAgentsWsUrlFromProductBase,
   getApiKey,
   getApiUrl,
 } from './config.js';
@@ -28,14 +25,7 @@ import { RunnersAPI } from './runners.js';
 import { SessionsAPI } from './sessions.js';
 import { MemoryAPI } from './memory.js';
 import { IntegrationsAPI } from './integrations.js';
-
-function deriveAgentsApiBase(apiUrl: string, agentDev: boolean): string {
-  return agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl);
-}
-
-function deriveAgentsWsUrl(apiUrl: string, agentDev: boolean): string {
-  return agentDev ? getAgentsWsUrl(true) : getAgentsWsUrlFromProductBase(apiUrl);
-}
+import { defaultAgentsWsUrl, resolveAgentsApiBase } from './agent-urls.js';
 
 export interface HyperCLIOptions {
   apiKey?: string;
@@ -134,12 +124,12 @@ export class HyperCLI {
 
     this._apiUrl = options.apiUrl || getApiUrl();
     this._http = new HTTPClient(this._apiUrl, this._apiKey, options.timeout);
-    const resolvedAgentsApiBase =
+    const resolvedAgentsApiBase = resolveAgentsApiBase(
       options.agentsApiBaseUrl ||
-      (options.apiUrl ? deriveAgentsApiBase(this._apiUrl, Boolean(options.agentDev)) : getAgentsApiBaseUrl(Boolean(options.agentDev)));
+      getAgentsApiBaseUrl(Boolean(options.agentDev), this._apiUrl), true);
     const resolvedAgentsWsUrl =
       options.agentsWsUrl ||
-      (options.apiUrl ? deriveAgentsWsUrl(this._apiUrl, Boolean(options.agentDev)) : getAgentsWsUrl(Boolean(options.agentDev)));
+      defaultAgentsWsUrl(resolvedAgentsApiBase);
     this._agentsHttp = new HTTPClient(resolvedAgentsApiBase, this._apiKey, options.timeout);
     // API namespaces
     this.billing = new Billing(this._http);

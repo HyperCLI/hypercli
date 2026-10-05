@@ -5,10 +5,10 @@
  *   product key:  HYPER_API_KEY > $HYPER_HOME/config or ~/.hypercli/config
  *   agents key:   product key first, then HYPER_AGENTS_API_KEY fallback
  *   apiUrl:       HYPER_API_BASE / config / default
- *   agents base:  derived from the selected product base
+ *   agents base:  HYPER_AGENTS_API_BASE / config / derived from product base
  *
  * The retired HYPERCLI_API_URL / AGENTS_API_BASE_URL override envs are no
- * longer read anywhere; derive-only resolution lives in the SDK config.
+ * longer read anywhere; endpoint resolution lives in the SDK config.
  *
  * Throws (as a plain Error, mapped to exit 1 by the entrypoint) when no
  * credential is configured.

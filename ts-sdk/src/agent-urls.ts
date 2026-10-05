@@ -42,13 +42,20 @@ export function normalizeAgentsWsUrl(url: string): string {
  * and any run of trailing slashes collapsed. Scheme-less input keeps the
  * scheme-less echo on the custom fallback (py parity).
  */
-export function resolveAgentsApiBase(apiBase: string): string {
+export function resolveAgentsApiBase(apiBase: string, preserveOrigin = false): string {
   const raw = (apiBase || '').trim();
   if (!raw) return DEFAULT_AGENTS_API_BASE_URL;
   const explicitScheme = raw.includes('://');
   const parsed = new URL(explicitScheme ? raw : `https://${raw}`);
   const normalizedPath = parsed.pathname.replace(/\/+$/, '');
   const host = parsed.host.toLowerCase();
+  // Explicit control-plane selections must never be redirected to a gateway.
+  if (preserveOrigin) {
+    const path = normalizedPath.endsWith('/agents')
+      ? normalizedPath
+      : `${normalizedPath.replace(/\/api$/, '')}/agents`;
+    return `${parsed.origin}${path}`;
+  }
   if (normalizedPath.endsWith('/agents')) {
     return `${parsed.origin}${normalizedPath}`;
   }
@@ -74,11 +81,13 @@ export function resolveAgentsApiBase(apiBase: string): string {
 type AgentsHostTier = 'prod' | 'dev' | 'custom';
 
 function classifyAgentsApiBase(apiBase: string): { tier: AgentsHostTier; resolvedApiBase: string } {
-  const resolvedApiBase = resolveAgentsApiBase(apiBase);
+  const resolvedApiBase = resolveAgentsApiBase(apiBase, true);
   const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
   const host = parsed.host.toLowerCase();
-  if (PROD_AGENTS_HOSTS.has(host)) return { tier: 'prod', resolvedApiBase };
-  if (DEV_AGENTS_HOSTS.has(host)) return { tier: 'dev', resolvedApiBase };
+  if (parsed.pathname === '/agents') {
+    if (PROD_AGENTS_HOSTS.has(host) && host !== 'api.agents.hypercli.com') return { tier: 'prod', resolvedApiBase };
+    if (DEV_AGENTS_HOSTS.has(host) && host !== 'api.agents.dev.hypercli.com') return { tier: 'dev', resolvedApiBase };
+  }
   return { tier: 'custom', resolvedApiBase };
 }
 
@@ -92,7 +101,7 @@ export function defaultAgentsWsUrl(apiBase: string): string {
   const { tier, resolvedApiBase } = classifyAgentsApiBase(apiBase);
   if (tier === 'prod') return DEFAULT_AGENTS_WS_URL;
   if (tier === 'dev') return DEV_AGENTS_WS_URL;
-  return normalizeAgentsWsUrl(resolvedApiBase);
+  return agentsTunnelWsUrl(resolvedApiBase);
 }
 
 /**

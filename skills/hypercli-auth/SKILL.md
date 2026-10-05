@@ -49,11 +49,14 @@ process lists.
 
 ## API Base and Environment Selection
 
-`HYPER_API_BASE` is the only environment/config base URL setting. Agent,
-workspace, routine, runner, and integration endpoints derive from it;
-`HYPER_AGENTS_API_BASE` and namespace-specific base overrides are ignored.
-Select dev with `HYPER_API_BASE=https://api.dev.hypercli.com` in the environment
-or canonical config. Public TS/Python/ACP CLIs do not support `--dev` or
+`HYPER_API_BASE` selects product/inference; `HYPER_AGENTS_API_BASE` independently
+selects direct Agent control and never inference. Both are customer
+environment/config settings. Without an Agents base, Agent endpoints derive
+from the product base. Namespace-specific base overrides remain unsupported.
+Select dev product/inference with `HYPER_API_BASE=https://api.dev.hypercli.com`
+in environment/config. If an Agents base is already configured, also set
+`HYPER_AGENTS_API_BASE=https://api.agents.dev.hypercli.com` when the intent is
+to move Agent control to dev. Public TS/Python/ACP CLIs do not support `--dev` or
 `--prod`; those flags are reserved for admin tooling. Do not select another API base unless
 the user explicitly intends that environment. Read the
 [configuration reference](/opt/hypercli/docs/cli/configuration.mdx) before
@@ -125,12 +128,19 @@ buzz-acp auth-methods --json
 buzz-acp models --json
 ```
 
-Lagoon injects a scoped `HYPER_AGENTS_API_KEY` and `HYPER_API_BASE` by default.
-Customers may override the base through launch `env` or `secrets`. A customer
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`,
+`HYPER_AGENTS_API_BASE`, the appropriate ACP URL, and scoped `HYPER_AGENTS_API_KEY`.
+Customers may override either base through launch `env` or `secrets`. A customer
 `HYPER_API_KEY` in either map is preserved and overrides the default runtime key;
 broader uses such as managing other agents are supported. The launch owner's
 auth key is never automatically forwarded. The default runtime key typically
 permits file, flow, model, and voice routes while denying agent management.
+
+Explicit `HYPER_ACP_WS_URL` wins; otherwise derive it from the Agents base,
+falling back to the product base only if no Agents base is supplied. Images
+must not bake in a production Agents base that selects the wrong plane.
+External inference URLs/keys must not implicitly redirect platform callbacks
+or reconnects. ACP transport uses the separate platform runtime key.
 
 | Runtime | What works in the hosted image | What does not happen |
 | --- | --- | --- |

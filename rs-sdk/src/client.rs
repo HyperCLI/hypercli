@@ -171,6 +171,7 @@ impl FileAccess {
 
 pub struct HyperCliClient {
     pub(crate) api_base: Url,
+    product_base: Url,
     pub(crate) api_key: secrecy::SecretString,
     pub(crate) http: HttpClient,
     async_http: AsyncHttpClient,
@@ -591,6 +592,28 @@ impl HyperCliClient {
         config: ClientConfig,
         timeout: std::time::Duration,
     ) -> Result<Self, HyperCliError> {
+        let product_base = crate::config::discover_config_value("HYPER_API_BASE")
+            .unwrap_or_else(|| crate::config::DEFAULT_API_BASE.to_owned());
+        let product_base = Url::parse(&product_base)
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        Self::build(config, timeout, product_base)
+    }
+
+    /// Explicit product endpoint, independent of the Agents endpoint in config.
+    /// Both constructor endpoints take precedence over environment/config URLs.
+    pub fn new_with_product_api_base(
+        config: ClientConfig,
+        product_base: Url,
+    ) -> Result<Self, HyperCliError> {
+        let timeout = config.timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
+        Self::build(config, timeout, product_base)
+    }
+
+    fn build(
+        config: ClientConfig,
+        timeout: std::time::Duration,
+        product_base: Url,
+    ) -> Result<Self, HyperCliError> {
         let http = Self::build_blocking_client(timeout)
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         let async_http = AsyncHttpClient::builder()
@@ -599,7 +622,9 @@ impl HyperCliClient {
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         Ok(Self {
-            api_base: config.api_base,
+            product_base,
+            api_base: crate::config::normalize_explicit_agents_api_base(config.api_base.as_str())
+                .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?,
             api_key: config.api_key,
             http,
             async_http,
@@ -3059,11 +3084,10 @@ impl HyperCliClient {
         self.send_json("create_api_key", "POST", &url, trace_request, builder)
     }
 
-    /// The product API base is the agents base without its `/agents` suffix
-    /// (the inverse of `normalize_agents_api_base`).
+    /// Product endpoint: explicit override, canonical env/config, then default.
+    /// The Agents constructor endpoint never determines the product endpoint.
     pub fn product_api_base(&self) -> String {
-        let base = self.api_base.as_str().trim_end_matches('/');
-        base.strip_suffix("/agents").unwrap_or(base).to_owned()
+        self.product_base.as_str().trim_end_matches('/').to_owned()
     }
 
     pub(crate) fn product_endpoint(&self, path: &str) -> String {
@@ -3371,16 +3395,92 @@ mod tests {
     use tokio_tungstenite::accept_hdr_async;
 
     fn client(server: &Server) -> HyperCliClient {
-        HyperCliClient::new(ClientConfig {
+        HyperCliClient::new_with_product_api_base(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
             timeout: None,
-        })
+        }, Url::parse(&server.url()).unwrap())
         .unwrap()
     }
     fn complete_start() -> StartDeploymentRequest {
         StartDeploymentRequest::new()
+    }
+
+    #[test]
+    fn ordinary_constructors_keep_product_default_independent_of_control() {
+        if std::env::var_os("HYPERCLI_DEFAULT_BASE_TEST_CHILD").is_none() {
+            let home = tempfile::tempdir().unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .env_clear()
+                .env("HOME", home.path())
+                .env("HYPER_HOME", home.path())
+                .env("HYPERCLI_DEFAULT_BASE_TEST_CHILD", "1")
+                .args(["--exact", "client::tests::ordinary_constructors_keep_product_default_independent_of_control"])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}{}",
+                String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            return;
+        }
+        for override_timeout in [false, true] {
+            let mut server = Server::new();
+            let slow = server.mock("GET", "/prefix/agents/status")
+                .with_chunked_body(|writer| {
+                    std::thread::sleep(Duration::from_millis(200));
+                    let _ = writer.write_all(b"{}");
+                    Ok(())
+                })
+                .expect(1)
+                .create();
+            let control = format!("{}/prefix/agents", server.url());
+            let config = ClientConfig {
+                api_base: Url::parse(&control).unwrap(),
+                api_key: SecretString::from("synthetic-key"),
+                trace_file: None,
+                timeout: Some(if override_timeout { Duration::from_secs(5) } else { Duration::from_millis(20) }),
+            };
+            let client = if override_timeout {
+                HyperCliClient::new_with_timeout(config, Duration::from_millis(20)).unwrap()
+            } else {
+                HyperCliClient::new(config).unwrap()
+            };
+            assert_eq!(client.product_api_base(), crate::config::DEFAULT_API_BASE);
+            assert_eq!(client.endpoint("status"), format!("{control}/status"));
+            // Inspect built product/model requests only; never send to the default host.
+            for path in ["v1/models", "api/jobs", "api/auth/me"] {
+                let request = client.http.get(client.product_endpoint(path)).build().unwrap();
+                assert_eq!(request.url().as_str(), format!("https://api.hypercli.com/{path}"));
+            }
+            // Only the loopback control endpoint is sent, checking both timeout paths.
+            let response = client.http.get(client.endpoint("status")).send();
+            let result = response.and_then(|response| response.text());
+            assert!(result.unwrap_err().is_timeout());
+            // Mockito records the request after the delayed response finishes.
+            std::thread::sleep(Duration::from_millis(250));
+            slow.assert();
+        }
+    }
+
+    #[test]
+    fn explicit_control_constructor_keeps_origin_and_sibling_tunnel() {
+        for (control, rest, ws) in [
+            ("https://api.agents.dev.hypercli.com", "https://api.agents.dev.hypercli.com/agents", "wss://api.agents.dev.hypercli.com/ws"),
+            ("http://control.example:8787/prefix/agents///", "http://control.example:8787/prefix/agents", "ws://control.example:8787/prefix/ws"),
+        ] {
+            let client = HyperCliClient::new_with_product_api_base(
+                ClientConfig {
+                    api_base: Url::parse(control).unwrap(),
+                    api_key: SecretString::from("synthetic-key"),
+                    trace_file: None,
+                    timeout: None,
+                },
+                Url::parse("https://inference.example/prefix").unwrap(),
+            ).unwrap();
+            assert_eq!(client.endpoint("plans"), format!("{rest}/plans"));
+            assert_eq!(client.product_endpoint("v1/models"), "https://inference.example/prefix/v1/models");
+            assert_eq!(crate::config::default_hyper_acp_ws_url(client.api_base.as_str()).unwrap(), ws);
+        }
     }
 
     async fn accept_deployment_event_socket(listener: &TcpListener) -> WebSocketStream<TcpStream> {

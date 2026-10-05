@@ -7,6 +7,7 @@ use secrecy::SecretString;
 use thiserror::Error;
 use url::Url;
 
+pub const DEFAULT_API_BASE: &str = "https://api.hypercli.com";
 pub const DEFAULT_AGENTS_API_BASE: &str = "https://api.hypercli.com/agents";
 const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1024;
 
@@ -264,9 +265,17 @@ fn discover_api_base(
     env: &BTreeMap<String, String>,
     file_config: &BTreeMap<String, String>,
 ) -> Result<Url, ConfigError> {
-    // Strict derive-only: the agents API base is derived from the product
-    // API base (HYPER_API_BASE), never from legacy agents-specific overrides.
-    let configured_base = first_nonempty([env.get("HYPER_API_BASE"), file_config.get("HYPER_API_BASE")])
+    // Agents configuration wins over derivation from the product base.
+    if let Some(base) = first_nonempty([
+        env.get("HYPER_AGENTS_API_BASE"),
+        file_config.get("HYPER_AGENTS_API_BASE"),
+    ]) {
+        return normalize_explicit_agents_api_base(base);
+    }
+    let configured_base = first_nonempty([
+        env.get("HYPER_API_BASE"),
+        file_config.get("HYPER_API_BASE"),
+    ])
         .unwrap_or(DEFAULT_AGENTS_API_BASE);
     normalize_agents_api_base(configured_base)
 }
@@ -340,22 +349,24 @@ pub fn normalize_agents_ws_url(raw: &str) -> Result<Url, ConfigError> {
 /// suffixed. Mirrors py `_default_agents_ws_url` / ts `defaultAgentsWsUrl`.
 fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
     let netloc = normalized_netloc(api_base);
-    if matches!(
+    if api_base.path() == "/agents" && matches!(
         netloc.as_str(),
-        "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
+        "api.hypercli.com" | "api.hyperclaw.app"
     ) {
         return Url::parse(DEFAULT_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
     }
-    if matches!(
+    if api_base.path() == "/agents" && matches!(
         netloc.as_str(),
-        "api.agents.dev.hypercli.com"
-            | "api.dev.hypercli.com"
+        "api.dev.hypercli.com"
             | "api.dev.hyperclaw.app"
             | "dev-api.hyperclaw.app"
     ) {
         return Url::parse(DEV_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
     }
-    normalize_agents_ws_url(api_base.as_str())
+    let mut tunnel = api_base.clone();
+    let path = api_base.path().trim_end_matches('/');
+    tunnel.set_path(path.strip_suffix("/agents").unwrap_or(path));
+    normalize_agents_ws_url(tunnel.as_str())
 }
 
 /// Default hyper-acp bridge WebSocket URL for an agents API base: alias hosts
@@ -364,18 +375,17 @@ fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
 /// `defaultHyperAcpWsUrl` and the Buzz provider's
 /// `hyper_acp_ws_url_from_api_base` — one shared host table.
 pub fn default_hyper_acp_ws_url(api_base: &str) -> Result<String, ConfigError> {
-    let api_base = normalize_agents_api_base(api_base)?;
+    let api_base = normalize_explicit_agents_api_base(api_base)?;
     let netloc = normalized_netloc(&api_base);
-    if matches!(
+    if api_base.path() == "/agents" && matches!(
         netloc.as_str(),
-        "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
+        "api.hypercli.com" | "api.hyperclaw.app"
     ) {
         return Ok(crate::types::DEFAULT_HYPER_ACP_WS_URL.to_owned());
     }
-    if matches!(
+    if api_base.path() == "/agents" && matches!(
         netloc.as_str(),
-        "api.agents.dev.hypercli.com"
-            | "api.dev.hypercli.com"
+        "api.dev.hypercli.com"
             | "api.dev.hyperclaw.app"
             | "dev-api.hyperclaw.app"
     ) {
@@ -488,6 +498,15 @@ fn load_legacy_agent_key(path: &PathBuf) -> Result<Option<String>, ConfigError> 
 /// - scheme-less fallback input carries the implied `https://` prefix in the
 ///   returned URL (Python echoes it back scheme-less).
 pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
+    normalize_agents_base(raw, false)
+}
+
+/// Normalize an explicit control-plane selection without changing its origin.
+pub fn normalize_explicit_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
+    normalize_agents_base(raw, true)
+}
+
+fn normalize_agents_base(raw: &str, preserve_origin: bool) -> Result<Url, ConfigError> {
     const DEV_AGENTS_API_BASE: &str = "https://api.dev.hypercli.com/agents";
     let default_base =
         || Url::parse(DEFAULT_AGENTS_API_BASE).map_err(|_| ConfigError::InvalidApiBase);
@@ -512,6 +531,17 @@ pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
     let netloc = normalized_netloc(&parsed);
 
     let path = parsed.path().trim_end_matches('/').to_owned();
+    if preserve_origin {
+        let path = if path.ends_with("/agents") {
+            path
+        } else {
+            format!("{}/agents", path.strip_suffix("/api").unwrap_or(&path))
+        };
+        parsed.set_path(&path);
+        parsed.set_query(None);
+        parsed.set_fragment(None);
+        return Ok(parsed);
+    }
     let normalized_path = if path.ends_with("/agents") {
         path
     } else if let Some(stem) = path.strip_suffix("/api") {
@@ -748,6 +778,38 @@ mod tests {
     }
 
     #[test]
+    fn agents_base_precedes_product_derivation_and_drives_ws() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=file-key\nHYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents///\n",
+        ).unwrap();
+        let mut env = BTreeMap::from([(
+            "HYPER_API_BASE".to_owned(), "https://inference.example/prefix".to_owned(),
+        )]);
+        assert_eq!(
+            discover_agents_api_base_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            "https://api.dev.hypercli.com/agents",
+        );
+        assert_eq!(
+            discover_agents_ws_url_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            "wss://api.agents.dev.hypercli.com/ws",
+        );
+        env.insert(
+            "HYPER_AGENTS_API_BASE".to_owned(), "http://control.example/tenant/api///".to_owned(),
+        );
+        assert_eq!(
+            discover_agents_api_base_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            "http://control.example/tenant/agents",
+        );
+        assert_eq!(
+            discover_agents_ws_url_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            "ws://control.example/tenant/ws",
+        );
+    }
+
+    #[test]
     fn legacy_agent_key_is_last_resort() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join(".hypercli");
@@ -834,7 +896,7 @@ mod tests {
             "http://127.0.0.1:8787".to_owned(),
         )]);
         let ws = discover_agents_ws_url_from(&env, Some(temp.path())).unwrap();
-        assert_eq!(ws.as_str(), "ws://127.0.0.1:8787/agents/ws");
+        assert_eq!(ws.as_str(), "ws://127.0.0.1:8787/ws");
     }
 
     #[test]
@@ -1169,49 +1231,49 @@ mod tests {
         (
             "https://staging.eu.example.com",
             "https://staging.eu.example.com/agents",
-            "wss://staging.eu.example.com/agents/ws",
+            "wss://staging.eu.example.com/ws",
             "https://staging.eu.example.com",
         ),
         (
             "https://staging.example.com:8443",
             "https://staging.example.com:8443/agents",
-            "wss://staging.example.com:8443/agents/ws",
+            "wss://staging.example.com:8443/ws",
             "https://staging.example.com:8443",
         ),
         (
             "https://edge.example.com/api",
             "https://edge.example.com/agents",
-            "wss://edge.example.com/agents/ws",
+            "wss://edge.example.com/ws",
             "https://edge.example.com",
         ),
         (
             "https://edge.example.com/agents",
             "https://edge.example.com/agents",
-            "wss://edge.example.com/agents/ws",
+            "wss://edge.example.com/ws",
             "https://edge.example.com",
         ),
         (
             "https://edge.example.com/agents/",
             "https://edge.example.com/agents",
-            "wss://edge.example.com/agents/ws",
+            "wss://edge.example.com/ws",
             "https://edge.example.com",
         ),
         (
             "http://127.0.0.1:8080",
             "http://127.0.0.1:8080/agents",
-            "ws://127.0.0.1:8080/agents/ws",
+            "ws://127.0.0.1:8080/ws",
             "http://127.0.0.1:8080",
         ),
         (
             "http://127.0.0.1:80/api",
             "http://127.0.0.1/agents",
-            "ws://127.0.0.1/agents/ws",
+            "ws://127.0.0.1/ws",
             "http://127.0.0.1",
         ),
         (
             "https://edge.example.com/agents/admin",
             "https://edge.example.com/agents/admin/agents",
-            "wss://edge.example.com/agents/admin/agents/ws",
+            "wss://edge.example.com/agents/admin/ws",
             "https://edge.example.com",
         ),
     ];
@@ -1253,7 +1315,7 @@ mod tests {
         // these three byte-match py/ts anyway.
         assert_eq!(
             agents_ws_url_from_product_base("staging.eu.example.com").unwrap().as_str(),
-            "wss://staging.eu.example.com/agents/ws"
+            "wss://staging.eu.example.com/ws"
         );
         assert_eq!(
             agents_admin_base_url_from_product_base("staging.eu.example.com").unwrap(),
@@ -1272,7 +1334,7 @@ mod tests {
         );
         assert_eq!(
             agents_ws_url_from_product_base("http://[::1]:8080").unwrap().as_str(),
-            "ws://[::1]:8080/agents/ws"
+            "ws://[::1]:8080/ws"
         );
         assert_eq!(
             agents_admin_base_url_from_product_base("http://[::1]:8080").unwrap(),

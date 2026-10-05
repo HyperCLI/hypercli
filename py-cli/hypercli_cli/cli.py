@@ -73,7 +73,8 @@ app = typer.Typer(
     name="hyper",
     help=(
         "HyperCLI - GPU orchestration, flows, and x402 tooling. "
-        "Select the endpoint with HYPER_API_BASE in the environment or HyperCLI config."
+        "Set HYPER_API_BASE for product/inference and HYPER_AGENTS_API_BASE for Agents "
+        "in the environment or HyperCLI config."
     ),
     no_args_is_help=True,
     rich_markup_mode="rich",

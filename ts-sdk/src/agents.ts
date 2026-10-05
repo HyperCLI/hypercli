@@ -47,7 +47,6 @@ import {
   defaultAcpProxyWsUrl,
   defaultAgentsWsUrl,
   defaultHyperAcpWsUrl,
-  normalizeAgentsWsUrl,
   resolveAgentsApiBase,
 } from './agent-urls.js';
 import { getAgentsApiBaseUrl } from './config.js';
@@ -3630,8 +3629,8 @@ export class Deployments {
     requestTimeout?: number,
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
-    this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
-    this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || defaultAgentsWsUrl(this.apiBase));
+    this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl(), true);
+    this.agentsWsUrl = agentsWsUrl || defaultAgentsWsUrl(this.apiBase);
     const agentTimeout = requestTimeout ?? (http instanceof HTTPClient ? (http as any).timeout : undefined);
     this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey, agentTimeout) : http;
   }

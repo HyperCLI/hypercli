@@ -42,11 +42,9 @@ import httpx
 from .config import (
     DEFAULT_AGENTS_WS_URL as AGENTS_WS_URL,
     DEV_AGENTS_WS_URL,
-    _AGENTS_DEV_HOSTS,
-    _AGENTS_PROD_HOSTS,
-    _normalized_netloc,
     get_agents_api_base_url,
-    get_agents_api_base_url_from_product_base,
+    _normalize_agents_api_base as _normalize_config_agents_api_base,
+    _default_agents_ws_url as _config_agents_ws_url,
 )
 from .http import HTTPClient, APIError
 from .sessions import SessionPage, SessionRecord
@@ -604,24 +602,6 @@ def build_openclaw_workspaces_sync_env(
     return env
 
 
-def _to_ws_base_url(base_url: str) -> str:
-    base = (base_url or "").rstrip("/")
-    if not base:
-        return ""
-    if base.startswith("https://"):
-        return f"wss://{base[len('https://') :]}"
-    if base.startswith("http://"):
-        return f"ws://{base[len('http://') :]}"
-    return base
-
-
-def _normalize_agents_ws_url(url: str) -> str:
-    base = _to_ws_base_url(url)
-    if not base:
-        return ""
-    return base if base.endswith("/ws") else f"{base}/ws"
-
-
 def _normalize_slack_relay_base_url(url: str) -> str:
     raw = (url or "").strip()
     if not raw:
@@ -639,18 +619,11 @@ def _normalize_slack_relay_base_url(url: str) -> str:
 
 
 def _normalize_agents_api_base(url: str) -> str:
-    return get_agents_api_base_url_from_product_base(url)
+    return _normalize_config_agents_api_base(url, preserve_origin=True)
 
 
 def _default_agents_ws_url(api_base: str) -> str:
-    raw = _normalize_agents_api_base(api_base)
-    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    netloc = _normalized_netloc(parsed)
-    if netloc in _AGENTS_PROD_HOSTS:
-        return AGENTS_WS_URL
-    if netloc in _AGENTS_DEV_HOSTS:
-        return DEV_AGENTS_WS_URL
-    return _normalize_agents_ws_url(raw)
+    return _config_agents_ws_url(api_base)
 
 
 def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
@@ -665,15 +638,7 @@ def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
 
 
 def _default_agents_acp_ws_url(api_base: str) -> str:
-    raw = _normalize_agents_api_base(api_base)
-    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
-    netloc = _normalized_netloc(parsed)
-    if netloc in _AGENTS_PROD_HOSTS:
-        return AGENTS_ACP_PROXY_WS_URL
-    if netloc in _AGENTS_DEV_HOSTS:
-        return DEV_AGENTS_ACP_PROXY_WS_URL
-    # _normalize_agents_api_base always returns a URL ending in /agents.
-    return agents_acp_proxy_ws_url(_normalize_agents_ws_url(raw.removesuffix("/agents")))
+    return agents_acp_proxy_ws_url(_default_agents_ws_url(api_base))
 
 
 MAX_SYNC_OWNER_ID = 4_294_967_294
@@ -2324,7 +2289,7 @@ class Deployments:
             "/"
         )
         self._agents_ws_url = (
-            _normalize_agents_ws_url(agents_ws_url)
+            agents_ws_url
             if agents_ws_url
             else _default_agents_ws_url(self._api_base)
         )

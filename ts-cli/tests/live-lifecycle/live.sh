@@ -4,10 +4,11 @@
 #
 # Required env (set by the workflow):
 #   HYPER_API_KEY   — CI key (hypercli-ci-v2, scope *:*)
-#   HYPER_API_BASE=https://api.dev.hypercli.com — the base for all APIs.
+#   HYPER_API_BASE=https://api.dev.hypercli.com — product API
+#   HYPER_AGENTS_API_BASE — optional independent control endpoint
 #
 # Conventions:
-#   Environment selection uses HYPER_API_BASE, never public CLI flags.
+#   Environment selection uses API base settings, never public CLI flags.
 #   Exit codes: 0 ok, 1 CliError (mapped API error), 2 UsageError.
 #   Errors print "error: <msg>" on stderr; info ("total N") always stderr.
 #   Persistent refs: hypercli-ci-*; hypercli-ci-does-not-exist never resolves.
@@ -18,6 +19,7 @@ SUB="${2:?usage: live.sh <group> <sub>}"
 
 export HYPER_API_KEY="${HYPER_API_KEY:?HYPER_API_KEY is required}"
 export HYPER_API_BASE="${HYPER_API_BASE:-https://api.dev.hypercli.com}"
+export HYPER_AGENTS_API_BASE="${HYPER_AGENTS_API_BASE:-${HYPER_API_BASE%/}/agents}"
 
 NOID="hypercli-ci-does-not-exist"
 CLI=(node dist/index.js)

@@ -446,7 +446,8 @@ Supported configuration options:
 | Key | Description | Default |
 |-----|-------------|---------|
 | `HYPER_API_KEY` | Main product API key | (required) |
-| `HYPER_API_BASE` | Product API base URL; per-service bases are derived from it | `https://api.hypercli.com` |
+| `HYPER_API_BASE` | Product/inference base URL | `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_BASE` | Independent direct Agent-control base; never selects inference | Derived from product base when not supplied |
 
 ## Agent Route Authentication
 
@@ -472,7 +473,7 @@ Protected agent hosts do not expect the frontend to write cookies directly.
 
 Current flow:
 
-1. frontend requests `/deployments/{id}/token` relative to the agents API base derived from `HYPER_API_BASE`
+1. frontend requests `/deployments/{id}/token` relative to the direct Agent-control base (`HYPER_AGENTS_API_BASE`, or derived from `HYPER_API_BASE` when not supplied)
 2. backend returns a short-lived agent access token
 3. browser opens `https://desktop-<agent-host>/_jwt_auth?jwt=...`
 4. the protected-route service verifies the token and current host

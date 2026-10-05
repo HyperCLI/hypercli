@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
-from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base, get_api_key, get_api_url
+from hypercli.config import get_agent_api_key, get_agents_api_base_url, get_api_key, get_api_url
 from .paths import hyper_home
 from .stt import transcribe as _stt_transcribe
 
@@ -171,7 +171,7 @@ def _handle_voice_error(error: APIError) -> None:
 def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None = None, **kwargs) -> None:
     """POST to voice endpoint through the SDK and save audio output."""
     api_base = _resolve_api_base(base_url)
-    url = f"{get_agents_api_base_url_from_product_base(api_base)}/voice/{endpoint}"
+    url = f"{get_agents_api_base_url(product_base=api_base)}/voice/{endpoint}"
     console.print(f"[dim]→ POST {url}[/dim]")
 
     try:

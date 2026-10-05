@@ -22,6 +22,7 @@ def isolated_config(monkeypatch, tmp_path):
     monkeypatch.setenv("HYPER_HOME", str(tmp_path))
     monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config")
     monkeypatch.delenv("HYPER_API_BASE", raising=False)
+    monkeypatch.delenv("HYPER_AGENTS_API_BASE", raising=False)
     monkeypatch.setenv("HYPER_API_KEY", "test-only-key")
 
     def no_network(*args, **kwargs):
@@ -121,6 +122,28 @@ def test_canonical_base_routes_public_clients(monkeypatch, tmp_path, source, bas
     assert agent._resolve_api_base() == service_base
     assert llm._resolve_api_base(None) == base
     assert voice._resolve_api_base(None) == base
+
+
+@pytest.mark.parametrize("source", ["env", "config"])
+def test_divergent_bases_route_public_clients(monkeypatch, tmp_path, source):
+    from hypercli_cli import agent, agents, llm, voice
+
+    monkeypatch.setenv("HYPER_API_BASE", "https://inference.example/prefix")
+    if source == "env":
+        monkeypatch.setenv("HYPER_AGENTS_API_BASE", "https://api.dev.hypercli.com/agents///")
+    else:
+        (tmp_path / "config").write_text("HYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents///\n")
+    client = agent._get_agent_query_client()
+    assert client.api_url == "https://inference.example/prefix"
+    assert client.agent._base_url == "https://inference.example/prefix/v1"
+    assert client.agent._control_base_url == "https://api.dev.hypercli.com/agents"
+    deployments = agents._get_deployments_client()
+    assert deployments._api_base == "https://api.dev.hypercli.com/agents"
+    assert deployments._agents_ws_url == "wss://api.agents.dev.hypercli.com/ws"
+    assert agent._resolve_slack_relay_base() == "https://api.agents.dev.hypercli.com"
+    assert agent._resolve_api_base() == "https://inference.example/prefix"
+    assert llm._resolve_api_base(None) == "https://inference.example/prefix"
+    assert voice._voice_client("synthetic-key")._agents_api_base_url == "https://api.dev.hypercli.com/agents"
 
 
 @pytest.mark.parametrize(("product_env", "product_config", "expected"), [

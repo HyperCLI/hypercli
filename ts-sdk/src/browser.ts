@@ -1,9 +1,7 @@
 import { Billing } from './billing.js';
 import { BrowserJobs } from './browser-jobs.js';
-import {
-  getAgentsApiBaseUrl,
-  getAgentsApiBaseUrlFromProductBase,
-} from './config.js';
+import { getAgentsApiBaseUrl } from './config.js';
+import { resolveAgentsApiBase } from './agent-urls.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
 import { KeysAPI } from './keys.js';
@@ -63,9 +61,9 @@ export class BrowserHyperCLI {
 
     this.billing = new Billing(this.http);
     this.jobs = new BrowserJobs(this.http);
-    const agentsApiBaseUrl =
+    const agentsApiBaseUrl = resolveAgentsApiBase(
       options.agentsApiBaseUrl ||
-      (options.agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl));
+      getAgentsApiBaseUrl(Boolean(options.agentDev), apiUrl), true);
     const agentsHttp = new HTTPClient(agentsApiBaseUrl, options.agentApiKey ?? options.token, options.timeout);
     this.agent = new HyperAgent(
       this.http,
@@ -76,7 +74,7 @@ export class BrowserHyperCLI {
     this.user = new UserAPI(this.http, this.http, agentsHttp);
     this.instances = new Instances(this.http);
     this.keys = new KeysAPI(this.http);
-    this.voice = new VoiceAPI(this.http);
+    this.voice = new VoiceAPI(agentsHttp);
     this.workspaces = new WorkspacesAPI(options.agentApiKey ?? options.token, {
       agentsApiBase: agentsApiBaseUrl,
       timeout: options.timeout,

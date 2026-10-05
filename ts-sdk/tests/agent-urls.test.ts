@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { HyperCLI } from '../src/client.js';
 import {
   defaultAcpProxyWsUrl,
   defaultAgentsWsUrl,
@@ -7,6 +8,20 @@ import {
   normalizeAgentsWsUrl,
   resolveAgentsApiBase,
 } from '../src/agent-urls.js';
+
+describe('explicit transport URLs', () => {
+  it.each([
+    'wss://transport.example/custom/bridge',
+    'wss://transport.example/custom/bridge?token=synthetic&route=worker',
+    'ws://127.0.0.1:8787/custom/socket/',
+  ])('preserves %s verbatim', (agentsWsUrl) => {
+    const client = new HyperCLI({
+      apiKey: 'synthetic-key', apiUrl: 'https://inference.example',
+      agentsApiBaseUrl: 'https://control.example/agents', agentsWsUrl,
+    });
+    expect((client.deployments as unknown as { agentsWsUrl: string }).agentsWsUrl).toBe(agentsWsUrl);
+  });
+});
 
 // 21-case parity matrix against py-sdk `_normalize_agents_api_base`
 // (hypercli/config.py); expected values were captured from the py reference
@@ -54,7 +69,7 @@ describe('resolveAgentsApiBase shared-normalize hardening', () => {
     expect(resolveAgentsApiBase('HTTPS://API.HYPERCLI.COM:443')).toBe(DEFAULT_AGENTS_API_BASE_URL);
     expect(resolveAgentsApiBase('https://api.hypercli.com:443')).toBe(DEFAULT_AGENTS_API_BASE_URL);
     expect(resolveAgentsApiBase('HTTP://Tenant.Example.COM:80/base/')).toBe('http://tenant.example.com/base/agents');
-    expect(defaultAgentsWsUrl('HTTP://Tenant.Example.COM:80/base/')).toBe('ws://tenant.example.com/base/agents/ws');
+    expect(defaultAgentsWsUrl('HTTP://Tenant.Example.COM:80/base/')).toBe('ws://tenant.example.com/base/ws');
   });
 
   it('tolerates runs of trailing slashes', () => {
@@ -70,11 +85,11 @@ describe('defaultAgentsWsUrl parity with py-sdk', () => {
     ['', 'wss://api.agents.hypercli.com/ws'],
     ['https://api.hypercli.com', 'wss://api.agents.hypercli.com/ws'],
     ['https://api.hyperclaw.app', 'wss://api.agents.hypercli.com/ws'],
-    ['https://custom.example.com/agents', 'wss://custom.example.com/agents/ws'],
+    ['https://custom.example.com/agents', 'wss://custom.example.com/ws'],
     ['https://api.dev.hypercli.com', 'wss://api.agents.dev.hypercli.com/ws'],
     ['https://dev-api.hyperclaw.app', 'wss://api.agents.dev.hypercli.com/ws'],
-    ['http://127.0.0.1:8787', 'ws://127.0.0.1:8787/agents/ws'],
-    ['https://staging.internal/v2', 'wss://staging.internal/v2/agents/ws'],
+    ['http://127.0.0.1:8787', 'ws://127.0.0.1:8787/ws'],
+    ['https://staging.internal/v2', 'wss://staging.internal/v2/ws'],
   ])('%j -> %s', (input, expected) => {
     expect(defaultAgentsWsUrl(input)).toBe(expected);
   });

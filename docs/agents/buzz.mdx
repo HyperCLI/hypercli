@@ -212,7 +212,9 @@ The provider resolves credentials in this order:
 2. `HYPER_API_KEY` in `$HYPER_HOME/config` (default `~/.hypercli/config`)
 3. `HYPER_AGENTS_API_KEY` in the environment, as the final fallback
 
-The agents API base is derived from `HYPER_API_BASE`; the retired overrides
+The direct Agent-control base uses `HYPER_AGENTS_API_BASE`, falling back to
+derivation from `HYPER_API_BASE` only when not supplied. The product base alone
+selects inference. The retired overrides
 `AGENTS_API_BASE_URL`, `HYPERCLI_API_URL`, and `HYPERCLI_API_KEY` are not read.
 HyperCLI credentials do not belong in the Buzz provider
 form: both Buzz and the provider reject secret-looking configuration fields.

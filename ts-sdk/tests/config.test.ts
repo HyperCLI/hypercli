@@ -51,7 +51,7 @@ describe('clean source consumer configuration', () => {
         },
       }));
       writeFileSync(join(consumer, 'tsconfig.runtime.json'), '{"extends":"./tsconfig.json"}');
-      writeFileSync(join(fixture, 'config'), 'HYPER_API_KEY=synthetic-source-key\nHYPER_API_BASE=https://source.example\n');
+      writeFileSync(join(fixture, 'config'), 'HYPER_API_KEY=synthetic-source-key\nHYPER_API_BASE=https://source.example\nHYPER_AGENTS_API_BASE=https://api.agents.dev.hypercli.com\n');
       writeFileSync(join(consumer, 'consumer.ts'), `
         import assert from 'node:assert/strict';
         import { HyperCLI } from '@hypercli.com/sdk';
@@ -62,6 +62,8 @@ describe('clean source consumer configuration', () => {
         const client = new HyperCLI();
         assert.equal(client.apiKey, 'synthetic-source-key');
         assert.equal(client.apiUrl, 'https://source.example');
+        assert.equal(client.deployments.agentApiBase, 'https://api.agents.dev.hypercli.com/agents');
+        assert.equal(client.deployments.agentsWsUrl, 'wss://api.agents.dev.hypercli.com/ws');
         configure('synthetic-updated-source-key');
         assert.equal(getApiKey(), 'synthetic-updated-source-key');
       `);
@@ -115,6 +117,7 @@ describe('native ESM configuration', () => {
       writeFileSync(join(hyperHome, 'config'), [
         'export HYPER_API_KEY="synthetic=saved-key"',
         'export HYPER_API_BASE="https://saved.example/prefix"',
+        'export HYPER_AGENTS_API_BASE="https://control.example/tenant/api///"',
       ].join('\n'));
       const result = spawnSync(process.env.HYPERCLI_TEST_NODE || process.execPath, [
         '--input-type=module', '--eval', `
@@ -130,11 +133,13 @@ describe('native ESM configuration', () => {
           assert.equal(config.getApiKey(), 'synthetic=saved-key');
           assert.equal(config.getAgentApiKey(), 'synthetic=saved-key');
           assert.equal(config.getApiUrl(), 'https://saved.example/prefix');
-          assert.equal(config.getAgentsApiBaseUrl(), 'https://saved.example/prefix/agents');
+          assert.equal(config.getAgentsApiBaseUrl(), 'https://control.example/tenant/agents');
           const saved = new HyperCLI();
           assert.equal(saved.apiKey, 'synthetic=saved-key');
           assert.equal(saved.deployments.agentApiKey, 'synthetic=saved-key');
-          assert.equal(saved.deployments.agentApiBase, 'https://saved.example/prefix/agents');
+          assert.equal(saved.deployments.agentApiBase, 'https://control.example/tenant/agents');
+          assert.equal(saved.deployments.agentsWsUrl, 'wss://control.example/tenant/ws');
+          assert.equal(saved.agent.baseUrl, 'https://saved.example/prefix/v1');
 
           process.env.HYPER_API_KEY = 'synthetic-env-key';
           process.env.HYPER_API_BASE = 'https://env.example';
@@ -156,6 +161,7 @@ describe('native ESM configuration', () => {
           assert.equal(config.getApiUrl(), 'https://saved.example/prefix');
           config.configure('synthetic-updated-key', 'https://updated.example');
           assert.equal(config.getApiUrl(), 'https://updated.example');
+          assert.equal(config.getAgentsApiBaseUrl(), 'https://control.example/tenant/agents');
           unlinkSync(process.env.HYPER_HOME + '/config');
           assert.equal(config.getApiKey(), undefined);
           assert.equal(config.getAgentApiKey(), 'synthetic-runtime-key');
@@ -334,7 +340,7 @@ describe('Config', () => {
     const hyperHome = tempDir();
     process.env.HYPER_HOME = hyperHome;
     const staleKeys = [
-      'HYPER_AGENTS_API_BASE', 'HYPER_WORKSPACES_API_BASE',
+      'HYPER_WORKSPACES_API_BASE',
       'HYPER_ROUTINES_API_BASE', 'HYPER_RUNNERS_API_BASE', 'HYPER_INTEGRATIONS_API_BASE',
     ];
     const staleConfig = staleKeys.map((key) => `${key}=https://stale.example/wrong`).join('\n');
@@ -371,6 +377,61 @@ describe('Config', () => {
     const wsUrl = getWsUrl();
     expect(wsUrl).toBeDefined();
     expect(wsUrl).toMatch(/^wss?:\/\//);
+  });
+
+  it.each(['env', 'file', 'constructor'])('preserves explicit control origins and sibling tunnels via %s', async (source) => {
+    const { HyperCLI } = await import('../src/client.js');
+    const home = tempDir();
+    vi.stubEnv('HYPER_HOME', home);
+    vi.stubEnv('HYPER_API_BASE', 'https://inference.example');
+    for (const [input, rest, ws] of [
+      ['https://api.agents.dev.hypercli.com', 'https://api.agents.dev.hypercli.com/agents', 'wss://api.agents.dev.hypercli.com/ws'],
+      ['https://api.agents.hypercli.com/api/', 'https://api.agents.hypercli.com/agents', 'wss://api.agents.hypercli.com/ws'],
+      ['http://control.example:8787/prefix/agents///', 'http://control.example:8787/prefix/agents', 'ws://control.example:8787/prefix/ws'],
+      ['https://api.agents.dev.hypercli.com/prefix/api/', 'https://api.agents.dev.hypercli.com/prefix/agents', 'wss://api.agents.dev.hypercli.com/prefix/ws'],
+    ]) {
+      vi.stubEnv('HYPER_AGENTS_API_BASE', source === 'env' ? input : '');
+      writeFileSync(join(home, 'config'), source === 'file' ? `HYPER_AGENTS_API_BASE=${input}\n` : '');
+      const client = new HyperCLI({ apiKey: 'synthetic-key', ...(source === 'constructor' ? { agentsApiBaseUrl: input } : {}) });
+      expect(client.deployments.agentApiBase).toBe(rest);
+      expect((client.deployments as any).agentsWsUrl).toBe(ws);
+      expect(client.agent.baseUrl).toBe('https://inference.example/v1');
+      const fetchMock = vi.fn(async () => new Response('[]', { headers: { 'Content-Type': 'application/json' } }));
+      vi.stubGlobal('fetch', fetchMock);
+      await client.jobs.list();
+      await client.agent.plans();
+      await client.runners.list();
+      expect(fetchMock.mock.calls.map((call: any) => String(call[0]))).toEqual([
+        'https://inference.example/api/jobs', `${rest}/plans`, `${rest}/runners`,
+      ]);
+    }
+  });
+
+  it.each(['env', 'file'])('keeps divergent product and Agents bases from %s independent', async (source) => {
+    const { HyperCLI } = await import('../src/client.js');
+    const home = tempDir();
+    vi.stubEnv('HYPER_HOME', home);
+    vi.stubEnv('HYPER_API_BASE', 'https://inference.example/prefix');
+    vi.stubEnv('HYPER_AGENTS_API_BASE', source === 'env' ? 'https://api.dev.hypercli.com/agents///' : '');
+    writeFileSync(join(home, 'config'), 'HYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents///\n');
+    const client = new HyperCLI();
+    expect(client.apiUrl).toBe('https://inference.example/prefix');
+    expect(client.agent.baseUrl).toBe('https://inference.example/prefix/v1');
+    expect(client.deployments.agentApiBase).toBe('https://api.dev.hypercli.com/agents');
+    expect((client.deployments as any).agentsWsUrl).toBe('wss://api.agents.dev.hypercli.com/ws');
+    expect(client.agent.controlBaseUrl).toBe(client.deployments.agentApiBase);
+    const explicit = new HyperCLI({ apiUrl: 'https://explicit-product.example', agentsApiBaseUrl: 'http://explicit-control.example/prefix/api///' });
+    expect(explicit.apiUrl).toBe('https://explicit-product.example');
+    expect(explicit.deployments.agentApiBase).toBe('http://explicit-control.example/prefix/agents');
+    expect((explicit.deployments as any).agentsWsUrl).toBe('ws://explicit-control.example/prefix/ws');
+    const transport = new HyperCLI({ agentsWsUrl: 'wss://transport.example/custom/ws' });
+    expect((transport.deployments as any).agentsWsUrl).toBe('wss://transport.example/custom/ws');
+    // An explicit product constructor is a derivation fallback, not an Agents override.
+    expect(new HyperCLI({ apiUrl: 'https://external.example' }).deployments.agentApiBase).toBe(client.deployments.agentApiBase);
+    vi.stubEnv('HYPER_AGENTS_API_BASE', 'https://env-control.example/prefix/');
+    expect(getAgentsApiBaseUrl()).toBe('https://env-control.example/prefix/agents');
+    vi.stubEnv('HYPER_API_BASE', '');
+    expect(getApiUrl()).toBe(DEFAULT_API_URL);
   });
 
   it('preserves explicit namespace constructor bases despite stale env overrides', async () => {

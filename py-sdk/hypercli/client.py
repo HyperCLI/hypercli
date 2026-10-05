@@ -2,9 +2,8 @@
 from .config import (
     get_agent_api_key,
     get_agents_api_base_url,
-    get_agents_api_base_url_from_product_base,
-    get_agents_ws_url,
-    get_agents_ws_url_from_product_base,
+    _normalize_agents_api_base,
+    _default_agents_ws_url,
     get_api_key,
     get_api_url,
 )
@@ -23,14 +22,6 @@ from .models import ModelsAPI
 from .workspaces import WorkspacesAPI
 from .routines import RoutinesAPI
 from .runners import RunnersAPI
-
-
-def _derive_agents_api_base(api_url: str, agent_dev: bool) -> str:
-    return get_agents_api_base_url(agent_dev) if agent_dev else get_agents_api_base_url_from_product_base(api_url)
-
-
-def _derive_agents_ws_url(api_url: str, agent_dev: bool) -> str:
-    return get_agents_ws_url(agent_dev) if agent_dev else get_agents_ws_url_from_product_base(api_url)
 
 
 class HyperCLI:
@@ -84,13 +75,13 @@ class HyperCLI:
         self._http = HTTPClient(self._api_url, self._api_key, timeout=resolved_timeout)
 
         # API namespaces
-        resolved_agents_api_base = (
+        resolved_agents_api_base = _normalize_agents_api_base(
             agents_api_base_url
-            or (_derive_agents_api_base(self._api_url, agent_dev) if api_url else get_agents_api_base_url(agent_dev))
+            or get_agents_api_base_url(agent_dev, self._api_url), preserve_origin=True
         )
         resolved_agents_ws_url = (
             agents_ws_url
-            or (_derive_agents_ws_url(self._api_url, agent_dev) if api_url else get_agents_ws_url(agent_dev))
+            or _default_agents_ws_url(resolved_agents_api_base)
         )
         self._agents_api_base_url = resolved_agents_api_base
         self._agents_http = HTTPClient(self._agents_api_base_url, self._api_key, timeout=resolved_timeout)

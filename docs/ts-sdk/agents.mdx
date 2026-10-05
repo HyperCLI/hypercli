@@ -16,8 +16,9 @@ There are two HyperCLI-related namespaces in the TS SDK:
 ## URL Model
 
 Configure the canonical product base through `HYPER_API_BASE` (or the SDK's
-explicit `apiUrl`). The SDK derives deployment REST and shell/log WebSocket
-endpoints from that base. Inference uses the product base with `/v1`; it is not
+explicit `apiUrl`). `HYPER_AGENTS_API_BASE` independently selects direct Agent
+control; without it, deployment REST and shell/log WebSocket endpoints derive
+from the product base. Inference uses the product base with `/v1`; it is not
 derived from a separately configured transport URL. Independent namespace-base
 environment settings are unsupported.
 
@@ -28,7 +29,7 @@ HYPER_API_BASE=https://api.hypercli.com
 ```
 
 The retired overrides `AGENTS_API_BASE_URL` and `AGENTS_WS_URL` are not read;
-per-service bases are derived from `HYPER_API_BASE`
+when no `HYPER_AGENTS_API_BASE` is supplied, Agent endpoints derive from `HYPER_API_BASE`
 (`https://api.hypercli.com/agents` and `wss://api.agents.hypercli.com/ws` in
 production).
 
@@ -401,13 +402,19 @@ const agent = await client.deployments.createAgent("opencode", {
 });
 ```
 
-Lagoon injects `HYPER_API_BASE` and the platform `HYPER_AGENTS_API_KEY` by
-default. Customers may override the base in launch `env` or `secrets` and may
+Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
+(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
+appropriate ACP URL, and platform `HYPER_AGENTS_API_KEY`.
+Customers may override either base in launch `env` or `secrets` and may
 supply `HYPER_API_KEY` in either map. That canonical key is preserved and wins
 over the default runtime key, including for managing other agents. Clients use
 an explicit canonical credential, environment `HYPER_API_KEY`, the configured
 canonical key, then `HYPER_AGENTS_API_KEY` as the final fallback. The launch
 owner's authentication key is never automatically forwarded.
+The Agents base never selects inference. Explicit `HYPER_ACP_WS_URL` wins;
+otherwise derive from the Agents base, using the product base only if no Agents
+base is supplied. External inference URLs/keys must not implicitly redirect
+platform callbacks or reconnects; ACP uses the separate platform runtime key.
 
 A typed Buzz launch:
 

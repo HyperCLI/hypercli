@@ -66,7 +66,7 @@ describe('MemoryAPI HTTP contract', () => {
     const { fetch } = setup({ items: [] });
     const client = new HyperCLI({ apiKey: 'key', agentsApiBaseUrl: 'https://agents.example/custom' });
     expect(await client.memory.search('hello')).toEqual({ items: [], nextCursor: null, hasMore: false });
-    expect(fetch.mock.calls[0][0]).toBe('https://agents.example/custom/memory/search?q=hello');
+    expect(fetch.mock.calls[0][0]).toBe('https://agents.example/custom/agents/memory/search?q=hello');
   });
 
   it('decodes summary metadata, including a zero cursor and nullable timestamps', async () => {

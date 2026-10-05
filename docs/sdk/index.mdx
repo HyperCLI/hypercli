@@ -53,11 +53,14 @@ Common environment variables:
 
 - `HYPER_API_KEY`
 - `HYPER_API_BASE`
+- `HYPER_AGENTS_API_BASE`
 - `HYPER_AGENTS_API_KEY`
 
 The retired overrides `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`, `HYPERCLI_WS_URL`,
-`AGENTS_API_BASE_URL`, and `AGENTS_WS_URL` are not read; per-service bases are
-derived from `HYPER_API_BASE`.
+`AGENTS_API_BASE_URL`, and `AGENTS_WS_URL` are not read. `HYPER_API_BASE` selects
+product/inference; `HYPER_AGENTS_API_BASE` independently selects direct Agent
+control, never inference. Agent endpoints derive from the product base only
+when no Agents base is supplied.
 
 Use canonical `api_key` for an explicit credential. Otherwise clients resolve
 environment `HYPER_API_KEY`, the configured canonical key, then environment

@@ -28,7 +28,9 @@ options matter; hidden power commands appear only in the reference docs.
 | Grants | `activate` |
 | Hidden power | `token`, `routes`, `config get/set` (OpenClaw only), `models` (OpenClaw only), `archive`, `restore`, `routines update` |
 
-Select the environment through canonical `HYPER_API_BASE` configuration only
+Select product/inference with `HYPER_API_BASE` and direct Agent control
+independently with `HYPER_AGENTS_API_BASE` in environment/config. Without an
+Agents base, Agent endpoints derive from the product base. Change either only
 when the user explicitly intends it. Public `hyper` has no `--dev`/`--prod` flags.
 
 ## Inspect before changing

@@ -14,18 +14,22 @@ The product base resolves from an explicit `apiUrl`, environment
 `HYPER_API_BASE`, the canonical config's `HYPER_API_BASE`, then
 `https://api.hypercli.com`.
 
+The Agents base uses `HYPER_AGENTS_API_BASE` from environment, then canonical
+config; only when absent does it derive from the resolved product base.
+Changing the product base does not replace an explicitly configured Agents base.
+
 ## Environment Variables
 
 | Variable | Description |
 | --- | --- |
 | `HYPER_API_KEY` | Main REST API key used by `HyperCLI` |
-| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com`; the agents REST and WebSocket bases are derived from it |
+| `HYPER_API_BASE` | Customer product/inference base; defaults to `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_BASE` | Independent direct Agent-control base; never selects inference |
 | `HYPER_AGENTS_API_KEY` | Platform runtime key; final credential fallback |
 
 ## URL Model
 
-The TS SDK derives every per-service base from one setting. `HYPER_API_BASE`
-is the only base URL setting:
+The TS SDK supports two independent base settings with distinct roles:
 
 - `HYPER_API_BASE`
   - main product API
@@ -36,7 +40,7 @@ is the only base URL setting:
 - product WebSocket base
   - derived from `HYPER_API_BASE` by scheme swap
 - agents REST base
-  - derived from `HYPER_API_BASE`
+  - uses `HYPER_AGENTS_API_BASE` when supplied; otherwise derives from `HYPER_API_BASE`
   - `create`, `start`, `stop`, `delete`
   - files
   - exec
@@ -58,15 +62,38 @@ Dev default:
 HYPER_API_BASE=https://api.dev.hypercli.com
 ```
 
-Production derives `https://api.hypercli.com/agents` as the agents REST base
+With no Agents base supplied, production derives `https://api.hypercli.com/agents` as the agents REST base
 and `wss://api.agents.hypercli.com/ws` as the agents WebSocket base; dev
 derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
-`HYPER_AGENTS_API_BASE` and independent workspace, routine, runner, and
-integration base settings are unsupported. Public CLI `--dev`/`--prod` flags
-are unsupported; select an environment using the canonical base.
+Set `HYPER_AGENTS_API_BASE` in environment/config to select direct Agent control
+independently. Independent workspace, routine, runner, and integration base
+settings remain unsupported. Public CLI `--dev`/`--prod` flags are admin-only;
+select customer endpoints with the two base settings.
+
+### Runtime defaults and external inference
+
+Runner and Lagoon inject consistent platform defaults for both bases, the
+appropriate ACP WebSocket URL, and `HYPER_AGENTS_API_KEY`. Customers may
+override either base and `HYPER_API_KEY` through launch `env` or `secrets`.
+Explicit `HYPER_ACP_WS_URL` wins; otherwise derive ACP from the Agents base,
+falling back to the product base only when no Agents base is supplied. Images
+must not bake in a production Agents base that selects the wrong plane.
+ACP transport uses the separate platform runtime key; an external inference
+URL/key must not implicitly redirect platform callbacks or reconnects.
+
+For a standalone runtime using external inference and default production control:
+
+```bash
+export HYPER_API_BASE=https://inference.example.com
+export HYPER_API_KEY='<external-provider-key>'
+export HYPER_AGENTS_API_BASE=https://api.agents.hypercli.com
+```
+
+For managed launches, override only the product base/key and retain the injected
+platform Agents base and ACP URL. `HYPER_AGENTS_API_BASE` never selects inference.
 
 ### OpenClaw / Inference Base URLs
 
