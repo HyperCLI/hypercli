@@ -1,8 +1,9 @@
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveWorkspacesApiBase, WorkspacesAPI } from '../src/workspaces.js';
 import { deriveRoutinesApiBase, RoutinesAPI } from '../src/routines.js';
@@ -23,17 +24,92 @@ import {
   DEFAULT_AGENTS_WS_URL,
 } from '../src/config.js';
 
+describe('clean source consumer configuration', () => {
+  it('imports SDK source through external tsx config without dist or SDK tsconfig', () => {
+    const sdkRoot = fileURLToPath(new URL('../', import.meta.url));
+    const fixture = mkdtempSync(join(tmpdir(), 'hypercli-source-consumer-'));
+    try {
+      const sdk = join(fixture, 'hypercli/ts-sdk');
+      const consumer = join(fixture, 'agents/slack-relay-v2');
+      mkdirSync(sdk, { recursive: true });
+      mkdirSync(consumer, { recursive: true });
+      for (const name of ['package.json', 'src', 'runtime']) {
+        cpSync(join(sdkRoot, name), join(sdk, name), { recursive: true });
+      }
+      symlinkSync(join(sdkRoot, 'node_modules'), join(sdk, 'node_modules'), 'dir');
+      writeFileSync(join(consumer, 'package.json'), '{"type":"module"}');
+      // Match the relay's external runtime config and source aliases, not the
+      // SDK's NodeNext/rootDir/outDir settings (which can mask dist resolution).
+      writeFileSync(join(consumer, 'tsconfig.json'), JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler',
+          noEmit: true, esModuleInterop: true,
+          paths: {
+            '@hypercli.com/sdk': ['../../hypercli/ts-sdk/src/index.ts'],
+            '@hypercli.com/sdk/*': ['../../hypercli/ts-sdk/src/*.ts'],
+          },
+        },
+      }));
+      writeFileSync(join(consumer, 'tsconfig.runtime.json'), '{"extends":"./tsconfig.json"}');
+      writeFileSync(join(fixture, 'config'), 'HYPER_API_KEY=synthetic-source-key\nHYPER_API_BASE=https://source.example\n');
+      writeFileSync(join(consumer, 'consumer.ts'), `
+        import assert from 'node:assert/strict';
+        import { HyperCLI } from '@hypercli.com/sdk';
+        import { getApiKey, configure } from '../../hypercli/ts-sdk/src/config.ts';
+        import { CodingAgentAcpClient } from '../../hypercli/ts-sdk/src/acp.ts';
+        assert.equal(typeof CodingAgentAcpClient, 'function');
+        assert.equal(getApiKey(), 'synthetic-source-key');
+        const client = new HyperCLI();
+        assert.equal(client.apiKey, 'synthetic-source-key');
+        assert.equal(client.apiUrl, 'https://source.example');
+        configure('synthetic-updated-source-key');
+        assert.equal(getApiKey(), 'synthetic-updated-source-key');
+      `);
+      expect(existsSync(join(sdk, 'dist'))).toBe(false);
+      expect(existsSync(join(sdk, 'tsconfig.json'))).toBe(false);
+      const result = spawnSync(process.execPath, [
+        createRequire(import.meta.url).resolve('tsx/cli'),
+        '--tsconfig', 'tsconfig.runtime.json', 'consumer.ts',
+      ], {
+        cwd: consumer, encoding: 'utf8', timeout: 30_000,
+        env: { HOME: fixture, USERPROFILE: fixture, HYPER_HOME: fixture },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(existsSync(join(sdk, 'dist'))).toBe(false);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('native ESM configuration', () => {
   const sdkRoot = fileURLToPath(new URL('../', import.meta.url));
+  let packedFiles: string[];
 
   beforeAll(() => {
     // Always compile current sources: a stale dist could hide this regression.
     execFileSync(process.execPath, ['node_modules/typescript/bin/tsc'], { cwd: sdkRoot });
+    const [pack] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
+      cwd: sdkRoot, encoding: 'utf8',
+    }));
+    packedFiles = pack.files.map((file: { path: string }) => file.path);
+    expect(packedFiles).toEqual(expect.arrayContaining([
+      'runtime/config-require.node.js', 'runtime/config-require.browser.js', 'runtime/config-require.d.ts',
+    ]));
   }, 180_000);
 
   it.each([false, true])('loads saved config (getBuiltinModule removed: %s)', (removeBuiltinModule) => {
     const home = mkdtempSync(join(tmpdir(), 'hypercli-native-esm-'));
     try {
+      // Run only the publishable files, with no source tree or tsx loader.
+      const installedSdk = join(home, 'sdk');
+      for (const path of packedFiles) {
+        const target = join(installedSdk, path);
+        mkdirSync(dirname(target), { recursive: true });
+        cpSync(join(sdkRoot, path), target);
+      }
+      symlinkSync(join(sdkRoot, 'node_modules'), join(installedSdk, 'node_modules'), 'dir');
       const hyperHome = join(home, 'selected');
       mkdirSync(hyperHome);
       writeFileSync(join(hyperHome, 'config'), [
@@ -86,7 +162,7 @@ describe('native ESM configuration', () => {
           assert.equal(config.getApiUrl(), config.DEFAULT_API_URL);
         `,
       ], {
-        cwd: sdkRoot,
+        cwd: installedSdk,
         encoding: 'utf8',
         timeout: 30_000,
         // Do not inherit credentials, loader flags, or the user's config directory.

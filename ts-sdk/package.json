@@ -7,9 +7,10 @@
   "types": "./dist/index.d.ts",
   "imports": {
     "#config-require": {
-      "browser": "./dist/config-require.browser.js",
-      "node": "./dist/config-require.node.js",
-      "default": "./dist/config-require.browser.js"
+      "types": "./runtime/config-require.d.ts",
+      "browser": "./runtime/config-require.browser.js",
+      "node": "./runtime/config-require.node.js",
+      "default": "./runtime/config-require.browser.js"
     }
   },
   "exports": {
@@ -63,7 +64,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "runtime"
   ],
   "scripts": {
     "build": "tsc",
@@ -102,6 +104,7 @@
     "@typescript-eslint/parser": "^8.55.0",
     "@vitest/ui": "^4.0.18",
     "eslint": "^9.39.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"
   },

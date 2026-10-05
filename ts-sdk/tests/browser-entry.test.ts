@@ -78,8 +78,8 @@ async function browserRuntimeGraph(entry: string): Promise<{
         // Both browser-aware bundlers and non-Node default resolution stay safe.
         for (const target of [targets.browser, targets.default]) {
           await visit(fileURLToPath(new URL(
-            target.replace('./dist/', '../src/').replace(/\.js$/, '.ts'),
-            import.meta.url,
+            target,
+            new URL('../', import.meta.url),
           )));
         }
         continue;
@@ -118,8 +118,8 @@ describe('browser entry', () => {
     expect(graph.files.has(resolve(sourceRoot, 'agent-slots.ts'))).toBe(true);
     expect(graph.files.has(resolve(sourceRoot, 'browser-jobs.ts'))).toBe(true);
     expect(graph.files.has(resolve(sourceRoot, 'jobs.ts'))).toBe(false);
-    expect(graph.files.has(resolve(sourceRoot, 'config-require.browser.ts'))).toBe(true);
-    expect(graph.files.has(resolve(sourceRoot, 'config-require.node.ts'))).toBe(false);
+    expect(graph.files.has(resolve(sourceRoot, '../runtime/config-require.browser.js'))).toBe(true);
+    expect(graph.files.has(resolve(sourceRoot, '../runtime/config-require.node.js'))).toBe(false);
   });
 
   it('exposes a browser-safe jobs client', () => {
