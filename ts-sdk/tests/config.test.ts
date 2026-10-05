@@ -1,7 +1,9 @@
-import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { deriveWorkspacesApiBase, WorkspacesAPI } from '../src/workspaces.js';
 import { deriveRoutinesApiBase, RoutinesAPI } from '../src/routines.js';
 import { deriveRunnersApiBase, RunnersAPI } from '../src/runners.js';
@@ -20,6 +22,83 @@ import {
   DEFAULT_AGENTS_API_BASE_URL,
   DEFAULT_AGENTS_WS_URL,
 } from '../src/config.js';
+
+describe('native ESM configuration', () => {
+  const sdkRoot = fileURLToPath(new URL('../', import.meta.url));
+
+  beforeAll(() => {
+    // Always compile current sources: a stale dist could hide this regression.
+    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc'], { cwd: sdkRoot });
+  }, 180_000);
+
+  it.each([false, true])('loads saved config (getBuiltinModule removed: %s)', (removeBuiltinModule) => {
+    const home = mkdtempSync(join(tmpdir(), 'hypercli-native-esm-'));
+    try {
+      const hyperHome = join(home, 'selected');
+      mkdirSync(hyperHome);
+      writeFileSync(join(hyperHome, 'config'), [
+        'export HYPER_API_KEY="synthetic=saved-key"',
+        'export HYPER_API_BASE="https://saved.example/prefix"',
+      ].join('\n'));
+      const result = spawnSync(process.env.HYPERCLI_TEST_NODE || process.execPath, [
+        '--input-type=module', '--eval', `
+          import assert from 'node:assert/strict';
+          import { unlinkSync } from 'node:fs';
+          assert.equal(typeof require, 'undefined');
+          if (${removeBuiltinModule}) {
+            delete process.getBuiltinModule;
+            assert.equal(process.getBuiltinModule, undefined);
+          }
+          const config = await import('./dist/config.js');
+          const { HyperCLI } = await import('@hypercli.com/sdk');
+          assert.equal(config.getApiKey(), 'synthetic=saved-key');
+          assert.equal(config.getAgentApiKey(), 'synthetic=saved-key');
+          assert.equal(config.getApiUrl(), 'https://saved.example/prefix');
+          assert.equal(config.getAgentsApiBaseUrl(), 'https://saved.example/prefix/agents');
+          const saved = new HyperCLI();
+          assert.equal(saved.apiKey, 'synthetic=saved-key');
+          assert.equal(saved.deployments.agentApiKey, 'synthetic=saved-key');
+          assert.equal(saved.deployments.agentApiBase, 'https://saved.example/prefix/agents');
+
+          process.env.HYPER_API_KEY = 'synthetic-env-key';
+          process.env.HYPER_API_BASE = 'https://env.example';
+          assert.equal(config.getAgentApiKey(), 'synthetic-env-key');
+          assert.equal(config.getApiUrl(), 'https://env.example');
+          const explicit = new HyperCLI({
+            apiKey: 'synthetic-explicit-key', agentApiKey: 'synthetic-explicit-agent',
+            apiUrl: 'https://explicit.example', agentsApiBaseUrl: 'https://explicit-agent.example/agents',
+          });
+          assert.equal(explicit.apiKey, 'synthetic-explicit-key');
+          assert.equal(explicit.deployments.agentApiKey, 'synthetic-explicit-agent');
+          assert.equal(explicit.apiUrl, 'https://explicit.example');
+          assert.equal(explicit.deployments.agentApiBase, 'https://explicit-agent.example/agents');
+          delete process.env.HYPER_API_KEY;
+          delete process.env.HYPER_API_BASE;
+
+          config.configure('synthetic-updated-key');
+          assert.equal(config.getAgentApiKey(), 'synthetic-updated-key');
+          assert.equal(config.getApiUrl(), 'https://saved.example/prefix');
+          config.configure('synthetic-updated-key', 'https://updated.example');
+          assert.equal(config.getApiUrl(), 'https://updated.example');
+          unlinkSync(process.env.HYPER_HOME + '/config');
+          assert.equal(config.getApiKey(), undefined);
+          assert.equal(config.getAgentApiKey(), 'synthetic-runtime-key');
+          assert.equal(config.getApiUrl(), config.DEFAULT_API_URL);
+        `,
+      ], {
+        cwd: sdkRoot,
+        encoding: 'utf8',
+        timeout: 30_000,
+        // Do not inherit credentials, loader flags, or the user's config directory.
+        env: { HOME: home, USERPROFILE: home, HYPER_HOME: hyperHome, HYPER_AGENTS_API_KEY: 'synthetic-runtime-key' },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Config', () => {
   const originalHyperApiKey = process.env.HYPER_API_KEY;

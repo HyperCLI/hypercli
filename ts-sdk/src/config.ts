@@ -2,6 +2,7 @@
  * Configuration handling for HyperCLI SDK
  * Priority: env vars > config file > defaults
  */
+import { getNodeRequire } from '#config-require';
 import {
   agentsAdminApiBaseFromProductBase,
   defaultAgentsWsUrl,
@@ -11,22 +12,6 @@ import {
   DEV_AGENTS_WS_URL,
   resolveAgentsApiBase,
 } from './agent-urls.js';
-
-type NodeRequireFn = ((id: string) => any) | null;
-
-function getNodeRequire(): NodeRequireFn {
-  const getBuiltinModule = (
-    globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }
-  ).process?.getBuiltinModule;
-  if (getBuiltinModule) {
-    return getBuiltinModule as (id: string) => any;
-  }
-  try {
-    return (0, eval)('require') as (id: string) => any;
-  } catch {
-    return null;
-  }
-}
 
 function getNodeConfigPaths(): { configDir: string; configFile: string } | null {
   const req = getNodeRequire();

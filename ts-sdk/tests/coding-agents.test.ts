@@ -532,6 +532,42 @@ describe('coding agents', () => {
     });
   });
 
+  it.each(['env', 'secrets'] as const)('filters reserved Buzz keys from %s while preserving customer overrides', async (source) => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'owner-key',
+      'https://api.test.hypercli.com/agents',
+    );
+    await deployments.createAgent('opencode', {
+      [source]: {
+        HYPER_API_KEY: 'customer-key',
+        HYPER_API_BASE: 'https://customer.invalid/prefix',
+        CUSTOM_SETTING: 'preserved',
+        HYPER_AGENTS_API_KEY: 'forged-platform-key',
+        HYPER_ACP_AUTO_APPROVE_PERMISSION: '1',
+        BUZZ_ACP_SYSTEM_PROMPT_FILE: '/tmp/attacker',
+        BUZZ_AUTH_TAG: 'forged-attestation',
+      },
+      buzz: { privateKeyNsec: 'nsec1test', relayUrl: 'wss://buzz.example.test' },
+    });
+    const payload = post.mock.calls[0][1];
+    expect(payload[source]).toMatchObject({
+      HYPER_API_KEY: 'customer-key',
+      HYPER_API_BASE: 'https://customer.invalid/prefix',
+      CUSTOM_SETTING: 'preserved',
+    });
+    for (const key of ['HYPER_AGENTS_API_KEY', 'HYPER_ACP_AUTO_APPROVE_PERMISSION', 'BUZZ_ACP_SYSTEM_PROMPT_FILE', 'BUZZ_AUTH_TAG']) {
+      expect(payload.env[key]).toBeUndefined();
+      expect(payload.secrets[key]).toBeUndefined();
+    }
+    expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
+    expect(payload.env.BUZZ_RELAY_URL).toBe('wss://buzz.example.test');
+    expect(payload.secrets.HYPER_ACP_WS_URL).toBeUndefined();
+    expect(payload.secrets.BUZZ_RELAY_URL).toBeUndefined();
+    expect(payload.secrets.BUZZ_PRIVATE_KEY).toBe('nsec1test');
+  });
+
   it('keeps the Buzz NIP-OA auth tag in the secrets projection, never env', async () => {
     const post = vi.fn().mockResolvedValue(response('opencode'));
     const deployments = new Deployments(

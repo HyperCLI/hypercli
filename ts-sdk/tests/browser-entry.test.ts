@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import pkg from '../package.json' with { type: 'json' };
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserHyperCLI } from '../src/browser.js';
 import { BrowserJobs } from '../src/browser-jobs.js';
@@ -71,6 +72,18 @@ async function browserRuntimeGraph(entry: string): Promise<{
     files.add(fileName);
     const source = await readFile(fileName, 'utf8');
     for (const specifier of runtimeModuleSpecifiers(source, fileName)) {
+      if (specifier.startsWith('#')) {
+        const targets = pkg.imports[specifier as keyof typeof pkg.imports];
+        expect(targets, `Unresolved private import: ${specifier}`).toBeDefined();
+        // Both browser-aware bundlers and non-Node default resolution stay safe.
+        for (const target of [targets.browser, targets.default]) {
+          await visit(fileURLToPath(new URL(
+            target.replace('./dist/', '../src/').replace(/\.js$/, '.ts'),
+            import.meta.url,
+          )));
+        }
+        continue;
+      }
       if (specifier.startsWith('node:')) {
         nodeBuiltins.add(specifier);
         continue;
@@ -105,6 +118,8 @@ describe('browser entry', () => {
     expect(graph.files.has(resolve(sourceRoot, 'agent-slots.ts'))).toBe(true);
     expect(graph.files.has(resolve(sourceRoot, 'browser-jobs.ts'))).toBe(true);
     expect(graph.files.has(resolve(sourceRoot, 'jobs.ts'))).toBe(false);
+    expect(graph.files.has(resolve(sourceRoot, 'config-require.browser.ts'))).toBe(true);
+    expect(graph.files.has(resolve(sourceRoot, 'config-require.node.ts'))).toBe(false);
   });
 
   it('exposes a browser-safe jobs client', () => {

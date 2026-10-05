@@ -212,6 +212,7 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
 export const DEFAULT_BUZZ_RUST_LOG =
   'hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off';
 const BUZZ_RESERVED_ENV_KEYS = new Set([
+  'HYPER_AGENTS_API_KEY',
   'BUZZ_PRIVATE_KEY',
   'NOSTR_PRIVATE_KEY',
   'BUZZ_AUTH_TAG',
@@ -223,7 +224,6 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_AGENT_COMMAND',
   'BUZZ_ACP_AGENT_ARGS',
   'BUZZ_ACP_MCP_COMMAND',
-  'BUZZ_ACP_LAZY_POOL',
   'BUZZ_ACP_RELAY_OBSERVER',
   'BUZZ_ACP_DISPLAY_NAME',
   'BUZZ_ACP_TEXT_MENTIONS',
@@ -232,18 +232,15 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_REQUIRE_REPLY',
   'BUZZ_AGENT_REQUIRE_REPLY',
   'CLAUDE_CODE_EXECUTABLE',
-  'BUZZ_ACP_SESSION_TITLE',
   'BUZZ_ACP_SYSTEM_PROMPT',
-  'BUZZ_ACP_MODEL',
-  'BUZZ_ACP_IDLE_TIMEOUT',
-  'BUZZ_ACP_MAX_TURN_DURATION',
-  'BUZZ_ACP_AGENTS',
+  'BUZZ_ACP_SYSTEM_PROMPT_FILE',
+  'BUZZ_ACP_EXIT_AFTER_INACTIVITY',
   'BUZZ_ACP_RESPOND_TO',
   'BUZZ_ACP_RESPOND_TO_ALLOWLIST',
   'BUZZ_ACP_MULTIPLE_EVENT_HANDLING',
-  'BUZZ_ACP_DEDUP',
   'BUZZ_ACP_SETUP_PAYLOAD',
   'BUZZ_MANAGED_AGENT',
+  'BUZZ_MANAGED_AGENT_START_NONCE',
   'HYPER_ACP_WS_URL',
   'HYPER_ACP_AGENT_COMMAND',
   'HYPER_ACP_AGENT_ARGS',
@@ -253,8 +250,11 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'HYPER_ACP_AUTO_APPROVE_PERMISSION',
   'HYPER_ACP_PERMISSIONS',
   'HYPER_ACP_PERMISSION_MODE',
-  // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
-  'BUZZ_MANAGED_AGENT_START_NONCE',
+  'HYPER_ACP_TRACE_DB',
+  'HYPER_ACP_CORS_ORIGIN',
+  'HYPER_WORKSPACES_BOOT_SYNC',
+  'HYPER_WORKSPACES_SYNC_READY_ONLY',
+  'HYPER_WORKSPACES_SYNC_WORKSPACE',
 ]);
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_ENABLED: '1',
@@ -3939,7 +3939,10 @@ export class Deployments {
       }
     }
     if (options.buzz) {
-      for (const key of BUZZ_RESERVED_ENV_KEYS) delete effectiveEnv[key];
+      for (const key of BUZZ_RESERVED_ENV_KEYS) {
+        delete effectiveEnv[key];
+        delete effectiveSecrets[key];
+      }
       Object.assign(
         effectiveEnv,
         buildBuzzLaunchEnv(runtime as CodingAgentRuntime, options.buzz, options.name),
@@ -3966,8 +3969,8 @@ export class Deployments {
         'HYPER_ACP_PERMISSION_MODE',
       ]) {
         delete effectiveEnv[key];
+        delete effectiveSecrets[key];
       }
-      delete effectiveSecrets.HYPER_ACP_WS_TOKEN;
       effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
       effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'true';
     }

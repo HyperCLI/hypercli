@@ -1094,7 +1094,10 @@ pub const BUZZ_RUNTIME_SCOPES: [&str; 7] = [
     "web:*",
     "workspaces:*",
 ];
-const BUZZ_RESERVED_ENV: &[&str] = &[
+/// Provider-owned launch keys, synchronized to the Buzz provider's authoritative list.
+/// Customer `HYPER_API_KEY` and `HYPER_API_BASE` remain caller-owned.
+pub const BUZZ_RESERVED_ENV: &[&str] = &[
+    "HYPER_AGENTS_API_KEY",
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",
     "BUZZ_AUTH_TAG",
@@ -1105,7 +1108,6 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_AGENT_COMMAND",
     "BUZZ_ACP_AGENT_ARGS",
     "BUZZ_ACP_MCP_COMMAND",
-    "BUZZ_ACP_LAZY_POOL",
     "BUZZ_ACP_RELAY_OBSERVER",
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
@@ -1114,28 +1116,30 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_REQUIRE_REPLY",
     "BUZZ_AGENT_REQUIRE_REPLY",
     "CLAUDE_CODE_EXECUTABLE",
-    "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
-    "BUZZ_ACP_MODEL",
-    "BUZZ_ACP_IDLE_TIMEOUT",
-    "BUZZ_ACP_MAX_TURN_DURATION",
-    "BUZZ_ACP_AGENTS",
+    "BUZZ_ACP_SYSTEM_PROMPT_FILE",
+    "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
     "BUZZ_ACP_RESPOND_TO",
     "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
     "BUZZ_ACP_AGENT_OWNER",
     "BUZZ_ACP_MULTIPLE_EVENT_HANDLING",
-    "BUZZ_ACP_DEDUP",
     "BUZZ_ACP_SETUP_PAYLOAD",
     "BUZZ_MANAGED_AGENT",
+    "BUZZ_MANAGED_AGENT_START_NONCE",
     "HYPER_ACP_WS_URL",
     "HYPER_ACP_AGENT_COMMAND",
     "HYPER_ACP_AGENT_ARGS",
     "HYPER_ACP_AUTO_APPROVE_PERMISSION",
+    "HYPER_ACP_PERMISSIONS",
+    "HYPER_ACP_PERMISSION_MODE",
     "HYPER_ACP_WS_LISTEN",
     "HYPER_ACP_LOG",
     "HYPER_ACP_WS_TOKEN",
-    // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
-    "BUZZ_MANAGED_AGENT_START_NONCE",
+    "HYPER_ACP_TRACE_DB",
+    "HYPER_ACP_CORS_ORIGIN",
+    "HYPER_WORKSPACES_BOOT_SYNC",
+    "HYPER_WORKSPACES_SYNC_READY_ONLY",
+    "HYPER_WORKSPACES_SYNC_WORKSPACE",
 ];
 
 /// First-class Buzz ACP launch contract for a hosted coding runtime.
@@ -1248,7 +1252,11 @@ impl BuzzLaunchConfig {
             .collect();
         for key in BUZZ_RESERVED_ENV {
             request.env.remove(*key);
+            request.secrets.remove(*key);
         }
+        request
+            .env
+            .insert("HYPER_ACP_PERMISSION_MODE".to_owned(), "default".to_owned());
         request
             .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), self.private_key_nsec.clone());
@@ -2603,6 +2611,54 @@ mod tests {
             request.env.get("RUST_LOG").map(String::as_str),
             Some("debug")
         );
+    }
+
+    #[test]
+    fn buzz_launch_filters_reserved_secrets_and_preserves_customer_overrides() {
+        for secret_override in [false, true] {
+            let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+            let overrides = if secret_override {
+                &mut request.secrets
+            } else {
+                &mut request.env
+            };
+            for (key, value) in [
+                ("HYPER_API_KEY", "customer-key"),
+                ("HYPER_API_BASE", "https://customer.invalid/prefix"),
+                ("CUSTOM_SETTING", "preserved"),
+                ("HYPER_AGENTS_API_KEY", "forged-platform-key"),
+                ("HYPER_ACP_AUTO_APPROVE_PERMISSION", "1"),
+                ("BUZZ_ACP_SYSTEM_PROMPT_FILE", "/tmp/attacker"),
+                ("BUZZ_AUTH_TAG", "forged-attestation"),
+            ] {
+                overrides.insert(key.to_owned(), value.to_owned());
+            }
+            BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+                .apply_to(&mut request, None)
+                .unwrap();
+            let overrides = if secret_override {
+                &request.secrets
+            } else {
+                &request.env
+            };
+            assert_eq!(overrides["HYPER_API_KEY"], "customer-key");
+            assert_eq!(overrides["HYPER_API_BASE"], "https://customer.invalid/prefix");
+            assert_eq!(overrides["CUSTOM_SETTING"], "preserved");
+            for key in [
+                "HYPER_AGENTS_API_KEY",
+                "HYPER_ACP_AUTO_APPROVE_PERMISSION",
+                "BUZZ_ACP_SYSTEM_PROMPT_FILE",
+                "BUZZ_AUTH_TAG",
+            ] {
+                assert!(!request.env.contains_key(key), "{key}");
+                assert!(!request.secrets.contains_key(key), "{key}");
+            }
+            assert_eq!(request.env["HYPER_ACP_WS_URL"], DEFAULT_HYPER_ACP_WS_URL);
+            assert_eq!(request.env["BUZZ_RELAY_URL"], "wss://buzz.example.test");
+            assert!(!request.secrets.contains_key("HYPER_ACP_WS_URL"));
+            assert!(!request.secrets.contains_key("BUZZ_RELAY_URL"));
+            assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");
+        }
     }
 
     #[test]

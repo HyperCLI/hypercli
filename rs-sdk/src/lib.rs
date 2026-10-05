@@ -98,8 +98,8 @@ pub use types::{
     JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig, RunnerTargetSpec,
     RuntimeIdentity, SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
-    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
-    CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
+    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RESERVED_ENV,
+    BUZZ_RUNTIME_SCOPES, CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
 };
 pub use user::{ApiUser, UserClient};
 pub use workspaces::{

@@ -5,6 +5,13 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#config-require": {
+      "browser": "./dist/config-require.browser.js",
+      "node": "./dist/config-require.node.js",
+      "default": "./dist/config-require.browser.js"
+    }
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
