@@ -223,6 +223,60 @@ pub struct WorkspaceFileSearchResult {
     pub score: f64,
 }
 
+/// Options for [`WorkspacesApiClient::search_files`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SearchWorkspaceFilesOptions {
+    /// Ranking toggle, wire name `vector`. Omitted defers to the backend
+    /// default; the workspaces service is keyword-only until its vector
+    /// branch lands, so `vector_score` stays `None` either way.
+    pub vector: Option<bool>,
+    /// Opaque cursor from a previous page's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Page size hint; the current route applies its own server-side default.
+    pub limit: Option<u32>,
+    /// Restrict matches to file paths under this prefix (wire `path_prefix`).
+    pub path_prefix: Option<String>,
+}
+
+/// One page of file-search matches plus backend pagination metadata.
+///
+/// The current route answers a bare array, which decodes to a single terminal
+/// page. Envelope keys accept the `items`/`results` and snake_case/camelCase
+/// spellings, matching the TypeScript SDK's tolerance.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct WorkspaceFileSearchPage {
+    #[serde(default, alias = "items")]
+    pub results: Vec<WorkspaceFileSearchResult>,
+    /// Opaque cursor for the next page; `None` on the terminal page or when
+    /// the backend answered with a bare array.
+    #[serde(default, alias = "nextCursor")]
+    pub next_cursor: Option<String>,
+    #[serde(default, alias = "hasMore")]
+    pub has_more: bool,
+}
+
+impl WorkspaceFileSearchPage {
+    fn from_value(data: Value) -> Result<Self, WorkspacesApiError> {
+        match data {
+            Value::Null => Ok(Self::default()),
+            Value::Array(_) => {
+                let results = serde_json::from_value(data)
+                    .map_err(|error| WorkspacesApiError::InvalidResponse(error.to_string()))?;
+                Ok(Self {
+                    results,
+                    next_cursor: None,
+                    has_more: false,
+                })
+            }
+            Value::Object(_) => serde_json::from_value(data)
+                .map_err(|error| WorkspacesApiError::InvalidResponse(error.to_string())),
+            _ => Err(WorkspacesApiError::InvalidResponse(
+                "workspace file search response must be an object or array".to_owned(),
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct WorkspaceManifest {
     #[serde(default, alias = "workspaceId", deserialize_with = "de_string_default")]
@@ -1381,26 +1435,49 @@ impl WorkspacesApiClient {
         Self::decode_list(data)
     }
 
+    /// Search files in one workspace. The vector leg is opt-in: `None`
+    /// options send only `q` and let the backend apply its own defaults.
+    /// Until the backend's vector branch lands the response is keyword-only
+    /// with `vector_score: None`, which [`WorkspaceFileSearchResult::vector_score`]
+    /// tolerates.
     pub async fn search_files(
         &self,
         workspace_ref: &str,
         query: &str,
-        vector: Option<bool>,
-    ) -> Result<Vec<WorkspaceFileSearchResult>, WorkspacesApiError> {
-        let vector = if vector.unwrap_or(true) {
-            "true"
-        } else {
-            "false"
-        };
+        options: Option<SearchWorkspaceFilesOptions>,
+    ) -> Result<WorkspaceFileSearchPage, WorkspacesApiError> {
+        let options = options.unwrap_or_default();
+        let limit = options.limit.map(|limit| limit.to_string());
+        let mut params = vec![("q", query)];
+        if let Some(vector) = options.vector {
+            params.push(("vector", if vector { "true" } else { "false" }));
+        }
+        if let Some(cursor) = options
+            .cursor
+            .as_deref()
+            .filter(|cursor| !cursor.is_empty())
+        {
+            params.push(("cursor", cursor));
+        }
+        if let Some(limit) = limit.as_deref() {
+            params.push(("limit", limit));
+        }
+        if let Some(path_prefix) = options
+            .path_prefix
+            .as_deref()
+            .filter(|prefix| !prefix.is_empty())
+        {
+            params.push(("path_prefix", path_prefix));
+        }
         let data = self
             .request(
                 Method::GET,
                 &format!("/{}/files/search", encode_ref(workspace_ref)),
-                &[("q", query), ("vector", vector)],
+                &params,
                 Option::<&()>::None,
             )
             .await?;
-        Self::decode_list(data)
+        WorkspaceFileSearchPage::from_value(data)
     }
 
     pub async fn manifest(
@@ -2158,6 +2235,23 @@ mod tests {
         mock.assert_async().await;
     }
 
+    fn search_hit_json() -> Value {
+        json!({
+            "id": "file-1",
+            "workspace_id": "workspace-1",
+            "path": "docs/brief.md",
+            "display_name": "brief.md",
+            "current_version_id": "version-1",
+            "file_state": "processed",
+            "upload_status": "uploaded",
+            "processing_state": "processed",
+            "match_reasons": ["keyword"],
+            "keyword_score": 0.8,
+            "vector_score": null,
+            "score": 0.8
+        })
+    }
+
     #[tokio::test]
     async fn searches_files_with_vector_disabled() {
         let mut server = Server::new_async().await;
@@ -2166,33 +2260,115 @@ mod tests {
             .match_query(Matcher::Exact("q=brief&vector=false".into()))
             .with_status(200)
             .with_header("content-type", "application/json")
+            .with_body(json!([search_hit_json()]).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let page = client(&server)
+            .search_files(
+                "demo",
+                "brief",
+                Some(SearchWorkspaceFilesOptions {
+                    vector: Some(false),
+                    ..SearchWorkspaceFilesOptions::default()
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.results[0].file.path, "docs/brief.md");
+        assert_eq!(page.results[0].match_reasons, ["keyword"]);
+        assert_eq!(page.results[0].vector_score, None);
+        assert_eq!(page.next_cursor, None);
+        assert!(!page.has_more);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn searches_files_without_options_sends_query_only() {
+        let mut server = Server::new_async().await;
+        let mut hit = search_hit_json();
+        hit.as_object_mut().unwrap().remove("vector_score");
+        let mock = server
+            .mock("GET", "/demo/files/search")
+            .match_query(Matcher::Exact("q=brief".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!([hit]).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let page = client(&server)
+            .search_files("demo", "brief", None)
+            .await
+            .unwrap();
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.results[0].vector_score, None);
+        assert_eq!(page.next_cursor, None);
+        assert!(!page.has_more);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn searches_files_serializes_cursor_limit_and_path_prefix() {
+        let options = SearchWorkspaceFilesOptions {
+            vector: Some(true),
+            cursor: Some("cursor-1".to_owned()),
+            limit: Some(25),
+            path_prefix: Some("docs".to_owned()),
+        };
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/demo/files/search")
+            .match_query(Matcher::Exact(
+                "q=brief&vector=true&cursor=cursor-1&limit=25&path_prefix=docs".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
             .with_body(
-                json!([{
-                    "id": "file-1",
-                    "workspace_id": "workspace-1",
-                    "path": "docs/brief.md",
-                    "display_name": "brief.md",
-                    "current_version_id": "version-1",
-                    "file_state": "processed",
-                    "upload_status": "uploaded",
-                    "processing_state": "processed",
-                    "match_reasons": ["keyword"],
-                    "keyword_score": 0.8,
-                    "vector_score": null,
-                    "score": 0.8
-                }])
+                json!({
+                    "results": [search_hit_json()],
+                    "next_cursor": "cursor-2",
+                    "has_more": true
+                })
                 .to_string(),
             )
             .expect(1)
             .create_async()
             .await;
-        let files = client(&server)
-            .search_files("demo", "brief", Some(false))
+        let page = client(&server)
+            .search_files("demo", "brief", Some(options.clone()))
             .await
             .unwrap();
-        assert_eq!(files[0].file.path, "docs/brief.md");
-        assert_eq!(files[0].match_reasons, ["keyword"]);
-        assert_eq!(files[0].vector_score, None);
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
+        assert!(page.has_more);
+        mock.assert_async().await;
+
+        // The legacy snake `items`/camelCase envelope spellings decode too.
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/demo/files/search")
+            .match_query(Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "items": [search_hit_json()],
+                    "nextCursor": "cursor-3",
+                    "hasMore": true
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+        let page = client(&server)
+            .search_files("demo", "brief", Some(options))
+            .await
+            .unwrap();
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.next_cursor.as_deref(), Some("cursor-3"));
+        assert!(page.has_more);
         mock.assert_async().await;
     }
 

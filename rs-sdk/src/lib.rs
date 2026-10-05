@@ -104,10 +104,10 @@ pub use user::{ApiUser, UserClient};
 pub use workspaces::{
     derive_workspaces_api_base, CreateWorkspaceGrantRequest, CreateWorkspaceRequest,
     DownloadWorkspaceFileOptions, EnsureWorkspaceOptions, EnsureWorkspaceResult,
-    RegisterWorkspaceFileRequest, UpdateWorkspaceFileRequest, UpdateWorkspaceGrantRequest,
-    UpdateWorkspaceRequest, UploadWorkspaceFileOptions, WaitUntilProcessedOptions, Workspace,
-    WorkspaceAccessEntry, WorkspaceAccessSnapshot, WorkspaceAccessVisibility,
-    WorkspaceAgentAssociation, WorkspaceDownloadUrl, WorkspaceFile, WorkspaceFileBytes,
-    WorkspaceFileSearchResult, WorkspaceGrant, WorkspaceManifest, WorkspaceMarkdownFile,
-    WorkspacesApiClient, WorkspacesApiError,
+    RegisterWorkspaceFileRequest, SearchWorkspaceFilesOptions, UpdateWorkspaceFileRequest,
+    UpdateWorkspaceGrantRequest, UpdateWorkspaceRequest, UploadWorkspaceFileOptions,
+    WaitUntilProcessedOptions, Workspace, WorkspaceAccessEntry, WorkspaceAccessSnapshot,
+    WorkspaceAccessVisibility, WorkspaceAgentAssociation, WorkspaceDownloadUrl, WorkspaceFile,
+    WorkspaceFileBytes, WorkspaceFileSearchPage, WorkspaceFileSearchResult, WorkspaceGrant,
+    WorkspaceManifest, WorkspaceMarkdownFile, WorkspacesApiClient, WorkspacesApiError,
 };
