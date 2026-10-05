@@ -358,6 +358,36 @@ fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
     normalize_agents_ws_url(api_base.as_str())
 }
 
+/// Default hyper-acp bridge WebSocket URL for an agents API base: alias hosts
+/// map to the fixed prod/dev bridge hosts; anything else keeps its origin with
+/// a trailing `/agents` path suffix stripped. Mirrors ts-sdk
+/// `defaultHyperAcpWsUrl` and the Buzz provider's
+/// `hyper_acp_ws_url_from_api_base` — one shared host table.
+pub fn default_hyper_acp_ws_url(api_base: &str) -> Result<String, ConfigError> {
+    let api_base = normalize_agents_api_base(api_base)?;
+    let netloc = normalized_netloc(&api_base);
+    if matches!(
+        netloc.as_str(),
+        "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
+    ) {
+        return Ok(crate::types::DEFAULT_HYPER_ACP_WS_URL.to_owned());
+    }
+    if matches!(
+        netloc.as_str(),
+        "api.agents.dev.hypercli.com"
+            | "api.dev.hypercli.com"
+            | "api.dev.hyperclaw.app"
+            | "dev-api.hyperclaw.app"
+    ) {
+        return Ok(crate::types::DEV_HYPER_ACP_WS_URL.to_owned());
+    }
+    let mut custom = api_base.clone();
+    let path = api_base.path().trim_end_matches('/');
+    let path = path.strip_suffix("/agents").unwrap_or(path);
+    custom.set_path(path);
+    Ok(normalize_agents_ws_url(custom.as_str())?.to_string())
+}
+
 /// Resolve the agents WebSocket URL from env and HyperCLI data-dir config
 /// (derive-only; there is no `AGENTS_WS_URL` override), mirroring
 /// [`discover_agents_api_base`].
@@ -653,6 +683,46 @@ mod tests {
         // Strict derive-only: legacy agents overrides are ignored entirely.
         assert_eq!(config.api_base.as_str(), DEFAULT_AGENTS_API_BASE);
         assert_eq!(config.trace_file, None);
+    }
+
+    #[test]
+    fn hyper_acp_ws_url_derives_tier_from_configured_base() {
+        // Host-table parity with ts-sdk `defaultHyperAcpWsUrl` and the
+        // provider's `hyper_acp_ws_url_from_api_base`.
+        for base in [
+            "https://api.hypercli.com/agents",
+            "https://api.agents.hypercli.com",
+            "https://api.hyperclaw.app",
+        ] {
+            assert_eq!(
+                default_hyper_acp_ws_url(base).unwrap(),
+                crate::types::DEFAULT_HYPER_ACP_WS_URL
+            );
+        }
+        for base in [
+            "https://api.dev.hypercli.com/agents",
+            "https://api.agents.dev.hypercli.com",
+            "https://api.dev.hyperclaw.app",
+            "https://dev-api.hyperclaw.app",
+        ] {
+            assert_eq!(
+                default_hyper_acp_ws_url(base).unwrap(),
+                crate::types::DEV_HYPER_ACP_WS_URL
+            );
+        }
+        // Custom hosts keep the origin, drop a trailing /agents, gain /ws.
+        assert_eq!(
+            default_hyper_acp_ws_url("https://agents.example.test/agents").unwrap(),
+            "wss://agents.example.test/ws"
+        );
+        assert_eq!(
+            default_hyper_acp_ws_url("http://127.0.0.1:8443/agents").unwrap(),
+            "ws://127.0.0.1:8443/ws"
+        );
+        assert_eq!(
+            default_hyper_acp_ws_url("https://agents.example.test").unwrap(),
+            "wss://agents.example.test/ws"
+        );
     }
 
     #[test]

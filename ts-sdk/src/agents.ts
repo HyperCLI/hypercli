@@ -211,6 +211,15 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
 };
 export const DEFAULT_BUZZ_RUST_LOG =
   'hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off';
+// Sync direction: this set mirrors the provider's AUTHORITATIVE_ENV_KEYS
+// (acp/buzz-backend-provider) — the boundary enforcer — and rs-sdk
+// BUZZ_RESERVED_ENV; a provider-side parity test asserts the three key sets
+// are identical. Keys the provider deliberately passes through as caller
+// policy (BUZZ_ACP_MODEL, BUZZ_ACP_AGENTS, BUZZ_ACP_LAZY_POOL,
+// BUZZ_ACP_DEDUP, BUZZ_ACP_SESSION_TITLE, BUZZ_ACP_IDLE_TIMEOUT,
+// BUZZ_ACP_MAX_TURN_DURATION — typed buzz config mints overwrite caller
+// values) are excluded on purpose: they remain caller-settable launch policy
+// at the boundary.
 const BUZZ_RESERVED_ENV_KEYS = new Set([
   'HYPER_AGENTS_API_KEY',
   'BUZZ_PRIVATE_KEY',
@@ -224,34 +233,34 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_AGENT_COMMAND',
   'BUZZ_ACP_AGENT_ARGS',
   'BUZZ_ACP_MCP_COMMAND',
+  'BUZZ_ACP_MULTIPLE_EVENT_HANDLING',
   'BUZZ_ACP_RELAY_OBSERVER',
-  'BUZZ_ACP_DISPLAY_NAME',
-  'BUZZ_ACP_TEXT_MENTIONS',
-  // No longer minted by the SDK (dead: nothing reads them); kept listed so
-  // caller-supplied values are stripped.
-  'BUZZ_ACP_REQUIRE_REPLY',
-  'BUZZ_AGENT_REQUIRE_REPLY',
-  'CLAUDE_CODE_EXECUTABLE',
-  'BUZZ_ACP_SYSTEM_PROMPT',
-  'BUZZ_ACP_SYSTEM_PROMPT_FILE',
-  'BUZZ_ACP_EXIT_AFTER_INACTIVITY',
   'BUZZ_ACP_RESPOND_TO',
   'BUZZ_ACP_RESPOND_TO_ALLOWLIST',
-  'BUZZ_ACP_MULTIPLE_EVENT_HANDLING',
+  'BUZZ_ACP_EXIT_AFTER_INACTIVITY',
   'BUZZ_ACP_SETUP_PAYLOAD',
   'BUZZ_MANAGED_AGENT',
   'BUZZ_MANAGED_AGENT_START_NONCE',
-  'HYPER_ACP_WS_URL',
-  'HYPER_ACP_AGENT_COMMAND',
-  'HYPER_ACP_AGENT_ARGS',
+  // No longer minted anywhere (dead: nothing reads them); kept listed so
+  // caller-supplied values are stripped.
+  'BUZZ_ACP_DISPLAY_NAME',
+  'BUZZ_ACP_TEXT_MENTIONS',
+  'BUZZ_ACP_REQUIRE_REPLY',
+  'BUZZ_AGENT_REQUIRE_REPLY',
+  'BUZZ_ACP_SYSTEM_PROMPT',
+  'BUZZ_ACP_SYSTEM_PROMPT_FILE',
   'HYPER_ACP_WS_LISTEN',
   'HYPER_ACP_LOG',
   'HYPER_ACP_WS_TOKEN',
-  'HYPER_ACP_AUTO_APPROVE_PERMISSION',
+  'HYPER_ACP_WS_URL',
+  'HYPER_ACP_AGENT_COMMAND',
+  'HYPER_ACP_AGENT_ARGS',
   'HYPER_ACP_PERMISSIONS',
   'HYPER_ACP_PERMISSION_MODE',
+  'HYPER_ACP_AUTO_APPROVE_PERMISSION',
   'HYPER_ACP_TRACE_DB',
   'HYPER_ACP_CORS_ORIGIN',
+  'CLAUDE_CODE_EXECUTABLE',
   'HYPER_WORKSPACES_BOOT_SYNC',
   'HYPER_WORKSPACES_SYNC_READY_ONLY',
   'HYPER_WORKSPACES_SYNC_WORKSPACE',
@@ -1281,7 +1290,9 @@ export interface BuzzLaunchConfig {
   parallelism?: number;
   respondTo?: string | null;
   respondToAllowlist?: string[];
+  /** @deprecated No reader remains: BUZZ_ACP_DISPLAY_NAME is no longer minted. */
   displayName?: string | null;
+  /** @deprecated No reader remains: BUZZ_ACP_TEXT_MENTIONS is no longer minted. */
   textMentions?: boolean;
   sessionTitle?: string | null;
   rustLog?: string;
@@ -1314,7 +1325,6 @@ function buildBuzzLaunchEnv(
   }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
-    BUZZ_ACP_DISPLAY_NAME: buzz.displayName,
     BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
     BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
     BUZZ_ACP_MODEL: buzz.model,
@@ -1332,7 +1342,6 @@ function buildBuzzLaunchEnv(
   for (const [key, value] of Object.entries(optional)) {
     if (value) env[key] = value;
   }
-  if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
   return env;
 }
 
@@ -1340,7 +1349,6 @@ function buildBuzzLaunchSecrets(buzz: BuzzLaunchConfig): Record<string, string> 
   if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
   const secrets: Record<string, string> = {
     BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
-    NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
   };
   // The NIP-OA attestation is a bearer credential: keep it in the k8s-backed
   // secrets projection (unrolled to env at launch) rather than plaintext env.

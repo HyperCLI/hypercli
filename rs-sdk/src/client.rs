@@ -22,6 +22,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
+use crate::types::BUZZ_DEPLOYMENT_TAG;
 use crate::{
     parse_agent_log_frame, AgentAccessIdentity, AgentCapacity, AgentDirectoryListing,
     AgentFileEntry, AgentLaunchValueMutation, AgentLogFrame, AgentsMe, ApiKey, AuthMe,
@@ -201,6 +202,34 @@ impl HyperCliError {
             _ => None,
         }
     }
+}
+
+/// Mint the ACP bridge URL for Buzz-tagged launches at the client edge,
+/// derived from the client's configured agents base (ts
+/// `defaultHyperAcpWsUrl(this.apiBase)` parity): a dev-configured client must
+/// never ship a prod-pointing `HYPER_ACP_WS_URL`. Builder-level requests stay
+/// free of the mint, so the value always reflects the actual dial target.
+fn mint_buzz_bridge_env(
+    request: &CreateDeploymentRequest,
+    body: &mut Value,
+    api_base: &Url,
+) -> Result<(), HyperCliError> {
+    if !request.tags.iter().any(|tag| tag == BUZZ_DEPLOYMENT_TAG) {
+        return Ok(());
+    }
+    let ws_url = crate::config::default_hyper_acp_ws_url(api_base.as_str())
+        .map_err(|_| HyperCliError::InvalidResponse("invalid agents API base".to_owned()))?;
+    let object = body.as_object_mut().ok_or_else(|| {
+        HyperCliError::InvalidResponse("deployment request must serialize as an object".to_owned())
+    })?;
+    let env = object
+        .entry("env".to_owned())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let env = env.as_object_mut().ok_or_else(|| {
+        HyperCliError::InvalidResponse("deployment env must serialize as an object".to_owned())
+    })?;
+    env.insert("HYPER_ACP_WS_URL".to_owned(), Value::String(ws_url));
+    Ok(())
 }
 
 fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliError> {
@@ -2081,7 +2110,8 @@ impl HyperCliClient {
         request: &CreateDeploymentRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint("deployments");
-        let request_body = deployment_request_body(request)?;
+        let mut request_body = deployment_request_body(request)?;
+        mint_buzz_bridge_env(request, &mut request_body, &self.api_base)?;
         let request_trace = Some(redacted_launch_trace(request_body.clone()));
         let started = Instant::now();
         let response = match self.send_with_retry(
@@ -4083,6 +4113,52 @@ mod tests {
             serde_json::to_value(StartDeploymentRequest::new()).unwrap(),
             json!({})
         );
+    }
+
+    #[test]
+    fn buzz_create_mints_bridge_url_from_configured_base() {
+        let mut server = Server::new();
+        // The client's custom agents base derives the tunnel URL: /agents
+        // stripped, scheme swapped to ws(s), /ws appended.
+        let expected_ws = format!("{}/ws", server.url().replace("http", "ws"));
+        let create = server
+            .mock("POST", "/agents/deployments")
+            .match_body(Matcher::PartialJson(json!({
+                "env": {"HYPER_ACP_WS_URL": expected_ws}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"creating"}"#)
+            .create();
+
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        crate::BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut request, None)
+            .unwrap();
+        client(&server).create_deployment(&request).unwrap();
+
+        create.assert();
+    }
+
+    #[test]
+    fn bridge_env_mints_only_for_buzz_tagged_requests() {
+        let api_base = Url::parse("https://api.dev.hypercli.com/agents").unwrap();
+
+        let mut buzz = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        crate::BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut buzz, None)
+            .unwrap();
+        let mut buzz_body = deployment_request_body(&buzz).unwrap();
+        mint_buzz_bridge_env(&buzz, &mut buzz_body, &api_base).unwrap();
+        assert_eq!(
+            buzz_body["env"]["HYPER_ACP_WS_URL"],
+            json!(crate::DEV_HYPER_ACP_WS_URL)
+        );
+
+        let generic = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let mut generic_body = deployment_request_body(&generic).unwrap();
+        mint_buzz_bridge_env(&generic, &mut generic_body, &api_base).unwrap();
+        assert!(generic_body["env"].get("HYPER_ACP_WS_URL").is_none());
     }
 
     #[test]

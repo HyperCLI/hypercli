@@ -1070,6 +1070,7 @@ impl RouteConfig {
 pub const DEFAULT_BUZZ_RUST_LOG: &str =
     "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off";
 pub const DEFAULT_HYPER_ACP_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
+pub const DEV_HYPER_ACP_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
 /// Stable, non-secret resource tag applied to deployments managed by Buzz.
 ///
 /// The per-agent `buzz_agent=<pubkey>` tag remains the identity seam. This
@@ -1105,38 +1106,38 @@ pub const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_PRIVATE_KEY",
     "BUZZ_ACP_API_TOKEN",
     "BUZZ_RELAY_URL",
+    "BUZZ_ACP_AGENT_OWNER",
     "BUZZ_ACP_AGENT_COMMAND",
     "BUZZ_ACP_AGENT_ARGS",
     "BUZZ_ACP_MCP_COMMAND",
+    "BUZZ_ACP_MULTIPLE_EVENT_HANDLING",
     "BUZZ_ACP_RELAY_OBSERVER",
-    "BUZZ_ACP_DISPLAY_NAME",
-    "BUZZ_ACP_TEXT_MENTIONS",
-    // No longer minted by the SDK (dead: nothing reads them); kept listed so
-    // caller-supplied values are stripped.
-    "BUZZ_ACP_REQUIRE_REPLY",
-    "BUZZ_AGENT_REQUIRE_REPLY",
-    "CLAUDE_CODE_EXECUTABLE",
-    "BUZZ_ACP_SYSTEM_PROMPT",
-    "BUZZ_ACP_SYSTEM_PROMPT_FILE",
-    "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
     "BUZZ_ACP_RESPOND_TO",
     "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
-    "BUZZ_ACP_AGENT_OWNER",
-    "BUZZ_ACP_MULTIPLE_EVENT_HANDLING",
+    "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
     "BUZZ_ACP_SETUP_PAYLOAD",
     "BUZZ_MANAGED_AGENT",
     "BUZZ_MANAGED_AGENT_START_NONCE",
-    "HYPER_ACP_WS_URL",
-    "HYPER_ACP_AGENT_COMMAND",
-    "HYPER_ACP_AGENT_ARGS",
-    "HYPER_ACP_AUTO_APPROVE_PERMISSION",
-    "HYPER_ACP_PERMISSIONS",
-    "HYPER_ACP_PERMISSION_MODE",
+    // No longer minted anywhere (dead: nothing reads them); kept listed so
+    // caller-supplied values are stripped.
+    "BUZZ_ACP_DISPLAY_NAME",
+    "BUZZ_ACP_TEXT_MENTIONS",
+    "BUZZ_ACP_REQUIRE_REPLY",
+    "BUZZ_AGENT_REQUIRE_REPLY",
+    "BUZZ_ACP_SYSTEM_PROMPT",
+    "BUZZ_ACP_SYSTEM_PROMPT_FILE",
     "HYPER_ACP_WS_LISTEN",
     "HYPER_ACP_LOG",
     "HYPER_ACP_WS_TOKEN",
+    "HYPER_ACP_WS_URL",
+    "HYPER_ACP_AGENT_COMMAND",
+    "HYPER_ACP_AGENT_ARGS",
+    "HYPER_ACP_PERMISSIONS",
+    "HYPER_ACP_PERMISSION_MODE",
+    "HYPER_ACP_AUTO_APPROVE_PERMISSION",
     "HYPER_ACP_TRACE_DB",
     "HYPER_ACP_CORS_ORIGIN",
+    "CLAUDE_CODE_EXECUTABLE",
     "HYPER_WORKSPACES_BOOT_SYNC",
     "HYPER_WORKSPACES_SYNC_READY_ONLY",
     "HYPER_WORKSPACES_SYNC_WORKSPACE",
@@ -1159,7 +1160,11 @@ pub struct BuzzLaunchConfig {
     pub parallelism: u32,
     pub respond_to: Option<String>,
     pub respond_to_allowlist: Vec<String>,
+    /// Retained for source compatibility. `BUZZ_ACP_DISPLAY_NAME` /
+    /// `BUZZ_ACP_TEXT_MENTIONS` have no readers anymore, so the launch request
+    /// no longer mints them.
     pub display_name: Option<String>,
+    /// See `display_name`.
     pub text_mentions: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
@@ -1255,15 +1260,8 @@ impl BuzzLaunchConfig {
             request.secrets.remove(*key);
         }
         request
-            .env
-            .insert("HYPER_ACP_PERMISSION_MODE".to_owned(), "default".to_owned());
-        request
             .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), self.private_key_nsec.clone());
-        request.secrets.insert(
-            "NOSTR_PRIVATE_KEY".to_owned(),
-            self.private_key_nsec.clone(),
-        );
         request
             .env
             .insert("BUZZ_RELAY_URL".to_owned(), self.relay_url.clone());
@@ -1286,10 +1284,11 @@ impl BuzzLaunchConfig {
         request
             .env
             .insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
-        request.env.insert(
-            "HYPER_ACP_WS_URL".to_owned(),
-            DEFAULT_HYPER_ACP_WS_URL.to_owned(),
-        );
+        // HYPER_ACP_WS_URL is NOT minted here: HyperCliClient::create_deployment
+        // derives it from the client's configured agents base
+        // (crate::config::default_hyper_acp_ws_url, ts `defaultHyperAcpWsUrl`
+        // parity) so a dev-configured client never ships a prod-pointing
+        // bridge URL. The reserved strip above keeps caller values out.
         request
             .env
             .insert("BUZZ_ACP_AGENTS".to_owned(), self.parallelism.to_string());
@@ -1313,16 +1312,6 @@ impl BuzzLaunchConfig {
             "BUZZ_AUTH_TAG",
             self.auth_tag.as_deref(),
         );
-        insert_nonempty(
-            &mut request.env,
-            "BUZZ_ACP_DISPLAY_NAME",
-            self.display_name.as_deref(),
-        );
-        if self.text_mentions {
-            request
-                .env
-                .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
-        }
         insert_nonempty(
             &mut request.env,
             "BUZZ_ACP_SESSION_TITLE",
@@ -1507,7 +1496,7 @@ impl std::ops::DerefMut for CreateDeploymentRequest {
 
 impl CreateDeploymentRequest {
     pub fn new(runtime: ManagedRuntime) -> Self {
-        let mut request = Self {
+        Self {
             meta: None,
             name: None,
             handle: None,
@@ -1517,13 +1506,7 @@ impl CreateDeploymentRequest {
             runner: None,
             launch_config: CompleteDeploymentLaunchConfig::default(),
             dry_run: false,
-        };
-        if runtime.default_buzz_image().is_some() {
-            request
-                .env
-                .insert("HYPER_ACP_PERMISSION_MODE".to_owned(), "default".to_owned());
         }
-        request
     }
 
     /// Mark this deployment as Buzz-managed and, when known, attach its
@@ -2518,10 +2501,6 @@ mod tests {
         request
             .env
             .insert("BUZZ_MANAGED_AGENT".to_owned(), "forged".to_owned());
-        request.env.insert(
-            "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
-            "forged".to_owned(),
-        );
         request
             .env
             .insert("RUST_LOG".to_owned(), "debug".to_owned());
@@ -2557,10 +2536,9 @@ mod tests {
                 .map(String::as_str),
             Some("/opt/hypercli/bin/opencode")
         );
-        assert_eq!(
-            request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
-            Some(DEFAULT_HYPER_ACP_WS_URL)
-        );
+        // apply_to no longer mints the bridge URL; the client create path
+        // derives it from the configured agents base (see client.rs).
+        assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request
             .env
@@ -2570,17 +2548,14 @@ mod tests {
             Some("acp")
         );
         assert!(!request.env.contains_key("BUZZ_ACP_MCP_COMMAND"));
-        assert_eq!(
-            request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
-            Some("Fizz4")
-        );
         // Dead env keys are stripped as reserved, never minted.
+        assert!(!request.env.contains_key("BUZZ_ACP_DISPLAY_NAME"));
         assert!(!request.env.contains_key("BUZZ_ACP_REQUIRE_REPLY"));
         assert!(!request.env.contains_key("BUZZ_AGENT_REQUIRE_REPLY"));
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
         assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
         assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");
-        assert_eq!(request.secrets["NOSTR_PRIVATE_KEY"], "nsec1test");
+        assert!(!request.secrets.contains_key("NOSTR_PRIVATE_KEY"));
         // The NIP-OA attestation is a bearer credential: secrets projection,
         // never the plaintext env map.
         assert!(!request.env.contains_key("BUZZ_AUTH_TAG"));
@@ -2590,16 +2565,6 @@ mod tests {
         );
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
-        // The SDK no longer mints a start nonce; caller-supplied values are
-        // still stripped so users cannot inject the reserved key.
-        assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT_START_NONCE"));
-        assert_eq!(
-            request
-                .env
-                .get("BUZZ_ACP_TEXT_MENTIONS")
-                .map(String::as_str),
-            Some("true")
-        );
         assert_eq!(
             request
                 .env
@@ -2653,7 +2618,8 @@ mod tests {
                 assert!(!request.env.contains_key(key), "{key}");
                 assert!(!request.secrets.contains_key(key), "{key}");
             }
-            assert_eq!(request.env["HYPER_ACP_WS_URL"], DEFAULT_HYPER_ACP_WS_URL);
+            // The client derives the transport endpoint after rendering typed launch settings.
+            assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
             assert_eq!(request.env["BUZZ_RELAY_URL"], "wss://buzz.example.test");
             assert!(!request.secrets.contains_key("HYPER_ACP_WS_URL"));
             assert!(!request.secrets.contains_key("BUZZ_RELAY_URL"));
@@ -2938,7 +2904,6 @@ mod tests {
 
             assert_eq!(serde_json::to_value(runtime).unwrap(), runtime_name);
             assert_eq!(request.image.as_deref(), contract["image"].as_str());
-            assert_eq!(request.env["HYPER_ACP_PERMISSION_MODE"], "default");
             assert_eq!(
                 request.env["BUZZ_ACP_AGENT_COMMAND"],
                 contract["agent_command"]
@@ -2946,6 +2911,14 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
             assert!(!request.env.contains_key("BUZZ_ACP_MCP_COMMAND"));
             for (key, value) in golden["common_env"].as_object().unwrap() {
+                if key == "HYPER_ACP_WS_URL" {
+                    // The builder no longer mints the bridge URL — the client
+                    // create path derives it from the configured agents base
+                    // (see client.rs). The fixture pins the prod surface the
+                    // ts-sdk's mock client still sends.
+                    assert!(!request.env.contains_key(key));
+                    continue;
+                }
                 assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
             }
             let expected_env = contract["env"].as_object().unwrap();
@@ -3134,10 +3107,9 @@ mod tests {
             .apply_to(&mut request, None)
             .unwrap();
 
-        assert_eq!(
-            request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
-            Some(DEFAULT_HYPER_ACP_WS_URL)
-        );
+        // The builder no longer mints the bridge URL; the client create path
+        // derives it from the configured agents base (see client.rs).
+        assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
         assert_eq!(
             request.command,
             ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
@@ -3168,10 +3140,7 @@ mod tests {
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.activity = false;
         buzz.apply_to(&mut request, None).unwrap();
-        assert_eq!(
-            request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
-            Some(DEFAULT_HYPER_ACP_WS_URL)
-        );
+        assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
         assert!(!request.env.contains_key("HYPER_ACP_LOG"));
