@@ -641,10 +641,13 @@ describe('Workspaces SDK', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
-    const files = await api.searchFiles('demo', 'brief', { userId: 'user-1' }, { vector: false });
+    const page = await api.searchFiles('demo', 'brief', { userId: 'user-1' }, { vector: false });
 
-    expect(files[0]?.path).toBe('docs/brief.md');
-    expect(files[0]?.matchReasons).toEqual(['keyword']);
+    expect(page.results[0]?.path).toBe('docs/brief.md');
+    expect(page.results[0]?.matchReasons).toEqual(['keyword']);
+    expect(page.results[0]?.vectorScore).toBeNull();
+    expect(page.nextCursor).toBeNull();
+    expect(page.hasMore).toBe(false);
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/search?q=brief&vector=false');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',

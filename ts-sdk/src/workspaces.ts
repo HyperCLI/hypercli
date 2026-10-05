@@ -112,6 +112,28 @@ export interface WorkspaceFileSearchResult extends WorkspaceFile {
   score: number;
 }
 
+export interface WorkspaceFileSearchOptions {
+  /**
+   * Ranking toggle, wire name `vector`. Omitted defers to the backend default
+   * (`vector=true`); the workspaces service is keyword-only until its hybrid
+   * branch ships, so both spellings rank identically today.
+   */
+  vector?: boolean;
+  /** Opaque cursor from a previous page's nextCursor (wire `cursor`). */
+  cursor?: string;
+  /** Page size hint (wire `limit`); today's route hardcodes 50 server-side. */
+  limit?: number;
+  /** Restrict matches to paths under this prefix (wire `path_prefix`). */
+  pathPrefix?: string;
+}
+
+export interface WorkspaceFileSearchPage {
+  results: WorkspaceFileSearchResult[];
+  /** Opaque cursor for the next page; null on the terminal page or when the backend answered with a bare array. */
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export interface WorkspaceManifest {
   workspaceId: string;
   workspaceName: string;
@@ -308,6 +330,20 @@ function fileSearchResultFromDict(data: any): WorkspaceFileSearchResult {
           ? Number(data.vectorScore)
           : null,
     score: Number(data?.score ?? 0),
+  };
+}
+
+function searchPageFromDict(payload: unknown): WorkspaceFileSearchPage {
+  if (Array.isArray(payload)) {
+    return { results: payload.map(fileSearchResultFromDict), nextCursor: null, hasMore: false };
+  }
+  const data: any = payload && typeof payload === 'object' ? payload : {};
+  const rows = Array.isArray(data.items) ? data.items : Array.isArray(data.results) ? data.results : [];
+  const cursor = data.next_cursor ?? data.nextCursor;
+  return {
+    results: rows.map(fileSearchResultFromDict),
+    nextCursor: typeof cursor === 'string' && cursor ? cursor : null,
+    hasMore: (data.has_more ?? data.hasMore) === true,
   };
 }
 
@@ -719,15 +755,30 @@ export class WorkspacesAPI {
     return (data || []).map(fileFromDict);
   }
 
+  /**
+   * Search workspace files. `vector` is only sent when explicitly set —
+   * omitted defers to the backend default (`true`, keyword-only until the
+   * hybrid branch ships). `cursor`/`limit`/`pathPrefix` ride the query string for
+   * the paginated backend; today's route ignores them and answers with a bare
+   * array, which surfaces as `{ results, nextCursor: null, hasMore: false }`.
+   */
   async searchFiles(
     workspaceRef: string,
     query: string,
     subject: WorkspaceSubjectOptions = {},
-    options: { vector?: boolean } = {},
-  ): Promise<WorkspaceFileSearchResult[]> {
-    const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
-    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/files/search?${params.toString()}`, subject);
-    return (data || []).map(fileSearchResultFromDict);
+    options: WorkspaceFileSearchOptions = {},
+  ): Promise<WorkspaceFileSearchPage> {
+    const params = new URLSearchParams({ q: query });
+    if (options.vector !== undefined) params.set('vector', String(options.vector));
+    if (options.cursor) params.set('cursor', options.cursor);
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    if (options.pathPrefix) params.set('path_prefix', options.pathPrefix);
+    const payload = await this.request<unknown>(
+      'GET',
+      `/${encodeRef(workspaceRef)}/files/search?${params.toString()}`,
+      subject,
+    );
+    return searchPageFromDict(payload);
   }
 
   async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
