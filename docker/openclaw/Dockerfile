@@ -16,7 +16,6 @@ USER root
 COPY --from=upstream-openclaw /app /app
 RUN hyper-acp --help >/dev/null
 RUN mkdir -p /opt/hypercli-openclaw /home/node/.openclaw && \
-    ln -sf /app/openclaw.mjs /usr/local/bin/openclaw && \
     chown -R node:node /home/node /opt/hypercli-openclaw /app
 
 RUN set -eux; \
@@ -40,6 +39,7 @@ COPY entrypoint.sh /opt/hypercli-openclaw/entrypoint.sh
 COPY init.sh /opt/hypercli-openclaw/init.sh
 COPY config.ts /opt/hypercli-openclaw/config.ts
 COPY models.ts /opt/hypercli-openclaw/models.ts
+COPY --chmod=755 openclaw.sh /usr/local/bin/openclaw
 RUN chmod +x /opt/hypercli-openclaw/entrypoint.sh /opt/hypercli-openclaw/init.sh && \
     chown -R node:node /opt/hypercli-openclaw && \
     openclaw --version
