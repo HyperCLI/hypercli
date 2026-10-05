@@ -2348,7 +2348,9 @@ mod tests {
         let mut server = Server::new_async().await;
         let mock = server
             .mock("GET", "/demo/files/search")
-            .match_query(Matcher::Any)
+            .match_query(Matcher::Exact(
+                "q=brief&vector=true&cursor=cursor-1&limit=25&path_prefix=docs".into(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
