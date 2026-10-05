@@ -11,6 +11,7 @@ mod files;
 mod instances;
 mod jobs;
 mod keys;
+mod memory;
 mod models;
 mod openclaw;
 mod renders;
@@ -21,8 +22,8 @@ mod user;
 mod workspaces;
 
 pub use acp::{
-    AcpClient, AcpError, AcpPromptAcceptance, AcpPromptResult, AcpUpdateReceiver, ACP_PROTOCOL_VERSION,
-    DEFAULT_OPEN_TIMEOUT,
+    AcpClient, AcpError, AcpPromptAcceptance, AcpPromptResult, AcpUpdateReceiver,
+    ACP_PROTOCOL_VERSION, DEFAULT_OPEN_TIMEOUT,
 };
 pub use billing::{Balance, BillingClient, Transaction};
 pub use client::{
@@ -38,8 +39,8 @@ pub use config::{
     discover_client_config_from_config_dir, normalize_agents_api_base, normalize_agents_ws_url,
     remove_config_api_keys, remove_config_api_keys_in_data_dir, save_api_base_in_data_dir,
     save_api_key, save_api_key_in_data_dir, write_config_values, ClientConfig, ConfigError,
-    API_KEY_CONFIG_KEYS,
-    DEFAULT_AGENTS_ADMIN_API_BASE, DEFAULT_AGENTS_API_BASE, DEFAULT_AGENTS_WS_URL,
+    API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_ADMIN_API_BASE, DEFAULT_AGENTS_API_BASE,
+    DEFAULT_AGENTS_WS_URL,
 };
 pub use files::{File, FilesClient};
 pub use instances::{GpuConfig, GpuPricing, GpuType, InstancesClient, PricingTier, Region};
@@ -48,13 +49,15 @@ pub use jobs::{
     JobListPage, JobTags, JobsClient, TERMINAL_JOB_STATES,
 };
 pub use keys::{issue_api_key_from_jwt, IssueApiKeyError, IssueApiKeyFromJwtOptions, KeysClient};
+pub use memory::{
+    MemoryApiClient, MemoryApiError, MemorySearchHit, MemorySearchOptions, MemorySearchPage,
+};
 pub use models::{ApiModel, ModelsClient};
 pub use openclaw::{
     openclaw_control_ui_allowed_origins_env, openclaw_trusted_proxies_env, OpenClawLaunchConfig,
     AGENT_RUNTIME_SCOPES, HYPER_DESKTOP_ENABLED_ENV, OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV,
-    OPENCLAW_CRON_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX,
-    OPENCLAW_IMAGE, OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE,
-    OPENCLAW_SYNC_ROOT, OPENCLAW_TRUSTED_PROXIES_ENV,
+    OPENCLAW_CRON_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX, OPENCLAW_IMAGE,
+    OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE, OPENCLAW_SYNC_ROOT, OPENCLAW_TRUSTED_PROXIES_ENV,
 };
 pub use renders::{
     AudioToTextRequest, CreateRenderRequest, FirstLastFrameVideoRequest, ImageToImageRequest,
@@ -91,11 +94,11 @@ pub use types::{
     HyperAgentSubscriptionTrial, HyperAgentSubscriptionUser, HyperAgentTokenMetrics,
     HyperAgentTypeCatalog, HyperAgentTypePlan, HyperAgentTypePreset, HyperAgentUsageHistory,
     HyperAgentUsageHistoryEntry, HyperAgentUsageSummary, HyperAgentX402CheckoutResponse,
-    JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig, RunnerTargetSpec,
-    RuntimeIdentity, SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
-    UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
-    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
-    CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
+    JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig,
+    RunnerTargetSpec, RuntimeIdentity, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
+    StartDeploymentRequest, UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES,
+    AGENT_TRANSITIONAL_STATES, BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG,
+    BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES, CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
 };
 pub use user::{ApiUser, UserClient};
 pub use workspaces::{
