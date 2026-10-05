@@ -81,6 +81,37 @@ export interface AcpSessionMessagesOptions {
   limit?: number;
 }
 
+/**
+ * One full-text transcript hit (backend `GET /sessions/search`): the durable
+ * message the query matched inside, with a server-built excerpt of the
+ * surrounding transcript words. `score` is currently always null — full-text
+ * match carries no rank.
+ */
+export interface AcpTranscriptSearchHit {
+  sessionId: string;
+  seq: number;
+  role: string;
+  /** ACP message identity when the matched frame carries one; resolve via the session's rendered messages. */
+  messageId: string | null;
+  excerpt: string;
+  score: number | null;
+}
+
+export interface AcpTranscriptSearchOptions {
+  /** Restrict the search to one session (in-transcript find); omitted searches every session the caller can read. */
+  sessionId?: string;
+  /** Opaque cursor from a previous page's nextCursor; omitted starts at the newest session activity. */
+  cursor?: string | null;
+  limit?: number;
+}
+
+/** Ascending durable-message window centered on `focusSeq` (backend `GET /sessions/{id}/messages/around`). */
+export interface AcpSessionMessagesWindow {
+  sessionId: string;
+  focusSeq: number;
+  items: AcpSessionMessage[];
+}
+
 function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T | undefined {
   const value = row[snake] ?? row[camel];
   return value === undefined ? undefined : (value as T);
@@ -184,6 +215,52 @@ export class SessionsAPI {
       },
     );
     return pageFromWire(payload ?? {}, messageFromWire);
+  }
+
+  /**
+   * Full-text search over durable transcript payloads (`GET /sessions/search`),
+   * keyset-paged over (session activity desc, seq desc). Feed `nextCursor`
+   * back in to walk further. Read-only; no read-receipt effect.
+   */
+  async searchTranscript(query: string, options: AcpTranscriptSearchOptions = {}): Promise<AcpSessionPage<AcpTranscriptSearchHit>> {
+    const payload = await this.http.get<Record<string, unknown>>('/sessions/search', {
+      q: query,
+      ...(options.sessionId ? { session_id: options.sessionId } : {}),
+      ...(options.cursor ? { cursor: options.cursor } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    });
+    return pageFromWire(payload ?? {}, (row) => {
+      const seq = row.seq;
+      return {
+        sessionId: String(row.session_id ?? ''),
+        seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
+        role: typeof row.role === 'string' ? row.role : 'assistant',
+        messageId: typeof row.message_id === 'string' ? row.message_id : null,
+        excerpt: typeof row.excerpt === 'string' ? row.excerpt : '',
+        score: typeof row.score === 'number' ? row.score : null,
+      };
+    });
+  }
+
+  /**
+   * One ascending window of durable messages around `seq` (`GET
+   * /sessions/{id}/messages/around`) — for landing a search jump on history
+   * the caller has not loaded. Never advances the read receipt.
+   */
+  async getMessagesAround(sessionId: string, seq: number, options: { radius?: number } = {}): Promise<AcpSessionMessagesWindow> {
+    const payload = await this.http.get<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}/messages/around`,
+      { seq, ...(options.radius !== undefined ? { radius: options.radius } : {}) },
+    );
+    const items = payload?.items;
+    const focusSeq = payload?.focus_seq;
+    return {
+      sessionId: String(payload?.session_id ?? sessionId),
+      focusSeq: typeof focusSeq === 'number' ? focusSeq : Number(focusSeq ?? seq),
+      items: Array.isArray(items)
+        ? items.filter((row) => row && typeof row === 'object').map(messageFromWire)
+        : [],
+    };
   }
 
   /** Exact Backend completion evidence. Session idle is deliberately not used. */

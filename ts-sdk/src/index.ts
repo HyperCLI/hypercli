@@ -445,9 +445,12 @@ export {
   type AcpSessionListOptions,
   type AcpSessionMessage,
   type AcpSessionMessagesOptions,
+  type AcpSessionMessagesWindow,
   type AcpSessionPage,
   type AcpSessionParticipant,
   type AcpSessionRecord,
+  type AcpTranscriptSearchHit,
+  type AcpTranscriptSearchOptions,
 } from './sessions.js';
 export {
   MemoryAPI,

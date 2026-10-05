@@ -149,6 +149,64 @@ describe('session detail HTTP contract', () => {
   });
 });
 
+describe('transcript search and window reads', () => {
+  const hitRow = {
+    session_id: SESSION_ID, seq: 42, role: 'assistant', message_id: 'agent-msg-7',
+    excerpt: 'the flaky vitest run', score: null,
+  };
+
+  it('searches transcripts globally with the opaque page envelope', async () => {
+    const http = fakeHttp({ items: [hitRow], next_cursor: 'k1', has_more: true });
+    const api = new SessionsAPI(http as never);
+
+    const page = await api.searchTranscript('flaky & run?', { cursor: 'cur/+=', limit: 25 });
+
+    expect(http.get).toHaveBeenCalledWith('/sessions/search', { q: 'flaky & run?', cursor: 'cur/+=', limit: 25 });
+    expect(page).toEqual({
+      items: [{
+        sessionId: SESSION_ID, seq: 42, role: 'assistant',
+        messageId: 'agent-msg-7', excerpt: 'the flaky vitest run', score: null,
+      }],
+      nextCursor: 'k1',
+      hasMore: true,
+    });
+  });
+
+  it('scopes a transcript search to one session and omits absent options', async () => {
+    const http = fakeHttp({ items: [], next_cursor: null, has_more: false });
+    const api = new SessionsAPI(http as never);
+
+    const page = await api.searchTranscript('needle', { sessionId: 'sess/1' });
+
+    expect(http.get).toHaveBeenCalledWith('/sessions/search', { q: 'needle', session_id: 'sess/1' });
+    expect(page).toEqual({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it('fetches an ascending window around a focus seq', async () => {
+    const http = fakeHttp({ session_id: 'sess/1', focus_seq: 10, items: [messageRow] });
+    const api = new SessionsAPI(http as never);
+
+    const window = await api.getMessagesAround('sess/1', 10, { radius: 5 });
+
+    expect(http.get).toHaveBeenCalledWith('/sessions/sess%2F1/messages/around', { seq: 10, radius: 5 });
+    expect(window.sessionId).toBe('sess/1');
+    expect(window.focusSeq).toBe(10);
+    expect(window.items[0].seq).toBe(42);
+    expect(window.items[0].participantId).toBe(AGENT_ID);
+  });
+
+  it('hits the real agents gateway base with the bearer key', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], has_more: false }))));
+    const client = new HyperCLI({ apiKey: 'caller-key', apiUrl: 'https://example.com' });
+    const page = await client.sessions.searchTranscript('rollback');
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/agents/sessions/search?q=rollback',
+      expect.objectContaining({ method: 'GET', headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/json' } }),
+    );
+    expect(page.items).toEqual([]);
+  });
+});
+
 describe('SessionsAPI (§15)', () => {
   it.each([undefined, null, 'slack', 'future-client'])('decodes nullable open-ended source %s', async (source) => {
     const http = fakeHttp({ items: [{ ...sessionRow, source }], has_more: false });
