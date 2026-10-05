@@ -33,7 +33,7 @@ pub use client::{
 };
 pub use config::{
     agents_admin_base_url_from_product_base, agents_ws_url_from_product_base,
-    discover_agents_api_base, discover_agents_api_base_from,
+    default_hyper_acp_ws_url, discover_agents_api_base, discover_agents_api_base_from,
     discover_agents_api_base_from_config_dir, discover_agents_ws_url, discover_agents_ws_url_from,
     discover_agents_ws_url_from_config_dir, discover_client_config, discover_client_config_from,
     discover_client_config_from_config_dir, normalize_agents_api_base, normalize_agents_ws_url,
@@ -98,8 +98,9 @@ pub use types::{
     JobLifecycleEvent, LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig, RunnerTargetSpec,
     RuntimeIdentity, SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
-    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
-    CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
+    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RESERVED_ENV,
+    BUZZ_RUNTIME_SCOPES, CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
+    DEFAULT_HYPER_ACP_WS_URL, DEV_HYPER_ACP_WS_URL,
 };
 pub use user::{ApiUser, UserClient};
 pub use workspaces::{

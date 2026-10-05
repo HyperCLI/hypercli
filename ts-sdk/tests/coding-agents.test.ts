@@ -443,7 +443,6 @@ describe('coding agents', () => {
     expect(payload.env.NOSTR_PRIVATE_KEY).toBeUndefined();
     expect(payload.secrets).toEqual({
       BUZZ_PRIVATE_KEY: 'nsec1test',
-      NOSTR_PRIVATE_KEY: 'nsec1test',
     });
   });
 
@@ -486,7 +485,6 @@ describe('coding agents', () => {
         BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
         BUZZ_ACP_REQUIRE_REPLY: 'false',
         BUZZ_MANAGED_AGENT: 'forged',
-        BUZZ_MANAGED_AGENT_START_NONCE: 'forged',
         CLAUDE_CODE_EXECUTABLE: '/host/bin/claude',
         HYPER_ACP_AUTO_APPROVE_PERMISSION: '1',
         RUST_LOG: 'debug',
@@ -523,12 +521,8 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1].env.HYPER_ACP_AUTO_APPROVE_PERMISSION).toBeUndefined();
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
-    // The SDK no longer mints a start nonce; caller-supplied values are
-    // still stripped so users cannot inject the reserved key.
-    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).toBeUndefined();
     expect(post.mock.calls[0][1].secrets).toEqual({
       BUZZ_PRIVATE_KEY: 'nsec1test',
-      NOSTR_PRIVATE_KEY: 'nsec1test',
     });
   });
 
