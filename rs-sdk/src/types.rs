@@ -2873,7 +2873,7 @@ mod tests {
                     // create path derives it from the configured agents base
                     // (see client.rs). The fixture pins the prod surface the
                     // ts-sdk's mock client still sends.
-                    assert!(request.env.get(key).is_none());
+                    assert!(!request.env.contains_key(key));
                     continue;
                 }
                 assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
