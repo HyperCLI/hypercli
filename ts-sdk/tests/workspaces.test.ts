@@ -656,6 +656,126 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('omits the vector flag by default and tolerates rows missing vector_score', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'file-1',
+            workspace_id: 'workspace-1',
+            path: 'docs/brief.md',
+            display_name: 'brief.md',
+            current_version_id: 'version-1',
+            file_state: 'processed',
+            upload_status: 'uploaded',
+            processing_state: 'processed',
+            match_reasons: ['keyword'],
+            keyword_score: 0.8,
+            score: 0.8,
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const page = await api.searchFiles('demo', 'brief');
+
+    expect(page.results[0]?.keywordScore).toBe(0.8);
+    expect(page.results[0]?.vectorScore).toBeNull();
+    expect(page.nextCursor).toBeNull();
+    expect(page.hasMore).toBe(false);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/search?q=brief');
+    vi.unstubAllGlobals();
+  });
+
+  it('opts into vector scoring when explicitly requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'file-1',
+            workspace_id: 'workspace-1',
+            path: 'docs/brief.md',
+            display_name: 'brief.md',
+            current_version_id: 'version-1',
+            file_state: 'processed',
+            upload_status: 'uploaded',
+            processing_state: 'processed',
+            match_reasons: ['semantic'],
+            keyword_score: 0,
+            vector_score: 0.42,
+            score: 0.42,
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const page = await api.searchFiles('demo', 'brief', {}, { vector: true });
+
+    expect(page.results[0]?.vectorScore).toBe(0.42);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/search?q=brief&vector=true');
+    vi.unstubAllGlobals();
+  });
+
+  it('serializes cursor, limit, and pathPrefix into the search query string', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const page = await api.searchFiles('demo', 'brief', {}, { cursor: 'cur-1', limit: 25, pathPrefix: 'docs/reports' });
+
+    expect(page.results).toEqual([]);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://workspaces.test/workspaces/demo/files/search?q=brief&cursor=cur-1&limit=25&path_prefix=docs%2Freports',
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces next cursor and has-more from envelope search responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'file-1',
+              workspace_id: 'workspace-1',
+              path: 'docs/brief.md',
+              display_name: 'brief.md',
+              current_version_id: 'version-1',
+              file_state: 'processed',
+              upload_status: 'uploaded',
+              processing_state: 'processed',
+              match_reasons: ['keyword'],
+              keyword_score: 0.8,
+              vector_score: 0.42,
+              score: 0.9,
+            },
+          ],
+          next_cursor: 'cur-2',
+          has_more: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const page = await api.searchFiles('demo', 'brief', {}, { cursor: 'cur-1', limit: 1 });
+
+    expect(page.results[0]?.path).toBe('docs/brief.md');
+    expect(page.results[0]?.score).toBe(0.9);
+    expect(page.nextCursor).toBe('cur-2');
+    expect(page.hasMore).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
   it('updates and deletes workspaces', async () => {
     const fetchMock = vi
       .fn()
