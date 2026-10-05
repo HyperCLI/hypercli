@@ -337,7 +337,7 @@ function searchPageFromDict(payload: unknown): WorkspaceFileSearchPage {
   if (Array.isArray(payload)) {
     return { results: payload.map(fileSearchResultFromDict), nextCursor: null, hasMore: false };
   }
-  const data: any = payload && typeof payload === 'object' ? payload : {};
+  const data = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
   const rows = Array.isArray(data.items) ? data.items : Array.isArray(data.results) ? data.results : [];
   const cursor = data.next_cursor ?? data.nextCursor;
   return {
