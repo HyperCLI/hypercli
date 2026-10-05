@@ -14,7 +14,7 @@ This page covers two different surfaces that share the `hyper memory` name:
 ## Session memory
 
 ```bash
-hyper memory search <query...> [-s|--session-id ID] [--limit N] [--json]
+hyper memory search <query...> [-s|--session-id ID] [-a|--agent-id ID] [--cursor CURSOR] [--limit N] [--json]
 hyper memory summary <ID> [--json]
 hyper memory chunks <ID> [--cursor CURSOR] [--limit N] [--json]
 hyper memory tail <ID> [--n N] [--json]
@@ -22,7 +22,9 @@ hyper memory rebuild <ID> [--json]
 ```
 
 `search` accepts free-text terms, optionally scoped to one session with
-`--session-id`; `--limit` must be 1-100. `summary` prints a session's summary
+`--session-id` or one agent with `--agent-id` (both may combine); `--limit`
+must be 1-100 and `--cursor` continues an earlier page from its next cursor.
+`summary` prints a session's summary
 (or its pending state). `chunks` pages a session's summarized chunks, printing
 the next cursor for further pages. `tail` prints the last `--n` messages
 (default 20). `rebuild` triggers the once-per-24h summary rebuild; a rate-limited

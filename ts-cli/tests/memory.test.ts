@@ -20,7 +20,7 @@ function setup(format: 'table' | 'json' = 'table') {
   const chunk = { id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: 'Release plan', score: 0.9 };
   const summary = { sessionId: 'session-1', title: 'Release', summaryText: 'Ship it' as string | null, summaryCursor: null, summarizedAt: null, importedAt: null, pending: false };
   const api = {
-    search: vi.fn(async () => ({ items: [chunk] })),
+    search: vi.fn(async () => ({ items: [{ ...chunk, title: 'Release', summaryText: 'Ship it', summaryKeywords: ['release'] }], nextCursor: null as string | null, hasMore: false })),
     getSummary: vi.fn(async () => summary),
     getChunks: vi.fn(async () => ({ items: [chunk], nextCursor: 'opaque+/=', hasMore: true })),
     getTail: vi.fn(async () => ({ sessionId: 'session-1', items: [{ seqStart: 9, seqEnd: 10, role: 'user', text: 'hello', participantId: null }] })),
@@ -57,6 +57,38 @@ describe('hyper memory', () => {
     const { ctx, api } = setup();
     await memory.run(ctx, ['search', 'plan']);
     expect(api.search).toHaveBeenCalledWith('plan', { sessionId: undefined, limit: undefined });
+  });
+
+  it.each(['-a', '--agent-id'])('search supports %s and passes agentId to the SDK', async (flag) => {
+    const { ctx, api } = setup();
+    const agent = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
+    await memory.run(ctx, ['search', 'plan', flag, agent]);
+    expect(api.search).toHaveBeenCalledWith('plan', { sessionId: undefined, agentId: agent, cursor: undefined, limit: undefined });
+  });
+
+  it('search passes --cursor through alongside --session-id', async () => {
+    const { ctx, api } = setup();
+    await memory.run(ctx, ['search', 'plan', '-s', 'session-1', '--cursor', 'old+/=']);
+    expect(api.search).toHaveBeenCalledWith('plan', { sessionId: 'session-1', agentId: undefined, cursor: 'old+/=', limit: undefined });
+  });
+
+  it('search renders next cursor on stderr only when present', async () => {
+    const { ctx, api } = setup();
+    const result = await api.search();
+    api.search.mockResolvedValue({ ...result, hasMore: true, nextCursor: 'opaque+/=' });
+    await memory.run(ctx, ['search', 'plan']);
+    expect(stderr).toContain('Next cursor: opaque+/=');
+    stderr = '';
+    api.search.mockResolvedValue({ ...result, hasMore: false, nextCursor: null });
+    await memory.run(ctx, ['search', 'plan']);
+    expect(stderr).toBe('');
+  });
+
+  it.each(['table', 'json'] as const)('search %s output keeps the full enriched response', async (format) => {
+    const { ctx, api } = setup(format);
+    await memory.run(ctx, ['search', 'plan']);
+    if (format === 'json') expect(JSON.parse(stdout)).toEqual(await api.search.mock.results[0].value);
+    else expect(stdout).toContain('SESSION');
   });
 
   it('fetches summary and rebuild output without local rate-limit logic', async () => {
@@ -102,6 +134,8 @@ describe('hyper memory', () => {
     ['chunks', 's', '--limit', '9007199254740992'], ['search', 'q', '--limit', '-1'],
     ['summary', 's', '--limit', '2'], ['search', 'q', '--n', '2'],
     ['search', 'q', '-s', ''], ['search', 'q', '--bogus'],
+    ['search', 'q', '--agent-id', 'not-a-uuid'], ['search', 'q', '-a', ''],
+    ['summary', 's', '--agent-id', 'a1b2c3d4-e5f6-4890-abcd-ef1234567890'],
   ])('rejects bad argv %j before constructing a client', async (...args) => {
     const { ctx, client } = setup();
     await expect(memory.run(ctx, args)).rejects.toBeInstanceOf(UsageError);

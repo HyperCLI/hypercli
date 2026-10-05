@@ -7,7 +7,7 @@ import type { CommandContext } from '../core/types.js';
 export const name = 'memory';
 export const summary = 'Search session memory, fetch summaries and history, or rebuild a summary (once per 24h).';
 export const usage = [
-  'hyper memory search <query...> [-s|--session-id ID] [--limit N] [--json]',
+  'hyper memory search <query...> [-s|--session-id ID] [-a|--agent-id ID] [--cursor CURSOR] [--limit N] [--json]',
   'hyper memory summary <ID> [--json]',
   'hyper memory chunks <ID> [--cursor CURSOR] [--limit N] [--json]',
   'hyper memory tail <ID> [--n N] [--json]',
@@ -23,8 +23,11 @@ function positiveInteger(value: unknown, flag: string): number | undefined {
   return number;
 }
 
+const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const ARG_SPEC = {
   'session-id': { type: 'string', short: 's' },
+  'agent-id': { type: 'string', short: 'a' },
   limit: { type: 'string' },
   cursor: { type: 'string' },
   n: { type: 'string' },
@@ -38,7 +41,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   }
   const [command, ...rest] = parsed.positionals;
   const allowed: Record<string, string[]> = {
-    search: ['session-id', 'limit'], summary: [], chunks: ['cursor', 'limit'], tail: ['n'], rebuild: [],
+    search: ['session-id', 'agent-id', 'cursor', 'limit'], summary: [], chunks: ['cursor', 'limit'], tail: ['n'], rebuild: [],
   };
   if (!Object.hasOwn(allowed, command)) throw new UsageError(`unknown memory command '${command}'`);
   for (const flag of Object.keys(ARG_SPEC)) {
@@ -53,14 +56,19 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   const n = positiveInteger(parsed.values.n, '--n');
   const sessionId = parsed.values['session-id'] as string | undefined;
   if (sessionId !== undefined && !sessionId.trim()) throw new UsageError('--session-id must not be empty');
+  const agentId = parsed.values['agent-id'] as string | undefined;
+  if (agentId !== undefined && !FULL_UUID.test(agentId.trim())) throw new UsageError('--agent-id must be a UUID');
   const api = (await ctx.client()).memory;
   switch (command) {
     case 'search': {
-      const result = await api.search(rest.join(' '), { sessionId, limit });
+      const result = await api.search(rest.join(' '), { sessionId, agentId, cursor: parsed.values.cursor as string | undefined, limit });
       ctx.output.result(result, result.items.length ? {
         columns: ['SESSION', 'CHUNK', 'SCORE', 'TEXT'],
         rows: result.items.map((row) => [row.sessionId, row.id, row.score, row.text]),
       } : 'No results.');
+      if (ctx.format !== 'json' && result.hasMore && result.nextCursor !== null) {
+        ctx.output.info(`Next cursor: ${result.nextCursor}`);
+      }
       return;
     }
     case 'summary': {
