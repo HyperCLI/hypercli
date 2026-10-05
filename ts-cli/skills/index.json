@@ -44,6 +44,7 @@
       "commands": [
         "hyper agents --help",
         "hyper agents <command> --help",
+        "hyper",
         "hyper agents wait <agent>",
         "hyper agents token <agent>",
         "hyper agents routines create --help",

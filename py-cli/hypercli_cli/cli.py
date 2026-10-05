@@ -71,7 +71,10 @@ def fuzzy_match(input_str: str, options: list[str], threshold: float = 0.5) -> l
 
 app = typer.Typer(
     name="hyper",
-    help="HyperCLI - GPU orchestration, flows, and x402 tooling",
+    help=(
+        "HyperCLI - GPU orchestration, flows, and x402 tooling. "
+        "Select the endpoint with HYPER_API_BASE in the environment or HyperCLI config."
+    ),
     no_args_is_help=True,
     rich_markup_mode="rich",
 )

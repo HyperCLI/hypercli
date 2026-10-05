@@ -49,8 +49,14 @@ def _load_config_file() -> dict:
         for line in config_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                config[key.strip()] = value.strip()
+                normalized = line.removeprefix("export ").strip()
+                key, value = normalized.split("=", 1)
+                value = value.strip()
+                if (value.startswith('"') and value.endswith('"')) or (
+                    value.startswith("'") and value.endswith("'")
+                ):
+                    value = value[1:-1]
+                config[key.strip()] = value
     return config
 
 

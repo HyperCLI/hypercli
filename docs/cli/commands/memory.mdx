@@ -61,7 +61,8 @@ only to caption imports, and `--no-copy-raw` omits raw source copies.
 ## Optional Remote Work
 
 `--enrich` sends sampled content to the HyperCLI `/v1` model API to generate
-summary and keyword metadata. It accepts `--model`, `--base-url`, and `--key`.
+summary and keyword metadata. It accepts `--model` and `--key`; select the API
+endpoint through canonical `HYPER_API_BASE` configuration.
 Without `--enrich`, conversion does not require a HyperCLI API call.
 
 `--index` runs `openclaw memory index` after all imports. Add `--agent <id>` to

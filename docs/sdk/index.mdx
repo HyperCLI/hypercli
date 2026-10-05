@@ -59,7 +59,9 @@ The retired overrides `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`, `HYPERCLI_WS_URL`,
 `AGENTS_API_BASE_URL`, and `AGENTS_WS_URL` are not read; per-service bases are
 derived from `HYPER_API_BASE`.
 
-Use `agent_api_key` when your HyperCLI key is different from your main HyperCLI key. Product APIs use `HYPER_API_KEY`; agent lifecycle/inference surfaces prefer `HYPER_AGENTS_API_KEY` and fall back to the product key.
+Use canonical `api_key` for an explicit credential. Otherwise clients resolve
+environment `HYPER_API_KEY`, the configured canonical key, then environment
+`HYPER_AGENTS_API_KEY` as the final fallback for product and agent APIs.
 
 ## Main Namespaces
 

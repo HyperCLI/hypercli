@@ -35,8 +35,6 @@ app = typer.Typer(help="Manage agent deployments")
 routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
 app.add_typer(routes_app, name="routes")
 console = Console()
-_GLOBAL_DEV = False
-_GLOBAL_AGENTS_WS_URL: str | None = None
 
 # Config — uses HyperCLI API key (hyper_api_...) for backend auth
 STATE_DIR = hyper_home()
@@ -215,17 +213,6 @@ def _apply_hermes_cron_env(
     return env_dict
 
 
-@app.callback()
-def agents_root(
-    dev: bool = typer.Option(False, "--dev", help="Use the dev HyperCLI agents API"),
-    agents_ws_url: str = typer.Option(None, "--agents-ws-url", help="Direct agents WebSocket base URL"),
-):
-    """Global options for agents commands."""
-    global _GLOBAL_DEV, _GLOBAL_AGENTS_WS_URL
-    _GLOBAL_DEV = dev
-    _GLOBAL_AGENTS_WS_URL = agents_ws_url
-
-
 def _get_agent_api_key() -> str:
     """Resolve HyperCLI API key from canonical config before legacy key file."""
     key = (get_config_agent_api_key() or "").strip()
@@ -242,13 +229,13 @@ def _get_agent_api_key() -> str:
     raise typer.Exit(1)
 
 
-def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
+def _get_deployments_client() -> Deployments:
     """Create a Deployments client using the HyperCLI API key."""
     from hypercli.config import get_agents_api_base_url, get_agents_ws_url
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
-    api_base = get_agents_api_base_url(dev=_GLOBAL_DEV)
-    resolved_agents_ws_url = agents_ws_url or _GLOBAL_AGENTS_WS_URL or get_agents_ws_url(dev=_GLOBAL_DEV)
+    api_base = get_agents_api_base_url()
+    resolved_agents_ws_url = get_agents_ws_url()
     http = HTTPClient(api_base, api_key)
     return Deployments(http, api_key=api_key, api_base=api_base, agents_ws_url=resolved_agents_ws_url)
 

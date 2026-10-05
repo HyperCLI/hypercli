@@ -426,7 +426,6 @@ def balance(
 @app.command("topup")
 def topup(
     amount: str = typer.Argument(help="Amount in USDC to top up (max 6 decimals)"),
-    api_url: str = typer.Option(None, help="API URL override"),
     passphrase: str = typer.Option(
         None,
         "--passphrase",
@@ -447,7 +446,7 @@ def topup(
     require_wallet_deps()
     from decimal import Decimal, InvalidOperation
     import httpx
-    from hypercli.config import get_api_key, get_api_url
+    from hypercli.config import get_agent_api_key, get_api_url
 
     try:
         from x402 import x402ClientSync
@@ -504,7 +503,7 @@ def topup(
         raise typer.Exit(1)
 
     # Step 3: Set up x402 v2 client
-    api_key = get_api_key()
+    api_key = get_agent_api_key()
     if not api_key:
         console.print("[red]❌ API key required for top-up[/red]")
         console.print(
@@ -512,7 +511,7 @@ def topup(
         )
         raise typer.Exit(1)
 
-    base_url = (api_url or get_api_url()).rstrip("/")
+    base_url = get_api_url().rstrip("/")
     user_endpoint = f"{base_url}/api/user"
     topup_endpoint = f"{base_url}/api/x402/top_up"
     auth_headers = {
@@ -600,7 +599,6 @@ def topup(
 @app.command("login")
 def wallet_login(
     name: str = typer.Option("cli", help="Name for the generated API key"),
-    api_url: str = typer.Option(None, help="API URL override"),
     passphrase: str = typer.Option(
         None,
         "--passphrase",
@@ -617,7 +615,7 @@ def wallet_login(
     from hypercli import issue_api_key_from_jwt
     from hypercli.config import get_api_url, configure
 
-    base_url = (api_url or get_api_url()).rstrip("/")
+    base_url = get_api_url().rstrip("/")
 
     # Step 1: Load wallet
     account = load_wallet(passphrase=passphrase)
@@ -643,7 +641,7 @@ def wallet_login(
     api_key = issued_key.api_key
 
     # Step 6: Save to config
-    configure(api_key, api_url)
+    configure(api_key, base_url)
 
     console.print(f"[green]✓[/green] API key created and saved!\n")
     console.print(f"  Name:    {issued_key.name}")

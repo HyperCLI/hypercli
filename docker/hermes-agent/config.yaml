@@ -7,8 +7,8 @@ model:
 providers:
   hypercli:
     name: HyperCLI
-    api: ${env:HYPER_AGENTS_API_BASE}
-    key_env: HYPER_AGENTS_API_KEY
+    api: ${env:HYPER_API_BASE}
+    key_env: HYPER_RUNTIME_API_KEY
     transport: anthropic_messages
 
 memory:

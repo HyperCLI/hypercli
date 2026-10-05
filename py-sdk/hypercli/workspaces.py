@@ -12,7 +12,7 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
-from .config import get_agents_api_base_url, get_config_value
+from .config import get_agents_api_base_url
 from .http import APIError, _handle_bytes_response, _handle_response
 
 
@@ -20,11 +20,7 @@ _UNSET = object()
 
 
 def _derive_workspaces_base(agents_api_base: str | None = None) -> str:
-    configured = get_config_value("HYPER_WORKSPACES_API_BASE")
-    if configured:
-        raw = configured.strip().rstrip("/")
-    else:
-        raw = (agents_api_base or get_agents_api_base_url()).strip().rstrip("/")
+    raw = (agents_api_base or get_agents_api_base_url()).strip().rstrip("/")
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     path = parsed.path.rstrip("/")
     if path.endswith("/workspaces"):

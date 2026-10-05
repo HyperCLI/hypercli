@@ -230,7 +230,7 @@ function makeCtx(
 ): { ctx: CommandContext; clientFactory: ReturnType<typeof vi.fn> } {
   const clientFactory = vi.fn(async () => client);
   return {
-    ctx: { client: clientFactory, output: createOutput(format), format, dev: false },
+    ctx: { client: clientFactory, output: createOutput(format), format },
     clientFactory,
   };
 }

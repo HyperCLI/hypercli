@@ -27,7 +27,7 @@ function setup(format: 'table' | 'json' = 'table') {
     rebuild: vi.fn(async () => ({ sessionId: 's', status: 'pending' })),
   };
   const client = vi.fn(async () => ({ memory: api }) as unknown as HyperCLI);
-  const ctx: CommandContext = { client, format, output: createOutput(format), dev: false };
+  const ctx: CommandContext = { client, format, output: createOutput(format) };
   return { api, ctx, client };
 }
 

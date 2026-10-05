@@ -4,14 +4,10 @@
 #
 # Required env (set by the workflow):
 #   HYPER_API_KEY   — CI key (hypercli-ci-v2, scope *:*)
-#   HYPER_API_BASE=https://api.dev.hypercli.com — product API. Mandatory:
-#   --dev only retargets the AGENTS API; jobs/flow/files/voice read apiUrl
-#   from HYPER_API_BASE and would silently hit prod (401) without it.
+#   HYPER_API_BASE=https://api.dev.hypercli.com — the base for all APIs.
 #
 # Conventions:
-#   --dev trails subcommand args (hyper --dev agents ls is rejected).
-#   For agents exec / jobs create / jobs exec, --dev must come BEFORE `--`
-#   (everything after -- is folded into the command string).
+#   Environment selection uses HYPER_API_BASE, never public CLI flags.
 #   Exit codes: 0 ok, 1 CliError (mapped API error), 2 UsageError.
 #   Errors print "error: <msg>" on stderr; info ("total N") always stderr.
 #   Persistent refs: hypercli-ci-*; hypercli-ci-does-not-exist never resolves.
@@ -86,7 +82,7 @@ sweep_unreclaimable() {
 
 # Full visible inventory as id<TAB>name<TAB>state, DELETED rows dropped.
 sweep_inventory() {
-  if ! sweep_cli agents ls --json --dev; then
+  if ! sweep_cli agents ls --json; then
     echo "sweep: 'agents ls' failed (http=${SWEEP_HTTP}); refusing to sweep blind" >&2
     return 1
   fi
@@ -109,7 +105,7 @@ JS
 
 # Current state of one agent, or MISSING when the backend no longer has it.
 sweep_state() {
-  if sweep_cli agents status "$1" --json --dev; then
+  if sweep_cli agents status "$1" --json; then
     node - "${SWEEP_OUT}" <<'JS'
 const fs = require('node:fs');
 let row;
@@ -140,11 +136,11 @@ sweep_agent() {
           sweep_unreclaimable "${id}" "${name}" "${state}" "restarted-after-stop"; return 1
         fi
         step "sweep ${name} (${id}) state=${state}: stop"
-        if ! sweep_cli agents stop "${id}" --yes --dev; then
+        if ! sweep_cli agents stop "${id}" --yes; then
           sweep_unreclaimable "${id}" "${name}" "${state}" "stop-rejected-http-${SWEEP_HTTP}"; return 1
         fi
         stops=$((stops + 1))
-        sweep_cli agents wait "${id}" --state STOPPED --timeout 120 --interval 5 --dev || true
+        sweep_cli agents wait "${id}" --state STOPPED --timeout 120 --interval 5 || true
         ;;
       STOPPED|ARCHIVED)
         # The only two states DELETE is admitted from.
@@ -152,7 +148,7 @@ sweep_agent() {
           sweep_unreclaimable "${id}" "${name}" "${state}" "survived-delete"; return 1
         fi
         step "sweep ${name} (${id}) state=${state}: delete"
-        if ! sweep_cli agents delete "${id}" --yes --dev; then
+        if ! sweep_cli agents delete "${id}" --yes; then
           sweep_unreclaimable "${id}" "${name}" "${state}" "delete-rejected-http-${SWEEP_HTTP}"; return 1
         fi
         deletes=$((deletes + 1))
@@ -182,7 +178,7 @@ sweep_account() {
   : "${HYPERCLI_CI_USER_ID:?Set the dedicated CI account UUID; the sweep deletes every agent it can list and must not run against a personal account}"
   sweep_init
   step "presweep: confirming the key belongs to CI account ${HYPERCLI_CI_USER_ID}"
-  if ! sweep_cli me --json --dev; then
+  if ! sweep_cli me --json; then
     echo "sweep: 'me' failed (http=${SWEEP_HTTP}); refusing to sweep" >&2
     return 1
   fi
@@ -232,35 +228,26 @@ sweep_require_capacity() {
 }
 
 # assert_fail <want-rc> <grep -F pattern> -- <argv...>
-# Runs the CLI (append --dev before any `--`). Non-zero rc is the success
+# Runs the CLI with the configured product base. Non-zero rc is the success
 # case; rc 0 fails the test.
 assert_fail() {
   local want="$1" pat="$2" out rc=0; shift 2
   [ "$1" = "--" ] && shift
   local args=("$@")
-  local dev_args=() token placed=0
-  for token in "${args[@]}"; do
-    if [ "$placed" = 0 ] && [ "$token" = "--" ]; then
-      dev_args+=("--dev")
-      placed=1
-    fi
-    dev_args+=("$token")
-  done
-  [ "$placed" = 1 ] || dev_args+=("--dev")
-  out="$("${CLI[@]}" "${dev_args[@]}" 2>&1)" || rc=$?
+  out="$("${CLI[@]}" "${args[@]}" 2>&1)" || rc=$?
   [ "${rc}" -eq "${want}" ] || { echo "want exit ${want}, got ${rc}: ${out}"; exit 1; }
   grep -qF -- "${pat}" <<<"${out}" || { echo "missing '${pat}': ${out}"; exit 1; }
-  echo "expected failure ok (${dev_args[*]}): ${pat}"
+  echo "expected failure ok (${args[*]}): ${pat}"
 }
 
 case "${GROUP}/${SUB}" in
   me/me)
     step "me (three authorities: identity, capabilities, agents)"
-    "${CLI[@]}" me --dev | tee /tmp/me-table.txt
+    "${CLI[@]}" me | tee /tmp/me-table.txt
     grep -q '^Identity$' /tmp/me-table.txt
     grep -q '^Capabilities$' /tmp/me-table.txt
     grep -q '^Agents$' /tmp/me-table.txt
-    "${CLI[@]}" me --dev --json > /tmp/me.json
+    "${CLI[@]}" me --json > /tmp/me.json
     node -e '
       const j = JSON.parse(require("fs").readFileSync("/tmp/me.json", "utf8"));
       if (!j.identity || !j.identity.userId) throw new Error("identity.userId missing");
@@ -277,17 +264,17 @@ case "${GROUP}/${SUB}" in
     step "configure (offline help + non-TTY negative path)"
     "${CLI[@]}" configure --help > /dev/null
     rc=0
-    out="$("${CLI[@]}" configure --dev </dev/null 2>&1)" || rc=$?
+    out="$("${CLI[@]}" configure </dev/null 2>&1)" || rc=$?
     [ "${rc}" -eq 2 ] || { echo "configure: expected exit 2, got ${rc}" >&2; exit 1; }
     printf '%s' "${out}" | grep -q 'configure needs a TTY, or pass --api-key/--api-url'
     ;;
 
   skills/list|skills/ls)
     step "skills ${SUB} (bundled inventory)"
-    "${CLI[@]}" skills "${SUB}" --dev | tee /tmp/skills-list.txt
+    "${CLI[@]}" skills "${SUB}" | tee /tmp/skills-list.txt
     grep -q '^NAME' /tmp/skills-list.txt
     grep -q 'hypercli-agents' /tmp/skills-list.txt
-    "${CLI[@]}" skills "${SUB}" --dev --json | node -e '
+    "${CLI[@]}" skills "${SUB}" --json | node -e '
       const j = JSON.parse(require("fs").readFileSync(0, "utf8"));
       if (!Array.isArray(j) || j.length === 0) throw new Error("skills list is empty");
       for (const s of j) {
@@ -301,7 +288,7 @@ case "${GROUP}/${SUB}" in
   skills/export)
     step "skills export (positional <dir>)"
     OUT="$(mktemp -d)"
-    "${CLI[@]}" skills export "${OUT}" --dev
+    "${CLI[@]}" skills export "${OUT}"
     count="$(find "${OUT}" -name SKILL.md | wc -l)"
     [ "${count}" -ge 1 ] || { echo "skills export wrote no SKILL.md files" >&2; exit 1; }
     grep -q '^name: hypercli$' "${OUT}/hypercli/SKILL.md"
@@ -316,12 +303,12 @@ case "${GROUP}/${SUB}" in
 
   agents/ls|agents/list)
     step "agents ${SUB} (table, json, state filter, error mapping)"
-    err="$("${CLI[@]}" agents "${SUB}" --dev 2>&1 >/dev/null)"
+    err="$("${CLI[@]}" agents "${SUB}" 2>&1 >/dev/null)"
     grep -q '^total [0-9]' <<<"${err}" || { echo "ls: missing 'total N' on stderr"; exit 1; }
-    jsonout="$("${CLI[@]}" agents "${SUB}" --json --dev 2>/dev/null)"
+    jsonout="$("${CLI[@]}" agents "${SUB}" --json 2>/dev/null)"
     grep -q '^\[' <<<"${jsonout}" || { echo "ls --json: stdout is not a JSON array"; exit 1; }
     grep -q '\]$' <<<"${jsonout}" || { echo "ls --json: unterminated JSON array"; exit 1; }
-    "${CLI[@]}" agents "${SUB}" --state RUNNING --dev >/dev/null
+    "${CLI[@]}" agents "${SUB}" --state RUNNING >/dev/null
     assert_fail 1 "HTTP 422" -- agents "${SUB}" --state running
     ;;
 
@@ -346,7 +333,7 @@ case "${GROUP}/${SUB}" in
     ;;
 
   agents/exec)
-    step "agents exec (negative path; --dev before --)"
+    step "agents exec (negative path)"
     assert_fail 1 "no agent matches '${NOID}'" -- agents exec "${NOID}" -- echo hi
     assert_fail 2 "usage: hyper agents exec <id> [--] CMD [ARGS...]" -- agents exec "${NOID}"
     ;;
@@ -366,7 +353,7 @@ case "${GROUP}/${SUB}" in
 
   agents/create)
     step "agents create (dry-run payload + validation; real create lives in lifecycle)"
-    out="$("${CLI[@]}" agents create hypercli-ci-dryrun --runtime opencode --dry-run --dev)"
+    out="$("${CLI[@]}" agents create hypercli-ci-dryrun --runtime opencode --dry-run)"
     grep -qF '"name": "hypercli-ci-dryrun"' <<<"${out}"
     grep -qF '"method": "createAgent"' <<<"${out}"
     assert_fail 2 "" -- agents create x --runtime bogus --dry-run
@@ -411,12 +398,12 @@ case "${GROUP}/${SUB}" in
 
     cleanup() {
       step "cleanup (best-effort)"
-      [ -z "${RID}" ] || "${CLI[@]}" routines delete "${RID}" --yes --dev || true
+      [ -z "${RID}" ] || "${CLI[@]}" routines delete "${RID}" --yes || true
       if [ -n "${ID}" ]; then
-        if "${CLI[@]}" agents stop "${ID}" --yes --dev; then
-          "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 120 --interval 5 --dev || true
+        if "${CLI[@]}" agents stop "${ID}" --yes; then
+          "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 120 --interval 5 || true
         fi
-        "${CLI[@]}" agents delete "${ID}" --yes --dev || true
+        "${CLI[@]}" agents delete "${ID}" --yes || true
       fi
       sweep_cleanup
     }
@@ -443,7 +430,7 @@ case "${GROUP}/${SUB}" in
     # a delete lags, and hostname release is async.
     CREATE_JSON=""
     for attempt in 1 2 3 4 5 6; do
-      if CREATE_JSON="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>>/tmp/create.err)"; then
+      if CREATE_JSON="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json 2>>/tmp/create.err)"; then
         ID="$(printf '%s' "${CREATE_JSON}" | node -e \
           'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
       fi
@@ -464,12 +451,12 @@ case "${GROUP}/${SUB}" in
 
     # create leaves agents provisioning; wait for STOPPED then start (the raw
     # start immediately after create 409s on storage provisioning).
-    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5 --dev
-    "${CLI[@]}" agents start "${ID}" --dev
-    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
+    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 240 --interval 5
+    "${CLI[@]}" agents start "${ID}"
+    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5
 
     step "chat 1/2 (fresh session)"
-    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --json --dev > /tmp/chat1.json
+    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --json > /tmp/chat1.json
     SESSION_ID="$(node -e '
       const j = JSON.parse(require("fs").readFileSync("/tmp/chat1.json", "utf8"));
       if (typeof j.session_id !== "string" || j.session_id.length === 0) throw new Error("session_id missing");
@@ -480,7 +467,7 @@ case "${GROUP}/${SUB}" in
     echo "session ${SESSION_ID} (resumed=false)"
 
     step "chat 2/2 (resume with -s)"
-    "${CLI[@]}" agents chat "${ID}" "ping" -s "${SESSION_ID}" --timeout 120 --json --dev > /tmp/chat2.json
+    "${CLI[@]}" agents chat "${ID}" "ping" -s "${SESSION_ID}" --timeout 120 --json > /tmp/chat2.json
     node -e '
       const j = JSON.parse(require("fs").readFileSync("/tmp/chat2.json", "utf8"));
       if (!j.session || j.session.id !== process.argv[1]) throw new Error("session.id mismatch on resume");
@@ -493,7 +480,7 @@ case "${GROUP}/${SUB}" in
     FLAG="/home/node/hyperci-flag-${TOKEN}.txt"
     RUN_AT="$(date -u -d "+90 seconds" +%Y-%m-%dT%H:%M:%SZ)"
     "${CLI[@]}" routines create --run-at "${RUN_AT}" --agent "${ID}" --session "${SESSION_ID}" \
-      --prompt "Create the file ${FLAG} containing exactly ${TOKEN}" --name "${NAME}" --json --dev > /tmp/routine.json
+      --prompt "Create the file ${FLAG} containing exactly ${TOKEN}" --name "${NAME}" --json > /tmp/routine.json
     RID="$(node -e '
       const j = JSON.parse(require("fs").readFileSync("/tmp/routine.json", "utf8"));
       if (typeof j.id !== "string" || j.id.length === 0) throw new Error("routine id missing");
@@ -506,7 +493,7 @@ case "${GROUP}/${SUB}" in
     deadline=$(( $(date +%s) + 480 ))
     fired=0
     while [ "$(date +%s)" -lt "${deadline}" ]; do
-      if got="$("${CLI[@]}" routines get "${RID}" --json --dev 2>/dev/null | node -e '
+      if got="$("${CLI[@]}" routines get "${RID}" --json 2>/dev/null | node -e '
         const j = JSON.parse(require("fs").readFileSync(0, "utf8"));
         process.stdout.write(j.enabled === false && j.next_run_at === null ? "1" : "0");
       ')" && [ "${got}" = "1" ]; then
@@ -521,7 +508,7 @@ case "${GROUP}/${SUB}" in
     step "verify flag file (up to 3 min after fire)"
     deadline=$(( $(date +%s) + 180 ))
     while true; do
-      if "${CLI[@]}" agents exec "${ID}" --dev -- cat "${FLAG}" 2>/dev/null | grep -qF "${TOKEN}"; then
+      if "${CLI[@]}" agents exec "${ID}" -- cat "${FLAG}" 2>/dev/null | grep -qF "${TOKEN}"; then
         echo "flag ok: ${FLAG} contains ${TOKEN}"
         break
       fi
@@ -532,14 +519,14 @@ case "${GROUP}/${SUB}" in
 
   jobs/gpus)
     step "jobs gpus (catalog; count varies on dev)"
-    "${CLI[@]}" jobs gpus --dev | grep -q 'GPU_TYPE'
-    "${CLI[@]}" jobs gpus --json --dev | grep -qF '"gpuType"'
+    "${CLI[@]}" jobs gpus | grep -q 'GPU_TYPE'
+    "${CLI[@]}" jobs gpus --json | grep -qF '"gpuType"'
     ;;
 
   jobs/list|jobs/ls)
     step "jobs ${SUB} (table + json)"
-    "${CLI[@]}" jobs "${SUB}" --dev | grep -q 'ID'
-    "${CLI[@]}" jobs "${SUB}" --json --dev | grep -qF '['
+    "${CLI[@]}" jobs "${SUB}" | grep -q 'ID'
+    "${CLI[@]}" jobs "${SUB}" --json | grep -qF '['
     ;;
 
   jobs/get|jobs/logs)
@@ -550,7 +537,7 @@ case "${GROUP}/${SUB}" in
 
   jobs/create)
     step "jobs create (dry-run positive + usage negatives)"
-    out="$("${CLI[@]}" jobs create --image alpine --dry-run --dev -- echo hi 2>&1)"
+    out="$("${CLI[@]}" jobs create --image alpine --dry-run -- echo hi 2>&1)"
     grep -qF '"image": "alpine"' <<<"${out}"
     grep -qF '"command": "echo hi"' <<<"${out}"
     assert_fail 2 "missing '-- CMD...'" -- jobs create --image alpine
@@ -568,14 +555,14 @@ case "${GROUP}/${SUB}" in
     ;;
 
   jobs/exec)
-    step "jobs exec (unknown-id negative; --dev before --)"
+    step "jobs exec (unknown-id negative)"
     assert_fail 1 "no job in 'hyper jobs list'" -- jobs exec "${NOID}" -- echo hi
     ;;
 
   flow/list)
     step "flow list (table + json)"
-    "${CLI[@]}" flow list --dev | grep -q 'TYPE'
-    "${CLI[@]}" flow list --json --dev | grep -qF '['
+    "${CLI[@]}" flow list | grep -q 'TYPE'
+    "${CLI[@]}" flow list --json | grep -qF '['
     ;;
 
   flow/status)
@@ -592,7 +579,7 @@ case "${GROUP}/${SUB}" in
 
   flow/create)
     step "flow create (dry-run positive + type/prompt validation)"
-    out="$("${CLI[@]}" flow create text-to-image --prompt "ci smoke" --dry-run --dev 2>&1)"
+    out="$("${CLI[@]}" flow create text-to-image --prompt "ci smoke" --dry-run 2>&1)"
     grep -qF '"type": "text-to-image"' <<<"${out}"
     assert_fail 2 "unknown flow type 'bogus-type'" -- flow create bogus-type
     assert_fail 2 "requires --prompt" -- flow create text-to-image
@@ -633,7 +620,7 @@ case "${GROUP}/${SUB}" in
     VOICE_AUDIO="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-XXXXXX.mp3")"
     VOICE_TTS_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-tts-XXXXXX.json")"
     VOICE_TRANSCRIBE_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-transcribe-XXXXXX.json")"
-    "${CLI[@]}" voice tts "${VOICE_TEXT}" --out "${VOICE_AUDIO}" --json --dev > "${VOICE_TTS_JSON}"
+    "${CLI[@]}" voice tts "${VOICE_TEXT}" --out "${VOICE_AUDIO}" --json > "${VOICE_TTS_JSON}"
     node -e '
       const fs = require("fs");
       const record = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -644,7 +631,7 @@ case "${GROUP}/${SUB}" in
       console.log(`tts json ok: ${record.bytes} bytes`);
     ' "${VOICE_TTS_JSON}" "${VOICE_AUDIO}"
 
-    if ! "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json --dev > "${VOICE_TRANSCRIBE_JSON}" 2>/tmp/hypercli-voice-transcribe.err; then
+    if ! "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json > "${VOICE_TRANSCRIBE_JSON}" 2>/tmp/hypercli-voice-transcribe.err; then
       if grep -qF "STT worker is not configured" /tmp/hypercli-voice-transcribe.err; then
         echo "SKIP voice/transcribe: dev STT worker is not configured" >&2
         exit 0

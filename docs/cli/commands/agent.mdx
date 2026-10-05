@@ -45,7 +45,7 @@ the command name, this does not create a recurring subscription.
 
 ```bash
 hyper agent subscribe solo
-hyper agent subscribe pro 149 --dev
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agent subscribe pro 149
 ```
 
 Omitting the amount uses the server payment requirement. A custom amount buys
@@ -64,7 +64,7 @@ List plan IDs, price, and limits.
 
 ```bash
 hyper agent plans
-hyper agent plans --dev
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agent plans
 ```
 
 ### `current-plan`, `subscriptions`, and `subscription-summary`
@@ -79,7 +79,8 @@ hyper agent subscriptions
 hyper agent subscription-summary
 ```
 
-Each supports `--json` and `--dev`. JSON can contain account, provider, and
+Each supports `--json`; select the environment through `HYPER_API_BASE`.
+JSON can contain account, provider, and
 entitlement identifiers; treat it as private account data.
 
 ### `activate-code`

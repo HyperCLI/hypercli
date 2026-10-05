@@ -30,10 +30,10 @@ def test_workspaces_base_derives_from_agents_base(monkeypatch):
     )
 
 
-def test_workspaces_base_uses_explicit_env(monkeypatch):
+def test_workspaces_base_ignores_stale_env(monkeypatch):
     monkeypatch.setenv("HYPER_WORKSPACES_API_BASE", "http://127.0.0.1:18080/workspaces")
 
-    assert _derive_workspaces_base("https://ignored.example/agents") == "http://127.0.0.1:18080/workspaces"
+    assert _derive_workspaces_base("https://selected.example/agents") == "https://selected.example/workspaces"
 
 
 def test_get_workspace_normalizes_metadata_and_encodes_reference(monkeypatch):

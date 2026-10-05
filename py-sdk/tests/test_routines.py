@@ -30,10 +30,10 @@ def test_routines_base_derives_from_agents_base(monkeypatch):
     )
 
 
-def test_routines_base_uses_explicit_env(monkeypatch):
+def test_routines_base_ignores_stale_env(monkeypatch):
     monkeypatch.setenv("HYPER_ROUTINES_API_BASE", "http://127.0.0.1:18080/routines")
 
-    assert _derive_routines_base("https://ignored.example/agents") == "http://127.0.0.1:18080/routines"
+    assert _derive_routines_base("https://selected.example/agents") == "https://selected.example/routines"
 
 
 def test_routine_from_dict_parses_datetimes():

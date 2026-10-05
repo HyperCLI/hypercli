@@ -10,7 +10,7 @@ let chunks: string[];
 let fetchMock: ReturnType<typeof vi.fn>;
 function ctx(): CommandContext {
   return { client: async () => new HyperCLI({ apiKey: 'synthetic-hyper-key', agentsApiBaseUrl: 'http://facade.test/agents' }),
-    output: createOutput('json'), format: 'json', dev: false };
+    output: createOutput('json'), format: 'json' };
 }
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 beforeEach(() => {

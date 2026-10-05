@@ -3,14 +3,14 @@
   "engine": "anthropic",
   "display_name": "HyperCLI",
   "description": "HyperCLI native Anthropic Messages route",
-  "api_key_env": "HYPER_AGENTS_API_KEY",
-  "base_url": "${HYPER_AGENTS_API_BASE}",
+  "api_key_env": "HYPER_RUNTIME_API_KEY",
+  "base_url": "${HYPER_API_BASE}",
   "env_vars": [
     {
-      "name": "HYPER_AGENTS_API_BASE",
+      "name": "HYPER_API_BASE",
       "required": false,
       "secret": false,
-      "default": "https://api.agents.hypercli.com"
+      "default": "https://api.hypercli.com"
     }
   ],
   "models": [

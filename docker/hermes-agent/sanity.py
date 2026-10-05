@@ -170,8 +170,8 @@ def main() -> None:
             "python", "-c",
             "from pathlib import Path; print(Path('/home/hermes/.hermes/config.yaml').read_text())",
         ).stdout
-        assert "key_env: HYPER_AGENTS_API_KEY" in seeded
-        assert "api: ${env:HYPER_AGENTS_API_BASE}" in seeded
+        assert "key_env: HYPER_RUNTIME_API_KEY" in seeded
+        assert "api: ${env:HYPER_API_BASE}" in seeded
         assert "provider: custom:hypercli" in seeded
         assert "memory:" in seeded
         assert "provider: mem0" in seeded
@@ -194,13 +194,13 @@ def main() -> None:
         assert mem0_config["oss"]["llm"]["provider"] == "openai"
         assert mem0_config["oss"]["llm"]["config"]["model"] == MODEL
         assert mem0_config["oss"]["llm"]["config"]["openai_base_url"] == (
-            "https://api.agents.hypercli.com/v1"
+            "https://api.hypercli.com/v1"
         )
         assert mem0_config["oss"]["embedder"]["provider"] == "openai"
         assert mem0_config["oss"]["embedder"]["config"]["model"] == "qwen3-embedding-4b"
         assert mem0_config["oss"]["embedder"]["config"]["embedding_dims"] == 2560
         assert mem0_config["oss"]["embedder"]["config"]["openai_base_url"] == (
-            "https://api.agents.hypercli.com/v1"
+            "https://api.hypercli.com/v1"
         )
         assert mem0_config["oss"]["vector_store"] == {
             "provider": "qdrant",
@@ -208,15 +208,14 @@ def main() -> None:
         }
         assert "custom_instructions" not in mem0_config["oss"]
 
-        # mem0's OSS LLM/embedder must follow the launch's agents API base:
+        # mem0's OSS LLM/embedder must follow the launch's product API base:
         # mem0's openai provider prefers the config's openai_base_url over
         # OPENAI_BASE_URL, so configure_mem0.py rewrites the seeded file from
-        # HYPER_AGENTS_API_BASE (stripping a caller's trailing /agents —
-        # litellm owns /v1 only at the host root).
+        # HYPER_API_BASE, with /v1 derived at the product root.
         mem0_dev_base = run(
             "docker", "run", "--rm",
             "-v", f"{volume}:/home/hermes",
-            "-e", "HYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents",
+            "-e", "HYPER_API_BASE=https://api.dev.hypercli.com/",
             IMAGE,
             "python", "-c",
             "from pathlib import Path; print(Path('/home/hermes/.hermes/mem0.json').read_text())",
@@ -237,10 +236,10 @@ def main() -> None:
         ).stdout
         mem0_default_config = parse_stdout_json(mem0_default_base)
         assert mem0_default_config["oss"]["llm"]["config"]["openai_base_url"] == (
-            "https://api.agents.hypercli.com/v1"
+            "https://api.hypercli.com/v1"
         )
         assert mem0_default_config["oss"]["embedder"]["config"]["openai_base_url"] == (
-            "https://api.agents.hypercli.com/v1"
+            "https://api.hypercli.com/v1"
         )
 
         memory_instructions = "Only store durable user preferences."
@@ -266,28 +265,31 @@ def main() -> None:
 
         # Memory-configured probe (env-gated): mirrors how the runtime really
         # reaches litellm. The entrypoint rewrites the seeded mem0.json via
-        # configure_mem0.py from HYPER_AGENTS_API_BASE, then the leg (1) POSTs
+        # configure_mem0.py from HYPER_API_BASE, then the leg (1) POSTs
         # one real embeddings request against the derived base URL and asserts
         # 200 + the pinned vector length, and (2) round-trips a mem0
         # add/search through OSSBackend against a SCRATCH qdrant path (never
         # the live store path, whose lock the agent's backend may hold). A
         # 400/401 from /embeddings fails the leg loudly. CI runs hermes-sanity
         # without a key, so the leg only runs when the caller exports
-        # HYPER_AGENTS_API_KEY; HYPER_AGENTS_API_BASE defaults to the dev
-        # agents base like the openclaw sanity script
+        # HYPER_API_KEY (or the legacy key fallback); HYPER_API_BASE defaults
+        # to the dev product base like the openclaw sanity script
         # (.github/scripts/agents/openclaw_sanity_check.sh).
-        memory_probe_key = os.environ.get("HYPER_AGENTS_API_KEY", "").strip()
+        memory_probe_key = (
+            os.environ.get("HYPER_API_KEY", "").strip()
+            or os.environ.get("HYPER_AGENTS_API_KEY", "").strip()
+        )
         if memory_probe_key:
             memory_probe_base = (
-                os.environ.get("HYPER_AGENTS_API_BASE", "").strip()
+                os.environ.get("HYPER_API_BASE", "").strip()
                 or "https://api.dev.hypercli.com"
             )
             memory_probe = run(
                 "docker", "run", "--rm",
                 "--add-host", "host.docker.internal:host-gateway",
                 "-v", f"{volume}:/home/hermes",
-                "-e", f"HYPER_AGENTS_API_BASE={memory_probe_base}",
-                "-e", f"HYPER_AGENTS_API_KEY={memory_probe_key}",
+                "-e", f"HYPER_API_BASE={memory_probe_base}",
+                "-e", f"HYPER_API_KEY={memory_probe_key}",
                 "-e", "MEM0_TELEMETRY=false",
                 # Docker proxy injection can replace the image's baked
                 # NO_PROXY; keep the no-proxy set explicit for local probes.
@@ -359,8 +361,8 @@ def main() -> None:
             print(memory_probe.stdout.strip())
         else:
             print(
-                "memory probe skipped: env-gated; export HYPER_AGENTS_API_KEY "
-                "(and optionally HYPER_AGENTS_API_BASE) to run the embeddings "
+                "memory probe skipped: env-gated; export HYPER_API_KEY "
+                "(and optionally HYPER_API_BASE) to run the embeddings "
                 "and mem0 scratch round-trip legs"
             )
 

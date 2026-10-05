@@ -276,7 +276,7 @@ function scriptedDeployments(
 
 function fakeCtx(d: ScriptedDeployments, format: 'json' | 'table' = 'json'): CommandContext {
   const client = { deployments: d } as unknown as HyperCLI;
-  return { client: async () => client, output: createOutput(format), format, dev: false };
+  return { client: async () => client, output: createOutput(format), format };
 }
 
 const OK: AgentExecResult = { exitCode: 0, stdout: '', stderr: '' };

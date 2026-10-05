@@ -91,7 +91,6 @@ import { HyperCLI } from "@hypercli.com/sdk";
 const root = new HyperCLI({
   apiKey: process.env.HYPER_API_KEY!,
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
 // 1. Mint a narrowed key with one selector tag plus the agents self-family baseline.
@@ -118,7 +117,6 @@ if (!scoped.apiKey) {
 const scopedClient = new HyperCLI({
   apiKey: scoped.apiKey,
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
 await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
@@ -172,7 +170,6 @@ import { HyperCLI } from "@hypercli.com/sdk";
 const root = new HyperCLI({
   apiKey: process.env.HYPER_API_KEY!,
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
 const agent = await root.deployments.create({
@@ -189,7 +186,6 @@ if (!child.api_key) {
 const exactClient = new HyperCLI({
   apiKey: child.api_key,
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
 await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
@@ -229,7 +225,6 @@ Typical agent app flow:
 ```ts
 const root = new HyperCLI({
   apiKey: process.env.HYPER_API_KEY,
-  agentApiKey: process.env.HYPER_AGENTS_API_KEY,
 });
 
 const child = await root.deployments.createScopedKey("agent-id", "embedded-agent-client");

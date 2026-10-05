@@ -5,11 +5,14 @@ description: Configure the TypeScript SDK and shared HyperCLI credentials.
 
 ## Resolution Order
 
-The SDK reads configuration using the same precedence as the CLI:
+Credentials resolve from an explicit canonical `apiKey`, environment
+`HYPER_API_KEY`, the canonical key in `$HYPER_HOME/config` (default
+`~/.hypercli/config`), then environment `HYPER_AGENTS_API_KEY` as the final
+fallback. A saved canonical key takes precedence over the runtime fallback.
 
-1. Environment variables
-2. `~/.hypercli/config`
-3. SDK defaults
+The product base resolves from an explicit `apiUrl`, environment
+`HYPER_API_BASE`, the canonical config's `HYPER_API_BASE`, then
+`https://api.hypercli.com`.
 
 ## Environment Variables
 
@@ -17,7 +20,7 @@ The SDK reads configuration using the same precedence as the CLI:
 | --- | --- |
 | `HYPER_API_KEY` | Main REST API key used by `HyperCLI` |
 | `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com`; the agents REST and WebSocket bases are derived from it |
-| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
+| `HYPER_AGENTS_API_KEY` | Platform runtime key; final credential fallback |
 
 ## URL Model
 
@@ -61,16 +64,20 @@ derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
+`HYPER_AGENTS_API_BASE` and independent workspace, routine, runner, and
+integration base settings are unsupported. Public CLI `--dev`/`--prod` flags
+are unsupported; select an environment using the canonical base.
+
 ### OpenClaw / Inference Base URLs
 
-For OpenClaw provider files, the agents host is also the inference host.
+For managed OpenClaw provider files, derive inference URLs from `HYPER_API_BASE`.
 
 Rule of thumb:
 
-- `anthropic-messages` provider `baseUrl` should be `https://api.agents.hypercli.com`
+- `anthropic-messages` provider `baseUrl` uses the canonical product base
 - do not add `/v1` there
 - OpenClaw appends `/v1/messages` itself
-- OpenAI-compatible providers and embeddings should use `https://api.agents.hypercli.com/v1`
+- OpenAI-compatible providers and embeddings append `/v1` to that base
 
 ## Shared Config File
 
@@ -120,8 +127,6 @@ Constructor values win over env vars and the config file.
 const client = new HyperCLI({
   apiKey: "hyper_...",
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
-  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
   timeout: 30_000,
 });
 ```

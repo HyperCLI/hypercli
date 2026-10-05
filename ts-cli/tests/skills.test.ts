@@ -51,7 +51,6 @@ async function invoke(args: string[]): Promise<Captured> {
     client: () => Promise.reject(new Error('skills group must not use the API client')),
     output: createOutput(format),
     format,
-    dev: false,
   };
 
   try {

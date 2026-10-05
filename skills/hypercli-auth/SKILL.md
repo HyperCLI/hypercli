@@ -27,26 +27,34 @@ Never invent a credential bridge between these authorities.
 
 ## Resolve Credentials Exactly
 
-The product credential resolves in this order:
+The shared SDK/CLI credential resolves in this order:
 
-1. Environment `HYPER_API_KEY`.
-2. The key saved by `hyper configure` in `~/.hypercli/config`.
+1. Explicit canonical credential, where supported.
+2. Environment `HYPER_API_KEY`.
+3. The canonical `HYPER_API_KEY` saved by `hyper configure` in
+   `$HYPER_HOME/config`, or `~/.hypercli/config` when `HYPER_HOME` is unset.
+4. Environment `HYPER_AGENTS_API_KEY`, only when no canonical source
+   provides a key.
 
-Agent APIs try that same product chain first, then fall back to an
-environment `HYPER_AGENTS_API_KEY`. Precedence is grouped by source: a
-saved key never beats an environment key, and writing a lower-priority
-source does not change the active credential. Unset or replace the actual
-winning source.
+A saved canonical key beats the managed runtime environment fallback.
+This fallback applies to the shared client, including product requests;
+the key's scopes still determine which operations are allowed. Writing a
+lower-priority source does not change the active credential. Unset or
+replace the actual winning source.
 
 `hyper configure` is the preferred way to set the local product key; it
-writes `~/.hypercli/config` read-only to the current user. Do not pass key
+writes the active config file with owner-only read/write permissions. Do not pass key
 literals on other command lines — they leak through shell history and
 process lists.
 
 ## API Base and Environment Selection
 
-`--dev` switches the CLI to the dev control plane; combined with `--json`
-it covers most diagnosis. Do not select `--dev` or another API base unless
+`HYPER_API_BASE` is the only environment/config base URL setting. Agent,
+workspace, routine, runner, and integration endpoints derive from it;
+`HYPER_AGENTS_API_BASE` and namespace-specific base overrides are ignored.
+Select dev with `HYPER_API_BASE=https://api.dev.hypercli.com` in the environment
+or canonical config. Public TS/Python/ACP CLIs do not support `--dev` or
+`--prod`; those flags are reserved for admin tooling. Do not select another API base unless
 the user explicitly intends that environment. Read the
 [configuration reference](/opt/hypercli/docs/cli/configuration.mdx) before
 changing a base URL setting.
@@ -94,8 +102,8 @@ or vendor sign-in files.
 ## Keep Secrets Out Of State And Output
 
 - Prefer `hyper configure` for a normal local product key; it writes
-  `~/.hypercli/config` with restrictive permissions. Environment values
-  still win.
+  the active config file with restrictive permissions. Environment
+  `HYPER_API_KEY` still wins; environment `HYPER_AGENTS_API_KEY` does not.
 - Treat `~/.hypercli/config`, `~/.hypercli/agents.json`, and harness
   sign-in files as secrets.
 - Do not dump `env`, `printenv`, config files, or `hyper agents ls --json`
@@ -117,10 +125,12 @@ buzz-acp auth-methods --json
 buzz-acp models --json
 ```
 
-The control plane injects a scoped `HYPER_AGENTS_API_KEY` plus the API base
-settings. It intentionally does not inject the owner's general
-`HYPER_API_KEY`. The runtime key typically permits file, flow, model, and
-voice routes while denying agent management.
+Lagoon injects a scoped `HYPER_AGENTS_API_KEY` and `HYPER_API_BASE` by default.
+Customers may override the base through launch `env` or `secrets`. A customer
+`HYPER_API_KEY` in either map is preserved and overrides the default runtime key;
+broader uses such as managing other agents are supported. The launch owner's
+auth key is never automatically forwarded. The default runtime key typically
+permits file, flow, model, and voice routes while denying agent management.
 
 | Runtime | What works in the hosted image | What does not happen |
 | --- | --- | --- |

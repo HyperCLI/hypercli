@@ -5,12 +5,14 @@ description: Configure the Python SDK with environment variables, shared config 
 
 ## Resolution Order
 
-The Python SDK resolves config in this order:
+Credentials resolve from an explicit canonical `api_key`, environment
+`HYPER_API_KEY`, the canonical key in `$HYPER_HOME/config` (default
+`~/.hypercli/config`), then environment `HYPER_AGENTS_API_KEY` as the final
+fallback. A saved canonical key takes precedence over the runtime fallback.
 
-1. Explicit constructor arguments
-2. Environment variables
-3. `~/.hypercli/config`
-4. Built-in defaults
+The product base resolves from an explicit `api_url`, environment
+`HYPER_API_BASE`, the canonical config's `HYPER_API_BASE`, then
+`https://api.hypercli.com`.
 
 ## Environment Variables
 
@@ -18,7 +20,7 @@ The Python SDK resolves config in this order:
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
 | `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com`; the agents REST and WebSocket bases are derived from it |
-| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
+| `HYPER_AGENTS_API_KEY` | Platform runtime key; final credential fallback |
 
 ## URL Model
 
@@ -64,6 +66,10 @@ derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
+`HYPER_AGENTS_API_BASE` and independent workspace, routine, runner, and
+integration base settings are unsupported. Public CLI `--dev`/`--prod` flags
+are unsupported; select an environment using the canonical base.
+
 ## Shared Config File
 
 Path:
@@ -96,10 +102,6 @@ from hypercli import HyperCLI
 client = HyperCLI(
     api_key="hyper_...",
     api_url="https://api.hypercli.com",
-    agent_api_key="hyper_api_...",
-    agent_dev=False,
-    agents_api_base_url="https://api.hypercli.com/agents",
-    agents_ws_url="wss://api.agents.hypercli.com/ws",
 )
 ```
 

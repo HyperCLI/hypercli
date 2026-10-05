@@ -5,8 +5,9 @@ description: Connect third-party providers (Linear, GitHub, Notion, OpenAI, ...)
 
 `hyper integrations` manages third-party provider connections. The server
 catalog and native connections drive these commands; there are no
-provider-specific commands baked into the CLI. Use `--dev` only to select the
-dev facade.
+provider-specific commands baked into the CLI. Select the dev facade with
+`HYPER_API_BASE=https://api.dev.hypercli.com`; public CLI environment flags
+`--dev` and `--prod` are unsupported.
 
 ## Authentication and discovery
 

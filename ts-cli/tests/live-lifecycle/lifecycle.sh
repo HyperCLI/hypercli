@@ -84,12 +84,12 @@ JS
 }
 
 lc_inventory() {
-  lc_cli agents ls --json --dev || return $?
+  lc_cli agents ls --json || return $?
   lc_json inventory >"${LC_SCRATCH}/inventory.tsv"
 }
 
 lc_state() {
-  if lc_cli agents status "$1" --json --dev; then
+  if lc_cli agents status "$1" --json; then
     lc_json record "$1" "$2"
   elif [ "${LC_HTTP}" = 404 ]; then
     printf 'MISSING\n'
@@ -111,13 +111,13 @@ lc_clean_agent() {
       FAILED) lc_leftover "$id" "$name" FAILED; return 1 ;;
       RUNNING)
         if [ "$stopped" = 0 ] && [ "$deleted" = 0 ]; then
-          lc_cli agents stop "$id" --yes --json --dev || { lc_leftover "$id" "$name" "$state"; return 1; }
+          lc_cli agents stop "$id" --yes --json || { lc_leftover "$id" "$name" "$state"; return 1; }
           stopped=1
           continue
         fi ;;
       STOPPED|ARCHIVED)
         if [ "$deleted" = 0 ]; then
-          lc_cli agents delete "$id" --yes --json --dev || { lc_leftover "$id" "$name" "$state"; return 1; }
+          lc_cli agents delete "$id" --yes --json || { lc_leftover "$id" "$name" "$state"; return 1; }
           deleted=1
           continue
         fi ;;
@@ -132,7 +132,7 @@ lc_clean_agent() {
 }
 
 lc_wait() {
-  LC_COMMAND_TIMEOUT=255 lc_cli agents wait "$LC_ID" --state "$1" --timeout 240 --interval 5 --json --dev || return $?
+  LC_COMMAND_TIMEOUT=255 lc_cli agents wait "$LC_ID" --state "$1" --timeout 240 --interval 5 --json || return $?
   local state
   state="$(lc_json record "$LC_ID" "$LC_NAME")" || return 1
   [ "$state" = "$1" ] || { lc_leftover "$LC_ID" "$LC_NAME" "$state"; return 1; }
@@ -186,7 +186,7 @@ lc_main() {
   trap lc_exit EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  lc_cli me --json --dev
+  lc_cli me --json
   lc_json identity
   lc_inventory # Unfiltered list: the backend returns the whole visible account inventory.
   local id name state failed=0
@@ -207,7 +207,7 @@ lc_main() {
   step "create ${LC_NAME} (one submission; no blind quota retries)"
   LC_CREATE_ATTEMPTED=1
   local rc
-  if lc_cli agents create "$LC_NAME" --runtime opencode --size large --json --dev; then
+  if lc_cli agents create "$LC_NAME" --runtime opencode --size large --json; then
     LC_ID="$(lc_json record '' "$LC_NAME")"
   else
     rc=$?
@@ -217,21 +217,21 @@ lc_main() {
     return "$rc"
   fi
   lc_wait STOPPED
-  lc_cli agents start "$LC_ID" --json --dev
+  lc_cli agents start "$LC_ID" --json
   lc_wait RUNNING
-  LC_COMMAND_TIMEOUT=135 lc_cli agents chat "$LC_ID" 'Reply with exactly: CI_OK' --timeout 120 --json --dev
+  LC_COMMAND_TIMEOUT=135 lc_cli agents chat "$LC_ID" 'Reply with exactly: CI_OK' --timeout 120 --json
   lc_json chat "$LC_ID"
-  lc_cli agents stop "$LC_ID" --yes --json --dev
+  lc_cli agents stop "$LC_ID" --yes --json
   lc_wait STOPPED
-  lc_cli agents archive "$LC_ID" --json --dev
+  lc_cli agents archive "$LC_ID" --json
   lc_wait ARCHIVED
-  lc_cli agents restore "$LC_ID" --json --dev
+  lc_cli agents restore "$LC_ID" --json
   lc_wait STOPPED
-  lc_cli agents start "$LC_ID" --json --dev
+  lc_cli agents start "$LC_ID" --json
   lc_wait RUNNING
-  LC_COMMAND_TIMEOUT=135 lc_cli agents chat "$LC_ID" 'Reply with exactly: CI_OK' --timeout 120 --json --dev
+  LC_COMMAND_TIMEOUT=135 lc_cli agents chat "$LC_ID" 'Reply with exactly: CI_OK' --timeout 120 --json
   lc_json chat "$LC_ID"
-  lc_cli agents stop "$LC_ID" --yes --json --dev
+  lc_cli agents stop "$LC_ID" --yes --json
   lc_wait STOPPED
   LC_DEADLINE=$((SECONDS + LC_CLEANUP_SECONDS))
   lc_clean_agent "$LC_ID" "$LC_NAME"

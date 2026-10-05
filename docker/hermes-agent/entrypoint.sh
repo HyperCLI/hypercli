@@ -15,12 +15,12 @@ export HERMES_SKILLS_DIR="${HERMES_SKILLS_DIR:-${HERMES_HOME}/skills}"
 export HERMES_PLATFORM_MANAGED_DIR="/run/hypercli-hermes-managed"
 export HERMES_MANAGED_DIR="${HERMES_MANAGED_DIR:-${HERMES_PLATFORM_MANAGED_DIR}}"
 
-if [[ -n "${HYPER_API_KEY:-}" && -z "${HYPER_AGENTS_API_KEY:-}" ]]; then
-  export HYPER_AGENTS_API_KEY="${HYPER_API_KEY}"
-fi
+runtime_config=$(python3 /opt/hypercli/lib/runtime-config.py)
+eval "${runtime_config}"
+unset runtime_config
 
-if [[ -n "${HYPER_AGENTS_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
-  export OPENAI_API_KEY="${HYPER_AGENTS_API_KEY}"
+if [[ -n "${HYPER_RUNTIME_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
+  export OPENAI_API_KEY="${HYPER_RUNTIME_API_KEY}"
 fi
 
 # Sessions/chat are backend-authoritative — the contract authority is
@@ -28,14 +28,14 @@ fi
 # dial the backend ACP bridge over HYPER_ACP_WS_URL, or it boots into the
 # stdio fallback (acp/hyper-acp/crates/hyper-acp/src/bin/hyper-acp.rs) and
 # the pod serves no sessions/chat at all. Lagoon/Fly pods receive
-# HYPER_AGENTS_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
-# derive the bridge URL here from the agents API base with the same rules
-# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash and
-# /agents handled). An explicit HYPER_ACP_WS_URL always wins: backend
+# HYPER_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
+# derive the bridge URL here from the product API base with the same rules
+# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash
+# removed). An explicit HYPER_ACP_WS_URL always wins: backend
 # runners and pods pin the exact /ws bridge per launch and that override
 # must never be rewritten (agents/backend/agents/runners/launch.py).
 if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
-  acp_ws_base="${HYPER_AGENTS_API_BASE:-${HYPER_API_BASE:-https://api.agents.hypercli.com}}"
+  acp_ws_base="${HYPER_API_BASE:-https://api.hypercli.com}"
   acp_ws_base="${acp_ws_base%/}"
   case "${acp_ws_base}" in
     https://*) acp_ws_base="wss://${acp_ws_base#https://}" ;;
@@ -43,7 +43,6 @@ if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
     ws://*|wss://*) ;;
     *) acp_ws_base="wss://${acp_ws_base}" ;;
   esac
-  acp_ws_base="${acp_ws_base%/agents}"
   case "${acp_ws_base}" in
     */ws) HYPER_ACP_WS_URL="${acp_ws_base}" ;;
     *) HYPER_ACP_WS_URL="${acp_ws_base}/ws" ;;

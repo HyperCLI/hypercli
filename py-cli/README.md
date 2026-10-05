@@ -18,6 +18,20 @@ pip install hypercli-cli
 hyper configure
 ```
 
+Endpoint selection uses `HYPER_API_BASE` from the environment or the canonical
+`$HYPER_HOME/config` file (default `~/.hypercli/config`). The default is
+`https://api.hypercli.com`; agents REST and WebSocket endpoints are derived from
+that product base. For a development workflow:
+
+```bash
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agent models
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agent embed test
+```
+
+Public commands reject `--dev` and `--prod` (reserved for admin tooling), as well
+as endpoint override flags `--base-url`, `--api-url`, `--agents-ws-url`, and
+`--relay-base-url`. Use `HYPER_API_BASE` instead.
+
 ## Core Commands
 
 ```bash

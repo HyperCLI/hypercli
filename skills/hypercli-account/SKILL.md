@@ -35,7 +35,7 @@ hyper me --json
 `hyper me` resolves the active credential and reports the account identity,
 the capabilities that key holds, and entitlement state. Read the capability
 list before assuming a key may run jobs, flows, agents, or voice: a working
-identity does not prove every scope is present. Use `--dev` only when the
+identity does not prove every scope is present. Set `HYPER_API_BASE` to the dev API only when the
 user intends the dev environment, and `--json` only in private automation —
 the payload contains account and key identifiers.
 
@@ -45,9 +45,10 @@ the payload contains account and key identifiers.
 hyper configure
 ```
 
-`hyper configure` writes the product API key to `~/.hypercli/config` so it
-persists across sessions. `HYPER_API_KEY` still overrides the saved value,
-and `HYPER_AGENTS_API_KEY` remains the final agent fallback; see
+`hyper configure` writes the product API key to `$HYPER_HOME/config`, or
+`~/.hypercli/config` when `HYPER_HOME` is unset, so it persists across
+sessions. Environment `HYPER_API_KEY` still overrides the saved value,
+and `HYPER_AGENTS_API_KEY` remains the shared client's final fallback; see
 `hypercli-auth` for the exact chain. After configuring, verify once with
 `hyper me` and report the resulting identity, never the key.
 

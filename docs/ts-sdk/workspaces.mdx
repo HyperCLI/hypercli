@@ -19,7 +19,8 @@ const workspaces = await client.workspaces.list();
 ```
 
 The base URL derives from the agents API base, replacing the `/agents` suffix
-with `/workspaces`. Set `HYPER_WORKSPACES_API_BASE` to override it.
+with `/workspaces`. Select the product base through `HYPER_API_BASE`; independent
+workspace-base overrides are unsupported.
 
 For the CLI equivalent of these operations, see
 [hyper workspaces](/cli/commands/workspaces).

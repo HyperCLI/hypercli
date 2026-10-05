@@ -30,12 +30,11 @@ function cliVersion(): string {
   }
 }
 
-function buildContext(dev: boolean, format: 'table' | 'json'): CommandContext {
+function buildContext(format: 'table' | 'json'): CommandContext {
   return {
-    client: lazyClient(dev),
+    client: lazyClient(),
     output: createOutput(format),
     format,
-    dev,
   };
 }
 
@@ -54,13 +53,13 @@ async function main(): Promise<number> {
   applyCliConfigFile();
 
   const argv = process.argv.slice(2);
+  const top = parseUniversal(argv);
 
   if (argv[0] === '--version' || argv[0] === '-v') {
     process.stdout.write(`hyper ${cliVersion()}\n`);
     return 0;
   }
 
-  const top = parseUniversal(argv);
   const [groupName] = top.positionals;
 
   if (!groupName || (top.help && groupName === undefined)) {
@@ -82,7 +81,7 @@ async function main(): Promise<number> {
   const groupArgs = [...argv];
   groupArgs.splice(top.firstPositionalIndex, 1);
 
-  const ctx = buildContext(top.dev, top.format);
+  const ctx = buildContext(top.format);
   const code = await group.run(ctx, groupArgs);
   return typeof code === 'number' ? code : 0;
 }

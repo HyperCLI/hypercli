@@ -4,10 +4,10 @@ import os
 import sys
 from pathlib import Path
 
-
 keys = (
-    "HYPER_AGENTS_API_BASE",
-    "HYPER_AGENTS_API_KEY",
+    "HYPER_API_BASE",
+    "HYPER_API_KEY",
+    "HYPER_RUNTIME_API_KEY",
     "HYPER_EMBEDDING_MODELS",
     "HYPER_MODELS",
     "OPENAI_API_KEY",

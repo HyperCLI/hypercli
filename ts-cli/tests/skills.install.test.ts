@@ -124,7 +124,6 @@ function makeSeam(
     client: () => Promise.resolve({ deployments } as unknown as HyperCLI),
     output: createOutput(format),
     format,
-    dev: false,
   };
   return {
     ctx,

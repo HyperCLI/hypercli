@@ -4,7 +4,6 @@
  * Universal flags understood everywhere:
  *   --json            machine output (single JSON.stringify on stdout)
  *   --output, -o FMT  'table' (default) or 'json'
- *   --dev             use the dev API base
  *   --help, -h        print help
  *
  * parseUniversal()  — non-strict top-level scan used by the entrypoint to
@@ -24,7 +23,6 @@ type Options = NonNullable<ParseArgsConfig['options']>;
 export const UNIVERSAL_OPTIONS: Options = {
   json: { type: 'boolean', default: false },
   output: { type: 'string', short: 'o' },
-  dev: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 };
 
@@ -37,7 +35,6 @@ export interface ParsedArgs {
   values: Record<string, unknown>;
   positionals: string[];
   format: OutputFormat;
-  dev: boolean;
   help: boolean;
 }
 
@@ -62,7 +59,7 @@ export function resolveFormat(values: Record<string, unknown>): OutputFormat {
   return 'table';
 }
 
-/** Non-strict scan of full argv: never throws on unknown flags. */
+/** Non-strict scan of full argv, except for retired public environment flags. */
 export function parseUniversal(argv: string[]): ParsedUniversal {
   const { values, positionals, tokens } = parseArgs({
     args: argv,
@@ -71,12 +68,16 @@ export function parseUniversal(argv: string[]): ParsedUniversal {
     allowPositionals: true,
     tokens: true,
   });
+  for (const token of tokens ?? []) {
+    if (token.kind === 'option' && (token.name === 'dev' || token.name === 'prod')) {
+      throw new UsageError(`--${token.name} is not supported; set HYPER_API_BASE instead`);
+    }
+  }
   const firstPositional = (tokens ?? []).find((token) => token.kind === 'positional');
   return {
     values: values as Record<string, unknown>,
     positionals,
     format: resolveFormat(values as Record<string, unknown>),
-    dev: values.dev === true,
     help: values.help === true,
     firstPositionalIndex: firstPositional?.index ?? -1,
   };
@@ -107,7 +108,6 @@ export function parseCommandArgs(
     values,
     positionals: parsed.positionals,
     format: resolveFormat(values),
-    dev: values.dev === true,
     help: values.help === true,
   };
 }

@@ -5,7 +5,7 @@
  *   product key:  HYPER_API_KEY > $HYPER_HOME/config or ~/.hypercli/config
  *   agents key:   product key first, then HYPER_AGENTS_API_KEY fallback
  *   apiUrl:       HYPER_API_BASE / config / default
- *   agents base:  derived from the product base; dev base when --dev is set
+ *   agents base:  derived from the selected product base
  *
  * The retired HYPERCLI_API_URL / AGENTS_API_BASE_URL override envs are no
  * longer read anywhere; derive-only resolution lives in the SDK config.
@@ -17,13 +17,12 @@
 import {
   HyperCLI,
   getAgentApiKey,
-  getAgentsApiBaseUrl,
   getApiKey,
   getApiUrl,
 } from '@hypercli.com/sdk';
 
 /** Lazily-built singleton for CommandContext.client(). */
-export function lazyClient(dev: boolean): () => Promise<HyperCLI> {
+export function lazyClient(): () => Promise<HyperCLI> {
   let cached: HyperCLI | undefined;
   return async () => {
     if (!cached) {
@@ -31,8 +30,6 @@ export function lazyClient(dev: boolean): () => Promise<HyperCLI> {
         apiKey: getApiKey(),
         agentApiKey: getAgentApiKey(),
         apiUrl: getApiUrl(),
-        agentsApiBaseUrl: getAgentsApiBaseUrl(dev),
-        agentDev: dev,
       });
     }
     return cached;

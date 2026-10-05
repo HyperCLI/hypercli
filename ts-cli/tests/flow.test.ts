@@ -93,7 +93,6 @@ function makeCtx(client: HyperCLI, format: 'table' | 'json' = 'table'): CommandC
     client: vi.fn(async () => client),
     output: createOutput(format),
     format,
-    dev: false,
   };
 }
 

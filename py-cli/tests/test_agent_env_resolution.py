@@ -168,16 +168,16 @@ def test_voice_cli_posts_to_agents_voice_prefix(monkeypatch, tmp_path):
     assert out.read_bytes() == b"audio"
 
 
-def test_agent_admin_base_derives_through_sdk_helper(monkeypatch):
+def test_agent_admin_base_derives_through_sdk_helper(monkeypatch, tmp_path):
     """The admin inference base is derived from the product base via the
     py-sdk LOCKSTEP helper, not a local alias-host fork."""
     import hypercli_cli.agent as agent
 
     importlib.reload(agent)
 
+    monkeypatch.setenv("HYPER_HOME", str(tmp_path))
     monkeypatch.delenv("HYPER_API_BASE", raising=False)
     assert agent._resolve_api_base() == "https://api.agents.hypercli.com"
-    assert agent._resolve_api_base(dev=True) == "https://api.agents.dev.hypercli.com"
 
     for product_base, admin_base in [
         ("https://api.hypercli.com", "https://api.agents.hypercli.com"),
@@ -193,7 +193,8 @@ def test_agent_admin_base_derives_through_sdk_helper(monkeypatch):
         monkeypatch.setenv("HYPER_API_BASE", product_base)
         assert agent._resolve_api_base() == admin_base, product_base
         monkeypatch.delenv("HYPER_API_BASE")
-        assert agent._resolve_api_base(base_url=product_base) == admin_base, product_base
+        (tmp_path / "config").write_text(f"HYPER_API_BASE={product_base}\n")
+        assert agent._resolve_api_base() == admin_base, product_base
 
 
 def test_py_cli_hyper_home_tilde_is_used_verbatim(monkeypatch):

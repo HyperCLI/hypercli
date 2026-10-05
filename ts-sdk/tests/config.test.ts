@@ -1,7 +1,11 @@
-import { beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deriveWorkspacesApiBase, WorkspacesAPI } from '../src/workspaces.js';
+import { deriveRoutinesApiBase, RoutinesAPI } from '../src/routines.js';
+import { deriveRunnersApiBase, RunnersAPI } from '../src/runners.js';
+import { deriveIntegrationsApiBase, IntegrationsAPI } from '../src/integrations.js';
 import {
   getApiKey,
   getAgentApiKey,
@@ -46,6 +50,8 @@ describe('Config', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     if (originalHyperApiKey === undefined) delete process.env.HYPER_API_KEY;
     else process.env.HYPER_API_KEY = originalHyperApiKey;
 
@@ -147,10 +153,85 @@ describe('Config', () => {
     expect(url).toBe(DEFAULT_API_URL);
   });
 
+  it.each(['', '"', "'"])('parses exported and quoted config values (%s) without changing key precedence', (quote) => {
+    const hyperHome = tempDir();
+    process.env.HYPER_HOME = hyperHome;
+    writeFileSync(join(hyperHome, 'config'), [
+      '# shared CLI/SDK config',
+      ` export HYPER_API_KEY = ${quote}canonical=key${quote} `,
+      ` export HYPER_API_BASE = ${quote}https://file.example/prefix${quote} `,
+    ].join('\n'));
+    process.env.HYPER_AGENTS_API_KEY = 'managed-fallback';
+    expect(getAgentApiKey()).toBe('hyper_api_test_key');
+    process.env.HYPER_API_BASE = 'https://env.example';
+    expect(getApiUrl()).toBe('https://env.example');
+    delete process.env.HYPER_API_KEY;
+    delete process.env.HYPER_API_BASE;
+    expect(getApiKey()).toBe('canonical=key');
+    expect(getAgentApiKey()).toBe('canonical=key');
+    expect(getApiUrl()).toBe('https://file.example/prefix');
+    expect(getAgentsApiBaseUrl()).toBe('https://file.example/prefix/agents');
+    writeFileSync(join(hyperHome, 'config'), 'export HYPER_API_KEY=""\n');
+    expect(getAgentApiKey()).toBe('managed-fallback');
+  });
+
+  it.each(['env', 'file'])('ignores stale namespace bases in %s and derives only from the canonical base', (source) => {
+    const hyperHome = tempDir();
+    process.env.HYPER_HOME = hyperHome;
+    const staleKeys = [
+      'HYPER_AGENTS_API_BASE', 'HYPER_WORKSPACES_API_BASE',
+      'HYPER_ROUTINES_API_BASE', 'HYPER_RUNNERS_API_BASE', 'HYPER_INTEGRATIONS_API_BASE',
+    ];
+    const staleConfig = staleKeys.map((key) => `${key}=https://stale.example/wrong`).join('\n');
+    for (const key of staleKeys) vi.stubEnv(key, source === 'env' ? 'https://stale.example/wrong' : '');
+    writeFileSync(join(hyperHome, 'config'), source === 'file' ? staleConfig : '');
+    expect(getApiUrl()).toBe(DEFAULT_API_URL);
+    expect(getAgentsApiBaseUrl()).toBe(DEFAULT_AGENTS_API_BASE_URL);
+    expect(getAgentsWsUrl()).toBe(DEFAULT_AGENTS_WS_URL);
+    for (const [derive, suffix] of [
+      [deriveWorkspacesApiBase, '/workspaces'],
+      [deriveRoutinesApiBase, '/routines'],
+      [deriveRunnersApiBase, '/agents/runners'],
+      [deriveIntegrationsApiBase, '/integrations'],
+    ] as const) {
+      expect(derive()).toBe(`https://api.hypercli.com${suffix}`);
+      expect(derive('https://explicit.example/prefix/agents')).toBe(`https://explicit.example/prefix${suffix}`);
+    }
+    writeFileSync(join(hyperHome, 'config'), `${source === 'file' ? staleConfig : ''}\nHYPER_API_BASE=https://file.example/prefix\n`);
+    expect(getAgentsApiBaseUrl()).toBe('https://file.example/prefix/agents');
+    expect(deriveWorkspacesApiBase()).toBe('https://file.example/prefix/workspaces');
+    expect(deriveRoutinesApiBase()).toBe('https://file.example/prefix/routines');
+    expect(deriveRunnersApiBase()).toBe('https://file.example/prefix/agents/runners');
+    expect(deriveIntegrationsApiBase()).toBe('https://file.example/prefix/integrations');
+    process.env.HYPER_API_BASE = 'https://env.example';
+    expect(getApiUrl()).toBe('https://env.example');
+    expect(getAgentsApiBaseUrl()).toBe('https://env.example/agents');
+    expect(deriveWorkspacesApiBase()).toBe('https://env.example/workspaces');
+    expect(deriveRoutinesApiBase()).toBe('https://env.example/routines');
+    expect(deriveRunnersApiBase()).toBe('https://env.example/agents/runners');
+    expect(deriveIntegrationsApiBase()).toBe('https://env.example/integrations');
+  });
+
   it('should derive WebSocket URL from API URL', () => {
     const wsUrl = getWsUrl();
     expect(wsUrl).toBeDefined();
     expect(wsUrl).toMatch(/^wss?:\/\//);
+  });
+
+  it('preserves explicit namespace constructor bases despite stale env overrides', async () => {
+    for (const key of ['HYPER_AGENTS_API_BASE', 'HYPER_WORKSPACES_API_BASE', 'HYPER_ROUTINES_API_BASE', 'HYPER_RUNNERS_API_BASE', 'HYPER_INTEGRATIONS_API_BASE']) {
+      vi.stubEnv(key, 'https://stale.example/wrong');
+    }
+    const fetchMock = vi.fn(async (_url: string | URL | Request) => new Response('[]', { headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const options = { apiBase: 'https://explicit.example/custom' };
+    await new WorkspacesAPI('synthetic-key', options).list();
+    await new RoutinesAPI('synthetic-key', options).list();
+    await new RunnersAPI('synthetic-key', options).list();
+    await new IntegrationsAPI('synthetic-key', options).listProviders();
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      options.apiBase, options.apiBase, options.apiBase, `${options.apiBase}/providers`,
+    ]);
   });
 
   it('should return default agents URLs', () => {

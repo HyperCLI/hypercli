@@ -11,12 +11,13 @@ import { HyperCLI } from "@hypercli.com/sdk";
 const client = new HyperCLI({
   apiKey: "hyper_...",
   apiUrl: "https://api.hypercli.com",
-  agentApiKey: "hyper_api_...",
-  agentsApiBaseUrl: "https://api.hypercli.com/agents",
-  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
   timeout: 30_000,
 });
 ```
+
+Use canonical `apiKey` and `apiUrl` for explicit configuration. Otherwise the
+SDK reads `HYPER_API_KEY` and `HYPER_API_BASE` from environment/config and uses
+environment `HYPER_AGENTS_API_KEY` only as the final credential fallback.
 
 ## Namespaces
 

@@ -1,6 +1,5 @@
 """HyperCLI Voice API commands — TTS, clone, design"""
 import json
-import os
 from ipaddress import ip_address
 from socket import getaddrinfo, gaierror
 from datetime import datetime, timezone
@@ -10,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
-from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base, get_api_key
+from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base, get_api_key, get_api_url
 from .paths import hyper_home
 from .stt import transcribe as _stt_transcribe
 
@@ -19,7 +18,6 @@ console = Console()
 
 HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-DEFAULT_API_BASE = "https://api.hypercli.com"
 MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024
 REFERENCE_AUDIO_TIMEOUT_SECONDS = 30
 
@@ -53,13 +51,10 @@ def _get_api_key(key: str | None) -> str:
 
 
 def _resolve_api_base(base_url: str | None) -> str:
-    """Resolve API base: --base-url > HYPER_API_BASE > default."""
+    """Resolve an internal base or canonical HYPER_API_BASE configuration."""
     if base_url:
         return base_url.rstrip("/")
-    env_base = os.environ.get("HYPER_API_BASE", "").strip()
-    if env_base:
-        return env_base.rstrip("/")
-    return DEFAULT_API_BASE
+    return get_api_url().rstrip("/")
 
 
 def _voice_client(api_key: str, base_url: str | None = None) -> HyperCLI:
@@ -313,7 +308,6 @@ def tts(
     stream: bool = typer.Option(False, "--stream", help="Stream audio chunks over /ws/voice as they render"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Generate speech from text using a preset voice.
 
@@ -322,6 +316,7 @@ def tts(
       hyper voice tts "Bonjour" -v eric -l french -f opus -o hello.opus
       hyper voice tts "Long text..." --stream
     """
+    base_url = get_api_url()
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
@@ -363,7 +358,6 @@ def clone(
     rest: bool = typer.Option(False, "--rest", help="Use REST assembled audio instead of WebSocket chunks"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Clone a voice from reference audio.
 
@@ -372,6 +366,7 @@ def clone(
       hyper voice clone "Hello" --url https://example.com/voice.wav
       hyper voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
     """
+    base_url = get_api_url()
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
@@ -429,7 +424,6 @@ def design(
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Design a voice from a text description.
 
@@ -437,6 +431,7 @@ def design(
       hyper voice design "Hello" --desc "deep male voice, British accent"
       hyper voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
     """
+    base_url = get_api_url()
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")

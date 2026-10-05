@@ -124,7 +124,6 @@ Typical agent app flow:
 ```python
 root = HyperCLI(
     api_key=os.environ["HYPER_API_KEY"],
-    agent_api_key=os.environ.get("HYPER_AGENTS_API_KEY"),
 )
 
 child = root.deployments.create_scoped_key("agent-id", name="embedded-agent-client")

@@ -84,7 +84,6 @@ function offlineCtx(label: string): CommandContext {
     },
     output: createOutput('table'),
     format: 'table',
-    dev: false,
   };
 }
 

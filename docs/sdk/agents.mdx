@@ -423,12 +423,13 @@ the managed image parses them at boot. The canonical ACP elements — command
 command, empty public routes, and `restart=False` — are the caller's
 responsibility in a raw Python launch; the TS typed renderer owns them there.
 
-A managed launch receives its agent-scoped inference credential from the
-platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
-into the runtime environment.
-
-Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
-inference path.
+Lagoon injects `HYPER_API_BASE` and the platform `HYPER_AGENTS_API_KEY` by
+default. Customers may override the base in launch `env` or `secrets` and may
+supply `HYPER_API_KEY` in either map. That canonical key is preserved and wins
+over the default runtime key, including for managing other agents. Clients use
+an explicit canonical credential, environment `HYPER_API_KEY`, the configured
+canonical key, then `HYPER_AGENTS_API_KEY` as the final fallback. The launch
+owner's authentication key is never automatically forwarded.
 
 Buzz launches keep `sync_root=/home/node` and reserve `/home/node/shared` for
 Workspace projections, and run from the image-managed `/home/node/.buzz` nest.

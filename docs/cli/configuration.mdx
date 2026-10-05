@@ -9,7 +9,8 @@ description: Configure HyperCLI credentials, API URLs, and local state files use
 hyper configure
 ```
 
-This writes the shared config file at `~/.hypercli/config`.
+This writes `$HYPER_HOME/config`, or `~/.hypercli/config` when `HYPER_HOME` is
+unset. References to the default config path below use this active location.
 
 ## Verification Commands
 
@@ -40,7 +41,7 @@ replace `me` when diagnosing which account a product credential resolves to.
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
 | `HYPER_API_BASE` | Primary HyperCLI REST API base URL; the agents REST and WebSocket bases are derived from it |
-| `HYPER_AGENTS_API_KEY` | Agent-scoped API key used by `hyper agents` |
+| `HYPER_AGENTS_API_KEY` | Platform runtime key; final credential fallback after all canonical key sources |
 | `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
 
 ## URL Model
@@ -84,6 +85,11 @@ derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
+Public TS, Python, and ACP CLIs do not support `--dev` or `--prod`; these flags
+are reserved for admin tooling. Use `HYPER_API_BASE` in the environment or
+canonical config. `HYPER_AGENTS_API_BASE` and independent workspace, routine,
+runner, and integration base overrides are unsupported.
+
 ## Shared Config File
 
 Location:
@@ -118,34 +124,25 @@ The CLI and SDKs honor exactly three settings: `HYPER_API_KEY`,
 `AGENTS_WS_URL` are not read; `hyper configure` (and the SDK `configure()` /
 `saveCliConfig()` helpers) prunes them from `~/.hypercli/config` on write.
 
-For product APIs, credentials resolve in this exact order:
+Shared SDK/CLI credentials resolve in this exact order:
 
 1. an explicit command `--key` or SDK `api_key` argument, where supported
 2. `HYPER_API_KEY` in the environment
-3. `HYPER_API_KEY` in `~/.hypercli/config`
-
-The `hyper agents` group and agent-scoped inference surfaces continue to the
-agent credential when the account key is absent:
-
+3. `HYPER_API_KEY` in the active canonical config file
 4. `HYPER_AGENTS_API_KEY` in the environment
-5. legacy `~/.hypercli/agent-key.json` (read by `hyper agents`; not written by `hyper configure`)
 
 Remove or update the higher-priority value when replacing a credential; writing
 a new lower-priority value will not change the active key.
 
-Python-CLI-only command exceptions:
+The Python voice, embedding, and model commands use canonical configuration.
+Endpoint override flags such as `--base-url` are unsupported. Legacy login
+state files are not additional shared-client credential sources.
 
-- `hyper voice`: explicit `--key`, canonical product/agent config resolution,
-  then a non-expired `agent-key.json`; its API base is explicit `--base-url`,
-  environment `HYPER_API_BASE`, then production
-- `hyper agent embed`: explicit `--key`, environment `HYPER_API_KEY`, then
-  `agent-key.json`; it does not read the shared config file
-- `hyper agent models`: sends authentication only from environment
-  `HYPER_API_KEY`
-- `hyper agent status`: reads the legacy `agent-key.json` locally and does not
-  validate that key against the API
-
-Use each command's `--help` before assuming the common priority rules apply.
+Lagoon injects `HYPER_API_BASE` and `HYPER_AGENTS_API_KEY` by default. Customer
+base overrides and canonical `HYPER_API_KEY` in launch `env` or `secrets` are
+preserved. The canonical key wins over the default runtime key, including for
+broader uses such as managing other agents. The launch owner's auth key is
+never automatically forwarded.
 
 ## Diagnosing 401 Errors
 
@@ -170,7 +167,7 @@ from pathlib import Path
 
 names = ("HYPER_API_KEY", "HYPER_AGENTS_API_KEY")
 print("environment:", [name for name in names if os.environ.get(name)])
-config = Path.home() / ".hypercli" / "config"
+config = Path(os.environ.get("HYPER_HOME", "").strip() or Path.home() / ".hypercli") / "config"
 if config.exists():
     configured = {
         line.split("=", 1)[0].strip()

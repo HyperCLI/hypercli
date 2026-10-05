@@ -488,7 +488,6 @@ function parseUniversalGroup(args: string[]): {
     options: {
       json: { type: 'boolean' },
       output: { type: 'string', short: 'o' },
-      dev: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       out: { type: 'string' },
       file: { type: 'string' },

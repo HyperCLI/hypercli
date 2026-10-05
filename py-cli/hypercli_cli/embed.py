@@ -6,7 +6,7 @@ import httpx
 import typer
 from rich.console import Console
 
-from hypercli.config import get_agent_api_key
+from hypercli.config import get_agent_api_key, get_api_url
 
 from .paths import hyper_home
 
@@ -15,8 +15,6 @@ console = Console()
 
 HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-PROD_API_BASE = "https://api.hypercli.com"
-DEV_API_BASE = "https://api.dev.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:
@@ -41,7 +39,6 @@ def embed_text(
     text: str = typer.Argument(..., help="Text to embed"),
     model: str = typer.Option("qwen3-embedding-4b", "--model", "-m", help="Embedding model"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Output full JSON response"),
     output: Path = typer.Option(None, "--output", "-o", help="Write embeddings to file"),
 ):
@@ -53,7 +50,7 @@ def embed_text(
       hyper agent embed text "Document chunk" -o embedding.json
     """
     api_key = _get_api_key(key)
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
     url = f"{api_base}/v1/embeddings"
 
     try:
@@ -93,16 +90,15 @@ def embed_text(
 @app.command("test")
 def embed_test(
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
     """Quick test to verify embedding endpoint works.
 
     Examples:
       hyper agent embed test
-      hyper agent embed test --dev
+      HYPER_API_BASE=https://api.dev.hypercli.com hyper agent embed test
     """
     api_key = _get_api_key(key)
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
     url = f"{api_base}/v1/embeddings"
 
     test_texts = [

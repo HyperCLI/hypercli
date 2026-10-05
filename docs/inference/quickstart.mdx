@@ -30,11 +30,12 @@ Go to [API Keys](https://agents.hypercli.com/dashboard/keys) and click **Create 
 Use the Anthropic Messages API as the default endpoint for chat models. HyperCLI also supports the OpenAI-compatible API at `/v1`, but tool calling quality is better with the Anthropic format.
 
 ```bash
-export HYPER_AGENTS_API_KEY="hyper_api_..."
+export HYPER_API_KEY="hyper_api_..."
+export HYPER_API_BASE="https://api.hypercli.com"
 
-curl https://api.agents.hypercli.com/v1/messages \
-  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY" \
-  -H "x-api-key: $HYPER_AGENTS_API_KEY" \
+curl "$HYPER_API_BASE/v1/messages" \
+  -H "Authorization: Bearer $HYPER_API_KEY" \
+  -H "x-api-key: $HYPER_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
@@ -129,7 +130,7 @@ See the [x402 wallet guide](/agents/x402-wallet) for the full flow.
 
 ```bash
 curl https://api.agents.hypercli.com/v1/models \
-  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY"
+  -H "Authorization: Bearer $HYPER_API_KEY"
 ```
 
 ### Check Your Entitlements

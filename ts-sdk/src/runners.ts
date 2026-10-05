@@ -4,14 +4,8 @@
 import { requestWithRetry, responseAPIError } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
 
-function envValue(key: string): string | undefined {
-  const maybeProcess = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
-  return maybeProcess.process?.env?.[key];
-}
-
 export function deriveRunnersApiBase(agentsApiBase?: string): string {
-  const configured = envValue('HYPER_RUNNERS_API_BASE');
-  const raw = (configured || agentsApiBase || getAgentsApiBaseUrl()).replace(/\/$/, '');
+  const raw = (agentsApiBase || getAgentsApiBaseUrl()).replace(/\/$/, '');
   const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
   const path = url.pathname.replace(/\/$/, '');
   if (path.endsWith('/runners')) {

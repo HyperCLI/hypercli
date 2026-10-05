@@ -23,6 +23,7 @@ import { createInterface } from 'node:readline/promises';
 import {
   AGENT_EXEC_STDIN_MAX_BYTES,
   APIError,
+  getAgentsApiBaseUrl,
   type Agent,
   type AgentLaunchConfig,
   type AgentRouteConfig,
@@ -195,8 +196,9 @@ function recordJsonRecord(agent: Agent, dashboard?: string): Record<string, unkn
   return bag;
 }
 
-function dashboardBase(ctx: CommandContext): string {
-  return ctx.dev ? 'https://console.dev.hypercli.com' : 'https://console.hypercli.com';
+function dashboardBase(): string {
+  return getAgentsApiBaseUrl() === 'https://api.dev.hypercli.com/agents'
+    ? 'https://console.dev.hypercli.com' : 'https://console.hypercli.com';
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +381,7 @@ async function cmdLs(ctx: CommandContext, args: string[]): Promise<void> {
   ctx.output.info(`total ${agents.length}${breakdown ? ` (${breakdown})` : ''}`);
 
   ctx.output.result(
-    agents.map((agent) => recordJsonRecord(agent, `${dashboardBase(ctx)}/agents/${agent.id}`)),
+    agents.map((agent) => recordJsonRecord(agent, `${dashboardBase()}/agents/${agent.id}`)),
     agents.length === 0
       ? 'No agents found.'
       : {
@@ -406,7 +408,7 @@ async function cmdStatus(ctx: CommandContext, args: string[]): Promise<void> {
   const ref = onePositional(parsed, 'agent id');
   const { d } = await adopt(ctx);
   const agent = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
-  const dashboard = `${dashboardBase(ctx)}/agents/${agent.id}`;
+  const dashboard = `${dashboardBase()}/agents/${agent.id}`;
   const record = recordJsonRecord(agent, dashboard);
 
   const rows: Array<[string, string]> = [
@@ -481,7 +483,7 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
   }
 
   ctx.output.result(
-    recordJsonRecord(agent, `${dashboardBase(ctx)}/agents/${agent.id}`),
+    recordJsonRecord(agent, `${dashboardBase()}/agents/${agent.id}`),
     `agent ${shortId(agent.id)} reached ${agent.state}`,
   );
 }
@@ -673,7 +675,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const created = await api('create agent', async () =>
     d.createAgent(runtimeLabel, payload as Parameters<Deployments['createAgent']>[1]));
   ctx.output.result(
-    recordJsonRecord(created, `${dashboardBase(ctx)}/agents/${created.id}`),
+    recordJsonRecord(created, `${dashboardBase()}/agents/${created.id}`),
     recordLabelValue([
       ['created', shortId(created.id)],
       ['name', created.displayName ?? created.name ?? ''],
@@ -707,7 +709,7 @@ async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
   const started = await startAgentForRuntime(d, agent);
 
   ctx.output.result(
-    recordJsonRecord(started, `${dashboardBase(ctx)}/agents/${started.id}`),
+    recordJsonRecord(started, `${dashboardBase()}/agents/${started.id}`),
     `starting ${shortId(started.id)} (${started.state})`,
   );
 }
@@ -781,7 +783,7 @@ async function cmdSet(ctx: CommandContext, args: string[]): Promise<void> {
     throw new CliError(`update agent failed: ${describeFailure(err)}`);
   }
   ctx.output.result(
-    recordJsonRecord(updated, `${dashboardBase(ctx)}/agents/${updated.id}`),
+    recordJsonRecord(updated, `${dashboardBase()}/agents/${updated.id}`),
     `updated ${shortId(id)} runtime=${updated.runtime}`
       + (runtime === 'generic' ? '' : ` (launch image reset to the ${runtime} default)`),
   );
@@ -805,7 +807,7 @@ async function cmdStop(ctx: CommandContext, args: string[]): Promise<void> {
   }
   const stopped = await api('stop agent', () => d.stop(id));
   ctx.output.result(
-    recordJsonRecord(stopped, `${dashboardBase(ctx)}/agents/${stopped.id}`),
+    recordJsonRecord(stopped, `${dashboardBase()}/agents/${stopped.id}`),
     stopped.state.toUpperCase() === 'STOPPED'
       ? `stopped ${shortId(id)}`
       : `stopping ${shortId(id)} (${stopped.state}); cleanup may still be in progress`,
@@ -840,7 +842,7 @@ async function cmdArchiveRestore(
   const id = await resolveAgentRef(d, ref);
   const agent = await api(`${verb} agent`, () => (verb === 'archive' ? d.archive(id) : d.restore(id)));
   ctx.output.result(
-    recordJsonRecord(agent, `${dashboardBase(ctx)}/agents/${agent.id}`),
+    recordJsonRecord(agent, `${dashboardBase()}/agents/${agent.id}`),
     `${verb === 'archive' ? 'archiving' : 'restoring'} ${shortId(id)} (${agent.state})`,
   );
 }

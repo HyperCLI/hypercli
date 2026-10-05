@@ -30,12 +30,14 @@ Run `hyper agents <command> --help` for the current flags. Lifecycle, file
 writes, exec/shell, config patches, cron mutations, token refreshes, and relay
 key operations change remote state or expose sensitive output.
 
-## Global Options
+## Environment Selection
 
 ```bash
-hyper agents --dev
-hyper agents --agents-ws-url wss://api.agents.dev.hypercli.com/ws
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agents
 ```
+
+REST and WebSocket endpoints derive from the canonical product base;
+`--agents-ws-url` is unsupported.
 
 ## Current Route Defaults
 
@@ -118,8 +120,11 @@ the runtime. Wait until `status` reports `STOPPED`, then use the separate
 
 Desktop/browser agents use the OpenClaw pro image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
 
-Managed runtimes receive the agent-scoped inference credential as
-`HYPER_AGENTS_API_KEY`; do not rely on `HYPER_API_KEY` inside the runtime.
+Lagoon injects `HYPER_API_BASE` and platform `HYPER_AGENTS_API_KEY` by default.
+Customer base overrides and `HYPER_API_KEY` in launch `env` or `secrets` are
+preserved. Clients prefer explicit and configured canonical credentials before
+the runtime fallback, allowing broader uses such as managing other agents.
+The launch owner's auth key is never automatically forwarded.
 Workspaces boot sync is configured by CLI/SDK helper options that render
 `HYPER_WORKSPACES_*` environment variables. There is no public
 `launch_config.workspacesSync` field.

@@ -9,7 +9,6 @@
  *     client(): Promise<HyperCLI>,   // lazily-built SDK client (see below)
  *     output: Output,                // see core/output.ts
  *     format: 'table' | 'json',      // resolved from --json / --output
- *     dev: boolean,                  // true when --dev was passed
  *   }
  *
  * In addition to ctx, run() receives:
@@ -20,7 +19,7 @@
  *
  * - Parse `args` (the run() parameter, NOT ctx — ctx carries no argv) with
  *   `parseCommandArgs(args, options)` from core/argv.ts. Universal flags
- *   (--json, --dev, --help/-h, --output/-o) are always accepted; declare only
+ *   (--json, --help/-h, --output/-o) are always accepted; declare only
  *   your command-specific options. Unknown flags and bad values throw
  *   UsageError -> exit code 2.
  * - If the parsed `--help` flag is set, print your group's help and return.
@@ -48,8 +47,6 @@ export interface CommandContext {
   readonly output: Output;
   /** Resolved output format: 'table' (default) or 'json' (--json / -o json). */
   readonly format: OutputFormat;
-  /** True when --dev was passed: route agent APIs at the dev API base. */
-  readonly dev: boolean;
 }
 
 /**

@@ -28,8 +28,8 @@ options matter; hidden power commands appear only in the reference docs.
 | Grants | `activate` |
 | Hidden power | `token`, `routes`, `config get/set` (OpenClaw only), `models` (OpenClaw only), `archive`, `restore`, `routines update` |
 
-Do not select `--dev` or another environment unless the user explicitly
-intends it.
+Select the environment through canonical `HYPER_API_BASE` configuration only
+when the user explicitly intends it. Public `hyper` has no `--dev`/`--prod` flags.
 
 ## Inspect before changing
 

@@ -235,7 +235,7 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
     class _FakeClient:
         deployments = _FakeDeployments()
 
-    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda: _FakeClient())
 
     result = runner.invoke(app, ["agent", "activate-code", "promo-123"])
 
@@ -266,7 +266,7 @@ def test_agent_activate_code_can_request_extension(monkeypatch):
     class _FakeClient:
         deployments = _FakeDeployments()
 
-    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda: _FakeClient())
 
     result = runner.invoke(app, ["agent", "activate-code", "promo-123", "--extend-existing"])
 
@@ -313,7 +313,7 @@ def test_agent_subscription_summary_json_includes_additive_direct_entitlements(m
     class _FakeClient:
         agent = _FakeAgent()
 
-    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda: _FakeClient())
 
     result = runner.invoke(app, ["agent", "subscription-summary", "--json"])
 
@@ -351,7 +351,8 @@ def test_agent_enable_attaches_slack_relay_without_restart(monkeypatch):
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
 
-    result = runner.invoke(app, ["agent", "enable", "clear-window-works", "--relay-base-url", "https://relay.test"])
+    monkeypatch.setenv("HYPER_API_BASE", "https://relay.test")
+    result = runner.invoke(app, ["agent", "enable", "clear-window-works"])
 
     assert result.exit_code == 0
     assert calls == [

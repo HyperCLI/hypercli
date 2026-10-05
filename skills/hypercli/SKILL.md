@@ -30,17 +30,19 @@ The v1 command tree is deliberately small:
   `hyper files`, `hyper voice`, `hyper websearch`, `hyper llm chat`,
   `hyper llm image`.
 
-Every command accepts `--json`; `--dev` selects the dev environment, and
-mutations accept `--dry-run` for preflight validation. Do not select
-`--dev` or another environment unless the user explicitly intends it.
+Every command accepts `--json`; mutations accept `--dry-run` for preflight
+validation. Select the environment through `HYPER_API_BASE` in the environment
+or canonical config. Public CLIs do not support `--dev` or `--prod`; those
+flags belong to admin tooling. Change the base only when the user intends it.
 
 ## Authentication
 
-`HYPER_API_KEY` authenticates product APIs, with the key saved by
-`hyper configure` in `~/.hypercli/config` next. Environment values override
-the saved key. Agent APIs try that same chain first and then fall back to
-`HYPER_AGENTS_API_KEY`. Load `hypercli-auth` before changing any of these
-sources.
+The shared SDK/CLI client first uses an explicit canonical credential where
+supported, then environment `HYPER_API_KEY`, then
+the canonical key saved by `hyper configure` in the active config file
+(`$HYPER_HOME/config`, or `~/.hypercli/config`). Environment
+`HYPER_AGENTS_API_KEY` is only the final fallback, after all canonical
+sources. Load `hypercli-auth` before changing any of these sources.
 
 Never print, paste, or send a credential. Before a costly or mutating
 operation, validate the intended identity:

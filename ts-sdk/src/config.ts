@@ -85,8 +85,13 @@ function loadConfigFile(): Record<string, string> {
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
       if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-        const [key, ...valueParts] = trimmed.split('=');
-        config[key.trim()] = valueParts.join('=').trim();
+        const normalized = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
+        const [key, ...valueParts] = normalized.split('=');
+        const value = valueParts.join('=').trim();
+        config[key.trim()] = (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) ? value.slice(1, -1) : value;
       }
     }
   } catch {

@@ -20,14 +20,8 @@ async function loadNodeBuiltin<T>(moduleName: string): Promise<T> {
   }
 }
 
-function envValue(key: string): string | undefined {
-  const maybeProcess = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
-  return maybeProcess.process?.env?.[key];
-}
-
 export function deriveWorkspacesApiBase(agentsApiBase?: string): string {
-  const configured = envValue('HYPER_WORKSPACES_API_BASE');
-  const raw = (configured || agentsApiBase || getAgentsApiBaseUrl()).replace(/\/$/, '');
+  const raw = (agentsApiBase || getAgentsApiBaseUrl()).replace(/\/$/, '');
   const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
   let path = url.pathname.replace(/\/$/, '');
   if (path.endsWith('/workspaces')) {

@@ -21,7 +21,8 @@ description: Create and control an OpenClaw managed runtime in a few commands.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `HYPER_AGENTS_API_KEY` | HyperCLI API key used by `hyper agents` | Read from `~/.hypercli/agent-key.json` |
+| `HYPER_API_KEY` | Canonical API key; environment overrides the saved canonical key | `$HYPER_HOME/config`, default `~/.hypercli/config` |
+| `HYPER_AGENTS_API_KEY` | Platform runtime key, used only after explicit and configured canonical credentials | Injected by Lagoon in managed runtimes |
 | `HYPER_API_BASE` | Product API base; the agents REST and shell/log WebSocket bases are derived from it | `https://api.hypercli.com` |
 
 ## Create An Agent With The CLI

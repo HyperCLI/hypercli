@@ -15,7 +15,7 @@ from hypercli import HyperCLI, issue_api_key_from_jwt
 from hypercli.agents import Agent as DeploymentAgent, Deployments
 from hypercli.config import (
     DEFAULT_AGENTS_ADMIN_API_BASE_URL,
-    DEV_AGENTS_ADMIN_API_BASE_URL,
+    get_api_url,
     get_agent_api_key,
     get_agents_admin_api_base_url_from_product_base,
     get_agents_api_base_url,
@@ -54,13 +54,8 @@ except ImportError:
 
 HYPERCLI_DIR = hyper_home()
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-DEV_API_BASE = "https://api.dev.hypercli.com"
-PROD_API_BASE = "https://api.hypercli.com"
-DEV_INFERENCE_API_BASE = DEV_AGENTS_ADMIN_API_BASE_URL
 PROD_INFERENCE_API_BASE = DEFAULT_AGENTS_ADMIN_API_BASE_URL
 DEFAULT_X402_TIMEOUT_SECONDS = 60.0
-DEV_SLACK_RELAY_BASE = DEV_AGENTS_ADMIN_API_BASE_URL
-PROD_SLACK_RELAY_BASE = DEFAULT_AGENTS_ADMIN_API_BASE_URL
 
 
 def require_x402_deps():
@@ -103,28 +98,22 @@ def _resolve_agent_query_key() -> str:
     raise typer.Exit(1)
 
 
-def _get_agent_query_client(dev: bool) -> HyperCLI:
+def _get_agent_query_client() -> HyperCLI:
     key = _resolve_agent_query_key()
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
-    return HyperCLI(api_key=key, agent_api_key=key, api_url=api_base, agent_dev=dev)
+    return HyperCLI(api_key=key, agent_api_key=key, api_url=get_api_url())
 
 
-def _resolve_agents_backend_base(dev: bool) -> str:
-    return get_agents_api_base_url(dev=dev).rstrip("/")
+def _resolve_agents_backend_base() -> str:
+    return get_agents_api_base_url().rstrip("/")
 
 
-def _resolve_slack_relay_base(dev: bool, relay_base_url: str | None = None) -> str:
-    return (
-        relay_base_url
-        or os.environ.get("HYPER_SLACK_RELAY_BASE_URL")
-        or os.environ.get("SLACK_RELAY_BASE_URL")
-        or (DEV_SLACK_RELAY_BASE if dev else PROD_SLACK_RELAY_BASE)
-    ).rstrip("/")
+def _resolve_slack_relay_base() -> str:
+    return get_agents_admin_api_base_url_from_product_base(get_api_url()).rstrip("/")
 
 
-def _get_deployments_client(dev: bool = False) -> Deployments:
+def _get_deployments_client() -> Deployments:
     key = _resolve_agent_query_key()
-    api_base = _resolve_agents_backend_base(dev)
+    api_base = _resolve_agents_backend_base()
     return Deployments(HTTPClient(api_base, key), api_key=key, api_base=api_base)
 
 
@@ -494,13 +483,11 @@ def status():
 
 
 @app.command("plans")
-def plans(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API")
-):
+def plans():
     """List available HyperCLI plans"""
     import httpx
 
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
     url = f"{api_base}/api/plans"
 
     try:
@@ -537,11 +524,10 @@ def plans(
 
 @app.command("current-plan")
 def current_plan(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Show the effective current HyperCLI plan."""
-    client = _get_agent_query_client(dev)
+    client = _get_agent_query_client()
     current = client.agent.current_plan()
 
     if json_output:
@@ -571,11 +557,10 @@ def current_plan(
 
 @app.command("subscriptions")
 def subscriptions(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """List your HyperCLI subscriptions/entitlements."""
-    client = _get_agent_query_client(dev)
+    client = _get_agent_query_client()
     items = client.agent.subscriptions()
 
     if json_output:
@@ -609,11 +594,10 @@ def subscriptions(
 
 @app.command("subscription-summary")
 def subscription_summary(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Show your effective HyperCLI entitlement summary."""
-    client = _get_agent_query_client(dev)
+    client = _get_agent_query_client()
     summary = client.agent.subscription_summary()
 
     if json_output:
@@ -659,14 +643,13 @@ def subscription_summary(
 @app.command("start")
 def start_agent(
     agent: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev agents API"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting"),
     wait: bool = typer.Option(False, "--wait", help="Wait for RUNNING after starting"),
     timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Start an agent by ID or name."""
-    deployments = _get_deployments_client(dev)
+    deployments = _get_deployments_client()
     try:
         resolved = deployments.get(agent)
         started = _start_deployment_agent(deployments, resolved, dry_run=dry_run)
@@ -691,14 +674,13 @@ def start_agent(
 @app.command("stop")
 def stop_agent(
     agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev agents API"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
     wait: bool = typer.Option(False, "--wait", help="Wait for STOPPED after stopping"),
     timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Stop an agent by ID or name."""
-    deployments = _get_deployments_client(dev)
+    deployments = _get_deployments_client()
     try:
         resolved = deployments.get(agent)
         label = resolved.name or resolved.id
@@ -719,16 +701,14 @@ def stop_agent(
 @app.command("enable")
 def enable_agent(
     agent: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev agents API and dev Slack relay"),
-    relay_base_url: str = typer.Option(None, "--relay-base-url", help="Hosted Slack relay base URL override"),
     restart: bool = typer.Option(False, "--restart", help="Stop/start the agent after enabling Slack"),
     wait: bool = typer.Option(False, "--wait", help="Wait for RUNNING after --restart"),
     timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Enable the hosted HyperCLI Slack App for an agent."""
-    deployments = _get_deployments_client(dev)
-    relay_base = _resolve_slack_relay_base(dev, relay_base_url)
+    deployments = _get_deployments_client()
+    relay_base = _resolve_slack_relay_base()
     try:
         resolved = deployments.get(agent)
         attach = deployments.attach_slack_relay_agent(resolved.id, relay_base_url=relay_base)
@@ -779,7 +759,6 @@ def enable_agent(
 @app.command("activate-code")
 def activate_code(
     code: str = typer.Argument(..., help="Activation or promo code to redeem"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     extend_existing: bool = typer.Option(
         False,
         "--extend-existing",
@@ -788,7 +767,7 @@ def activate_code(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Redeem a HyperCLI activation code for the current account."""
-    client = _get_agent_query_client(dev)
+    client = _get_agent_query_client()
     result = client.deployments.redeem_grant_code(
         code,
         extend_existing=True if extend_existing else None,
@@ -816,13 +795,12 @@ def activate_code(
 
 @app.command("models")
 def models(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """List available HyperCLI models."""
     import httpx
 
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
     key = get_agent_api_key()
     headers = {"Authorization": f"Bearer {key}"} if key else {}
 
@@ -884,9 +862,7 @@ def models(
 
 
 @app.command("login")
-def login(
-    api_url: str = typer.Option(None, "--api-url", help="API base URL override"),
-):
+def login():
     """Login to HyperCLI with your wallet.
 
     Signs a challenge message with your wallet key to authenticate,
@@ -917,7 +893,7 @@ def login(
     # Import wallet loader from wallet module
     from .wallet import load_wallet
 
-    base_url = (api_url or PROD_API_BASE).rstrip("/")
+    base_url = get_api_url().rstrip("/")
 
     # Step 1: Load wallet
     account = load_wallet()
@@ -1006,12 +982,9 @@ def login(
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
-def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
-    """Resolve the agents admin API base from flag/env, else dev/prod defaults."""
-    configured = base_url or os.environ.get("HYPER_API_BASE")
-    if configured:
-        return get_agents_admin_api_base_url_from_product_base(configured)
-    return DEV_INFERENCE_API_BASE if dev else PROD_INFERENCE_API_BASE
+def _resolve_api_base() -> str:
+    """Derive the agents service base from canonical product configuration."""
+    return get_agents_admin_api_base_url_from_product_base(get_api_url())
 
 
 def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[dict]:
@@ -1190,8 +1163,9 @@ def openclaw_setup(
         with open(OPENCLAW_CONFIG_PATH) as f:
             config = json.load(f)
 
-    models = fetch_models(api_key, PROD_INFERENCE_API_BASE)
-    snippet = _config_openclaw(api_key, models, PROD_INFERENCE_API_BASE)
+    api_base = _resolve_api_base()
+    models = fetch_models(api_key, api_base)
+    snippet = _config_openclaw(api_key, models, api_base)
     if not default:
         defaults = (snippet.get("agents") or {}).get("defaults") or {}
         model_cfg = defaults.get("model") or {}

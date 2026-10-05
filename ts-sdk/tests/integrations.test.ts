@@ -30,10 +30,10 @@ describe('deriveIntegrationsApiBase', () => {
     );
   });
 
-  it('env override wins and is left untouched when it already ends in /integrations', () => {
+  it('ignores a stale namespace env override in favor of the supplied agents base', () => {
     process.env.HYPER_INTEGRATIONS_API_BASE = 'http://localhost:9000/integrations';
-    expect(deriveIntegrationsApiBase('https://ignored.example/agents')).toBe(
-      'http://localhost:9000/integrations',
+    expect(deriveIntegrationsApiBase('https://selected.example/agents')).toBe(
+      'https://selected.example/integrations',
     );
   });
 });

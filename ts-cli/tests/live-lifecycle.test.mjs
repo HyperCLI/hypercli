@@ -36,7 +36,7 @@ s.calls.push({ argv: a, state: row?.state });
 function save() { fs.writeFileSync(file, JSON.stringify(s)); }
 function reply(value) { save(); console.log(JSON.stringify(value)); }
 function fail(error) { save(); console.error(error.text ?? 'error: secret-canary'); process.exit(error.rc ?? 1); }
-if (!a.includes('--dev')) fail({rc: 91});
+if (a.includes('--dev') || a.includes('--prod') || process.env.HYPER_API_BASE !== 'https://api.dev.hypercli.com') fail({rc: 91});
 if (op === 'me') reply({identity:{userId:s.identity ?? s.owner,authType:'api_key',tags:s.keyTags ?? ['*:*']}});
 else if (op === 'ls') {
   s.lists = (s.lists ?? 0) + 1;

@@ -29,9 +29,9 @@ export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-${USER_HOME}/.openclaw}"
 export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-${OPENCLAW_STATE_DIR}/openclaw.json}"
 export HYPER_WORKSPACES_DIR="${HYPER_WORKSPACES_DIR:-${USER_HOME}/shared}"
 
-if [[ -n "${HYPER_API_KEY:-}" ]]; then
-  export HYPER_AGENTS_API_KEY="${HYPER_API_KEY}"
-fi
+runtime_config=$(python3 /opt/hypercli/lib/runtime-config.py)
+eval "${runtime_config}"
+unset runtime_config
 
 /opt/hypercli-openclaw/init.sh
 CONFIG_PATH="${OPENCLAW_CONFIG_PATH}" node /opt/hypercli-openclaw/config.ts
@@ -119,14 +119,14 @@ export OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-ws://127.0.0.1:${GATEWAY_PO
 # dial the backend ACP bridge over HYPER_ACP_WS_URL, or it boots into the
 # stdio fallback (acp/hyper-acp/crates/hyper-acp/src/bin/hyper-acp.rs) and
 # the pod serves no sessions/chat at all. Lagoon/Fly pods receive
-# HYPER_AGENTS_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
-# derive the bridge URL here from the agents API base with the same rules
-# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash and
-# /agents handled). An explicit HYPER_ACP_WS_URL always wins: backend
+# HYPER_API_BASE plus the runtime key but NOT HYPER_ACP_WS_URL, so
+# derive the bridge URL here from the product API base with the same rules
+# docker/agent-base/entrypoint.sh uses (https→wss, http→ws, trailing slash
+# removed). An explicit HYPER_ACP_WS_URL always wins: backend
 # runners and pods pin the exact /ws bridge per launch and that override
 # must never be rewritten (agents/backend/agents/runners/launch.py).
 if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
-  acp_ws_base="${HYPER_AGENTS_API_BASE:-${HYPER_API_BASE:-https://api.agents.hypercli.com}}"
+  acp_ws_base="${HYPER_API_BASE:-https://api.hypercli.com}"
   acp_ws_base="${acp_ws_base%/}"
   case "${acp_ws_base}" in
     https://*) acp_ws_base="wss://${acp_ws_base#https://}" ;;
@@ -134,7 +134,6 @@ if [[ -z "${HYPER_ACP_WS_URL:-}" ]]; then
     ws://*|wss://*) ;;
     *) acp_ws_base="wss://${acp_ws_base}" ;;
   esac
-  acp_ws_base="${acp_ws_base%/agents}"
   case "${acp_ws_base}" in
     */ws) HYPER_ACP_WS_URL="${acp_ws_base}" ;;
     *) HYPER_ACP_WS_URL="${acp_ws_base}/ws" ;;

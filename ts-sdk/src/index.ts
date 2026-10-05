@@ -14,6 +14,7 @@ export {
   getAgentApiKey,
   getApiUrl,
   getAgentsApiBaseUrl,
+  getAgentsApiBaseUrlFromProductBase,
   getAgentsWsUrl,
   getWsUrl,
   COMFYUI_IMAGE,

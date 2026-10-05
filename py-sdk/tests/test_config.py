@@ -1,5 +1,80 @@
 import importlib
 from pathlib import Path
+import pytest
+
+
+@pytest.mark.parametrize("quote", ["", '"', "'"])
+def test_shared_config_parsing_and_key_precedence(monkeypatch, tmp_path, quote):
+    import hypercli.config as config
+    from hypercli import HyperCLI
+
+    config_path = tmp_path / "config"
+    monkeypatch.setattr(config, "CONFIG_FILE", config_path)
+    config_path.write_text(
+        "# shared CLI/SDK config\n"
+        f" export HYPER_API_KEY = {quote}canonical=key{quote} \n"
+        f" export HYPER_API_BASE = {quote}https://file.example/prefix{quote} \n"
+    )
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "managed-fallback")
+    monkeypatch.setenv("HYPER_API_KEY", "canonical-env")
+    monkeypatch.setenv("HYPER_API_BASE", "https://env.example")
+    assert config.get_agent_api_key() == "canonical-env"
+    assert config.get_api_url() == "https://env.example"
+    monkeypatch.delenv("HYPER_API_KEY")
+    monkeypatch.delenv("HYPER_API_BASE")
+    client = HyperCLI()
+    assert client.api_key == "canonical=key"
+    assert client.deployments._api_key == "canonical=key"
+    assert client.api_url == "https://file.example/prefix"
+    assert client.deployments._api_base == "https://file.example/prefix/agents"
+    config_path.write_text('export HYPER_API_KEY=""\n')
+    fallback_client = HyperCLI()
+    assert fallback_client.api_key == "managed-fallback"
+    assert fallback_client.deployments._api_key == "managed-fallback"
+
+
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_namespace_bases_ignore_stale_overrides(monkeypatch, tmp_path, source):
+    import hypercli.config as config
+    from hypercli.workspaces import _derive_workspaces_base, WorkspacesAPI
+    from hypercli.routines import _derive_routines_base, RoutinesAPI
+    from hypercli.runners import _derive_runners_base, RunnersAPI
+
+    config_path = tmp_path / "config"
+    monkeypatch.setattr(config, "CONFIG_FILE", config_path)
+    monkeypatch.delenv("HYPER_API_BASE", raising=False)
+    stale_keys = [
+        "HYPER_AGENTS_API_BASE", "HYPER_WORKSPACES_API_BASE",
+        "HYPER_ROUTINES_API_BASE", "HYPER_RUNNERS_API_BASE", "HYPER_INTEGRATIONS_API_BASE",
+    ]
+    stale_config = "\n".join(f"{key}=https://stale.example/wrong" for key in stale_keys)
+    for key in stale_keys:
+        monkeypatch.setenv(key, "https://stale.example/wrong" if source == "env" else "")
+    config_path.write_text(stale_config if source == "file" else "")
+    assert config.get_api_url() == config.DEFAULT_API_URL
+    assert config.get_agents_api_base_url() == config.DEFAULT_AGENTS_API_BASE_URL
+    assert config.get_agents_ws_url() == config.DEFAULT_AGENTS_WS_URL
+    namespaces = [
+        (_derive_workspaces_base, WorkspacesAPI, "/workspaces"),
+        (_derive_routines_base, RoutinesAPI, "/routines"),
+        (_derive_runners_base, RunnersAPI, "/agents/runners"),
+    ]
+    for derive, api_type, suffix in namespaces:
+        assert derive() == f"https://api.hypercli.com{suffix}"
+        assert derive("https://explicit.example/prefix/agents") == f"https://explicit.example/prefix{suffix}"
+        assert api_type("synthetic-key", api_base="https://explicit.example/custom").api_base == "https://explicit.example/custom"
+    config_path.write_text(
+        (stale_config if source == "file" else "")
+        + "\nHYPER_API_BASE=https://file.example/prefix\n"
+    )
+    assert config.get_agents_api_base_url() == "https://file.example/prefix/agents"
+    for derive, _, suffix in namespaces:
+        assert derive() == f"https://file.example/prefix{suffix}"
+    monkeypatch.setenv("HYPER_API_BASE", "https://env.example")
+    assert config.get_api_url() == "https://env.example"
+    assert config.get_agents_api_base_url() == "https://env.example/agents"
+    for derive, _, suffix in namespaces:
+        assert derive() == f"https://env.example{suffix}"
 
 
 def test_agents_urls_default_to_agents_hosts(monkeypatch):

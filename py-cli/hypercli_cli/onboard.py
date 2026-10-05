@@ -13,6 +13,7 @@ from decimal import Decimal
 import typer
 from rich.console import Console
 from rich.table import Table
+from hypercli.config import get_api_url
 
 from .paths import hyper_home
 
@@ -26,9 +27,6 @@ QR_PATH = ONBOARD_DIR / "wallet_qr.png"
 WALLET_PATH = HYPERCLI_DIR / "wallet.json"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
-
-PROD_API_BASE = "https://api.hypercli.com"
-DEV_API_BASE = "https://api.dev.hypercli.com"
 
 BASE_RPC = "https://mainnet.base.org"
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -579,7 +577,6 @@ def onboard(
     json_mode: bool = typer.Option(False, "--json", help="JSON mode — write state to disk, minimal stdout"),
     plan: str = typer.Option(None, "--plan", help="Plan ID (skip prompt)"),
     amount: str = typer.Option(None, "--amount", help="USDC amount (skip prompt)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     reset: bool = typer.Option(False, "--reset", help="Start fresh (delete state)"),
     status: bool = typer.Option(False, "--status", help="Show current onboard state and exit"),
     poll_interval: int = typer.Option(10, "--poll", help="Balance poll interval in seconds"),
@@ -601,7 +598,7 @@ def onboard(
     if not dry_run:
         _require_deps()
 
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
 
     if dry_run:
         _run_dry(api_base, plan_override=plan, amount_override=amount)

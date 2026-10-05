@@ -400,14 +400,12 @@ def import_memory(
         False, "--enrich", help="Generate summaries/keywords through Hyper /v1"
     ),
     model: str = typer.Option(None, "--model", "-m", help="Model for --enrich"),
-    base_url: str = typer.Option(
-        None, "--base-url", "-b", help="Product API base URL for --enrich"
-    ),
     key: str = typer.Option(None, "--key", "-k", help="API key for --enrich"),
     index: bool = typer.Option(False, "--index", help="Run openclaw memory index after import"),
     agent: str = typer.Option(None, "--agent", help="Agent id for --index"),
 ):
     """Import supported sources into OpenClaw-indexable Markdown memory files."""
+    base_url = llm.get_api_url()
     caption_files, document_files = _discover_memory_files(input_path)
     if not caption_files and not document_files:
         console.print(f"[red]No supported memory source files found under {input_path}[/red]")

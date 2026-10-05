@@ -9,7 +9,6 @@ const UNIVERSAL_HELP = `\
 Universal flags:
   --json            machine output: single JSON value on stdout
   --output, -o FMT  'table' (default) or 'json'
-  --dev             use the dev API base
   --help, -h        show help`;
 
 export function renderRootHelp(groups: readonly CommandGroup[]): string {

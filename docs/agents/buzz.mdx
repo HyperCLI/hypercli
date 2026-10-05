@@ -209,9 +209,8 @@ hyper agents list
 The provider resolves credentials in this order:
 
 1. `HYPER_API_KEY` in the environment
-2. `HYPER_API_KEY` in `~/.hypercli/config`
-3. `HYPER_AGENTS_API_KEY` in the environment
-4. the legacy `key` in `~/.hypercli/agent-key.json`
+2. `HYPER_API_KEY` in `$HYPER_HOME/config` (default `~/.hypercli/config`)
+3. `HYPER_AGENTS_API_KEY` in the environment, as the final fallback
 
 The agents API base is derived from `HYPER_API_BASE`; the retired overrides
 `AGENTS_API_BASE_URL`, `HYPERCLI_API_URL`, and `HYPERCLI_API_KEY` are not read.

@@ -135,7 +135,7 @@ export const usage = [
   'Typed flags differ per type; --param key=value overrides them and passes any key through (number/boolean values are coerced).',
 ];
 
-const UNIVERSAL_KEYS = new Set(['json', 'output', 'dev', 'help', 'param', 'dry-run']);
+const UNIVERSAL_KEYS = new Set(['json', 'output', 'help', 'param', 'dry-run']);
 const DEFAULT_WAIT_TIMEOUT_S = 3600;
 
 type ParseOptions = NonNullable<ParseArgsConfig['options']>;

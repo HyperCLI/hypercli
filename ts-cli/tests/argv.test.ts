@@ -7,13 +7,24 @@ describe('parseUniversal', () => {
     const parsed = parseUniversal(['--json', 'agents', 'ls', '--limit', '10']);
     expect(parsed.positionals[0]).toBe('agents');
     expect(parsed.format).toBe('json');
-    expect(parsed.dev).toBe(false);
   });
 
-  it('resolves --dev and -o json', () => {
-    const parsed = parseUniversal(['status', '--dev', '-o', 'json']);
-    expect(parsed.dev).toBe(true);
+  it('resolves -o json', () => {
+    const parsed = parseUniversal(['status', '-o', 'json']);
     expect(parsed.format).toBe('json');
+  });
+
+  it.each(['--dev', '--prod', '--dev=false', '--prod=true'])('rejects retired public flag %s', (flag) => {
+    expect(() => parseUniversal([flag, 'me'])).toThrow(UsageError);
+    expect(() => parseUniversal(['me', flag])).toThrow(/HYPER_API_BASE/);
+    expect(() => parseCommandArgs([flag])).toThrow(UsageError);
+  });
+
+  it('preserves forwarded flags after the command terminator', () => {
+    expect(parseUniversal(['agents', 'exec', 'id', '--', 'echo', '--dev', '--prod']).positionals)
+      .toEqual(['agents', 'exec', 'id', 'echo', '--dev', '--prod']);
+    expect(parseCommandArgs(['--', 'echo', '--dev', '--prod']).positionals)
+      .toEqual(['echo', '--dev', '--prod']);
   });
 
   it('firstPositionalIndex indexes the group token, not a flag value', () => {

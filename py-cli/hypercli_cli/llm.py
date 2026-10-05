@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import typer
 from rich.console import Console
-from hypercli.config import get_api_key, get_api_url
+from hypercli.config import get_agent_api_key, get_api_url
 
 from .paths import hyper_home
 
@@ -31,13 +31,9 @@ SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 def _resolve_api_key(key: str | None) -> str:
     if key:
         return key
-    configured = get_api_key()
+    configured = get_agent_api_key()
     if configured:
         return configured
-    for env_name in ("HYPER_AGENTS_API_KEY",):
-        env_key = os.environ.get(env_name, "").strip()
-        if env_key:
-            return env_key
     if AGENT_KEY_PATH.exists():
         try:
             with open(AGENT_KEY_PATH) as f:
@@ -179,7 +175,6 @@ def chat(
     prompt: str = typer.Argument(..., help="User prompt to send"),
     model: str = typer.Option(None, "--model", "-m", help="Model ID (defaults to Kimi or first non-embedding model)"),
     system: str = typer.Option(None, "--system", "-s", help="Optional system prompt"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="Product API base URL (default: api.hypercli.com)"),
     key: str = typer.Option(None, "--key", "-k", help="API key"),
     temperature: float = typer.Option(None, "--temperature", help="Sampling temperature"),
     max_tokens: int = typer.Option(None, "--max-tokens", help="Maximum completion tokens"),
@@ -188,7 +183,7 @@ def chat(
 ):
     """Send one basic chat completion request."""
     api_key = _resolve_api_key(key)
-    api_base = _resolve_api_base(base_url)
+    api_base = _resolve_api_base(None)
     resolved_model = model or _resolve_default_model(api_key, api_base)
 
     client = _get_openai_client(api_key, api_base)
@@ -238,7 +233,6 @@ def image(
     prompt: str = typer.Option(DEFAULT_IMAGE_PROMPT, "--prompt", "-p", help="Prompt to ask about the image"),
     model: str = typer.Option(None, "--model", "-m", help="Vision-capable model ID (defaults to Kimi vision if available)"),
     system: str = typer.Option(None, "--system", "-s", help="Optional system prompt"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="Product API base URL (default: api.hypercli.com)"),
     key: str = typer.Option(None, "--key", "-k", help="API key"),
     temperature: float = typer.Option(None, "--temperature", help="Sampling temperature"),
     max_tokens: int = typer.Option(None, "--max-tokens", help="Maximum completion tokens"),
@@ -247,7 +241,7 @@ def image(
 ):
     """Send a local image to a vision-capable chat model."""
     api_key = _resolve_api_key(key)
-    api_base = _resolve_api_base(base_url)
+    api_base = _resolve_api_base(None)
     resolved_model = model or _resolve_default_vision_model(api_key, api_base)
 
     client = _get_openai_client(api_key, api_base)

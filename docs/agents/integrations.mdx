@@ -39,6 +39,10 @@ Use the OpenAI-compatible `/v1` endpoint below only when your integration requir
 
 Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
 
+This local example uses environment `HYPER_API_KEY`. Managed OpenCode launches
+resolve the canonical credential before the platform `HYPER_AGENTS_API_KEY`
+fallback and derive the inference URL from `HYPER_API_BASE`.
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
@@ -49,7 +53,7 @@ Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
       "name": "HyperCLI",
       "options": {
         "baseURL": "https://api.agents.hypercli.com/v1",
-        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
+        "apiKey": "{env:HYPER_API_KEY}"
       },
       "models": {
         "coding-anthropic": {

@@ -3,8 +3,8 @@
     "mode": "merge",
     "providers": {
       "hypercli": {
-        "baseUrl": "${HYPER_AGENTS_API_BASE}",
-        "apiKey": "${HYPER_AGENTS_API_KEY}",
+        "baseUrl": "${HYPER_API_BASE}",
+        "apiKey": "${HYPER_RUNTIME_API_KEY}",
         "api": "anthropic-messages",
         "authHeader": true,
         "models": [
@@ -59,8 +59,8 @@
       "provider": "openai",
       "model": "qwen3-embedding-4b",
       "remote": {
-        "baseUrl": "${HYPER_AGENTS_API_BASE}/v1",
-        "apiKey": "${HYPER_AGENTS_API_KEY}"
+        "baseUrl": "${HYPER_API_BASE}/v1",
+        "apiKey": "${HYPER_RUNTIME_API_KEY}"
       }
     }
   },
@@ -78,8 +78,8 @@
         "enabled": true,
         "config": {
           "webSearch": {
-            "baseUrl": "${HYPER_AGENTS_WEB_SEARCH_BASE}",
-            "apiKey": "${HYPER_AGENTS_API_KEY}"
+            "baseUrl": "${HYPER_API_BASE}/agents/brave",
+            "apiKey": "${HYPER_RUNTIME_API_KEY}"
           }
         }
       }

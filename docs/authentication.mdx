@@ -421,16 +421,16 @@ When multiple authentication methods are configured, the priority is:
 
 1. Explicit SDK `api_key=` parameter, where supported
 2. Environment `HYPER_API_KEY`
-3. `HYPER_API_KEY` in `~/.hypercli/config`
+3. `HYPER_API_KEY` in `$HYPER_HOME/config` (default `~/.hypercli/config`)
+4. Environment `HYPER_AGENTS_API_KEY`, as the final fallback
 
 The retired names `HYPERCLI_API_KEY`, `HYPERCLI_API_URL`, and `HYPERCLI_WS_URL`
 are not read by current SDKs; `hyper configure` prunes them from the config
 file on write.
 
-Agent-scoped and inference surfaces fall back to `HYPER_AGENTS_API_KEY` when no
-product key is configured. See [CLI
-configuration](/cli/configuration#priority-rules) for the full precedence table
-and command-specific exceptions.
+The shared client uses this fallback for product and agent APIs; the selected
+key's scopes determine which operations are allowed. See [CLI
+configuration](/cli/configuration#priority-rules) for the full precedence table.
 
 ### Config File Format
 

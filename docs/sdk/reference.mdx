@@ -11,12 +11,12 @@ from hypercli import HyperCLI
 client = HyperCLI(
     api_key=None,
     api_url=None,
-    agent_api_key=None,
-    agent_dev=False,
-    agents_api_base_url=None,
-    agents_ws_url=None,
 )
 ```
+
+Use canonical `api_key` and `api_url` for explicit configuration. Otherwise the
+SDK reads `HYPER_API_KEY` and `HYPER_API_BASE` from environment/config and uses
+environment `HYPER_AGENTS_API_KEY` only as the final credential fallback.
 
 ## Namespaces
 

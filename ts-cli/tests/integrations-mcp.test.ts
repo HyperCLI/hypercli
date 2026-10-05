@@ -25,8 +25,8 @@ const statusTool = { name: 'integrations_status', description: 'Connection statu
 let home: string;
 let chunks: string[];
 let errors: string[];
-function ctx(format: 'table' | 'json' = 'table', dev = false): CommandContext {
-  return { client: lazyClient(dev), output: createOutput(format), format, dev };
+function ctx(format: 'table' | 'json' = 'table'): CommandContext {
+  return { client: lazyClient(), output: createOutput(format), format };
 }
 const stdout = () => chunks.join('');
 
@@ -160,16 +160,15 @@ describe('integrations MCP invocation and failures', () => {
 
 describe('integrations MCP uses REST credential and URL selection', () => {
   it.each([
-    [false, {}, 'https://api.hypercli.com/integrations/mcp'],
-    [true, {}, 'https://api.dev.hypercli.com/integrations/mcp'],
-    [false, { HYPER_API_BASE: 'https://product.example/prefix' }, 'https://product.example/prefix/integrations/mcp'],
-    [false, { HYPER_API_BASE: 'https://legacy.example' }, 'https://legacy.example/integrations/mcp'],
-    [true, { HYPER_API_BASE: 'https://product.example' }, 'https://api.dev.hypercli.com/integrations/mcp'],
-    [false, { HYPER_API_BASE: 'http://localhost:9000/prefix' }, 'http://localhost:9000/prefix/integrations/mcp'],
-    [false, { HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', HYPER_API_BASE: 'https://agents.example' }, 'https://facade.example/custom/integrations/mcp'],
-  ] as const)('dev=%s config=%j selects %s', async (dev, env, expected) => {
+    [{}, 'https://api.hypercli.com/integrations/mcp'],
+    [{ HYPER_API_BASE: 'https://api.dev.hypercli.com' }, 'https://api.dev.hypercli.com/integrations/mcp'],
+    [{ HYPER_API_BASE: 'https://product.example/prefix' }, 'https://product.example/prefix/integrations/mcp'],
+    [{ HYPER_API_BASE: 'https://legacy.example' }, 'https://legacy.example/integrations/mcp'],
+    [{ HYPER_API_BASE: 'http://localhost:9000/prefix' }, 'http://localhost:9000/prefix/integrations/mcp'],
+    [{ HYPER_INTEGRATIONS_API_BASE: 'https://facade.example/custom/integrations/', HYPER_AGENTS_API_BASE: 'https://stale.example', HYPER_API_BASE: 'https://agents.example' }, 'https://agents.example/integrations/mcp'],
+  ] as const)('config=%j selects %s', async (env, expected) => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
-    await run(ctx('json', dev), ['--mcp']);
+    await run(ctx('json'), ['--mcp']);
     const [url, options] = mocks.Transport.mock.calls[0];
     expect(url.href).toBe(expected);
     expect(options.requestInit.headers).toEqual({ Authorization: 'Bearer test-product-key' });
