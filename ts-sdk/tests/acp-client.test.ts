@@ -7,6 +7,8 @@ import type { HTTPClient } from '../src/http.js';
 import {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
+  CodingAgentAcpRequestError,
+  CodingAgentAcpObservationError,
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
   type CodingAgentAcpReplayEvent,
@@ -880,6 +882,28 @@ describe('read receipts', () => {
 });
 
 describe('CodingAgentAcpClient replay epoch tracking', () => {
+  it('keeps crossed replay epochs distinct after an earlier replay has completed', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    const events: CodingAgentAcpReplayEvent[] = [];
+    client.addReplayListener(event => events.push(event));
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    const held: WireFrame[] = [];
+    bridge.loadHook = (_peer, frame) => { held.push(frame); };
+    const older = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    const newer = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    await waitFor(() => held.length === 2);
+    const newestEpoch = client.replayEpoch('session-1');
+    bridge.currentPeer.result(held[1], {});
+    await newer;
+    expect(client.replayEpoch('session-1')).toBe(newestEpoch);
+    bridge.currentPeer.error(held[0], -32003, 'older replay failed');
+    await expect(older).rejects.toThrow('older replay failed');
+    expect(client.replayEpoch('session-1')).toBe(0);
+    expect(events.filter(e => e.phase === 'start').map(e => e.epoch)).toEqual([1, 2, 3]);
+    expect(events.filter(e => e.phase === 'end').map(e => [e.epoch, e.ok])).toEqual([[1, true], [3, true], [2, false]]);
+  });
   it('brackets a replaying resume: replayed updates observe a live epoch, which ends when the resume resolves', async () => {
     const bridge = await startBridge();
     bridge.loadHook = (peer, frame) => {
@@ -1005,6 +1029,71 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
 });
 
 describe('CodingAgentAcpClient foreground admission after resume', () => {
+  it('preserves request rejection identity and never mistakes an accepted notice for it', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    bridge.promptHook = (peer, frame) => peer.error(frame, -32003, 'Resume the session before submitting input');
+    await expect(client.prompt('session-1', 'unsent')).rejects.toMatchObject({
+      name: 'CodingAgentAcpRequestError', method: 'session/prompt', code: -32003,
+      message: 'Resume the session before submitting input',
+    });
+    const accepted = vi.fn();
+    bridge.promptHook = (peer, frame) => {
+      peer.result(frame, { messageId: 'accepted' });
+      peer.notify('session/update', { sessionId: 'session-1', update: {
+        sessionUpdate: 'notice', severity: 'error', title: 'Runtime disconnected',
+      } });
+    };
+    const error = await client.prompt('session-1', 'accepted', { onAccepted: accepted }).catch(e => e);
+    expect(error).toBeInstanceOf(CodingAgentAcpObservationError);
+    expect(error).not.toBeInstanceOf(CodingAgentAcpRequestError);
+    expect(error.messageId).toBe('accepted');
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(2);
+  });
+
+  it('quarantines historical error notices while an accepted prompt is observed', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    let accepted!: () => void;
+    const admission = new Promise<void>(resolve => { accepted = resolve; });
+    bridge.promptHook = (peer, frame) => peer.result(frame, { messageId: 'active' });
+    const result = client.prompt('session-1', 'active', { onAccepted: accepted });
+    let settled = false;
+    void result.then(() => { settled = true; }, () => { settled = true; });
+    await admission;
+    bridge.loadHook = (peer, frame) => {
+      peer.notify('session/update', { sessionId: 'session-1', update: {
+        sessionUpdate: 'notice', severity: 'error', title: 'Runtime disconnected',
+      } });
+      peer.result(frame, {});
+    };
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    expect(settled).toBe(false);
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle' } });
+    await expect(result).resolves.toMatchObject({ messageId: 'active', stopReason: 'end_turn' });
+  });
+
+  it('forgets the lost generation running state on a quiet reconnect without synthesizing idle', async () => {
+    const bridge = await startBridge();
+    const states: string[] = [];
+    const client = track(await acpAgent(bridge).acpConnect());
+    stateObserver(client, states);
+    await client.newSession();
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } });
+    await waitFor(() => states.includes('running'));
+    const replayed = new Promise<void>(resolve => client.addReplayListener(e => { if (e.phase === 'end') resolve(); }));
+    const failedWait = expect(client.waitForIdle('session-1')).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
+    bridge.currentPeer.drop();
+    await failedWait;
+    await replayed;
+    expect(states).toEqual(['running']);
+    await client.waitForIdle('session-1');
+    await expect(client.prompt('session-1', 'new generation')).resolves.toMatchObject({ stopReason: 'end_turn' });
+    expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(1);
+  });
   /** Live state announcements the test waits on via onUpdate (no public marker accessor). */
   function stateObserver(client: CodingAgentAcpClient, states: string[]): void {
     client.addUpdateListener((notification) => {
@@ -1266,7 +1355,7 @@ describe('Agent.acpTurnDriver', () => {
     expect(commitsB).toEqual([]);
 
     // A notification for a foreign session mutates neither driver's state.
-    bridge.currentPeer.notify('session/update', { sessionId: 'session-2', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'x' } } });
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-2', update: { sessionUpdate: 'agent_message_chunk', messageId: 'foreign-message', content: { type: 'text', text: 'x' } } });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(driverA.turnState).toBe('idle');
     expect(driverB.turnState).toBe('idle');

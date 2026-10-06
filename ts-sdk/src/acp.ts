@@ -143,6 +143,18 @@ export class CodingAgentAcpObservationError extends Error {
   }
 }
 
+/** A correlated JSON-RPC rejection, not a transport or observation failure.
+ * The code alone says nothing about whether input was inserted. Consumers of
+ * platform-specific refusals must also check the exact method and message.
+ */
+export class CodingAgentAcpRequestError extends Error {
+  constructor(public readonly method: string, public readonly code: number, message: string,
+    public readonly data?: unknown) {
+    super(message);
+    this.name = 'CodingAgentAcpRequestError';
+  }
+}
+
 /**
  * Soft error delivered via `onError` when a session cannot be replayed after
  * a reconnect (`session/load` rejected, or the child stopped advertising
@@ -309,8 +321,10 @@ export class CodingAgentAcpClient {
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
-  /** In-memory only: sessionId → latest epoch + in-flight load count. */
-  private readonly replayEpochs = new Map<string, { epoch: number; inFlight: number }>();
+  private readonly errorListeners = new Set<(error: Error) => void>();
+  /** In-memory only: latest epoch and outstanding replay identities per session. */
+  private readonly replayEpochs = new Map<string, { epoch: number; active: Set<number> }>();
+  private nextReplayEpoch = 0;
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest, signal?: AbortSignal) => Promise<acp.RequestPermissionResponse>) | null = null;
   private closedFlag = false;
@@ -414,13 +428,19 @@ export class CodingAgentAcpClient {
     };
   }
 
+  /** Pooled counterpart to onError, including capability loss before replay starts. */
+  addErrorListener(listener: (error: Error) => void): () => void {
+    this.errorListeners.add(listener);
+    return () => { this.errorListeners.delete(listener); };
+  }
+
   /**
    * The current replay epoch for a session: 0 when no `session/load` is in
    * flight for it, otherwise the epoch of the newest in-flight load.
    */
   replayEpoch(sessionId: string): number {
     const state = this.replayEpochs.get(sessionId);
-    return state && state.inFlight > 0 ? state.epoch : 0;
+    return state && state.active.size > 0 ? state.epoch : 0;
   }
 
   /**
@@ -637,7 +657,7 @@ export class CodingAgentAcpClient {
     this.foreground.set(sessionId, pending);
     void completed.catch(() => {});
     try {
-      const acceptance = this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
+      const acceptance = this.request<acp2.PromptResponse>('session/prompt', { sessionId, prompt: blocks });
       return await Promise.race([completed, acceptance.then(async (accepted) => {
         pending.messageId = accepted.messageId;
         options.onAccepted?.(accepted);
@@ -645,7 +665,7 @@ export class CodingAgentAcpClient {
         return completed;
       })]);
     } finally {
-      this.foreground.delete(sessionId);
+      if (this.foreground.get(sessionId) === pending) this.foreground.delete(sessionId);
       this.settleIdleWaiters(sessionId);
     }
   }
@@ -661,10 +681,10 @@ export class CodingAgentAcpClient {
    * `close()`.
    */
   waitForIdle(sessionId: string): Promise<void> {
-    if (!this.foregroundBusy(sessionId)) return Promise.resolve();
-    if (this.closedFlag) {
-      return Promise.reject(this.terminalError ?? new CodingAgentAcpConnectionError('ACP client is closed'));
+    if (!this.connected) {
+      return Promise.reject(this.terminalError ?? new CodingAgentAcpConnectionError('ACP connection is unavailable; foreground state is unknown'));
     }
+    if (!this.foregroundBusy(sessionId)) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
       let waiters = this.idleWaiters.get(sessionId);
       if (!waiters) {
@@ -696,7 +716,7 @@ export class CodingAgentAcpClient {
   /** V2 insertion acknowledgement, not foreground completion. */
   async submitPrompt(sessionId: string, prompt: acp.ContentBlock[]): Promise<acp2.PromptResponse> {
     if (this.foreground.has(sessionId)) throw new Error('Cannot mix submitPrompt with an isolated prompt observation');
-    return this.requireContext().request<acp2.PromptResponse>('session/prompt', { sessionId, prompt });
+    return this.request<acp2.PromptResponse>('session/prompt', { sessionId, prompt });
   }
 
   private settleForeground(sessionId: string): void {
@@ -777,8 +797,15 @@ export class CodingAgentAcpClient {
   }
 
   /** Raw request escape hatch for `_hyper/*` and other extension methods. */
-  request<Response = unknown>(method: string, params?: unknown): Promise<Response> {
-    return this.requireContext().request<Response>(method, params);
+  async request<Response = unknown>(method: string, params?: unknown): Promise<Response> {
+    try {
+      return await this.requireContext().request<Response>(method, params);
+    } catch (error) {
+      if (error instanceof acp2.RequestError) {
+        throw new CodingAgentAcpRequestError(method, error.code, error.message, error.data);
+      }
+      throw error;
+    }
   }
 
   /** Raw notification escape hatch for `_hyper/*` and other extension methods. */
@@ -790,11 +817,14 @@ export class CodingAgentAcpClient {
     const error = new CodingAgentAcpConnectionError('ACP connection closed; delivery is unresolved');
     for (const pending of this.foreground.values()) pending.reject(error);
     this.foreground.clear();
+    this.foregroundStates.clear();
+    this.replayEpochs.clear();
     this.failIdleWaiters(error);
     if (this.closedFlag) return;
     this.closedFlag = true;
     this.updateListeners.clear();
     this.replayListeners.clear();
+    this.errorListeners.clear();
     this.closeListeners.clear();
     this.permissionHandler = null;
     this.generation += 1;
@@ -868,6 +898,7 @@ export class CodingAgentAcpClient {
   }
 
   private buildV2App(): acp2.ClientApp {
+    const generation = this.generation;
     const app = acp2.client({ name: this.clientName });
     app.onRequest('session/request_permission', async (context) => {
       const request = context.params;
@@ -885,10 +916,11 @@ export class CodingAgentAcpClient {
           : { toolCallId: '', title: request.title, rawInput: subject ?? undefined } }, context.signal);
     });
     app.onNotification('session/update', (context) => {
+      if (this.closedFlag || generation !== this.generation) return;
       const notification = context.params;
       const update = notification.update;
       const pending = this.foreground.get(notification.sessionId);
-      if (pending && update.sessionUpdate === 'notice' && update.severity === 'error') {
+      if (this.replayEpoch(notification.sessionId) === 0 && pending && update.sessionUpdate === 'notice' && update.severity === 'error') {
         pending.reject(new CodingAgentAcpObservationError(`ACP session error: ${update.title}: ${update.description ?? ''}`, pending.messageId));
       }
       // Replayed history streams inside a replay epoch; its state frames are
@@ -989,6 +1021,9 @@ export class CodingAgentAcpClient {
   ): void {
     if (this.closedFlag || connection !== this.connection) return;
     this.connection = null;
+    this.generation += 1;
+    this.foregroundStates.clear();
+    this.replayEpochs.clear();
     const code = closeInfo.code ?? 1006;
     const error = new CodingAgentAcpConnectionError('Connection lost during foreground work; input is not retried', { code });
     for (const pending of this.foreground.values()) pending.reject(error);
@@ -1076,9 +1111,11 @@ export class CodingAgentAcpClient {
       }
       try {
         const response = await this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
+        if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
         tracked.modes = response?.modes ?? null;
         tracked.configOptions = response?.configOptions ?? null;
       } catch (error) {
+        if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
         this.sessions.delete(sessionId);
         this.softError(new CodingAgentAcpReplayGapError(
           sessionId,
@@ -1138,9 +1175,9 @@ export class CodingAgentAcpClient {
   }
 
   private beginReplay(sessionId: string): number {
-    const state = this.replayEpochs.get(sessionId) ?? { epoch: 0, inFlight: 0 };
-    state.epoch += 1;
-    state.inFlight += 1;
+    const state = this.replayEpochs.get(sessionId) ?? { epoch: 0, active: new Set<number>() };
+    state.epoch = ++this.nextReplayEpoch;
+    state.active.add(state.epoch);
     this.replayEpochs.set(sessionId, state);
     this.emitReplay({ sessionId, phase: 'start', epoch: state.epoch });
     return state.epoch;
@@ -1148,10 +1185,8 @@ export class CodingAgentAcpClient {
 
   private endReplay(sessionId: string, epoch: number, ok: boolean): void {
     const state = this.replayEpochs.get(sessionId);
-    if (state) {
-      state.inFlight -= 1;
-      if (state.inFlight <= 0) this.replayEpochs.delete(sessionId);
-    }
+    if (!state?.active.delete(epoch)) return;
+    if (state.active.size === 0) this.replayEpochs.delete(sessionId);
     // Observations cannot settle mid-epoch (live transitions are quarantined
     // with the replay); re-evaluate as the bracket closes.
     this.settleForeground(sessionId);
@@ -1169,7 +1204,11 @@ export class CodingAgentAcpClient {
   }
 
   private softError(error: Error): void {
-    this.options.onError?.(error);
+    for (const listener of [this.options.onError, ...this.errorListeners]) {
+      try { listener?.(error); } catch (listenerError) {
+        console.error('ACP error listener threw', listenerError);
+      }
+    }
   }
 
   private requireConnection(): WireConnection {
