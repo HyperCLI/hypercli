@@ -651,6 +651,34 @@ Important additions over `Agent`:
 - `acpTurnDriver(options)` — a per-session `AcpTurnDriver` bound to a pooled
   lease; drivers are cheap (one per session) and ignore other sessions' frames.
 
+### Session working directories
+
+`await (await agent.acpConnect()).newSession()` uses the runtime's canonical
+launch directory, including for a local process runner. The same rule applies
+to `CodingAgentAcpClient.connect` used by the desktop. Precedence for a new
+session is `newSession({ cwd })`, then `acpConnect({ cwd })`, then the runtime
+advertisement. The SDK never substitutes the pod sync root or the caller's home.
+
+Without an explicit connection cwd, the SDK requests launch metadata with
+`initialize._meta["hypercli.com/resolve-launch-cwd"] = true`. The backend obtains
+the current runtime leg's `initialize._meta["hypercli.com/launch-cwd"]` and
+forwards that validated absolute path. Catalog-only ACP clients can omit the
+request hint and initialize/list offline. An older runtime/backend that does
+not advertise a launch directory requires an explicit cwd; there is no guessed
+fallback. Every `session/new` and `session/resume` still sends standard ACP's
+required absolute `cwd` field.
+
+Explicit paths must exist on the **runtime host**. hyper-acp validates and
+canonicalizes them (including filesystem aliases), rejecting invalid paths
+with JSON-RPC `-32602` instead of remapping them. A successful setup response
+carries `_meta["hypercli.com/session-cwd"]`; the backend retains that canonical
+cwd in session setup and the SDK tracks it for reconnect. A fresh client's
+`resumeSession(sessionId)` reads the original cwd from the persisted standard
+`session/list` catalog, rather than applying today's launch default. For a
+legacy session with no catalog setup, supply its original cwd explicitly.
+The raw Python and Rust SDK APIs continue to require an explicit cwd; callers
+can read the standard session catalog when resuming from a fresh client.
+
 To mint a child key for one exact agent:
 
 ```ts

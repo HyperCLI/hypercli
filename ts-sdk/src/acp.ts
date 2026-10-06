@@ -190,7 +190,7 @@ export interface CodingAgentAcpConnectOptions {
    * `/ws/acp` credential. Defaults to the client API key.
    */
   token?: string;
-  /** Session working directory; defaults to the agent workspace root. */
+  /** Absolute runtime-host working directory; defaults to its launch advertisement. */
   cwd?: string;
   /** Override the `clientInfo` sent with `initialize`. */
   clientInfo?: { name?: string; version?: string };
@@ -292,7 +292,7 @@ function trackSocketClose(socket: WebSocketLike, closeInfo: { code?: number; rea
 export class CodingAgentAcpClient {
   private readonly target: CodingAgentAcpTarget;
   private readonly options: CodingAgentAcpConnectOptions;
-  private readonly cwd: string;
+  private readonly cwd: string | undefined;
   private readonly mcpServers: acp.McpServer[];
   private readonly clientName: string;
   private readonly clientVersion: string;
@@ -329,7 +329,7 @@ export class CodingAgentAcpClient {
       this.target = target;
     }
     this.options = options;
-    this.cwd = options.cwd ?? '/home/node';
+    this.cwd = options.cwd;
     this.mcpServers = options.mcpServers ?? [];
     this.clientName = options.clientInfo?.name ?? 'hypercli-ts-sdk';
     this.clientVersion = options.clientInfo?.version ?? '';
@@ -461,14 +461,14 @@ export class CodingAgentAcpClient {
       throw new CodingAgentAcpUnavailableError('session/new', 'system instructions use native configuration; titles use platform REST');
     }
     const context = this.requireContext();
-    const cwd = options.cwd ?? this.cwd;
+    const cwd = this.sessionCwd(options.cwd ?? this.cwd ?? this.initializeResponseValue?._meta?.['hypercli.com/launch-cwd']);
     const mcpServers = options.mcpServers ?? this.mcpServers;
     const response = this.localSessionState(await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
       cwd,
       mcpServers: this.wireMcpServers(mcpServers),
     }));
     this.sessions.set(response.sessionId, {
-      cwd,
+      cwd: this.sessionCwd(response._meta?.['hypercli.com/session-cwd'] ?? cwd),
       mcpServers,
       modes: response.modes ?? null,
       configOptions: response.configOptions ?? null,
@@ -484,6 +484,35 @@ export class CodingAgentAcpClient {
       cwd: options.cwd ?? null,
       cursor: options.cursor ?? null,
     });
+  }
+
+  private sessionCwd(value: unknown): string {
+    // This path belongs to the runtime host, not necessarily the SDK platform.
+    if (typeof value !== 'string' || value.includes('\0') || !(/^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/).test(value)) {
+      throw new CodingAgentAcpUnavailableError('session cwd',
+        'an absolute runtime-host cwd is required; supply cwd explicitly or upgrade the runtime/backend to advertise hypercli.com/launch-cwd');
+    }
+    return value;
+  }
+
+  private async originalSessionCwd(sessionId: string): Promise<string> {
+    const tracked = this.sessions.get(sessionId);
+    if (tracked) return tracked.cwd;
+    // The authority's standard catalog reads persisted setup, including custom
+    // roots. A new connection's launch default cannot reconstruct old setup.
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const page = await this.listSessions({ cursor });
+      const session = page.sessions.find((entry) => entry.sessionId === sessionId);
+      if (session) return this.sessionCwd(session.cwd);
+      cursor = page.nextCursor ?? undefined;
+      if (cursor && seen.has(cursor)) throw new Error('session/list repeated a cursor while resolving the original cwd');
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    if (this.cwd !== undefined) return this.sessionCwd(this.cwd);
+    throw new CodingAgentAcpUnavailableError('session/resume',
+      'the original session cwd is unavailable from the session catalog; supply its original cwd explicitly');
   }
 
   /**
@@ -508,14 +537,15 @@ export class CodingAgentAcpClient {
    */
   async resumeSession(
     sessionId: string,
-    options: { replayFrom?: AcpReplayFrom | null } = {},
+    options: { cwd?: string; replayFrom?: AcpReplayFrom | null } = {},
   ): Promise<acp.ResumeSessionResponse> {
     const context = this.requireContext();
     this.requireSessionCapability('session/resume', 'resume');
     const previous = this.sessions.get(sessionId);
+    const cwd = options.cwd !== undefined ? this.sessionCwd(options.cwd) : await this.originalSessionCwd(sessionId);
     const params: Record<string, unknown> = {
       sessionId,
-      cwd: previous?.cwd ?? this.cwd,
+      cwd,
       mcpServers: this.wireMcpServers(previous?.mcpServers ?? this.mcpServers),
     };
     if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
@@ -527,7 +557,7 @@ export class CodingAgentAcpClient {
       ? await this.performReplayBracket(sessionId, requestResume)
       : await requestResume());
     this.sessions.set(sessionId, {
-      cwd: previous?.cwd ?? this.cwd,
+      cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
       modes: response?.modes ?? null,
       configOptions: response?.configOptions ?? null,
@@ -557,13 +587,14 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     this.requireSessionCapability('session/fork', 'fork');
     const previous = this.sessions.get(sessionId);
+    const cwd = await this.originalSessionCwd(sessionId);
     const response = await context.request<acp.ForkSessionResponse>(acp.methods.agent.session.fork, {
       sessionId,
-      cwd: previous?.cwd ?? this.cwd,
+      cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
     });
     this.sessions.set(response.sessionId, {
-      cwd: previous?.cwd ?? this.cwd,
+      cwd: this.sessionCwd(response._meta?.['hypercli.com/session-cwd'] ?? cwd),
       mcpServers: previous?.mcpServers ?? this.mcpServers,
       modes: response.modes ?? previous?.modes ?? null,
       configOptions: response.configOptions ?? previous?.configOptions ?? null,
@@ -818,6 +849,7 @@ export class CodingAgentAcpClient {
   private initializeParams(): acp2.InitializeRequest {
     return {
       protocolVersion: 2, capabilities: {}, info: { name: this.clientName, version: this.clientVersion },
+      ...(this.cwd === undefined ? { _meta: { 'hypercli.com/resolve-launch-cwd': true } } : {}),
     };
   }
 

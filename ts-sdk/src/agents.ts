@@ -2853,9 +2853,8 @@ export class Agent {
    * (see `client.negotiatedProtocolVersion`). The proxy authority is
    * v2-only — it rejects a v1 `initialize` outright — and the client
    * closes on any answered version other than 2.
-   * The `cwd` default is the agent
-   * workspace root (the launch's sync root, `/home/node` for coding-agent
-   * runtimes, `/home/hermes` for hermes-agent).
+   * The `cwd` default comes from the runtime's validated launch-directory
+   * advertisement, never from the pod sync root or the caller's machine.
     *
     * Auth: the dial carries the client API key on the `token` query param;
     * `options.token` overrides that credential.
@@ -2877,10 +2876,9 @@ export class Agent {
     );
     url.searchParams.set('agent_id', this.id);
     url.searchParams.set('token', options.token ?? deployments.agentApiKey);
-    const syncRoot = this.launchConfig?.sync_root;
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
-      { ...options, cwd: options.cwd ?? (typeof syncRoot === 'string' ? syncRoot : DEFAULT_CODING_AGENT_SYNC_ROOT),
+      { ...options,
         getPromptCompletion: options.getPromptCompletion ?? (transport === 'proxy'
           ? (sid, mid) => deployments.getPromptCompletion(sid, mid, this.id) : undefined) },
     );
