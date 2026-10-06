@@ -451,6 +451,7 @@ export {
   type AcpSessionPage,
   type AcpSessionParticipant,
   type AcpSessionRecord,
+  type SessionDiscoveryStatus,
   type AcpTranscriptSearchHit,
   type AcpTranscriptSearchOptions,
 } from './sessions.js';

@@ -1,6 +1,29 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
-import { SessionsAPI } from '../src/sessions.js';
+import { SessionsAPI, type SessionDiscoveryStatus } from '../src/sessions.js';
+
+describe('native session discovery REST', () => {
+  it.each(['pending', 'running', 'complete', 'error', 'unsupported'] as const)('preserves %s independently of catalog rows', async (status) => {
+    const payload: SessionDiscoveryStatus = {
+      status, error_code: status === 'error' ? 'discovery_failed' : null,
+      discovered_count: status === 'complete' ? 0 : null,
+      queued_count: 0, importing_count: 0, last_attempt_at: null, last_completed_at: null,
+    };
+    const http = { get: vi.fn().mockResolvedValue(payload), post: vi.fn().mockResolvedValue(payload) };
+    const api = new SessionsAPI(http);
+    expect(await api.getDiscoveryStatus('agent/id')).toEqual(payload);
+    expect(http.get).toHaveBeenCalledWith('/sessions/discovery', { agent_id: 'agent/id' });
+    expect(await api.requestDiscovery('agent/id')).toEqual(payload);
+    expect(http.post).toHaveBeenCalledWith('/sessions/discovery?agent_id=agent%2Fid');
+  });
+
+  it('propagates denied/unavailable responses rather than creating empty success', async () => {
+    const http = { get: vi.fn().mockRejectedValue(new Error('403')), post: vi.fn().mockRejectedValue(new Error('503')) };
+    const api = new SessionsAPI(http);
+    await expect(api.getDiscoveryStatus('agent')).rejects.toThrow('403');
+    await expect(api.requestDiscovery('agent')).rejects.toThrow('503');
+  });
+});
 
 /**
  * §15 REST read surface (sessions/README §15). These fixtures mirror the

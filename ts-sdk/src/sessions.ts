@@ -17,6 +17,17 @@
  */
 import type { HTTPClient } from './http.js';
 
+/** Native catalog discovery, independent of active conversation/turn state. */
+export interface SessionDiscoveryStatus {
+  status: 'pending' | 'running' | 'complete' | 'error' | 'unsupported';
+  error_code: 'runtime_unavailable' | 'discovery_failed' | 'catalog_unsupported' | null;
+  discovered_count: number | null;
+  queued_count: number;
+  importing_count: number;
+  last_attempt_at: string | null;
+  last_completed_at: string | null;
+}
+
 /** One `session_participants` row as embedded in the session catalog (backend `SessionParticipant`). */
 export interface AcpSessionParticipant {
   kind: 'user' | 'agent';
@@ -178,7 +189,18 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>) {}
+
+  /** Read discovery evidence; an empty stored catalog alone is not discovery success. */
+  async getDiscoveryStatus(agentId: string): Promise<SessionDiscoveryStatus> {
+    return this.http.get<SessionDiscoveryStatus>('/sessions/discovery', { agent_id: agentId });
+  }
+
+  /** Explicitly request discovery. Unsupported runtimes remain unsupported. */
+  async requestDiscovery(agentId: string): Promise<SessionDiscoveryStatus> {
+    if (!this.http.post) throw new Error('Session discovery requires a writable HTTP client');
+    return this.http.post<SessionDiscoveryStatus>(`/sessions/discovery?agent_id=${encodeURIComponent(agentId)}`);
+  }
 
   /**
    * Stored metadata for one platform session ID (not an agent/runtime session ID).
