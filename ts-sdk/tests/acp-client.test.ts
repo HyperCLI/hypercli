@@ -892,12 +892,12 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
     const held: WireFrame[] = [];
     bridge.loadHook = (_peer, frame) => { held.push(frame); };
     const older = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    void older.catch(() => {});
     const newer = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
     await waitFor(() => held.length === 2);
-    const newestEpoch = client.replayEpoch('session-1');
     bridge.currentPeer.result(held[1], {});
     await newer;
-    expect(client.replayEpoch('session-1')).toBe(newestEpoch);
+    expect(client.replayEpoch('session-1')).toBe(0);
     bridge.currentPeer.error(held[0], -32003, 'older replay failed');
     await expect(older).rejects.toThrow('older replay failed');
     expect(client.replayEpoch('session-1')).toBe(0);
@@ -1029,6 +1029,29 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
 });
 
 describe('CodingAgentAcpClient foreground admission after resume', () => {
+  it('does not mistake an untracked session for observed quiet', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await expect(client.waitForIdle('untracked')).rejects.toThrow(/unknown|not.*restored/i);
+  });
+
+  it.each([true, false])('latest failed resume stays unknown after older success (older ends first=%s)', async olderFirst => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    const held: WireFrame[] = [];
+    bridge.loadHook = (_peer, frame) => { held.push(frame); };
+    const older = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    const latest = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    void latest.catch(() => {});
+    await waitFor(() => held.length === 2);
+    if (olderFirst) { bridge.currentPeer.result(held[0], {}); await older; }
+    bridge.currentPeer.error(held[1], -32603, 'latest failed');
+    await expect(latest).rejects.toThrow('latest failed');
+    if (!olderFirst) { bridge.currentPeer.result(held[0], {}); await older; }
+    await expect(client.waitForIdle('session-1')).rejects.toThrow(/unknown|not.*restored/i);
+  });
+
   it('preserves request rejection identity and never mistakes an accepted notice for it', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect());
@@ -1055,7 +1078,8 @@ describe('CodingAgentAcpClient foreground admission after resume', () => {
 
   it('quarantines historical error notices while an accepted prompt is observed', async () => {
     const bridge = await startBridge();
-    const client = track(await acpAgent(bridge).acpConnect());
+    const receipts = vi.fn().mockResolvedValue(null);
+    const client = track(await acpAgent(bridge).acpConnect({ getPromptCompletion: receipts }));
     await client.newSession();
     let accepted!: () => void;
     const admission = new Promise<void>(resolve => { accepted = resolve; });
@@ -1071,9 +1095,47 @@ describe('CodingAgentAcpClient foreground admission after resume', () => {
       peer.result(frame, {});
     };
     await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    await client.listSessions();
+    expect(receipts).toHaveBeenCalledExactlyOnceWith('session-1', 'active');
     expect(settled).toBe(false);
+    receipts.mockResolvedValue({ stopReason: 'end_turn' });
     bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle' } });
     await expect(result).resolves.toMatchObject({ messageId: 'active', stopReason: 'end_turn' });
+    expect(receipts).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores an obsolete receipt failure and reconciles the accepted ID after the newer replay', async () => {
+    const bridge = await startBridge();
+    let rejectOld!: (error: Error) => void;
+    const oldRead = new Promise<null>((_resolve, reject) => { rejectOld = reject; });
+    let reading!: () => void;
+    const readStarted = new Promise<void>(resolve => { reading = resolve; });
+    const receipts = vi.fn().mockImplementationOnce(() => { reading(); return oldRead; })
+      .mockResolvedValue({ stopReason: 'end_turn' });
+    const client = track(await acpAgent(bridge).acpConnect({ getPromptCompletion: receipts }));
+    await client.newSession();
+    let accepted!: () => void;
+    const admission = new Promise<void>(resolve => { accepted = resolve; });
+    bridge.promptHook = (peer, frame) => peer.result(frame, { messageId: 'accepted-A' });
+    const turn = client.prompt('session-1', 'A', { onAccepted: accepted });
+    let settled = false;
+    void turn.then(() => { settled = true; }, () => { settled = true; });
+    await admission;
+    await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    await readStarted;
+    let resumeEntered!: (frame: WireFrame) => void;
+    const entered = new Promise<WireFrame>(resolve => { resumeEntered = resolve; });
+    bridge.loadHook = (_peer, frame) => resumeEntered(frame);
+    const replay = client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    const held = await entered;
+    rejectOld(new Error('obsolete REST failure'));
+    await client.listSessions();
+    expect(settled).toBe(false);
+    bridge.currentPeer.result(held, {});
+    await replay;
+    await expect(turn).resolves.toEqual({ messageId: 'accepted-A', stopReason: 'end_turn' });
+    expect(receipts.mock.calls).toEqual([['session-1', 'accepted-A'], ['session-1', 'accepted-A']]);
+    expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(1);
   });
 
   it('forgets the lost generation running state on a quiet reconnect without synthesizing idle', async () => {

@@ -62,6 +62,7 @@ export interface CodingAgentAcpPromptResult {
 interface ForegroundObservation {
   messageId?: string;
   idle?: boolean;
+  reconcile?: boolean;
   checking?: boolean;
   resolve(result: CodingAgentAcpPromptResult): void;
   reject(error: Error): void;
@@ -323,7 +324,9 @@ export class CodingAgentAcpClient {
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   /** In-memory only: latest epoch and outstanding replay identities per session. */
-  private readonly replayEpochs = new Map<string, { epoch: number; active: Set<number> }>();
+  private readonly replayEpochs = new Map<string, {
+    epoch: number; active: Set<number>; replaying: boolean; status: 'pending' | 'succeeded' | 'failed';
+  }>();
   private nextReplayEpoch = 0;
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: ((request: acp.RequestPermissionRequest, signal?: AbortSignal) => Promise<acp.RequestPermissionResponse>) | null = null;
@@ -435,12 +438,12 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * The current replay epoch for a session: 0 when no `session/load` is in
-   * flight for it, otherwise the epoch of the newest in-flight load.
+   * The newest resume owns replay classification. Once its response settles,
+   * older outstanding responses cannot quarantine its current-state updates.
    */
   replayEpoch(sessionId: string): number {
     const state = this.replayEpochs.get(sessionId);
-    return state && state.active.size > 0 ? state.epoch : 0;
+    return state?.replaying && state.status === 'pending' ? state.epoch : 0;
   }
 
   /**
@@ -571,27 +574,20 @@ export class CodingAgentAcpClient {
       mcpServers: this.wireMcpServers(previous?.mcpServers ?? this.mcpServers),
     };
     if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
-    const requestResume = () => {
-      // Resume replaces the live observation, including when only the runtime
-      // leg was lost. Clear before dispatch so post-response current state wins.
-      // Absence is unknown, never a synthetic idle/completion notification.
-      this.foregroundStates.delete(sessionId);
-      return context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
-    };
+    const requestResume = () => context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
     // A replaying resume streams history before its response resolves (the
     // same boundary problem as v1 session/load), so it gets an epoch bracket.
     const replaying = options.replayFrom !== undefined && options.replayFrom !== null;
-    const response = this.localSessionState(replaying
-      ? await this.performReplayBracket(sessionId, requestResume)
-      : await requestResume());
-    this.sessions.set(sessionId, {
-      cwd,
-      mcpServers: previous?.mcpServers ?? this.mcpServers,
-      modes: response?.modes ?? null,
-      configOptions: response?.configOptions ?? null,
-      title: previous?.title ?? null,
-    });
-    return response;
+    return this.localSessionState(await this.performReplayBracket(sessionId, requestResume, (raw) => {
+      const response = this.localSessionState(raw);
+      this.sessions.set(sessionId, {
+        cwd,
+        mcpServers: previous?.mcpServers ?? this.mcpServers,
+        modes: response?.modes ?? null,
+        configOptions: response?.configOptions ?? null,
+        title: previous?.title ?? null,
+      });
+    }, replaying));
   }
 
   /** Cancel ongoing work and free the session's resources (`session/close`). */
@@ -633,9 +629,10 @@ export class CodingAgentAcpClient {
 
   /**
    * Submit once and verify this exact input's completion through platform REST.
-   * V2 refuses before sending when no receipt reader is configured. An idle
-   * notification triggers the lookup but proves nothing itself. Missing
-   * evidence (including older queued work's idle) rejects, never reports success.
+   * V2 refuses before sending when no receipt reader is configured. A live idle
+   * triggers the lookup but proves nothing itself; absent proof rejects. Replay
+   * exit also reconciles the exact accepted ID, since live idle can arrive among
+   * history frames. An absent receipt at that boundary leaves observation open.
    * onAccepted exposes the standard insertion response before idle (useful
    * for binding an optimistic UI item by identity rather than equal text).
    * Agent.acpConnect supplies the existing SessionsAPI reader. Direct callers
@@ -684,11 +681,15 @@ export class CodingAgentAcpClient {
    * still be live: the resume announces the current state, and this waits
    * the old epoch out so the next `prompt` is admitted instead of refused
    * by the foreground gate. Rejects on connection loss, terminal close, or
-   * `close()`.
+   * `close()`. An untracked session or a failed latest resume is unknown,
+   * not quiet, and rejects; older resume results cannot restore that knowledge.
    */
   waitForIdle(sessionId: string): Promise<void> {
     if (!this.connected) {
       return Promise.reject(this.terminalError ?? new CodingAgentAcpConnectionError('ACP connection is unavailable; foreground state is unknown'));
+    }
+    if (!this.sessions.has(sessionId) || this.replayEpochs.get(sessionId)?.status === 'failed') {
+      return Promise.reject(new CodingAgentAcpConnectionError('Session foreground state is unknown; resume the session successfully before waiting for idle'));
     }
     if (!this.foregroundBusy(sessionId)) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
@@ -703,12 +704,13 @@ export class CodingAgentAcpClient {
 
   private foregroundBusy(sessionId: string): boolean {
     return this.foreground.has(sessionId)
+      || this.replayEpochs.get(sessionId)?.status === 'pending'
       || ['running', 'requires_action'].includes(this.foregroundStates.get(sessionId) ?? '');
   }
 
   private settleIdleWaiters(sessionId: string): void {
     const waiters = this.idleWaiters.get(sessionId);
-    if (!waiters || this.foregroundBusy(sessionId)) return;
+    if (!waiters || this.foregroundBusy(sessionId) || this.replayEpochs.get(sessionId)?.status === 'failed') return;
     this.idleWaiters.delete(sessionId);
     for (const waiter of waiters) waiter.resolve();
   }
@@ -727,15 +729,33 @@ export class CodingAgentAcpClient {
 
   private settleForeground(sessionId: string): void {
     const pending = this.foreground.get(sessionId);
-    if (!pending?.messageId) return;
-    if (pending.idle && !pending.checking) {
+    if (!pending?.messageId || this.replayEpoch(sessionId) !== 0) return;
+    if ((pending.idle || pending.reconcile) && !pending.checking) {
       pending.checking = true;
+      pending.reconcile = false;
+      const observedIdle = pending.idle;
       const messageId = pending.messageId;
-      void this.options.getPromptCompletion!(sessionId, messageId).then((proof) => {
-        if (this.foreground.get(sessionId) !== pending) return;
-        if (!proof) pending.reject(new CodingAgentAcpObservationError('Input accepted, but no completion receipt exists for this message; follow session history without resubmitting', messageId));
-        else pending.resolve({ stopReason: proof.stopReason, messageId });
-      }, (error: unknown) => pending.reject(new CodingAgentAcpObservationError(`Completion receipt unavailable: ${String(error)}`, messageId)));
+      const generation = this.generation;
+      const epoch = this.replayEpochs.get(sessionId)?.epoch;
+      const current = () => {
+        if (generation !== this.generation || this.foreground.get(sessionId) !== pending) return false;
+        pending.checking = false;
+        if (epoch !== this.replayEpochs.get(sessionId)?.epoch) {
+          this.settleForeground(sessionId);
+          return false;
+        }
+        return true;
+      };
+      void Promise.resolve().then(() => this.options.getPromptCompletion!(sessionId, messageId)).then((proof) => {
+        if (!current()) return;
+        if (proof) pending.resolve({ stopReason: proof.stopReason, messageId });
+        else if (observedIdle) pending.reject(new CodingAgentAcpObservationError('Input accepted, but no completion receipt exists for this message; follow session history without resubmitting', messageId));
+        // A replay-exit read without a receipt is not terminal evidence. A
+        // live idle or another replay exit arriving during the read checks again.
+        else this.settleForeground(sessionId);
+      }, (error: unknown) => {
+        if (current()) pending.reject(new CodingAgentAcpObservationError(`Completion receipt unavailable: ${String(error)}`, messageId));
+      });
     }
   }
 
@@ -1115,13 +1135,18 @@ export class CodingAgentAcpClient {
         ));
         continue;
       }
+      let epoch: number | undefined;
       try {
-        const response = await this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
+        const replay = this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
+        epoch = this.replayEpochs.get(sessionId)?.epoch;
+        const response = await replay;
         if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
+        if (epoch !== this.replayEpochs.get(sessionId)?.epoch) continue;
         tracked.modes = response?.modes ?? null;
         tracked.configOptions = response?.configOptions ?? null;
       } catch (error) {
         if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
+        if (epoch !== this.replayEpochs.get(sessionId)?.epoch) continue;
         this.sessions.delete(sessionId);
         this.softError(new CodingAgentAcpReplayGapError(
           sessionId,
@@ -1147,20 +1172,21 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * One history-replaying round-trip (`session/resume` with `replayFrom`)
-   * bracketed by a replay epoch: `start` fires before the request goes on the
+   * Each resume has an ownership epoch, including resumes without history.
+   * A history-replaying round-trip also emits a bracket: `start` fires before the request goes on the
    * wire (ahead of every replayed history notification), `end` fires once the
    * response settles (after the full history has streamed, per the protocol's
    * replay contract).
    */
-  private async performReplayBracket<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
-    const epoch = this.beginReplay(sessionId);
+  private async performReplayBracket<T>(sessionId: string, run: () => Promise<T>, apply?: (response: T) => void, replaying = true): Promise<T> {
+    const epoch = this.beginReplay(sessionId, replaying);
     try {
       const response = await run();
-      this.endReplay(sessionId, epoch, true);
+      if (this.replayEpochs.get(sessionId)?.epoch === epoch) apply?.(response);
+      this.endReplay(sessionId, epoch, true, replaying);
       return response;
     } catch (error) {
-      this.endReplay(sessionId, epoch, false);
+      this.endReplay(sessionId, epoch, false, replaying);
       throw error;
     }
   }
@@ -1180,23 +1206,35 @@ export class CodingAgentAcpClient {
       }));
   }
 
-  private beginReplay(sessionId: string): number {
-    const state = this.replayEpochs.get(sessionId) ?? { epoch: 0, active: new Set<number>() };
+  private beginReplay(sessionId: string, replaying: boolean): number {
+    const state = this.replayEpochs.get(sessionId) ?? { epoch: 0, active: new Set<number>(), replaying, status: 'pending' as const };
     state.epoch = ++this.nextReplayEpoch;
+    state.replaying = replaying;
+    state.status = 'pending';
     state.active.add(state.epoch);
     this.replayEpochs.set(sessionId, state);
-    this.emitReplay({ sessionId, phase: 'start', epoch: state.epoch });
+    this.foregroundStates.delete(sessionId);
+    const pending = this.foreground.get(sessionId);
+    if (pending) pending.idle = false;
+    if (replaying) this.emitReplay({ sessionId, phase: 'start', epoch: state.epoch });
     return state.epoch;
   }
 
-  private endReplay(sessionId: string, epoch: number, ok: boolean): void {
+  private endReplay(sessionId: string, epoch: number, ok: boolean, replaying: boolean): void {
     const state = this.replayEpochs.get(sessionId);
     if (!state?.active.delete(epoch)) return;
-    if (state.active.size === 0) this.replayEpochs.delete(sessionId);
-    // Observations cannot settle mid-epoch (live transitions are quarantined
-    // with the replay); re-evaluate as the bracket closes.
-    this.settleForeground(sessionId);
-    this.emitReplay({ sessionId, phase: 'end', epoch, ok });
+    if (state.epoch === epoch) {
+      state.status = ok ? 'succeeded' : 'failed';
+      if (!ok) {
+        const waiters = this.idleWaiters.get(sessionId);
+        this.idleWaiters.delete(sessionId);
+        for (const waiter of waiters ?? []) waiter.reject(new CodingAgentAcpConnectionError('Session foreground state is unknown after failed resume'));
+      }
+      const pending = this.foreground.get(sessionId);
+      if (pending) pending.reconcile = true;
+      this.settleForeground(sessionId);
+    }
+    if (replaying) this.emitReplay({ sessionId, phase: 'end', epoch, ok });
   }
 
   private emitReplay(event: CodingAgentAcpReplayEvent): void {
