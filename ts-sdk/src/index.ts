@@ -3,6 +3,7 @@
  */
 
 // Main client
+export { APP_VERSION } from './version.js';
 export { HyperCLI, type HyperCLIOptions, type SystemStatus } from './client.js';
 export { BrowserHyperCLI, type BrowserHyperCLIOptions } from './browser.js';
 export { BrowserJobs } from './browser-jobs.js';

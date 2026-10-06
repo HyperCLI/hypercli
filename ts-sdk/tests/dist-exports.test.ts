@@ -27,6 +27,10 @@ beforeAll(() => {
 // moves ahead without a rebuild, apps and their test suites silently run
 // stale code (missing exports, old behavior). This guard fails loudly.
 describe('dist export parity', () => {
+  it('reports the release version from the published manifest', async () => {
+    const root = await import('../dist/index.js');
+    expect(root.APP_VERSION).toBe(pkg.version);
+  });
   it('exports the flat Agent surface and pi defaults from root and agents entry points', async () => {
     const root = await import('../dist/index.js');
     const agents = await import('../dist/agents.js');

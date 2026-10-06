@@ -3,6 +3,9 @@
 //! This crate intentionally covers the deployment surface needed by backend
 //! providers. It does not implement a Buzz relay client.
 
+/// App release identity, projected into the Cargo package metadata.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 mod acp;
 mod billing;
 mod client;

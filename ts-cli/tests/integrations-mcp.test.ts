@@ -8,6 +8,7 @@ import { applyCliConfigFile } from '../src/core/config-file.js';
 import { exitCodeFor } from '../src/core/errors.js';
 import { createOutput } from '../src/core/output.js';
 import type { CommandContext } from '../src/core/types.js';
+import { APP_VERSION } from '../src/version.js';
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(), listTools: vi.fn(), callTool: vi.fn(), close: vi.fn(), transportClose: vi.fn(),
@@ -62,6 +63,7 @@ afterEach(() => {
 describe('integrations MCP discovery and help', () => {
   it('lists names/descriptions after connect and closes both resources', async () => {
     await run(ctx(), ['--mcp']);
+    expect(mocks.Client).toHaveBeenCalledWith({ name: 'hyper-cli', version: APP_VERSION });
     expect(stdout()).toContain('NAME');
     expect(stdout()).toContain('github_request');
     expect(stdout()).toContain('Call GitHub');

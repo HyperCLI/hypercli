@@ -2,6 +2,7 @@ import { deriveIntegrationsApiBase } from '@hypercli.com/sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { APP_VERSION } from '../version.js';
 import { parseCommandArgs } from './argv.js';
 import { CliError, UsageError } from './errors.js';
 import type { CommandContext } from './types.js';
@@ -37,7 +38,7 @@ export async function runIntegrationsMcp(ctx: CommandContext, args: string[]): P
   }
 
   const resolved = await ctx.client();
-  const client = new Client({ name: 'hyper-cli', version: '0.1.0' });
+  const client = new Client({ name: 'hyper-cli', version: APP_VERSION });
   let transport: StreamableHTTPClientTransport | undefined;
   let action = 'connect to integrations MCP';
   try {

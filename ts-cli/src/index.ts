@@ -9,7 +9,7 @@
  * after it is handed to that group's run(ctx, args) verbatim.
  */
 
-import { readFileSync } from 'node:fs';
+import { APP_VERSION } from './version.js';
 import { lazyClient } from './core/client.js';
 import { parseUniversal } from './core/argv.js';
 import { applyCliConfigFile } from './core/config-file.js';
@@ -18,17 +18,6 @@ import { closestMatch, renderRootHelp } from './core/help.js';
 import { createOutput } from './core/output.js';
 import type { CommandContext } from './core/types.js';
 import { findGroup, GROUPS, REGISTRY } from './registry.js';
-
-function cliVersion(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-      version?: string;
-    };
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
 
 function buildContext(format: 'table' | 'json'): CommandContext {
   return {
@@ -56,7 +45,7 @@ async function main(): Promise<number> {
   const top = parseUniversal(argv);
 
   if (argv[0] === '--version' || argv[0] === '-v') {
-    process.stdout.write(`hyper ${cliVersion()}\n`);
+    process.stdout.write(`hyper ${APP_VERSION}\n`);
     return 0;
   }
 

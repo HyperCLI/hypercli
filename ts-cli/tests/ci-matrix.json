@@ -3,7 +3,7 @@
   "version": 1,
   "groups": {
     "core": {
-      "tests": ["argv", "help", "table", "ci-matrix"],
+      "tests": ["argv", "help", "table", "ci-matrix", "version"],
       "windows": true,
       "smokes": [
         { "argv": [] },

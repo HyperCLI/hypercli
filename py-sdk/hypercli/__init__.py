@@ -156,7 +156,7 @@ from .acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
-__version__ = "2026.6.26"
+__version__ = "0.8.0"
 __all__ = [
     "HyperCLI",
     "SessionPage",
