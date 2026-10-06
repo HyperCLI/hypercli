@@ -30,6 +30,24 @@ export interface SessionDiscoveryStatus {
   last_completed_at: string | null;
 }
 
+/** Durable, content-free REST evidence for the current import generation.
+ * Counts describe the attempt, not the requested history page. `empty` means
+ * supported replay completed with zero updates; `filtered` means valid updates
+ * were excluded by retention policy. Unknown/never-attempted evidence is null.
+ */
+export interface SessionImportOutcome {
+  status: 'retained' | 'empty' | 'filtered' | 'unsupported' | 'malformed' | 'failed';
+  protocol_version: 1 | 2 | null;
+  generation: number;
+  recorded_at: string;
+  observed_updates: number;
+  valid_updates: number;
+  filtered_updates: number;
+  invalid_updates: number;
+  foreign_updates: number;
+  retained_rows: number;
+}
+
 /** One `session_participants` row as embedded in the session catalog (backend `SessionParticipant`). */
 export interface AcpSessionParticipant {
   kind: 'user' | 'agent';
@@ -51,6 +69,7 @@ export interface AcpSessionRecord {
   summaryText: string | null;
   summaryKeywords: string[];
   participants: AcpSessionParticipant[];
+  importOutcome?: SessionImportOutcome | null;
 }
 
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
@@ -80,6 +99,10 @@ export interface AcpSessionPage<T> {
   nextCursor: string | null;
   /** LIMIT N+1 sentinel: the server saw one more row than the page. */
   hasMore: boolean;
+}
+
+export interface AcpSessionMessagePage extends AcpSessionPage<AcpSessionMessage> {
+  importOutcome: SessionImportOutcome | null;
 }
 
 export interface AcpSessionListOptions {
@@ -147,6 +170,7 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   return {
     id: String(row.id ?? ''),
     source: typeof row.source === 'string' ? row.source : null,
+    importOutcome: pick<SessionImportOutcome>(row, 'import_outcome', 'importOutcome') ?? null,
     createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
     updatedAt: (pick<string>(row, 'updated_at', 'updatedAt') ?? null) as string | null,
     summaryText: (pick<string>(row, 'summary_text', 'summaryText') ?? null) as string | null,
@@ -230,7 +254,7 @@ export class SessionsAPI {
    * newest message when omitted): `seq < cursor`, `ORDER BY seq DESC`,
    * LIMIT N+1. Feed `nextCursor` back in to walk further into the past.
    */
-  async getMessages(sessionId: string, options: AcpSessionMessagesOptions = {}): Promise<AcpSessionPage<AcpSessionMessage>> {
+  async getMessages(sessionId: string, options: AcpSessionMessagesOptions = {}): Promise<AcpSessionMessagePage> {
     const payload = await this.http.get<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
@@ -238,7 +262,8 @@ export class SessionsAPI {
         ...(options.limit !== undefined ? { limit: options.limit } : {}),
       },
     );
-    return pageFromWire(payload ?? {}, messageFromWire);
+    return { ...pageFromWire(payload ?? {}, messageFromWire),
+      importOutcome: pick<SessionImportOutcome>(payload ?? {}, 'import_outcome', 'importOutcome') ?? null };
   }
 
   /**

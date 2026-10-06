@@ -1,6 +1,31 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
-import { SessionsAPI, type SessionDiscoveryStatus } from '../src/sessions.js';
+import { SessionsAPI, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
+
+describe('durable session import evidence', () => {
+  it.each(['retained', 'empty', 'filtered', 'unsupported', 'malformed', 'failed'] as const)(
+    'preserves %s even on an empty messages page', async (status) => {
+      const outcome: SessionImportOutcome = {
+        status, protocol_version: 1, generation: 3, recorded_at: '2026-10-06T12:00:00Z',
+        observed_updates: 5, valid_updates: 2, filtered_updates: 1,
+        invalid_updates: 1, foreign_updates: 2, retained_rows: 1,
+      };
+      const get = vi.fn().mockResolvedValue({ id: 's', import_outcome: outcome,
+        items: [{ id: 's', import_outcome: outcome }], has_more: false });
+      const api = new SessionsAPI({ get });
+      expect((await api.getSession('s')).importOutcome).toEqual(outcome);
+      expect((await api.listSessions()).items[0].importOutcome).toEqual(outcome);
+      get.mockResolvedValue({ items: [], has_more: false, import_outcome: outcome });
+      const page = await api.getMessages('s', { cursor: 'older' });
+      expect(page.items).toEqual([]);
+      expect(page.importOutcome).toEqual(outcome);
+    });
+  it('keeps absent evidence unknown for old servers and live sessions', async () => {
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue({ id: 's', items: [], has_more: false }) });
+    expect((await api.getSession('s')).importOutcome).toBeNull();
+    expect((await api.getMessages('s')).importOutcome).toBeNull();
+  });
+});
 
 describe('native session discovery REST', () => {
   it.each(['pending', 'running', 'complete', 'error', 'unsupported'] as const)('preserves %s independently of catalog rows', async (status) => {
@@ -134,6 +159,7 @@ describe('session detail HTTP contract', () => {
       signal: expect.any(AbortSignal),
     });
     expect(detail).toEqual({
+      importOutcome: null,
       id: SESSION_ID, source,
       summaryText: sessionRow.summary_text, summaryKeywords: sessionRow.summary_keywords,
       createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at,
@@ -156,6 +182,7 @@ describe('session detail HTTP contract', () => {
     expect(fetch.mock.calls[0][0]).toBe('https://example.com/agents/sessions/platform%2Fodd%20id%3F%23%25');
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(detail).toEqual({
+      importOutcome: null,
       id: SESSION_ID, source: null, summaryText: null, summaryKeywords: [],
       createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at, participants: [],
     });
@@ -248,6 +275,7 @@ describe('SessionsAPI (§15)', () => {
     expect(page.hasMore).toBe(true);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toEqual({
+      importOutcome: null,
       id: SESSION_ID,
       source: null,
       createdAt: '2026-09-25T12:00:00+00:00',
