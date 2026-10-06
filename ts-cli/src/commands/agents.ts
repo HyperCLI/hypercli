@@ -619,7 +619,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   // The SDK create contract has no plan field; --plan rides as a visible tag.
   const tags = plan ? [`plan:${plan}`] : undefined;
 
-  // Self-hosted runner placement (docs/future/RUNNER.md): --runner-tags is a
+  // Self-hosted runner placement (monorepo acp/RUNNER.md): --runner-tags is a
   // comma list; --runner-id pins one runner when tags are ambiguous.
   const runnerTagsRaw = str(parsed, 'runner-tags');
   const runnerId = str(parsed, 'runner-id') || undefined;

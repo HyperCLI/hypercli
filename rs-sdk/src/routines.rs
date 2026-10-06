@@ -471,7 +471,9 @@ mod tests {
             "https://override.example.com/api/routines"
         );
         assert_eq!(
-            derive_routines_api_base_from(None, None, None).unwrap().as_str(),
+            derive_routines_api_base_from(None, None, None)
+                .unwrap()
+                .as_str(),
             "https://api.hypercli.com/routines"
         );
         assert_eq!(
@@ -489,13 +491,9 @@ mod tests {
         // without an override or explicit agents base, a dev-configured
         // product base must not bleed the prod default into the derivation.
         assert_eq!(
-            derive_routines_api_base_from(
-                None,
-                None,
-                Some("https://api.dev.hypercli.com/agents"),
-            )
-            .unwrap()
-            .as_str(),
+            derive_routines_api_base_from(None, None, Some("https://api.dev.hypercli.com/agents"),)
+                .unwrap()
+                .as_str(),
             "https://api.dev.hypercli.com/routines"
         );
         // The explicit override still wins over the discovered fallback.

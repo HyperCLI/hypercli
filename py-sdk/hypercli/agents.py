@@ -482,7 +482,7 @@ def _build_runner_target(runner: dict) -> dict:
     """Normalize self-hosted runner placement for POST /deployments.
 
     Shape: ``{"tags": [...], "runner_id": "..."}`` — tags match runner tags
-    for the same owner; ``runner_id`` pins one runner (docs/future/RUNNER.md).
+    for the same owner; ``runner_id`` pins one runner (monorepo acp/RUNNER.md).
     """
 
     if not isinstance(runner, dict):

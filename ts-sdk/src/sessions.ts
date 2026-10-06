@@ -20,6 +20,8 @@ import type { HTTPClient } from './http.js';
 /** Native catalog discovery, independent of active conversation/turn state. */
 export interface SessionDiscoveryStatus {
   status: 'pending' | 'running' | 'complete' | 'error' | 'unsupported';
+  /** Catalog enumeration may succeed even when the runtime cannot replay history. */
+  history_status?: 'unknown' | 'supported' | 'unsupported';
   error_code: 'runtime_unavailable' | 'discovery_failed' | 'catalog_unsupported' | null;
   discovered_count: number | null;
   queued_count: number;

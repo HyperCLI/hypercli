@@ -621,6 +621,18 @@ impl HyperCliClient {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        Self::with_http_clients(config, product_base, http, async_http)
+    }
+
+    /// Construct with caller-owned HTTP transports and explicit product base.
+    /// The caller owns transport timeouts, redirects, TLS and proxy policy.
+    /// This does not configure native WebSocket connections.
+    pub fn with_http_clients(
+        config: ClientConfig,
+        product_base: Url,
+        http: HttpClient,
+        async_http: AsyncHttpClient,
+    ) -> Result<Self, HyperCliError> {
         Ok(Self {
             product_base,
             api_base: crate::config::normalize_explicit_agents_api_base(config.api_base.as_str())
@@ -3395,12 +3407,15 @@ mod tests {
     use tokio_tungstenite::accept_hdr_async;
 
     fn client(server: &Server) -> HyperCliClient {
-        HyperCliClient::new_with_product_api_base(ClientConfig {
-            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
-            api_key: SecretString::from("test-credential"),
-            trace_file: None,
-            timeout: None,
-        }, Url::parse(&server.url()).unwrap())
+        HyperCliClient::new_with_product_api_base(
+            ClientConfig {
+                api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+                timeout: None,
+            },
+            Url::parse(&server.url()).unwrap(),
+        )
         .unwrap()
     }
     fn complete_start() -> StartDeploymentRequest {
@@ -3419,13 +3434,18 @@ mod tests {
                 .args(["--exact", "client::tests::ordinary_constructors_keep_product_default_independent_of_control"])
                 .output()
                 .unwrap();
-            assert!(output.status.success(), "{}{}",
-                String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
             return;
         }
         for override_timeout in [false, true] {
             let mut server = Server::new();
-            let slow = server.mock("GET", "/prefix/agents/status")
+            let slow = server
+                .mock("GET", "/prefix/agents/status")
                 .with_chunked_body(|writer| {
                     std::thread::sleep(Duration::from_millis(200));
                     let _ = writer.write_all(b"{}");
@@ -3438,7 +3458,11 @@ mod tests {
                 api_base: Url::parse(&control).unwrap(),
                 api_key: SecretString::from("synthetic-key"),
                 trace_file: None,
-                timeout: Some(if override_timeout { Duration::from_secs(5) } else { Duration::from_millis(20) }),
+                timeout: Some(if override_timeout {
+                    Duration::from_secs(5)
+                } else {
+                    Duration::from_millis(20)
+                }),
             };
             let client = if override_timeout {
                 HyperCliClient::new_with_timeout(config, Duration::from_millis(20)).unwrap()
@@ -3449,8 +3473,15 @@ mod tests {
             assert_eq!(client.endpoint("status"), format!("{control}/status"));
             // Inspect built product/model requests only; never send to the default host.
             for path in ["v1/models", "api/jobs", "api/auth/me"] {
-                let request = client.http.get(client.product_endpoint(path)).build().unwrap();
-                assert_eq!(request.url().as_str(), format!("https://api.hypercli.com/{path}"));
+                let request = client
+                    .http
+                    .get(client.product_endpoint(path))
+                    .build()
+                    .unwrap();
+                assert_eq!(
+                    request.url().as_str(),
+                    format!("https://api.hypercli.com/{path}")
+                );
             }
             // Only the loopback control endpoint is sent, checking both timeout paths.
             let response = client.http.get(client.endpoint("status")).send();
@@ -3465,8 +3496,16 @@ mod tests {
     #[test]
     fn explicit_control_constructor_keeps_origin_and_sibling_tunnel() {
         for (control, rest, ws) in [
-            ("https://api.agents.dev.hypercli.com", "https://api.agents.dev.hypercli.com/agents", "wss://api.agents.dev.hypercli.com/ws"),
-            ("http://control.example:8787/prefix/agents///", "http://control.example:8787/prefix/agents", "ws://control.example:8787/prefix/ws"),
+            (
+                "https://api.agents.dev.hypercli.com",
+                "https://api.agents.dev.hypercli.com/agents",
+                "wss://api.agents.dev.hypercli.com/ws",
+            ),
+            (
+                "http://control.example:8787/prefix/agents///",
+                "http://control.example:8787/prefix/agents",
+                "ws://control.example:8787/prefix/ws",
+            ),
         ] {
             let client = HyperCliClient::new_with_product_api_base(
                 ClientConfig {
@@ -3476,10 +3515,17 @@ mod tests {
                     timeout: None,
                 },
                 Url::parse("https://inference.example/prefix").unwrap(),
-            ).unwrap();
+            )
+            .unwrap();
             assert_eq!(client.endpoint("plans"), format!("{rest}/plans"));
-            assert_eq!(client.product_endpoint("v1/models"), "https://inference.example/prefix/v1/models");
-            assert_eq!(crate::config::default_hyper_acp_ws_url(client.api_base.as_str()).unwrap(), ws);
+            assert_eq!(
+                client.product_endpoint("v1/models"),
+                "https://inference.example/prefix/v1/models"
+            );
+            assert_eq!(
+                crate::config::default_hyper_acp_ws_url(client.api_base.as_str()).unwrap(),
+                ws
+            );
         }
     }
 

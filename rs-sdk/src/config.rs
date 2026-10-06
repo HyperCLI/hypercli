@@ -272,11 +272,9 @@ fn discover_api_base(
     ]) {
         return normalize_explicit_agents_api_base(base);
     }
-    let configured_base = first_nonempty([
-        env.get("HYPER_API_BASE"),
-        file_config.get("HYPER_API_BASE"),
-    ])
-        .unwrap_or(DEFAULT_AGENTS_API_BASE);
+    let configured_base =
+        first_nonempty([env.get("HYPER_API_BASE"), file_config.get("HYPER_API_BASE")])
+            .unwrap_or(DEFAULT_AGENTS_API_BASE);
     normalize_agents_api_base(configured_base)
 }
 
@@ -331,13 +329,21 @@ pub fn normalize_agents_ws_url(raw: &str) -> Result<Url, ConfigError> {
     }
     let mut url = Url::parse(input).map_err(|_| ConfigError::InvalidApiBase)?;
     match url.scheme() {
-        "https" => url.set_scheme("wss").map_err(|_| ConfigError::InvalidApiBase)?,
-        "http" => url.set_scheme("ws").map_err(|_| ConfigError::InvalidApiBase)?,
+        "https" => url
+            .set_scheme("wss")
+            .map_err(|_| ConfigError::InvalidApiBase)?,
+        "http" => url
+            .set_scheme("ws")
+            .map_err(|_| ConfigError::InvalidApiBase)?,
         "wss" | "ws" => {}
         _ => return Err(ConfigError::InvalidApiBase),
     }
     let path = url.path().trim_end_matches('/');
-    let path = if path.ends_with("/ws") { path.to_owned() } else { format!("{path}/ws") };
+    let path = if path.ends_with("/ws") {
+        path.to_owned()
+    } else {
+        format!("{path}/ws")
+    };
     url.set_path(&path);
     url.set_query(None);
     url.set_fragment(None);
@@ -349,18 +355,17 @@ pub fn normalize_agents_ws_url(raw: &str) -> Result<Url, ConfigError> {
 /// suffixed. Mirrors py `_default_agents_ws_url` / ts `defaultAgentsWsUrl`.
 fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
     let netloc = normalized_netloc(api_base);
-    if api_base.path() == "/agents" && matches!(
-        netloc.as_str(),
-        "api.hypercli.com" | "api.hyperclaw.app"
-    ) {
+    if api_base.path() == "/agents"
+        && matches!(netloc.as_str(), "api.hypercli.com" | "api.hyperclaw.app")
+    {
         return Url::parse(DEFAULT_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
     }
-    if api_base.path() == "/agents" && matches!(
-        netloc.as_str(),
-        "api.dev.hypercli.com"
-            | "api.dev.hyperclaw.app"
-            | "dev-api.hyperclaw.app"
-    ) {
+    if api_base.path() == "/agents"
+        && matches!(
+            netloc.as_str(),
+            "api.dev.hypercli.com" | "api.dev.hyperclaw.app" | "dev-api.hyperclaw.app"
+        )
+    {
         return Url::parse(DEV_AGENTS_WS_URL).map_err(|_| ConfigError::InvalidApiBase);
     }
     let mut tunnel = api_base.clone();
@@ -377,18 +382,17 @@ fn default_agents_ws_url(api_base: &Url) -> Result<Url, ConfigError> {
 pub fn default_hyper_acp_ws_url(api_base: &str) -> Result<String, ConfigError> {
     let api_base = normalize_explicit_agents_api_base(api_base)?;
     let netloc = normalized_netloc(&api_base);
-    if api_base.path() == "/agents" && matches!(
-        netloc.as_str(),
-        "api.hypercli.com" | "api.hyperclaw.app"
-    ) {
+    if api_base.path() == "/agents"
+        && matches!(netloc.as_str(), "api.hypercli.com" | "api.hyperclaw.app")
+    {
         return Ok(crate::types::DEFAULT_HYPER_ACP_WS_URL.to_owned());
     }
-    if api_base.path() == "/agents" && matches!(
-        netloc.as_str(),
-        "api.dev.hypercli.com"
-            | "api.dev.hyperclaw.app"
-            | "dev-api.hyperclaw.app"
-    ) {
+    if api_base.path() == "/agents"
+        && matches!(
+            netloc.as_str(),
+            "api.dev.hypercli.com" | "api.dev.hyperclaw.app" | "dev-api.hyperclaw.app"
+        )
+    {
         return Ok(crate::types::DEV_HYPER_ACP_WS_URL.to_owned());
     }
     let mut custom = api_base.clone();
@@ -455,7 +459,8 @@ fn load_kv_file(path: &Path) -> Result<BTreeMap<String, String>, ConfigError> {
 /// Strip one pair of matching surrounding quotes, mirroring the ts-cli
 /// config-file parser (`export`-style values round-trip unchanged).
 fn unquote(value: &str) -> &str {
-    let quoted = |quote: &str| value.starts_with(quote) && value.ends_with(quote) && value.len() > 1;
+    let quoted =
+        |quote: &str| value.starts_with(quote) && value.ends_with(quote) && value.len() > 1;
     if quoted("\"") || quoted("'") {
         &value[1..value.len() - 1]
     } else {
@@ -679,11 +684,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join(".hypercli");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("config"),
-            "HYPER_API_KEY=key=with=equals\n",
-        )
-        .unwrap();
+        fs::write(dir.join("config"), "HYPER_API_KEY=key=with=equals\n").unwrap();
 
         let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
         assert_eq!(config.api_key.expose_secret(), "key=with=equals");
@@ -774,7 +775,10 @@ mod tests {
             "https://api.dev.hypercli.com".to_owned(),
         )]);
         let config = discover_client_config_from(&env, Some(temp.path())).unwrap();
-        assert_eq!(config.api_base.as_str(), "https://api.dev.hypercli.com/agents");
+        assert_eq!(
+            config.api_base.as_str(),
+            "https://api.dev.hypercli.com/agents"
+        );
     }
 
     #[test]
@@ -786,25 +790,35 @@ mod tests {
             "HYPER_API_KEY=file-key\nHYPER_AGENTS_API_BASE=https://api.dev.hypercli.com/agents///\n",
         ).unwrap();
         let mut env = BTreeMap::from([(
-            "HYPER_API_BASE".to_owned(), "https://inference.example/prefix".to_owned(),
+            "HYPER_API_BASE".to_owned(),
+            "https://inference.example/prefix".to_owned(),
         )]);
         assert_eq!(
-            discover_agents_api_base_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            discover_agents_api_base_from_config_dir(&env, Some(dir))
+                .unwrap()
+                .as_str(),
             "https://api.dev.hypercli.com/agents",
         );
         assert_eq!(
-            discover_agents_ws_url_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            discover_agents_ws_url_from_config_dir(&env, Some(dir))
+                .unwrap()
+                .as_str(),
             "wss://api.agents.dev.hypercli.com/ws",
         );
         env.insert(
-            "HYPER_AGENTS_API_BASE".to_owned(), "http://control.example/tenant/api///".to_owned(),
+            "HYPER_AGENTS_API_BASE".to_owned(),
+            "http://control.example/tenant/api///".to_owned(),
         );
         assert_eq!(
-            discover_agents_api_base_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            discover_agents_api_base_from_config_dir(&env, Some(dir))
+                .unwrap()
+                .as_str(),
             "http://control.example/tenant/agents",
         );
         assert_eq!(
-            discover_agents_ws_url_from_config_dir(&env, Some(dir)).unwrap().as_str(),
+            discover_agents_ws_url_from_config_dir(&env, Some(dir))
+                .unwrap()
+                .as_str(),
             "ws://control.example/tenant/ws",
         );
     }
@@ -871,7 +885,10 @@ mod tests {
         )
         .unwrap();
         let env = BTreeMap::from([
-            ("AGENTS_API_BASE_URL".to_owned(), "http://env.test/base".to_owned()),
+            (
+                "AGENTS_API_BASE_URL".to_owned(),
+                "http://env.test/base".to_owned(),
+            ),
             ("AGENTS_WS_URL".to_owned(), "wss://env.test/ws".to_owned()),
         ]);
 
@@ -886,7 +903,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join(".hypercli");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("config"), "HYPER_API_BASE=https://api.dev.hypercli.com\n").unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_BASE=https://api.dev.hypercli.com\n",
+        )
+        .unwrap();
 
         let ws = discover_agents_ws_url_from(&BTreeMap::new(), Some(temp.path())).unwrap();
         assert_eq!(ws.as_str(), "wss://api.agents.dev.hypercli.com/ws");
@@ -908,7 +929,8 @@ mod tests {
         let body = fs::read_to_string(dir.join("config")).unwrap();
         assert!(body.contains("HYPER_API_BASE=https://api.dev.hypercli.com/agents"));
 
-        let base = discover_agents_api_base_from_config_dir(&BTreeMap::new(), Some(dir.as_path())).unwrap();
+        let base = discover_agents_api_base_from_config_dir(&BTreeMap::new(), Some(dir.as_path()))
+            .unwrap();
         assert_eq!(base.as_str(), "https://api.dev.hypercli.com/agents");
     }
 
@@ -947,7 +969,10 @@ mod tests {
         let dir = temp.path().join(".hypercli");
         save_api_base_in_data_dir(&dir, "https://api.dev.hypercli.com/agents").unwrap();
 
-        let mode = fs::metadata(dir.join("config")).unwrap().permissions().mode();
+        let mode = fs::metadata(dir.join("config"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
     }
 
@@ -960,15 +985,21 @@ mod tests {
     #[test]
     fn normalize_agents_ws_url_swaps_scheme_and_appends_ws_suffix() {
         assert_eq!(
-            normalize_agents_ws_url("https://example.com/agents").unwrap().as_str(),
+            normalize_agents_ws_url("https://example.com/agents")
+                .unwrap()
+                .as_str(),
             "wss://example.com/agents/ws"
         );
         assert_eq!(
-            normalize_agents_ws_url("http://127.0.0.1:8787/agents").unwrap().as_str(),
+            normalize_agents_ws_url("http://127.0.0.1:8787/agents")
+                .unwrap()
+                .as_str(),
             "ws://127.0.0.1:8787/agents/ws"
         );
         assert_eq!(
-            normalize_agents_ws_url("wss://example.com/agents/ws/").unwrap().as_str(),
+            normalize_agents_ws_url("wss://example.com/agents/ws/")
+                .unwrap()
+                .as_str(),
             "wss://example.com/agents/ws"
         );
         assert!(normalize_agents_ws_url("").is_err());
@@ -982,12 +1013,12 @@ mod tests {
         let hyper_home = temp.path().join("custom-data");
         fs::create_dir_all(real_home.join(".hypercli")).unwrap();
         fs::create_dir_all(&hyper_home).unwrap();
-        fs::write(real_home.join(".hypercli/config"), "HYPER_API_KEY=home-key\n").unwrap();
         fs::write(
-            hyper_home.join("config"),
-            "HYPER_API_KEY=hyper-home-key\n",
+            real_home.join(".hypercli/config"),
+            "HYPER_API_KEY=home-key\n",
         )
         .unwrap();
+        fs::write(hyper_home.join("config"), "HYPER_API_KEY=hyper-home-key\n").unwrap();
         let env = BTreeMap::from([(
             "HYPER_HOME".to_owned(),
             hyper_home.to_string_lossy().to_string(),
@@ -1004,7 +1035,11 @@ mod tests {
         let hyper_home = temp.path().join("custom-data");
         fs::create_dir_all(real_home.join(".hypercli")).unwrap();
         fs::create_dir_all(&hyper_home).unwrap();
-        fs::write(real_home.join(".hypercli/config"), "HYPER_API_KEY=home-key\n").unwrap();
+        fs::write(
+            real_home.join(".hypercli/config"),
+            "HYPER_API_KEY=home-key\n",
+        )
+        .unwrap();
         let env = BTreeMap::from([(
             "HYPER_HOME".to_owned(),
             hyper_home.to_string_lossy().to_string(),
@@ -1287,7 +1322,9 @@ mod tests {
                 "agents api base for {product_base:?}"
             );
             assert_eq!(
-                agents_ws_url_from_product_base(product_base).unwrap().as_str(),
+                agents_ws_url_from_product_base(product_base)
+                    .unwrap()
+                    .as_str(),
                 ws_url,
                 "agents ws url for {product_base:?}"
             );
@@ -1307,14 +1344,18 @@ mod tests {
         // output here carries the implied `https://` prefix, so these inputs
         // stay out of the shared LOCKSTEP table.
         assert_eq!(
-            normalize_agents_api_base("staging.eu.example.com").unwrap().as_str(),
+            normalize_agents_api_base("staging.eu.example.com")
+                .unwrap()
+                .as_str(),
             "https://staging.eu.example.com/agents"
         );
         // The WS/admin derivations re-normalize their input in every SDK,
         // upgrading the scheme-less echo to the implied https<->wss scheme —
         // these three byte-match py/ts anyway.
         assert_eq!(
-            agents_ws_url_from_product_base("staging.eu.example.com").unwrap().as_str(),
+            agents_ws_url_from_product_base("staging.eu.example.com")
+                .unwrap()
+                .as_str(),
             "wss://staging.eu.example.com/ws"
         );
         assert_eq!(
@@ -1329,11 +1370,15 @@ mod tests {
         // output byte-match (`url::Url` keeps the brackets; the normalized
         // netloc re-wraps them for the admin string).
         assert_eq!(
-            normalize_agents_api_base("http://[::1]:8080").unwrap().as_str(),
+            normalize_agents_api_base("http://[::1]:8080")
+                .unwrap()
+                .as_str(),
             "http://[::1]:8080/agents"
         );
         assert_eq!(
-            agents_ws_url_from_product_base("http://[::1]:8080").unwrap().as_str(),
+            agents_ws_url_from_product_base("http://[::1]:8080")
+                .unwrap()
+                .as_str(),
             "ws://[::1]:8080/ws"
         );
         assert_eq!(
@@ -1352,16 +1397,22 @@ mod tests {
         // `url::Url::port()` suppresses the scheme-default port, so the
         // alias-host compare succeeds and `/agents` is derived.
         assert_eq!(
-            normalize_agents_api_base("https://api.hypercli.com:443").unwrap().as_str(),
+            normalize_agents_api_base("https://api.hypercli.com:443")
+                .unwrap()
+                .as_str(),
             DEFAULT_AGENTS_API_BASE
         );
         assert_eq!(
-            normalize_agents_api_base("https://api.dev.hypercli.com:443").unwrap().as_str(),
+            normalize_agents_api_base("https://api.dev.hypercli.com:443")
+                .unwrap()
+                .as_str(),
             "https://api.dev.hypercli.com/agents"
         );
         // A non-default port never matches an alias host.
         assert_eq!(
-            normalize_agents_api_base("https://api.hypercli.com:8443").unwrap().as_str(),
+            normalize_agents_api_base("https://api.hypercli.com:8443")
+                .unwrap()
+                .as_str(),
             "https://api.hypercli.com:8443/agents"
         );
     }

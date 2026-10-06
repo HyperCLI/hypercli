@@ -306,12 +306,15 @@ mod tests {
             .with_body(serde_json::json!({"idle": {"h100": {"oh": 2}}}).to_string())
             .expect(1)
             .create();
-        let client = HyperCliClient::new_with_product_api_base(ClientConfig {
-            api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
-            api_key: SecretString::from("test-credential"),
-            trace_file: None,
-            timeout: None,
-        }, url::Url::parse(&server.url()).unwrap())
+        let client = HyperCliClient::new_with_product_api_base(
+            ClientConfig {
+                api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+                timeout: None,
+            },
+            url::Url::parse(&server.url()).unwrap(),
+        )
         .unwrap();
 
         let instances = client.instances();

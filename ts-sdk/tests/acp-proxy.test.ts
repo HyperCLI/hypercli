@@ -67,7 +67,6 @@ class FakeAcpProxy {
           protocolVersion: 2,
           info: { name: 'fake-acp-proxy', version: '1.0.0' },
           capabilities: { session: {} },
-          _meta: { 'hypercli.com/launch-cwd': '/runtime/workspace' },
         });
         return;
       case 'session/new':
@@ -145,7 +144,10 @@ class FakeAcpProxy {
 
 function acpAgent(proxy: FakeAcpProxy): Agent {
   const deployments = new Deployments(
-    {} as unknown as HTTPClient,
+    { get: async (path: string) => {
+      expect(path).toBe(`/deployments/${AGENT_ID}/runtime-paths`);
+      return { cwd: '/runtime/workspace' };
+    } } as unknown as HTTPClient,
     'hyper_api_test',
     `http://127.0.0.1:${proxy.port}`,
   );

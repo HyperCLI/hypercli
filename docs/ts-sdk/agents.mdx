@@ -653,28 +653,24 @@ Important additions over `Agent`:
 
 ### Session working directories
 
-`await (await agent.acpConnect()).newSession()` uses the runtime's canonical
-launch directory, including for a local process runner. The same rule applies
-to `CodingAgentAcpClient.connect` used by the desktop. Precedence for a new
-session is `newSession({ cwd })`, then `acpConnect({ cwd })`, then the runtime
-advertisement. The SDK never substitutes the pod sync root or the caller's home.
-
-Without an explicit connection cwd, the SDK requests launch metadata with
-`initialize._meta["hypercli.com/resolve-launch-cwd"] = true`. The backend obtains
-the current runtime leg's `initialize._meta["hypercli.com/launch-cwd"]` and
-forwards that validated absolute path. Catalog-only ACP clients can omit the
-request hint and initialize/list offline. An older runtime/backend that does
-not advertise a launch directory requires an explicit cwd; there is no guessed
-fallback. Every `session/new` and `session/resume` still sends standard ACP's
-required absolute `cwd` field.
+`await (await agent.acpConnect()).newSession()` lazily resolves the runtime's
+launch directory through owner-authorized platform REST
+`GET /agents/deployments/{agent_id}/runtime-paths` (`{ "cwd": "absolute path" }`).
+An unavailable authoritative path is an error (409), never a guessed home or
+sync root. `deployments.runtimePaths(agentId)` exposes this helper directly.
+Precedence is `newSession({ cwd })`, then `acpConnect({ cwd })`, then this helper.
+Raw `CodingAgentAcpClient.connect` callers supply an explicit cwd or a
+`resolveDefaultCwd` callback; the desktop supplies the platform helper.
+Initialize/list never invoke the resolver. Every new/resume request sends
+standard ACP's required absolute `cwd`, without private path metadata.
 
 Explicit paths must exist on the **runtime host**. hyper-acp validates and
-canonicalizes them (including filesystem aliases), rejecting invalid paths
-with JSON-RPC `-32602` instead of remapping them. A successful setup response
-carries `_meta["hypercli.com/session-cwd"]`; the backend retains that canonical
-cwd in session setup and the SDK tracks it for reconnect. A fresh client's
-`resumeSession(sessionId)` reads the original cwd from the persisted standard
-`session/list` catalog, rather than applying today's launch default. For a
+canonicalizes them internally for filesystem confinement, rejecting invalid
+paths with JSON-RPC `-32602`. The original valid absolute spelling is preserved
+on the wire and tracked for reconnect. Resume uses per-call cwd, tracked setup,
+explicit connection cwd, then the standard `session/list` catalog, in that order.
+Explicit cwd works without listing support. Catalog errors remain errors;
+today's launch default is never used for resume. For a
 legacy session with no catalog setup, supply its original cwd explicitly.
 The raw Python and Rust SDK APIs continue to require an explicit cwd; callers
 can read the standard session catalog when resuming from a fresh client.

@@ -75,7 +75,6 @@ class FakeAcpPeer {
             protocolVersion: 2,
             info: { name: 'fake-acp-child', version: '2.0.0' },
             capabilities: this.server.v2Capabilities,
-            _meta: this.server.launchCwd === null ? {} : { 'hypercli.com/launch-cwd': this.server.launchCwd },
           });
         } else {
           // Off-version answer in an otherwise v2-decodable shape: the client
@@ -109,6 +108,10 @@ class FakeAcpPeer {
         this.error(frame, -32601, '"Method not found": session/load');
         return;
       case 'session/list':
+        if (this.server.listError) {
+          this.error(frame, this.server.listError.code, this.server.listError.message);
+          return;
+        }
         this.result(frame, { sessions: [...this.server.sessions].map(([sessionId, cwd]) => ({ sessionId, cwd })), nextCursor: null });
         return;
       case 'session/prompt':
@@ -181,6 +184,7 @@ class FakeAcpBridge {
   public protocolVersion: 1 | 2;
   public v2Capabilities: Record<string, unknown>;
   public failResume = false;
+  public listError: { code: number; message: string } | null = null;
   /** Custom payload answered for session/resume. */
   public resumeResult: Record<string, unknown> | null = null;
   public promptHook: PromptHook = (peer, frame) => peer.finishPrompt(frame, 'end_turn');
@@ -256,6 +260,10 @@ function acpAgent(bridge: FakeAcpBridge): Agent {
     launch_config: { sync_root: '/poisoned-sync-root' },
   });
   agent._deployments = deployments;
+  vi.spyOn(deployments, 'runtimePaths').mockImplementation(async () => {
+    if (bridge.launchCwd === null) throw new Error('authoritative runtime cwd unavailable');
+    return { cwd: bridge.launchCwd };
+  });
   // The fake bridge serves no platform REST, so prompt completions are proven
   // by this canned receipt reader; per-test overrides win through the spread.
   const connect = agent.acpConnect.bind(agent);
@@ -288,19 +296,53 @@ afterEach(async () => {
 });
 
 describe('Agent.acpConnect', () => {
-  it.each(['agent', 'static'] as const)('uses actual advertised launch cwd without session overrides through %s connect', async (surface) => {
+  it('resolves a platform default lazily, with no initialization/list dependency', async () => {
+    const bridge = await startBridge();
+    const resolveDefaultCwd = vi.fn(async () => '/Users/runner/workspace');
+    const client = track(await acpAgent(bridge).acpConnect({ resolveDefaultCwd }));
+    expect(bridge.currentPeer.lastInitializeParams).not.toHaveProperty('_meta');
+    await client.listSessions();
+    await client.newSession({ cwd: '/explicit' });
+    expect(resolveDefaultCwd).not.toHaveBeenCalled();
+    await client.newSession();
+    expect(resolveDefaultCwd).toHaveBeenCalledTimes(1);
+    expect(bridge.currentPeer.framesFor('session/new')[1].params).toEqual({ cwd: '/Users/runner/workspace', mcpServers: [] });
+  });
+
+  it('raw explicit cwd resumes with a vanilla peer whose listing is unsupported', async () => {
+    const bridge = await startBridge();
+    bridge.listError = { code: -32601, message: 'Method not found' };
+    const client = track(await CodingAgentAcpClient.connect({ url: `${bridge.apiBase.replace('http:', 'ws:')}/ws/acp`, token: 'fixture' }, { cwd: '/original/alias' }));
+    await client.resumeSession('native-id');
+    await client.resumeSession('another-id', { cwd: '/call/override' });
+    expect(bridge.currentPeer.framesFor('session/list')).toHaveLength(0);
+    expect(bridge.currentPeer.framesFor('session/resume').map(frame => frame.params?.cwd)).toEqual(['/original/alias', '/call/override']);
+  });
+
+  it('propagates catalog authorization failures and never uses launch defaults for resume', async () => {
+    const bridge = await startBridge();
+    bridge.listError = { code: -32000, message: 'Not authorized' };
+    const resolveDefaultCwd = vi.fn(async () => '/wrong-default');
+    const client = track(await acpAgent(bridge).acpConnect({ resolveDefaultCwd }));
+    await expect(client.resumeSession('native-id')).rejects.toThrow('Not authorized');
+    expect(resolveDefaultCwd).not.toHaveBeenCalled();
+    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(0);
+  });
+
+  it.each(['agent', 'static'] as const)('uses platform launch cwd without session overrides through %s connect', async (surface) => {
     const bridge = await startBridge();
     const client = track(await (surface === 'agent'
       ? acpAgent(bridge).acpConnect()
       : CodingAgentAcpClient.connect({ url: `${bridge.apiBase.replace('http:', 'ws:')}/ws/acp`, token: 'fixture' }, {
         getPromptCompletion: async () => ({ stopReason: 'end_turn' }),
+        resolveDefaultCwd: async () => bridge.launchCwd!,
       })));
     const session = await client.newSession();
     expect(bridge.currentPeer.framesFor('session/new')[0].params?.cwd).toBe(bridge.launchCwd);
     expect((await client.prompt(session.sessionId, 'offline turn')).stopReason).toBe('end_turn');
   });
 
-  it('preserves per-call > connect > advertised cwd precedence', async () => {
+  it('preserves per-call > connect > platform cwd precedence', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect({ cwd: '/explicit-connect' }));
     await client.newSession();
@@ -309,11 +351,11 @@ describe('Agent.acpConnect', () => {
       .toEqual(['/explicit-connect', '/explicit-session']);
   });
 
-  it('fails clearly when metadata is absent rather than guessing HOME or sync root', async () => {
+  it('fails clearly when platform cwd is unavailable rather than guessing HOME or sync root', async () => {
     const bridge = await startBridge();
     bridge.launchCwd = null;
     const client = track(await acpAgent(bridge).acpConnect());
-    await expect(client.newSession()).rejects.toThrow(/absolute.*cwd|advertise/i);
+    await expect(client.newSession()).rejects.toThrow(/runtime cwd unavailable/i);
     expect(bridge.currentPeer.framesFor('session/new')).toHaveLength(0);
     await client.newSession({ cwd: '/explicit-session' });
     expect(bridge.currentPeer.framesFor('session/new')[0].params?.cwd).toBe('/explicit-session');

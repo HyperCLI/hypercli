@@ -750,12 +750,15 @@ mod tests {
     use url::Url;
 
     fn product_client(server: &Server) -> HyperCliClient {
-        HyperCliClient::new_with_product_api_base(ClientConfig {
-            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
-            api_key: SecretString::from("test-credential"),
-            trace_file: None,
-            timeout: None,
-        }, Url::parse(&server.url()).unwrap())
+        HyperCliClient::new_with_product_api_base(
+            ClientConfig {
+                api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+                timeout: None,
+            },
+            Url::parse(&server.url()).unwrap(),
+        )
         .unwrap()
     }
 

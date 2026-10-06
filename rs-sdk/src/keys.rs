@@ -6,8 +6,8 @@ use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
 use crate::{
-    normalize_agents_api_base, ApiKey, ClientConfig, ConfigError,
-    CreateApiKeyRequest, HyperCliClient, HyperCliError,
+    normalize_agents_api_base, ApiKey, ClientConfig, ConfigError, CreateApiKeyRequest,
+    HyperCliClient, HyperCliError,
 };
 
 /// Options for issuing an API key from an application JWT.
@@ -57,24 +57,47 @@ pub fn issue_api_key_from_jwt(
     jwt: &str,
     options: IssueApiKeyFromJwtOptions,
 ) -> Result<ApiKey, IssueApiKeyError> {
+    issue_api_key_from_jwt_inner(jwt, options, None)
+}
+
+/// Issue a key using caller-owned HTTP transports. The caller supplies timeout,
+/// redirect, TLS and proxy policy; SDK defaults are unchanged for other callers.
+pub fn issue_api_key_from_jwt_with_http_clients(
+    jwt: &str,
+    options: IssueApiKeyFromJwtOptions,
+    http: reqwest::blocking::Client,
+    async_http: reqwest::Client,
+) -> Result<ApiKey, IssueApiKeyError> {
+    issue_api_key_from_jwt_inner(jwt, options, Some((http, async_http)))
+}
+
+fn issue_api_key_from_jwt_inner(
+    jwt: &str,
+    options: IssueApiKeyFromJwtOptions,
+    clients: Option<(reqwest::blocking::Client, reqwest::Client)>,
+) -> Result<ApiKey, IssueApiKeyError> {
     let token = jwt.trim();
     if token.is_empty() {
         return Err(IssueApiKeyError::JwtRequired);
     }
 
-    let product_base = options.api_url
+    let product_base = options
+        .api_url
         .or_else(|| crate::config::discover_config_value("HYPER_API_BASE"))
         .unwrap_or_else(|| crate::config::DEFAULT_API_BASE.to_owned());
     let product_base = url::Url::parse(&product_base).map_err(|_| ConfigError::InvalidApiBase)?;
-    let client = HyperCliClient::new_with_product_api_base(
-        ClientConfig {
-            api_base: normalize_agents_api_base(product_base.as_str())?,
-            api_key: SecretString::from(token.to_owned()),
-            trace_file: None,
-            timeout: Some(options.timeout),
-        },
-        product_base,
-    )?;
+    let config = ClientConfig {
+        api_base: normalize_agents_api_base(product_base.as_str())?,
+        api_key: SecretString::from(token.to_owned()),
+        trace_file: None,
+        timeout: Some(options.timeout),
+    };
+    let client = match clients {
+        Some((http, async_http)) => {
+            HyperCliClient::with_http_clients(config, product_base, http, async_http)
+        }
+        None => HyperCliClient::new_with_product_api_base(config, product_base),
+    }?;
     let request = CreateApiKeyRequest {
         name: options.name,
         tags: options.tags,
@@ -175,12 +198,15 @@ mod keys_client_tests {
     use serde_json::json;
 
     fn client(server: &Server) -> HyperCliClient {
-        HyperCliClient::new_with_product_api_base(ClientConfig {
-            api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
-            api_key: SecretString::from("test-credential"),
-            trace_file: None,
-            timeout: None,
-        }, url::Url::parse(&server.url()).unwrap())
+        HyperCliClient::new_with_product_api_base(
+            ClientConfig {
+                api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+                timeout: None,
+            },
+            url::Url::parse(&server.url()).unwrap(),
+        )
         .unwrap()
     }
 

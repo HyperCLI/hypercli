@@ -182,6 +182,8 @@ export class CodingAgentAcpReplayGapError extends Error {
 }
 
 export interface CodingAgentAcpConnectOptions {
+  /** Platform-owned default for new sessions only; never invoked by initialize/list/resume. */
+  resolveDefaultCwd?: () => Promise<string>;
   /** Existing platform REST evidence, required by the v2 completion convenience. */
   getPromptCompletion?: (sessionId: string, messageId: string) => Promise<{ stopReason: string } | null>;
   /** Abort before connect rejects the promise; abort after connect closes the client. */
@@ -461,14 +463,14 @@ export class CodingAgentAcpClient {
       throw new CodingAgentAcpUnavailableError('session/new', 'system instructions use native configuration; titles use platform REST');
     }
     const context = this.requireContext();
-    const cwd = this.sessionCwd(options.cwd ?? this.cwd ?? this.initializeResponseValue?._meta?.['hypercli.com/launch-cwd']);
+    const cwd = this.sessionCwd(options.cwd ?? this.cwd ?? await this.options.resolveDefaultCwd?.());
     const mcpServers = options.mcpServers ?? this.mcpServers;
     const response = this.localSessionState(await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
       cwd,
       mcpServers: this.wireMcpServers(mcpServers),
     }));
     this.sessions.set(response.sessionId, {
-      cwd: this.sessionCwd(response._meta?.['hypercli.com/session-cwd'] ?? cwd),
+      cwd,
       mcpServers,
       modes: response.modes ?? null,
       configOptions: response.configOptions ?? null,
@@ -490,7 +492,7 @@ export class CodingAgentAcpClient {
     // This path belongs to the runtime host, not necessarily the SDK platform.
     if (typeof value !== 'string' || value.includes('\0') || !(/^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/).test(value)) {
       throw new CodingAgentAcpUnavailableError('session cwd',
-        'an absolute runtime-host cwd is required; supply cwd explicitly or upgrade the runtime/backend to advertise hypercli.com/launch-cwd');
+        'an absolute runtime-host cwd is required; supply cwd explicitly or configure a platform default-cwd resolver');
     }
     return value;
   }
@@ -498,6 +500,7 @@ export class CodingAgentAcpClient {
   private async originalSessionCwd(sessionId: string): Promise<string> {
     const tracked = this.sessions.get(sessionId);
     if (tracked) return tracked.cwd;
+    if (this.cwd !== undefined) return this.sessionCwd(this.cwd);
     // The authority's standard catalog reads persisted setup, including custom
     // roots. A new connection's launch default cannot reconstruct old setup.
     let cursor: string | undefined;
@@ -510,7 +513,6 @@ export class CodingAgentAcpClient {
       if (cursor && seen.has(cursor)) throw new Error('session/list repeated a cursor while resolving the original cwd');
       if (cursor) seen.add(cursor);
     } while (cursor);
-    if (this.cwd !== undefined) return this.sessionCwd(this.cwd);
     throw new CodingAgentAcpUnavailableError('session/resume',
       'the original session cwd is unavailable from the session catalog; supply its original cwd explicitly');
   }
@@ -594,7 +596,7 @@ export class CodingAgentAcpClient {
       mcpServers: previous?.mcpServers ?? this.mcpServers,
     });
     this.sessions.set(response.sessionId, {
-      cwd: this.sessionCwd(response._meta?.['hypercli.com/session-cwd'] ?? cwd),
+      cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
       modes: response.modes ?? previous?.modes ?? null,
       configOptions: response.configOptions ?? previous?.configOptions ?? null,
@@ -849,7 +851,6 @@ export class CodingAgentAcpClient {
   private initializeParams(): acp2.InitializeRequest {
     return {
       protocolVersion: 2, capabilities: {}, info: { name: this.clientName, version: this.clientVersion },
-      ...(this.cwd === undefined ? { _meta: { 'hypercli.com/resolve-launch-cwd': true } } : {}),
     };
   }
 

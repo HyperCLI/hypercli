@@ -7747,7 +7747,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RunnerTargetSpec",
-        "description": "Self-hosted runner placement (docs/future/RUNNER.md)."
+        "description": "Self-hosted runner placement (acp/RUNNER.md)."
       },
       "RunnerUiAvatarMeta": {
         "properties": {

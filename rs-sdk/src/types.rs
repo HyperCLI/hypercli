@@ -1474,7 +1474,7 @@ pub struct CreateDeploymentRequest {
     pub size: Option<AgentSize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    /// Self-hosted runner placement (docs/future/RUNNER.md).
+    /// Self-hosted runner placement (monorepo acp/RUNNER.md).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner: Option<RunnerTargetSpec>,
     #[serde(flatten)]
@@ -2607,7 +2607,10 @@ mod tests {
                 &request.env
             };
             assert_eq!(overrides["HYPER_API_KEY"], "customer-key");
-            assert_eq!(overrides["HYPER_API_BASE"], "https://customer.invalid/prefix");
+            assert_eq!(
+                overrides["HYPER_API_BASE"],
+                "https://customer.invalid/prefix"
+            );
             assert_eq!(overrides["CUSTOM_SETTING"], "preserved");
             for key in [
                 "HYPER_AGENTS_API_KEY",
@@ -2883,10 +2886,9 @@ mod tests {
 
     #[test]
     fn every_buzz_runtime_matches_the_shared_launch_golden() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/buzz-launch-contract.json"
-        ))
-        .unwrap();
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/buzz-launch-contract.json"))
+                .unwrap();
         for (runtime_name, runtime) in [
             ("buzz-agent", ManagedRuntime::BuzzAgent),
             ("opencode", ManagedRuntime::Opencode),

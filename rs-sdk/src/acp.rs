@@ -330,9 +330,13 @@ impl AcpClient {
             .await;
         match response {
             Ok(value) => {
-                if value["protocolVersion"].as_u64() != Some(2) || !value["info"]["name"].is_string() {
+                if value["protocolVersion"].as_u64() != Some(2)
+                    || !value["info"]["name"].is_string()
+                {
                     self.close();
-                    return Err(AcpError::Protocol("expected a standard ACP v2 initialize response".to_owned()));
+                    return Err(AcpError::Protocol(
+                        "expected a standard ACP v2 initialize response".to_owned(),
+                    ));
                 }
                 *self.initialize_response.lock().unwrap() = value.clone();
                 Ok(value)
@@ -399,16 +403,23 @@ impl AcpClient {
     }
 
     /// Standard v2 resume; never substitutes a new session on failure.
-    pub async fn resume_session(&self, cwd: &str, session_id: &str, replay: bool) -> Result<Value, AcpError> {
+    pub async fn resume_session(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        replay: bool,
+    ) -> Result<Value, AcpError> {
         if !self.load_session_capable() {
-            return Err(AcpError::Unavailable { capability: "session/resume".to_owned(), detail: "no v2 session capability advertised".to_owned() });
+            return Err(AcpError::Unavailable {
+                capability: "session/resume".to_owned(),
+                detail: "no v2 session capability advertised".to_owned(),
+            });
         }
         let mut params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":[]});
-        if replay { params["replayFrom"] = json!({"type":"start"}); }
-        self.request(
-            "session/resume", params,
-        )
-        .await
+        if replay {
+            params["replayFrom"] = json!({"type":"start"});
+        }
+        self.request("session/resume", params).await
     }
 
     /// Run one prompt turn and return the end-of-turn result.
@@ -417,13 +428,21 @@ impl AcpClient {
     /// connection drops after the frame is sent, this returns
     /// [`AcpError::AmbiguousDelivery`]; the turn is never resent. A JSON-RPC
     /// rejection returns [`AcpError::Request`].
-    pub async fn prompt(&self, _session_id: &str, _text: &str) -> Result<AcpPromptResult, AcpError> {
+    pub async fn prompt(
+        &self,
+        _session_id: &str,
+        _text: &str,
+    ) -> Result<AcpPromptResult, AcpError> {
         Err(AcpError::Unavailable { capability: "prompt completion".to_owned(),
             detail: "ACP v2 idle is not a message receipt; use submit_prompt, take_updates and platform REST history".to_owned() })
     }
 
     /// Insert original blocks once and return the actual accepted message ID.
-    pub async fn submit_prompt(&self, session_id: &str, blocks: Vec<Value>) -> Result<AcpPromptAcceptance, AcpError> {
+    pub async fn submit_prompt(
+        &self,
+        session_id: &str,
+        blocks: Vec<Value>,
+    ) -> Result<AcpPromptAcceptance, AcpError> {
         let result = self
             .request(
                 PROMPT_METHOD,
@@ -433,8 +452,11 @@ impl AcpClient {
                 }),
             )
             .await?;
-        let message_id = result["messageId"].as_str().filter(|id| !id.is_empty())
-            .ok_or_else(|| AcpError::Protocol("v2 prompt response requires messageId".to_owned()))?.to_owned();
+        let message_id = result["messageId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| AcpError::Protocol("v2 prompt response requires messageId".to_owned()))?
+            .to_owned();
         Ok(AcpPromptAcceptance {
             session_id: session_id.to_owned(),
             message_id,
@@ -444,8 +466,16 @@ impl AcpClient {
 
     /// Stop foreground work without resending input or waiting for an RPC result.
     pub fn cancel(&self, session_id: &str) -> Result<(), AcpError> {
-        if self.closed() { return Err(AcpError::Closed); }
-        let outbound = self.outbound.lock().unwrap().as_ref().cloned().ok_or(AcpError::Closed)?;
+        if self.closed() {
+            return Err(AcpError::Closed);
+        }
+        let outbound = self
+            .outbound
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or(AcpError::Closed)?;
         outbound.send(Message::Text(json!({"jsonrpc":"2.0", "method":"session/cancel", "params":{"sessionId":session_id}}).to_string().into()))
             .map_err(|_| AcpError::Closed)
     }
@@ -821,9 +851,18 @@ mod tests {
             .await
             .unwrap();
 
-        let result = client.submit_prompt(&session_id, vec![json!({"type":"text", "text":"hello agent"})]).await.unwrap();
+        let result = client
+            .submit_prompt(
+                &session_id,
+                vec![json!({"type":"text", "text":"hello agent"})],
+            )
+            .await
+            .unwrap();
         assert_eq!(result.message_id, "accepted");
-        assert!(matches!(client.prompt(&session_id, "must not send").await, Err(AcpError::Unavailable { .. })));
+        assert!(matches!(
+            client.prompt(&session_id, "must not send").await,
+            Err(AcpError::Unavailable { .. })
+        ));
         client.cancel(&session_id).unwrap();
 
         let update = updates.recv().await.unwrap();
@@ -980,7 +1019,10 @@ mod tests {
         client.initialize().await.unwrap();
         let session_id = client.new_session("/workspace").await.unwrap();
         let error = client
-            .submit_prompt(&session_id, vec![json!({"type":"text", "text":"run the task"})])
+            .submit_prompt(
+                &session_id,
+                vec![json!({"type":"text", "text":"run the task"})],
+            )
             .await
             .unwrap_err();
         assert!(error.is_ambiguous(), "expected ambiguous, got {error:?}");
@@ -991,7 +1033,10 @@ mod tests {
         // classified pre-send (retryable) and no second frame ever leaves.
         tokio::time::sleep(Duration::from_millis(50)).await;
         let error = client
-            .submit_prompt(&session_id, vec![json!({"type":"text", "text":"run the task"})])
+            .submit_prompt(
+                &session_id,
+                vec![json!({"type":"text", "text":"run the task"})],
+            )
             .await
             .unwrap_err();
         assert!(error.is_retryable(), "expected retryable, got {error:?}");

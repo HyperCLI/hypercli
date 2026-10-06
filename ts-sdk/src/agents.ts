@@ -1073,7 +1073,7 @@ export type OpenClawModelProviderPatch =
 
 /**
  * Self-hosted runner placement for POST /deployments
- * (docs/future/RUNNER.md). Tags match runner tags for the same owner;
+ * (monorepo acp/RUNNER.md). Tags match runner tags for the same owner;
  * runnerId pins one runner when tags are ambiguous.
  */
 export interface RunnerTargetOptions {
@@ -2879,6 +2879,7 @@ export class Agent {
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options,
+        resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id)).cwd),
         getPromptCompletion: options.getPromptCompletion ?? (transport === 'proxy'
           ? (sid, mid) => deployments.getPromptCompletion(sid, mid, this.id) : undefined) },
     );
@@ -3639,6 +3640,11 @@ export class Deployments {
 
   get agentApiBase(): string {
     return this.apiBase;
+  }
+
+  /** Authoritative runtime-host launch directory, resolved by the platform. */
+  runtimePaths(agentId: string): Promise<{ cwd: string }> {
+    return this.agentHttp.get(`/deployments/${encodeURIComponent(agentId)}/runtime-paths`);
   }
 
   getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
