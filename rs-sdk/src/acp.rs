@@ -596,11 +596,10 @@ async fn read_loop(
     let failure = loop {
         match stream.next().await {
             Some(Ok(Message::Text(text))) => match serde_json::from_str::<Value>(&text) {
-                Ok(frame) if frame.is_object() => {
-                    dispatch_frame(&frame, &state, &outbound, &updates);
-                }
-                Ok(_) => {
-                    break Failure::Protocol("ACP bridge returned a non-object frame".to_owned())
+                Ok(frame) => {
+                    if let Err(error) = dispatch_message(&frame, &state, &outbound, &updates) {
+                        break Failure::Protocol(error);
+                    }
                 }
                 Err(error) => {
                     break Failure::Protocol(format!("ACP bridge returned invalid JSON: {error}"));
@@ -608,13 +607,10 @@ async fn read_loop(
             },
             Some(Ok(Message::Binary(bytes))) => {
                 match serde_json::from_str::<Value>(&String::from_utf8_lossy(&bytes)) {
-                    Ok(frame) if frame.is_object() => {
-                        dispatch_frame(&frame, &state, &outbound, &updates);
-                    }
-                    Ok(_) => {
-                        break Failure::Protocol(
-                            "ACP bridge returned a non-object frame".to_owned(),
-                        );
+                    Ok(frame) => {
+                        if let Err(error) = dispatch_message(&frame, &state, &outbound, &updates) {
+                            break Failure::Protocol(error);
+                        }
                     }
                     Err(error) => {
                         break Failure::Protocol(format!(
@@ -638,6 +634,56 @@ async fn read_loop(
         }
     };
     fail_pending(&state, &failure);
+}
+
+fn dispatch_message(
+    message: &Value,
+    state: &ConnState,
+    outbound: &mpsc::UnboundedSender<Message>,
+    updates: &mpsc::UnboundedSender<Value>,
+) -> Result<(), String> {
+    let frames = match message {
+        Value::Array(frames) => frames.as_slice(),
+        frame => std::slice::from_ref(frame),
+    };
+    if frames.is_empty() || frames.iter().any(|frame| !valid_envelope(frame)) {
+        return Err("ACP bridge returned an invalid JSON-RPC envelope".to_owned());
+    }
+    if message.is_array() {
+        let (batch_outbound, mut replies) = mpsc::unbounded_channel();
+        for frame in frames {
+            dispatch_frame(frame, state, &batch_outbound, updates);
+        }
+        let mut responses = Vec::new();
+        while let Ok(Message::Text(text)) = replies.try_recv() {
+            responses.push(serde_json::from_str::<Value>(&text).expect("serialized JSON-RPC reply"));
+        }
+        if !responses.is_empty() {
+            let _ = outbound.send(Message::Text(Value::Array(responses).to_string().into()));
+        }
+    } else {
+        dispatch_frame(message, state, outbound, updates);
+    }
+    Ok(())
+}
+
+fn valid_envelope(frame: &Value) -> bool {
+    if !frame.is_object() || frame.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return false;
+    }
+    if frame.get("id").is_some_and(|id| !(id.is_null() || id.is_string() || id.as_i64().is_some())) {
+        return false;
+    }
+    if let Some(method) = frame.get("method") {
+        return method.is_string() && frame.get("result").is_none() && frame.get("error").is_none()
+            && frame.get("params").is_none_or(Value::is_object);
+    }
+    frame.get("id").is_some()
+        && (frame.get("result").is_some() != frame.get("error").is_some())
+        && frame.get("error").is_none_or(|error| {
+            error.get("code").and_then(Value::as_i64).is_some()
+                && error.get("message").and_then(Value::as_str).is_some()
+        })
 }
 
 fn dispatch_frame(
@@ -670,7 +716,7 @@ fn dispatch_frame(
     if method.is_empty() {
         return;
     }
-    let Some(id) = id else {
+    let Some(id) = frame.get("id").filter(|id| id.is_null() || id.is_string() || id.as_i64().is_some()) else {
         if method == "session/update" {
             let _ = updates.send(frame.get("params").cloned().unwrap_or(Value::Null));
         }
@@ -708,6 +754,45 @@ mod tests {
 
     type TestSocket = WebSocketStream<TcpStream>;
 
+    #[tokio::test]
+    async fn permission_replies_preserve_upstream_request_id_types() {
+        let state = ConnState { pending: Mutex::new(HashMap::new()), dead: AtomicBool::new(false) };
+        let (outbound, mut received) = mpsc::unbounded_channel();
+        let (updates, _) = mpsc::unbounded_channel();
+        for id in [json!("permission-1"), json!(-17), Value::Null, json!(4)] {
+            dispatch_frame(&json!({"jsonrpc":"2.0", "id":id,
+                "method":"session/request_permission", "params":{"sessionId":"s", "options":[]}}),
+                &state, &outbound, &updates);
+            let Message::Text(text) = received.try_recv().unwrap() else { panic!("expected response") };
+            let response: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(response["id"], id);
+            assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+        }
+    }
+
+    #[test]
+    fn decoder_validates_batches_before_dispatch_and_never_answers_notifications() {
+        let state = ConnState { pending: Mutex::new(HashMap::new()), dead: AtomicBool::new(false) };
+        let (outbound, mut received) = mpsc::unbounded_channel();
+        let (updates, _) = mpsc::unbounded_channel();
+        for malformed in [json!([]), json!({"jsonrpc":"2.0","id":true,"method":"x"}),
+            json!({"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"x"}}),
+            json!({"id":1,"method":"x"})] {
+            assert!(dispatch_message(&malformed, &state, &outbound, &updates).is_err());
+        }
+        dispatch_message(&json!([{"jsonrpc":"2.0","method":"unknown"}]),
+            &state, &outbound, &updates).unwrap();
+        assert!(received.try_recv().is_err());
+        dispatch_message(&json!([
+            {"jsonrpc":"2.0","id":"p","method":"session/request_permission","params":{}},
+            {"jsonrpc":"2.0","id":-1,"method":"unknown"}]), &state, &outbound, &updates).unwrap();
+        let Message::Text(text) = received.try_recv().unwrap() else { panic!("expected batch") };
+        let replies: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(replies[0]["id"], "p");
+        assert_eq!(replies[1]["id"], -1);
+        assert_eq!(replies.as_array().unwrap().len(), 2);
+    }
+
     async fn read_frame(socket: &mut TestSocket) -> Value {
         loop {
             match socket.next().await {
@@ -727,6 +812,51 @@ mod tests {
             .send(Message::Text(frame.to_string().into()))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn silent_peer_and_ignored_cancel_survive_virtual_year_until_real_evidence() {
+        let (seen_tx, mut seen_rx) = mpsc::unbounded_channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let (finish_tx, finish_rx) = oneshot::channel();
+        let (url, server) = start_server(move |mut socket| async move {
+            let prompt = read_frame(&mut socket).await;
+            assert_eq!(prompt["method"], "session/prompt");
+            seen_tx.send(()).unwrap();
+            let cancel = read_frame(&mut socket).await;
+            assert_eq!(cancel["method"], "session/cancel");
+            assert!(cancel.get("id").is_none());
+            seen_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            send_frame(&mut socket, json!({"jsonrpc":"2.0", "id":prompt["id"],
+                "result":{"messageId":"accepted-after-silence"}})).await;
+            finish_rx.await.unwrap();
+            send_frame(&mut socket, json!({"jsonrpc":"2.0", "method":"session/update",
+                "params":{"sessionId":"s", "update":{"sessionUpdate":"state_update",
+                    "state":"idle", "stopReason":"end_turn"}}})).await;
+        }).await;
+        let client = Arc::new(AcpClient::connect(&url, "").await.unwrap());
+        let mut updates = client.take_updates().unwrap();
+        let pending_client = Arc::clone(&client);
+        let pending = tokio::spawn(async move {
+            pending_client.submit_prompt("s", vec![json!({"type":"text", "text":"once"})]).await
+        });
+        seen_rx.recv().await.unwrap();
+        client.cancel("s").unwrap();
+        seen_rx.recv().await.unwrap();
+        // Only the test clock advances. No execution deadline is introduced.
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(366 * 24 * 60 * 60)).await;
+        assert!(!pending.is_finished());
+        assert!(updates.try_recv().is_err());
+        assert!(!client.is_down());
+        release_tx.send(()).unwrap();
+        assert_eq!(pending.await.unwrap().unwrap().message_id, "accepted-after-silence");
+        assert!(updates.try_recv().is_err(), "admission is not terminal evidence");
+        finish_tx.send(()).unwrap();
+        assert_eq!(updates.recv().await.unwrap()["update"]["stopReason"], "end_turn");
+        server.await.unwrap();
+        client.close();
     }
 
     fn respond(id: u64, result: Value) -> Value {
