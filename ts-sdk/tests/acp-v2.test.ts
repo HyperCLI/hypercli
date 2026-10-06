@@ -76,7 +76,8 @@ it('uses the real alpha.5 v2 SDK, preserving input and separating acceptance fro
   const { client, frames, finish } = await peer();
   const created = await client.newSession({ cwd: '/workspace' });
   expect(client.negotiatedProtocolVersion).toBe(2);
-  expect(frames[0].params).toEqual({ protocolVersion: 2, capabilities: {}, info: { name: 'hypercli-ts-sdk', version: '' } });
+  expect(frames[0].params).toEqual({ protocolVersion: 2, capabilities: {}, info: { name: 'hypercli-ts-sdk', version: '' },
+    _meta: { 'hypercli.com/resolve-launch-cwd': true } });
   const blocks = [{ type: 'text' as const, text: '  /compact\n[hypercli conversation context]\n' }];
   const accepted = await client.submitPrompt(created.sessionId, blocks);
   expect(accepted).toEqual({ messageId: 'user-1' });

@@ -67,10 +67,14 @@ class FakeAcpProxy {
           protocolVersion: 2,
           info: { name: 'fake-acp-proxy', version: '1.0.0' },
           capabilities: { session: {} },
+          _meta: { 'hypercli.com/launch-cwd': '/runtime/workspace' },
         });
         return;
       case 'session/new':
         reply({ sessionId: BACKEND_SESSION_ID });
+        return;
+      case 'session/list':
+        reply({ sessions: [{ sessionId: BACKEND_SESSION_ID, cwd: '/original/workspace' }] });
         return;
       case 'session/resume': {
         const sessionId = (frame.params as { sessionId: string }).sessionId;
@@ -222,7 +226,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
   it('attach: an unknown standard session/resume fails without redial', async () => {
     const proxy = await startProxy();
     const error = await acpAgent(proxy)
-      .acpConnect({ sessionId: 'not-a-real-session' })
+      .acpConnect({ sessionId: 'not-a-real-session', cwd: '/original/workspace' })
       .then(
         () => null,
         (err: unknown) => err,
