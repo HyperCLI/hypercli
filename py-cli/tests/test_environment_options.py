@@ -75,7 +75,8 @@ def test_environment_flags_rejected_before_command_execution(command, flag):
     result = CliRunner().invoke(app, [*command, flag], color=False)
     assert result.exit_code == 2, result.output
     assert "No such option" in result.output
-    assert flag in result.output
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert flag in plain
 
 
 @pytest.mark.parametrize(("command", "flag"), [
