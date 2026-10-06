@@ -69,10 +69,14 @@ import { AcpTurnDriver, type AcpTurnDriverOptions } from './acp-driver.js';
 export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
+  CodingAgentAcpRequestError,
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
   ACP_RECONNECT_DELAYS_MS,
   type CodingAgentAcpConnectOptions,
+  type CodingAgentAcpStage,
+  type CodingAgentAcpDiagnostic,
+  type CodingAgentAcpDiagnosticError,
 } from './acp.js';
 export {
   AcpTurnDriver,
@@ -2879,7 +2883,7 @@ export class Agent {
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options,
-        resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id)).cwd),
+        resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id, { signal: options.signal })).cwd),
         getPromptCompletion: options.getPromptCompletion ?? (transport === 'proxy'
           ? (sid, mid) => deployments.getPromptCompletion(sid, mid, this.id) : undefined) },
     );
@@ -3643,8 +3647,8 @@ export class Deployments {
   }
 
   /** Authoritative runtime-host launch directory, resolved by the platform. */
-  runtimePaths(agentId: string): Promise<{ cwd: string }> {
-    return this.agentHttp.get(`/deployments/${encodeURIComponent(agentId)}/runtime-paths`);
+  runtimePaths(agentId: string, requestOptions: RequestOverrides = {}): Promise<{ cwd: string }> {
+    return this.agentHttp.get(`/deployments/${encodeURIComponent(agentId)}/runtime-paths`, undefined, requestOptions);
   }
 
   getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {

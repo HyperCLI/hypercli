@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { APIError, type Agent, type HyperCLI } from '@hypercli.com/sdk';
+import { APIError, CodingAgentAcpRequestError, type CodingAgentAcpDiagnostic, type Agent, type HyperCLI } from '@hypercli.com/sdk';
 import * as agents from '../src/commands/agents.js';
 import { CliError, UsageError, exitCodeFor } from '../src/core/errors.js';
 import { createOutput } from '../src/core/output.js';
@@ -129,7 +129,7 @@ async function runErr(ctx: CommandContext, args: string[]): Promise<unknown> {
 // ---------- fake ACP chat surface (plain object) ----------
 
 type AcpNotification = { update: Record<string, unknown> };
-type AcpOptions = { onUpdate?: (notification: AcpNotification) => void };
+type AcpOptions = { onUpdate?: (notification: AcpNotification) => void; onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void };
 
 function acpChunk(text: string): AcpNotification {
   return {
@@ -341,7 +341,7 @@ describe('hyper agents chat — reply extraction', () => {
     const err = await runErr(ctx, ['chat', ID_A, 'hi']);
 
     expect(err).toBeInstanceOf(CliError);
-    expect((err as Error).message).toBe('chat: prompt stage failed: model exploded');
+    expect((err as Error).message).toContain('chat: prompt stage failed: model exploded');
     expect(exitCodeFor(err)).toBe(1);
   });
 
@@ -359,6 +359,60 @@ describe('hyper agents chat — reply extraction', () => {
 });
 
 // ---------- lifecycle: start + wait before connect ----------
+
+describe('hyper agents chat — stage evidence', () => {
+  it.each(['initialize', 'cwd', 'new', 'resume'] as const)('names a stalled %s operation and closes on the deadline without prompting', async (stage) => {
+    const close = vi.fn();
+    const prompt = vi.fn();
+    const agent = chatAgentFixture({ acpConnect: vi.fn(async (options: AcpOptions) => {
+      options.onDiagnostic?.({ stage: 'connect', phase: 'succeeded', operationId: 1, timestamp: Date.now(), elapsedMs: 1 });
+      const stall = () => {
+        options.onDiagnostic?.({ stage, phase: 'started', operationId: 2, timestamp: Date.now(), elapsedMs: 0 });
+        return new Promise(() => {});
+      };
+      if (stage === 'initialize') return stall();
+      return { newSession: stall, resumeSession: stall, prompt, close };
+    }) });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+    const err = await runErr(ctx, ['chat', ID_A, OPENAI_KEY, '--timeout', '0.05', ...(stage === 'resume' ? ['--session', 'old'] : [])]);
+    expect((err as Error).message).toContain(`chat: ${stage} stage failed: timed out`);
+    expect((err as Error).message).toContain('"lastCompletedStage":"connect"');
+    expect(stderr()).toContain('"phase":"timeout"');
+    expect(stderr()).toContain('"timeoutMs":50');
+    expect(stderr()).toContain('"deadlineAt":');
+    expect(stderr()).not.toContain(OPENAI_KEY);
+    expect(stdout()).toBe('');
+    expect(prompt).not.toHaveBeenCalled();
+    if (stage !== 'initialize') expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a backend RPC rejection separate from a subsequent socket close', async () => {
+    let diagnostic: AcpOptions['onDiagnostic'];
+    const prompt = vi.fn();
+    const agent = chatAgentFixture({ acpConnect: vi.fn(async (options: AcpOptions) => {
+      diagnostic = options.onDiagnostic;
+      return {
+        newSession: async () => {
+          diagnostic?.({ stage: 'cwd', phase: 'succeeded', operationId: 1, timestamp: Date.now(), elapsedMs: 2 });
+          diagnostic?.({ stage: 'new', phase: 'failed', operationId: 2, timestamp: Date.now(), elapsedMs: 3,
+            error: { name: 'CodingAgentAcpRequestError', code: -32003, cause: { name: 'RequestError', code: -32003 } } });
+          throw new CodingAgentAcpRequestError('session/new', -32003, 'ACP initialize handshake exceeded 30s');
+        }, prompt,
+        close: () => diagnostic?.({ stage: 'transport', phase: 'closed', timestamp: Date.now(), code: 1005, reasonPresent: false }),
+      };
+    }) });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');
+    const err = await runErr(ctx, ['chat', ID_A, OPENAI_KEY]);
+    expect((err as Error).message).toContain('chat: new stage failed: ACP initialize handshake exceeded 30s');
+    expect((err as Error).message).toContain('"code":-32003');
+    expect((err as Error).message).toContain('"lastCompletedStage":"cwd"');
+    expect(stderr()).toContain('"stage":"transport"');
+    expect(stderr()).not.toContain(OPENAI_KEY);
+    expect(stdout()).toBe('');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(agent.state).toBe('RUNNING');
+  });
+});
 
 describe('hyper agents chat — lifecycle', () => {
   it('non-RUNNING openclaw agent: start, wait, then connect — no secret ceremony', async () => {
@@ -412,7 +466,7 @@ describe('hyper agents chat — lifecycle', () => {
     const err = await runErr(ctx, ['chat', ID_A, 'hi', '--timeout', '0.05']);
 
     expect(err).toBeInstanceOf(CliError);
-    expect((err as Error).message).toMatch(/^chat: connect stage failed: timed out after 0\.05s$/);
+    expect((err as Error).message).toContain('chat: connect stage failed: timed out after 0.05s');
     expect(exitCodeFor(err)).toBe(1);
   });
 

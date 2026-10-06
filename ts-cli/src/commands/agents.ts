@@ -29,6 +29,9 @@ import {
   type AgentRouteConfig,
   type AgentState,
   type CodingAgentAcpClient,
+  type CodingAgentAcpDiagnostic,
+  type CodingAgentAcpDiagnosticError,
+  type CodingAgentAcpStage,
   type Deployments,
   type HyperAgentGrantRedemptionResponse,
   type HyperCLI,
@@ -1563,7 +1566,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 //
 // CI contract: zero TTY, no prompts, no stdin reads. Exit 0 exactly when an
 // assistant reply is produced. Every failure is a CliError naming its stage:
-//   chat: <start|wait|connect|prompt> stage failed: ...
+//   chat: <start|wait|connect|initialize|cwd|new|list|resume|prompt> stage failed: ...
 // Progress (started agent, session opened) goes to stderr via
 // ctx.output.info; stdout carries only the reply text (or the --json bag).
 //
@@ -1579,7 +1582,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 // session/resume with replayFrom 'start' (the NAME is the ACP session id).
 // ---------------------------------------------------------------------------
 
-type ChatStage = 'start' | 'wait' | 'connect' | 'prompt';
+type ChatStage = 'start' | 'wait' | CodingAgentAcpStage;
 
 function requireChatRuntime(runtime: string): string {
   const normalized = canonicalRuntimeName(runtime);
@@ -1601,7 +1604,7 @@ function acpContentText(content: unknown): string {
   return '';
 }
 
-/** Open (or resume) the ACP session; part of the connect stage. */
+/** Open (or resume) the ACP session; SDK diagnostics identify the setup stage. */
 async function acpOpenSession(client: CodingAgentAcpClient, name: string | undefined): Promise<string> {
   if (name !== undefined) {
     // ACP v2 removed session/load; resume with a full history replay instead.
@@ -1637,6 +1640,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   requireChatRuntime(resolved.runtime ?? '');
 
   let stage: ChatStage = 'start';
+  let lastCompletedStage: ChatStage | undefined;
+  let stageError: CodingAgentAcpDiagnosticError | undefined;
+  const activeOperations = new Map<number, CodingAgentAcpStage>();
   let timedOut = false;
   // The SDK's prompt path takes no AbortSignal; on timeout we close the live
   // connection instead, which rejects the in-flight turn.
@@ -1644,9 +1650,33 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   const controller = new AbortController();
   const startedAt = Date.now();
   const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+  const evidence = () => ({ elapsedMs: Date.now() - startedAt, timeoutMs,
+    deadlineAt: startedAt + timeoutMs, lastCompletedStage, timedOut,
+    ...(stageError ? { error: stageError } : {}) });
+  const onDiagnostic = (event: CodingAgentAcpDiagnostic) => {
+    if (event.stage !== 'transport' && !timedOut) {
+      if (event.phase === 'started') {
+        activeOperations.set(event.operationId, event.stage);
+        stage = event.stage;
+        stageError = undefined;
+      } else {
+        activeOperations.delete(event.operationId);
+        if (event.phase === 'failed') {
+          stage = event.stage;
+          stageError = event.error;
+        } else {
+          lastCompletedStage = event.stage;
+          stage = [...activeOperations.values()].at(-1) ?? event.stage;
+        }
+      }
+    }
+    ctx.output.info(`chat diagnostic: ${JSON.stringify({ ...event, chat: evidence() })}`);
+  };
+  let timer: ReturnType<typeof setTimeout>;
   const guard = new Promise<never>((_, reject) => {
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
+      ctx.output.info(`chat diagnostic: ${JSON.stringify({ stage, phase: 'timeout', ...evidence() })}`);
       controller.abort();
       closeActive?.();
       reject(new Error('chat timeout'));
@@ -1660,7 +1690,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       return await fn();
     } catch (err) {
       // Pairing callbacks retag the stage while a connect awaits approval.
-      throw new CliError(`chat: ${stage} stage failed: ${describeFailure(err)}`);
+      const failure = new CliError(`chat: ${stage} stage failed: ${describeFailure(err)} (${JSON.stringify(evidence())})`);
+      failure.cause = err;
+      throw failure;
     }
   };
 
@@ -1698,6 +1730,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     const acp = await atStage('connect', () =>
       agent.acpConnect({
         signal: controller.signal,
+        onDiagnostic,
         clientInfo: { name: 'hypercli-cli' },
         ...(sessionName !== undefined ? { sessionId: sessionName } : {}),
         onUpdate: (notification) => {
@@ -1753,10 +1786,12 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     await Promise.race([work, guard]);
   } catch (err) {
     if (timedOut) {
-      throw new CliError(`chat: ${stage} stage failed: timed out after ${timeoutMs / 1000}s`);
+      throw new CliError(`chat: ${stage} stage failed: timed out after ${timeoutMs / 1000}s (${JSON.stringify(evidence())})`);
     }
     if (err instanceof CliError) throw err;
-    throw new CliError(`chat: ${stage} stage failed: ${describeFailure(err)}`);
+    throw new CliError(`chat: ${stage} stage failed: ${describeFailure(err)} (${JSON.stringify(evidence())})`);
+  } finally {
+    clearTimeout(timer!);
   }
 }
 

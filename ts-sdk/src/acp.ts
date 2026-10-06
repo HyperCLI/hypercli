@@ -150,8 +150,8 @@ export class CodingAgentAcpObservationError extends Error {
  */
 export class CodingAgentAcpRequestError extends Error {
   constructor(public readonly method: string, public readonly code: number, message: string,
-    public readonly data?: unknown) {
-    super(message);
+    public readonly data?: unknown, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
     this.name = 'CodingAgentAcpRequestError';
   }
 }
@@ -194,7 +194,50 @@ export class CodingAgentAcpReplayGapError extends Error {
   }
 }
 
+export type CodingAgentAcpStage = 'connect' | 'initialize' | 'cwd' | 'new' | 'list' | 'resume' | 'prompt';
+
+/** Payload-free error evidence. Messages/data can contain credentials or user content. */
+export interface CodingAgentAcpDiagnosticError {
+  name: string;
+  code?: number | string;
+  statusCode?: number;
+  cause?: CodingAgentAcpDiagnosticError;
+}
+
+/** Local operation IDs correlate events, NOT JSON-RPC wire request IDs. */
+export type CodingAgentAcpDiagnostic = {
+  stage: CodingAgentAcpStage;
+  operationId: number;
+  timestamp: number;
+  elapsedMs: number;
+  phase: 'started' | 'succeeded' | 'failed';
+  error?: CodingAgentAcpDiagnosticError;
+} | {
+  stage: 'transport';
+  phase: 'closed';
+  timestamp: number;
+  code: number | null;
+  reasonPresent: boolean;
+};
+
+function diagnosticError(error: unknown, depth = 0): CodingAgentAcpDiagnosticError {
+  const value = error as { constructor?: { name?: unknown }; code?: unknown; statusCode?: unknown; cause?: unknown } | null;
+  const name = value?.constructor?.name;
+  return {
+    name: typeof name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(name) ? name : 'Error',
+    ...(typeof value?.code === 'number' || (typeof value?.code === 'string' && /^(?:E[A-Z]+|UND_ERR_[A-Z_]+)$/.test(value.code))
+      ? { code: value.code } : {}),
+    ...(typeof value?.statusCode === 'number' ? { statusCode: value.statusCode } : {}),
+    ...(value?.cause !== undefined && depth < 3 ? { cause: diagnosticError(value.cause, depth + 1) } : {}),
+  };
+}
+
 export interface CodingAgentAcpConnectOptions {
+  /** Opt-in, payload-free local stage/transport evidence. Observer failures are ignored.
+   * No messages, URLs, paths, session content, credentials or wire IDs are emitted.
+   * Failures belong to the operation; they do not change deployment health/state.
+   */
+  onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void;
   /** Platform-owned default for new sessions only; never invoked by initialize/list/resume. */
   resolveDefaultCwd?: () => Promise<string>;
   /** Existing platform REST evidence, required by the v2 completion convenience. */
@@ -337,6 +380,37 @@ export class CodingAgentAcpClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
   private readonly onAbort: () => void;
+  private nextDiagnosticOperation = 0;
+
+  private diagnostic(event: CodingAgentAcpDiagnostic): void {
+    try { this.options.onDiagnostic?.(event); } catch { /* Observers never change ACP outcomes. */ }
+  }
+
+  private beginDiagnostic(stage: CodingAgentAcpStage): (error?: unknown) => void {
+    const operationId = ++this.nextDiagnosticOperation;
+    const started = performance.now();
+    this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: 0, phase: 'started' });
+    let finished = false;
+    return (error?: unknown) => {
+      if (finished) return;
+      finished = true;
+      this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: Math.round(performance.now() - started),
+        phase: error === undefined ? 'succeeded' : 'failed',
+        ...(error === undefined ? {} : { error: diagnosticError(error) }) });
+    };
+  }
+
+  private async observe<T>(stage: CodingAgentAcpStage, operation: () => Promise<T>): Promise<T> {
+    const finish = this.beginDiagnostic(stage);
+    try {
+      const result = await operation();
+      finish();
+      return result;
+    } catch (error) {
+      finish(error);
+      throw error;
+    }
+  }
 
   private constructor(target: CodingAgentAcpTarget, options: CodingAgentAcpConnectOptions) {
     if (options.source != null) {
@@ -485,13 +559,13 @@ export class CodingAgentAcpClient {
     if ('systemPrompt' in options || 'title' in options) {
       throw new CodingAgentAcpUnavailableError('session/new', 'system instructions use native configuration; titles use platform REST');
     }
-    const context = this.requireContext();
-    const cwd = this.sessionCwd(options.cwd ?? this.cwd ?? await this.options.resolveDefaultCwd?.());
+    this.requireContext();
+    const cwd = await this.observe('cwd', async () => this.sessionCwd(options.cwd ?? this.cwd ?? await this.options.resolveDefaultCwd?.()));
     const mcpServers = options.mcpServers ?? this.mcpServers;
-    const response = this.localSessionState(await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
+    const response = this.localSessionState(await this.observe('new', () => this.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
       cwd,
       mcpServers: this.wireMcpServers(mcpServers),
-    }));
+    })));
     this.sessions.set(response.sessionId, {
       cwd,
       mcpServers,
@@ -503,11 +577,13 @@ export class CodingAgentAcpClient {
   }
 
   async listSessions(options: { cwd?: string | null; cursor?: string | null } = {}): Promise<acp.ListSessionsResponse> {
-    const context = this.requireContext();
-    this.requireSessionCapability('session/list', 'list');
-    return context.request(acp.methods.agent.session.list, {
-      cwd: options.cwd ?? null,
-      cursor: options.cursor ?? null,
+    return this.observe('list', async () => {
+      this.requireContext();
+      this.requireSessionCapability('session/list', 'list');
+      return this.request<acp.ListSessionsResponse>(acp.methods.agent.session.list, {
+        cwd: options.cwd ?? null,
+        cursor: options.cursor ?? null,
+      });
     });
   }
 
@@ -564,21 +640,21 @@ export class CodingAgentAcpClient {
     sessionId: string,
     options: { cwd?: string; replayFrom?: AcpReplayFrom | null } = {},
   ): Promise<acp.ResumeSessionResponse> {
-    const context = this.requireContext();
+    this.requireContext();
     this.requireSessionCapability('session/resume', 'resume');
     const previous = this.sessions.get(sessionId);
-    const cwd = options.cwd !== undefined ? this.sessionCwd(options.cwd) : await this.originalSessionCwd(sessionId);
+    const cwd = await this.observe('cwd', async () => options.cwd !== undefined ? this.sessionCwd(options.cwd) : this.originalSessionCwd(sessionId));
     const params: Record<string, unknown> = {
       sessionId,
       cwd,
       mcpServers: this.wireMcpServers(previous?.mcpServers ?? this.mcpServers),
     };
     if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
-    const requestResume = () => context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
+    const requestResume = () => this.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
     // A replaying resume streams history before its response resolves (the
     // same boundary problem as v1 session/load), so it gets an epoch bracket.
     const replaying = options.replayFrom !== undefined && options.replayFrom !== null;
-    return this.localSessionState(await this.performReplayBracket(sessionId, requestResume, (raw) => {
+    return this.localSessionState(await this.observe('resume', () => this.performReplayBracket(sessionId, requestResume, (raw) => {
       const response = this.localSessionState(raw);
       this.sessions.set(sessionId, {
         cwd,
@@ -587,7 +663,7 @@ export class CodingAgentAcpClient {
         configOptions: response?.configOptions ?? null,
         title: previous?.title ?? null,
       });
-    }, replaying));
+    }, replaying)));
   }
 
   /** Cancel ongoing work and free the session's resources (`session/close`). */
@@ -642,6 +718,14 @@ export class CodingAgentAcpClient {
     sessionId: string,
     prompt: string | acp.ContentBlock | acp.ContentBlock[],
     options: { onAccepted?: (accepted: acp2.PromptResponse) => void } = {},
+  ): Promise<CodingAgentAcpPromptResult> {
+    return this.observe('prompt', () => this.promptAndObserve(sessionId, prompt, options));
+  }
+
+  private async promptAndObserve(
+    sessionId: string,
+    prompt: string | acp.ContentBlock | acp.ContentBlock[],
+    options: { onAccepted?: (accepted: acp2.PromptResponse) => void },
   ): Promise<CodingAgentAcpPromptResult> {
     const blocks: acp.ContentBlock[] = typeof prompt === 'string'
       ? [{ type: 'text', text: prompt }]
@@ -828,7 +912,7 @@ export class CodingAgentAcpClient {
       return await this.requireContext().request<Response>(method, params);
     } catch (error) {
       if (error instanceof acp2.RequestError) {
-        throw new CodingAgentAcpRequestError(method, error.code, error.message, error.data);
+        throw new CodingAgentAcpRequestError(method, error.code, error.message, error.data, error);
       }
       throw error;
     }
@@ -975,8 +1059,9 @@ export class CodingAgentAcpClient {
     return app;
   }
 
-  private dial(): { connection: WireConnection; closeInfo: { code?: number; reason: string } } {
+  private dial(onOpen: () => void): { connection: WireConnection; closeInfo: { code?: number; reason: string } } {
     const closeInfo: { code?: number; reason: string } = { reason: '' };
+    const diagnostic = (event: CodingAgentAcpDiagnostic) => this.diagnostic(event);
     const WebSocketImpl = (NodeWebSocket ?? globalThis.WebSocket) as unknown as WebSocketConstructor;
     const TrackedWebSocket = class {
       constructor(
@@ -986,6 +1071,15 @@ export class CodingAgentAcpClient {
       ) {
         const socket = new WebSocketImpl(url, protocols, options) as WebSocketLike;
         trackSocketClose(socket, closeInfo);
+        const onClose = () => diagnostic({ stage: 'transport', phase: 'closed', timestamp: Date.now(),
+          code: closeInfo.code ?? null, reasonPresent: closeInfo.reason.length > 0 });
+        if (typeof socket.on === 'function') {
+          socket.on('open', onOpen);
+          socket.on('close', onClose);
+        } else {
+          socket.addEventListener?.('open', onOpen);
+          socket.addEventListener?.('close', onClose);
+        }
         return socket;
       }
     } as unknown as WebSocketConstructor;
@@ -1011,7 +1105,19 @@ export class CodingAgentAcpClient {
     initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
     negotiatedVersion: CodingAgentAcpProtocolVersion;
   }> {
-    const { connection, closeInfo } = this.dial();
+    const finishConnect = this.beginDiagnostic('connect');
+    let finishInitialize: ((error?: unknown) => void) | undefined;
+    let dialed: ReturnType<CodingAgentAcpClient['dial']>;
+    try {
+      dialed = this.dial(() => {
+        finishConnect();
+        finishInitialize = this.beginDiagnostic('initialize');
+      });
+    } catch (error) {
+      finishConnect(error);
+      throw error;
+    }
+    const { connection, closeInfo } = dialed;
     // Until initialize finishes this.connection is deliberately unpublished.
     // close() alone therefore cannot interrupt a peer that accepts WS but
     // never answers initialize. Bind cancellation to this pending dial too.
@@ -1026,8 +1132,10 @@ export class CodingAgentAcpClient {
         acp.methods.agent.initialize,
         this.initializeParams(),
       );
+      finishInitialize?.();
       return { connection, initializeResponse, negotiatedVersion: 2 };
     } catch (error) {
+      (finishInitialize ?? finishConnect)(error);
       if (error instanceof CodingAgentAcpConnectionError) throw error;
       connection.close(error instanceof Error ? error : undefined);
       const code = closeInfo.code ?? null;

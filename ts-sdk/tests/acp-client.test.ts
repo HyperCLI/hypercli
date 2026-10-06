@@ -12,6 +12,7 @@ import {
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
   type CodingAgentAcpReplayEvent,
+  type CodingAgentAcpDiagnostic,
 } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
 import { AcpTurnDriver } from '../src/acp-driver.js';
@@ -72,6 +73,7 @@ class FakeAcpPeer {
       case 'initialize':
         this.initializeCount += 1;
         this.lastInitializeParams = frame.params ?? null;
+        if (this.server.initializeHook) { this.server.initializeHook(this, frame); return; }
         if (this.server.protocolVersion === 2) {
           this.result(frame, {
             protocolVersion: 2,
@@ -98,6 +100,7 @@ class FakeAcpPeer {
         }
         return;
       case 'session/new':
+        if (this.server.newHook) { this.server.newHook(this, frame); return; }
         if (frame.params?.cwd === '/missing-explicit-workspace') {
           this.error(frame, -32602, 'cwd must be an existing directory');
           return;
@@ -186,6 +189,8 @@ class FakeAcpBridge {
   public protocolVersion: 1 | 2;
   public v2Capabilities: Record<string, unknown>;
   public failResume = false;
+  public initializeHook: PromptHook | null = null;
+  public newHook: PromptHook | null = null;
   public listError: { code: number; message: string } | null = null;
   /** Custom payload answered for session/resume. */
   public resumeResult: Record<string, unknown> | null = null;
@@ -295,6 +300,107 @@ afterEach(async () => {
   for (const pool of pools.splice(0)) pool.close();
   for (const client of clients.splice(0)) client.close();
   for (const bridge of bridges.splice(0)) await bridge.close();
+});
+
+describe('ACP operation diagnostics', () => {
+  it('separates a healthy socket/initialize/cwd from a correlated session/new rejection without leaking payloads', async () => {
+    const bridge = await startBridge();
+    const secret = 'do-not-log-token-or-prompt';
+    bridge.newHook = (peer, frame) => peer.error(frame, -32003, `https://host/ws?token=${secret}`);
+    const events: CodingAgentAcpDiagnostic[] = [];
+    const agent = acpAgent(bridge);
+    const client = track(await agent.acpConnect({ token: secret, onDiagnostic: (event) => events.push(event) }));
+    await expect(client.newSession()).rejects.toMatchObject({
+      name: 'CodingAgentAcpRequestError', method: 'session/new', code: -32003,
+      cause: { code: -32003, message: `https://host/ws?token=${secret}` },
+    });
+    expect(events.filter((event) => event.phase === 'succeeded').map((event) => event.stage)).toEqual(['connect', 'initialize', 'cwd']);
+    expect(events.at(-1)).toMatchObject({ stage: 'new', phase: 'failed', error: {
+      name: 'CodingAgentAcpRequestError', code: -32003, cause: { name: 'RequestError', code: -32003 },
+    } });
+    expect(client.connected).toBe(true);
+    expect(bridge.currentPeer.framesFor('session/new')).toHaveLength(1);
+    expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(JSON.stringify(events)).not.toContain('/ws');
+    for (const event of events) {
+      if (event.stage === 'transport' || event.phase === 'started') continue;
+      expect(event.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(events.find((start) => start.stage !== 'transport' && start.operationId === event.operationId))
+        .toMatchObject({ stage: event.stage, phase: 'started' });
+    }
+    client.close();
+    await waitFor(() => events.some((event) => event.stage === 'transport'));
+    expect(events.at(-1)).toMatchObject({ stage: 'transport', phase: 'closed', reasonPresent: false });
+  });
+
+  it('identifies stalled initialize and aborts the pending connection without inventing an RPC rejection', async () => {
+    const bridge = await startBridge();
+    bridge.initializeHook = () => {};
+    const controller = new AbortController();
+    const events: CodingAgentAcpDiagnostic[] = [];
+    const connecting = acpAgent(bridge).acpConnect({ signal: controller.signal, onDiagnostic: (event) => events.push(event) });
+    const rejected = expect(connecting).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
+    await waitFor(() => bridge.peers.some((peer) => peer.framesFor('initialize').length === 1));
+    expect(events.map((event) => [event.stage, event.phase])).toEqual([
+      ['connect', 'started'], ['connect', 'succeeded'], ['initialize', 'started'],
+    ]);
+    controller.abort();
+    await rejected;
+    await waitFor(() => bridge.currentPeer.socketClosed);
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'initialize', phase: 'failed' }));
+    expect(events.some((event) => event.stage === 'new')).toBe(false);
+  });
+
+  it('preserves the upstream initialize rejection as cause separately from the ensuing local close', async () => {
+    const bridge = await startBridge();
+    bridge.initializeHook = (peer, frame) => peer.error(frame, -32602, 'initialize rejected');
+    await expect(acpAgent(bridge).acpConnect()).rejects.toMatchObject({
+      name: 'CodingAgentAcpConnectionError', code: null,
+      cause: { code: -32602, message: 'initialize rejected' },
+    });
+    await waitFor(() => bridge.currentPeer.socketClosed);
+  });
+
+  it('reports cwd resolution failure before any session/new and forwards the caller signal', async () => {
+    const bridge = await startBridge();
+    bridge.launchCwd = null;
+    const agent = acpAgent(bridge);
+    const controller = new AbortController();
+    const events: CodingAgentAcpDiagnostic[] = [];
+    const client = track(await agent.acpConnect({ signal: controller.signal, onDiagnostic: (event) => events.push(event) }));
+    await expect(client.newSession()).rejects.toThrow('authoritative runtime cwd unavailable');
+    expect(agent._deployments!.runtimePaths).toHaveBeenCalledWith(AGENT_ID, { signal: controller.signal });
+    expect(events.at(-1)).toMatchObject({ stage: 'cwd', phase: 'failed', error: { name: 'Error' } });
+    expect(bridge.currentPeer.framesFor('session/new')).toHaveLength(0);
+  });
+
+  it('correlates list/resume failures and ignores diagnostic observer exceptions', async () => {
+    const bridge = await startBridge();
+    bridge.listError = { code: -32601, message: 'not available' };
+    bridge.failResume = true;
+    const client = track(await acpAgent(bridge).acpConnect({ onDiagnostic: () => { throw new Error('observer'); } }));
+    await expect(client.listSessions()).rejects.toMatchObject({ method: 'session/list', code: -32601, cause: { code: -32601 } });
+    await expect(client.resumeSession('original', { cwd: '/original' })).rejects.toMatchObject({
+      method: 'session/resume', code: -32000, cause: { code: -32000 },
+    });
+    expect(bridge.currentPeer.framesFor('session/resume')).toHaveLength(1);
+    expect(client.connected).toBe(true);
+  });
+
+  it('retains standard transport error codes without including error messages or arbitrary code strings', async () => {
+    const bridge = await startBridge();
+    const events: CodingAgentAcpDiagnostic[] = [];
+    const failure = Object.assign(new Error('secret URL and prompt'), {
+      code: 'ETIMEDOUT', cause: { code: 'secret URL and prompt' },
+    });
+    const client = track(await acpAgent(bridge).acpConnect({
+      resolveDefaultCwd: async () => { throw failure; }, onDiagnostic: (event) => events.push(event),
+    }));
+    await expect(client.newSession()).rejects.toBe(failure);
+    expect(events.at(-1)).toMatchObject({ stage: 'cwd', phase: 'failed', error: { code: 'ETIMEDOUT' } });
+    expect(JSON.stringify(events)).not.toContain('secret');
+  });
 });
 
 describe('Agent.acpConnect', () => {

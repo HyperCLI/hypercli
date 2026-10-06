@@ -1688,6 +1688,28 @@ describe('Agents SDK', () => {
     expect((client.deployments as any).agentHttp.timeout).toBe(9876);
   });
 
+  it('cancels an in-flight runtime-path lookup through the real HTTP layer without retrying', async () => {
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => { began = resolve; });
+    let fetchSignal: AbortSignal | undefined;
+    const fetch = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      fetchSignal = init.signal!;
+      fetchSignal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      began();
+    }));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const deployments = new Deployments(new HTTPClient('https://api.test.hypercli.com', 'test-key'),
+      'test-key', 'https://api.test.hypercli.com/agents');
+    const pending = deployments.runtimePaths('agent-1', { signal: controller.signal, timeout: 5000, retries: 3 });
+    const rejected = expect(pending).rejects.toThrow();
+    await started;
+    controller.abort();
+    await rejected;
+    expect(fetchSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     'CREATING',
     'STARTING',
