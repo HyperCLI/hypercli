@@ -1116,9 +1116,16 @@ describe('CodingAgentAcpClient foreground admission after resume', () => {
       peer.result(frame, {});
     };
     const client = track(await acpAgent(bridge).acpConnect());
+    const states: string[] = [];
+    stateObserver(client, states);
     await client.newSession();
+    // The frontend socket stayed open while the runtime completed out of
+    // sight. Resume must retire the stale observation, not synthesize idle.
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } });
+    await waitFor(() => states.includes('running'));
 
     await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
+    expect(states).toEqual(['running', 'running']);
     await expect(client.prompt('session-1', 'after resume')).resolves.toMatchObject({ stopReason: 'end_turn' });
     expect(bridge.currentPeer.framesFor('session/prompt')).toHaveLength(1);
   });

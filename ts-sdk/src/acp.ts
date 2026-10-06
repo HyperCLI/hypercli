@@ -571,7 +571,13 @@ export class CodingAgentAcpClient {
       mcpServers: this.wireMcpServers(previous?.mcpServers ?? this.mcpServers),
     };
     if (options.replayFrom !== undefined) params.replayFrom = options.replayFrom;
-    const requestResume = () => context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
+    const requestResume = () => {
+      // Resume replaces the live observation, including when only the runtime
+      // leg was lost. Clear before dispatch so post-response current state wins.
+      // Absence is unknown, never a synthetic idle/completion notification.
+      this.foregroundStates.delete(sessionId);
+      return context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, params);
+    };
     // A replaying resume streams history before its response resolves (the
     // same boundary problem as v1 session/load), so it gets an epoch bracket.
     const replaying = options.replayFrom !== undefined && options.replayFrom !== null;
