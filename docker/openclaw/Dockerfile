@@ -2,7 +2,7 @@ ARG HYPERCLI_REF=main
 ARG HYPERCLI_SHA
 ARG HYPERCLI_REPO=https://github.com/HyperCLI/hypercli.git
 ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
-ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:2026.9.4
+ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:2026.9.8
 
 FROM ${OPENCLAW_BASE_IMAGE} AS upstream-openclaw
 
