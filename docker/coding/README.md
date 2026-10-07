@@ -10,6 +10,13 @@ each runtime's native instruction file is seeded at boot from the canonical
 `/opt/hypercli/share/runtime/AGENTS.md.template` (see "Runtime instruction
 roots").
 
+Image integration tests take parent-owned inputs explicitly. From the private
+mono root, set `HYPERCLI_TEST_LAUNCH_CONTRACT` to the absolute path of
+`.github/fixtures/hypercli/buzz-launch-contract.json` and
+`HYPERCLI_TEST_SMOKE_HELPERS` to the absolute path of
+`agents/tests/smoke/helpers.py` before running a provider's `test.py`.
+CI supplies these paths; no copies of those inputs belong in the public images.
+
 ## System Boundary
 
 ```text

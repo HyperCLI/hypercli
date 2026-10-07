@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -24,7 +25,7 @@ from testlib import (  # noqa: E402
 
 def assert_exec_models(image: str, env: dict[str, str]) -> None:
     # Exercise the actual smoke command without importing live smoke fixtures.
-    smoke = BUZZ_DIR.parents[1] / "agents/tests/smoke/helpers.py"
+    smoke = Path(os.environ["HYPERCLI_TEST_SMOKE_HELPERS"])
     tree = ast.parse(smoke.read_text())
     probe = next(
         node for node in tree.body

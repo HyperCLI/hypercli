@@ -522,13 +522,8 @@ def assert_common_contract(
 
 def assert_buzz_launch_contract(image: str, *, runtime: str) -> None:
     """Check provider/SDK launch paths against the actual candidate filesystem."""
-    # CI runs these tests from the mono checkout, not inside the Docker build
-    # context. Read the tracked fixture there; do not depend on SDK submodules
-    # (the image jobs check out with submodules:false) or duplicate the golden.
-    fixture = (
-        Path(__file__).resolve().parents[2]
-        / ".github/fixtures/hypercli/buzz-launch-contract.json"
-    )
+    # The provider integration golden is parent-owned, not public image source.
+    fixture = Path(os.environ["HYPERCLI_TEST_LAUNCH_CONTRACT"])
     golden = json.loads(fixture.read_text(encoding="utf-8"))
     contract = golden["runtimes"][runtime]
     command = golden["common"]["command"]

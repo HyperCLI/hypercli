@@ -14,12 +14,13 @@ Agents CI and `pulumi/pulumi-docker` consume that checked-out public source.
 | hypercli-hermes-agent | `hypercli/docker/hermes-agent/Dockerfile` | `hypercli/docker/hermes-agent` | Hermes runtime on agent-base |
 | coding/* | `hypercli/docker/coding/<provider>/Dockerfile` | `hypercli/docker/coding` | hosted coding agents on agent-base (buzz-agent, opencode, codex, claude, goose, kimi-code, pi) |
 
-Local builds:
+Local builds, from the private mono root:
 
 ```bash
 docker build -t hypercli-agent-tools:local -f hypercli/docker/cli/Dockerfile hypercli
 docker build -t hypercli-acp:local -f acp/hyper-acp/Dockerfile acp/hyper-acp
-docker build -t hypercli-agent-base:local --build-arg TOOLCHAIN_IMAGE=hypercli-agent-tools:local --build-arg ACP_IMAGE=hypercli-acp:local docker/agent-base
+docker build -t hypercli-runner:local -f docker/agent-base/runner.Dockerfile .
+docker build -t hypercli-agent-base:local --build-arg TOOLCHAIN_IMAGE=hypercli-agent-tools:local --build-arg ACP_IMAGE=hypercli-acp:local --build-arg RUNNER_IMAGE=hypercli-runner:local docker/agent-base
 docker build -t hypercli-openclaw:local --build-arg HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local -f hypercli/docker/openclaw/Dockerfile hypercli/docker/openclaw
 docker build -t hypercli-hermes:local --build-arg HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local hypercli/docker/hermes-agent
 ```

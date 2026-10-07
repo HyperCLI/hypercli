@@ -2,11 +2,13 @@
 import ast
 import copy
 import json
+import os
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from testlib import assert_auth_methods
+from testlib import assert_auth_methods, assert_buzz_launch_contract
 
 
 ROOT = Path(__file__).parent
@@ -14,6 +16,21 @@ RECORDED = json.loads((ROOT / "fixtures/auth-methods.json").read_text())
 
 
 class AuthContractTests(unittest.TestCase):
+    def test_launch_contract_uses_explicit_parent_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "parent-golden.json"
+            fixture.write_text(json.dumps({
+                "common": {"command": ["/bin/hyper-acp", "plugin", "buzz"]},
+                "runtimes": {"fixture": {"agent_command": "/bin/agent", "agent_args": "acp",
+                                          "claude_code_executable": None}},
+            }))
+            payload = {"uid": 1000, "env": {"BUZZ_ACP_AGENT_COMMAND": "/bin/agent", "BUZZ_ACP_AGENT_ARGS": "acp"},
+                       "executables": {"/bin/hyper-acp": True, "/bin/agent": True}}
+            with patch.dict(os.environ, {"HYPERCLI_TEST_LAUNCH_CONTRACT": str(fixture)}), \
+                    patch("testlib.run_python", return_value=payload), patch("testlib.run") as run:
+                assert_buzz_launch_contract("fixture-image", runtime="fixture")
+            self.assertEqual(run.call_args.args[1], ["/bin/hyper-acp", "plugin", "buzz", "--help"])
+
     def check_methods(self, methods, expected, terminal=None):
         with patch("testlib.run_json", return_value={"methods": methods}) as run:
             assert_auth_methods("fixture", agent_command="agent", agent_args="",
