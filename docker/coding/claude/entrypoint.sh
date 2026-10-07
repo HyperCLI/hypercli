@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-claude_dir=/home/node/.claude
+export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR-${HYPER_RUNTIME_HOME:-/home/node/.claude}}"
+: "${CLAUDE_CONFIG_DIR:?must be a non-empty directory path}"
+claude_dir=${CLAUDE_CONFIG_DIR}
 settings="${claude_dir}/settings.json"
 settings_marker="${claude_dir}/.hypercli-settings.json"
 settings_schema=https://json.schemastore.org/claude-code-settings.json

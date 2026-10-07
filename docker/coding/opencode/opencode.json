@@ -74,50 +74,6 @@
             "input": ["text", "image"],
             "output": ["text"]
           }
-        },
-        "kimi-k2.5": {
-          "name": "kimi-k2.5",
-          "limit": {
-            "context": 262144,
-            "output": 65536
-          },
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
-        },
-        "kimi-k2.5-anthropic": {
-          "name": "kimi-k2.5-anthropic",
-          "limit": {
-            "context": 262144,
-            "output": 65536
-          },
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
-        },
-        "kimi-k2.6": {
-          "name": "kimi-k2.6",
-          "limit": {
-            "context": 262144,
-            "output": 65536
-          },
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
-        },
-        "kimi-k2.6-anthropic": {
-          "name": "kimi-k2.6-anthropic",
-          "limit": {
-            "context": 262144,
-            "output": 65536
-          },
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
         }
       }
     }

@@ -21,7 +21,7 @@ shift
 
 case "${action}" in
   status)
-    if /usr/local/bin/codex login status "$@" >/dev/null 2>&1; then
+    if /opt/hypercli/bin/codex login status "$@" >/dev/null 2>&1; then
       authenticated=true
     else
       status=$?
@@ -36,10 +36,10 @@ case "${action}" in
     if [ "$#" -eq 0 ]; then
       set -- --device-auth
     fi
-    exec /usr/local/bin/codex login "$@"
+    exec /opt/hypercli/bin/codex login "$@"
     ;;
   logout)
-    exec /usr/local/bin/codex logout "$@"
+    exec /opt/hypercli/bin/codex logout "$@"
     ;;
   -h|--help|help)
     usage

@@ -1,0 +1,24 @@
+{
+  "claude": {
+    "source": "https://github.com/HyperCLI/hypercli-mono/actions/runs/37486643622/job/112358821999",
+    "runtime": "claude-code 2.1.207 / claude-agent-acp 0.59.0",
+    "capture": "Single method printed by the failing assertion, not a complete initialize response",
+    "method": {
+      "description": "Use Claude subscription ",
+      "name": "Claude Subscription",
+      "id": "claude-ai-login",
+      "type": "terminal",
+      "args": ["--cli", "auth", "login", "--claudeai"]
+    }
+  },
+  "opencode": {
+    "source": "https://github.com/HyperCLI/hypercli-mono/actions/runs/37486643622/job/112358822083",
+    "runtime": "opencode-ai 1.18.9",
+    "capture": "Single method printed by the failing assertion, not a complete initialize response",
+    "method": {
+      "description": "Run `opencode auth login` in the terminal",
+      "name": "Login with opencode",
+      "id": "opencode-login"
+    }
+  }
+}

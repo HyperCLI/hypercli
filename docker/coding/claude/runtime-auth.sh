@@ -23,7 +23,7 @@ shift
 case "${action}" in
   status)
     status=0
-    output=$(/usr/local/bin/claude auth status --json "$@" 2>/dev/null) || status=$?
+    output=$(/opt/hypercli/bin/claude auth status --json "$@" 2>/dev/null) || status=$?
     if [ "${status}" -ne 0 ] && [ "${status}" -ne 1 ]; then
       exit "${status}"
     fi
@@ -42,13 +42,13 @@ print(json.dumps({
     if [ "$#" -eq 0 ]; then
       set -- --claudeai
     fi
-    exec /usr/local/bin/claude auth login "$@"
+    exec /opt/hypercli/bin/claude auth login "$@"
     ;;
   setup-token)
-    exec /usr/local/bin/claude setup-token "$@"
+    exec /opt/hypercli/bin/claude setup-token "$@"
     ;;
   logout)
-    exec /usr/local/bin/claude auth logout "$@"
+    exec /opt/hypercli/bin/claude auth logout "$@"
     ;;
   -h|--help|help)
     usage

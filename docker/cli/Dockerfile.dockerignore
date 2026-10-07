@@ -1,0 +1,10 @@
+**
+!ts-sdk/
+!ts-sdk/**
+!ts-cli/
+!ts-cli/**
+!skills/
+!skills/**
+**/node_modules
+**/dist
+.git

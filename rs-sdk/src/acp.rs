@@ -859,6 +859,29 @@ mod tests {
         client.close();
     }
 
+    #[tokio::test]
+    async fn malformed_peer_frames_fail_the_real_pending_request_loudly() {
+        for malformed in ["{", "[]", r#"{"jsonrpc":"1.0","id":1,"result":{}}"#,
+            r#"{"jsonrpc":"2.0","id":{},"result":{}}"#,
+            r#"{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"both"}}"#] {
+            let (url, server) = start_server(move |mut socket| async move {
+                let request = read_frame(&mut socket).await;
+                assert_eq!(request["method"], "session/prompt");
+                socket.send(Message::Text(malformed.into())).await.unwrap();
+            }).await;
+            let client = AcpClient::connect(&url, "").await.unwrap();
+            let mut updates = client.take_updates().unwrap();
+            let result = client.submit_prompt("s", vec![json!({"type":"text", "text":"once"})]).await;
+            // The input was already written: fail loudly while retaining
+            // uncertainty about execution, rather than calling it unsent.
+            assert!(matches!(result, Err(AcpError::AmbiguousDelivery { .. })), "{malformed}: {result:?}");
+            assert!(updates.try_recv().is_err(), "malformed input is not a terminal update");
+            assert!(client.is_down());
+            client.close();
+            server.await.unwrap();
+        }
+    }
+
     fn respond(id: u64, result: Value) -> Value {
         json!({"jsonrpc": "2.0", "id": id, "result": result})
     }

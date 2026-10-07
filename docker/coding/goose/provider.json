@@ -43,26 +43,6 @@
       "name": "kimi-k3",
       "context_limit": 262144,
       "reasoning": true
-    },
-    {
-      "name": "kimi-k2.6-anthropic",
-      "context_limit": 262144,
-      "reasoning": true
-    },
-    {
-      "name": "kimi-k2.6",
-      "context_limit": 262144,
-      "reasoning": true
-    },
-    {
-      "name": "kimi-k2.5-anthropic",
-      "context_limit": 262144,
-      "reasoning": true
-    },
-    {
-      "name": "kimi-k2.5",
-      "context_limit": 262144,
-      "reasoning": true
     }
   ],
   "supports_streaming": true,

@@ -5,6 +5,8 @@ FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG CODEX_VERSION=0.146.0
 ARG CODEX_ACP_VERSION=1.1.7
+ARG HYPER_RUNTIME_HOME=/home/node/.codex
+ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
 USER root
 COPY --chmod=0755 codex/entrypoint.sh /opt/hypercli/bin/codex-entrypoint
@@ -25,9 +27,9 @@ LABEL org.opencontainers.image.title="HyperCLI Codex Agent" \
       org.hypercli.acp_adapter_version="${CODEX_ACP_VERSION}"
 
 ENV NO_BROWSER=1 \
-    HYPER_ACP_AGENT_COMMAND=/usr/local/bin/codex-acp \
+    HYPER_ACP_AGENT_COMMAND=/opt/hypercli/bin/codex-acp \
     HYPER_ACP_AGENT_ARGS=
 
 USER node
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/codex-entrypoint"]
-CMD ["sleep", "infinity"]
+CMD ["/usr/local/bin/hyper-acp"]

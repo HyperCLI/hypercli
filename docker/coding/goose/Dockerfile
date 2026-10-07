@@ -34,6 +34,8 @@ RUN set -eux; \
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG GOOSE_VERSION=1.45.0
+ARG HYPER_RUNTIME_HOME=/home/node/.goose
+ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
 USER root
 COPY --from=goose-fetch /out/goose /usr/local/bin/goose
@@ -50,12 +52,11 @@ LABEL org.opencontainers.image.title="HyperCLI Goose Agent" \
       org.hypercli.coding_runtime="goose" \
       org.hypercli.coding_runtime_version="${GOOSE_VERSION}"
 
-ENV GOOSE_PATH_ROOT=/home/node/.goose \
-    GOOSE_DISABLE_KEYRING=1 \
+ENV GOOSE_DISABLE_KEYRING=1 \
     GOOSE_TELEMETRY_ENABLED=false \
     HYPER_ACP_AGENT_COMMAND=/usr/local/bin/goose \
     HYPER_ACP_AGENT_ARGS=acp
 
 USER node
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/goose-entrypoint"]
-CMD ["sleep", "infinity"]
+CMD ["/usr/local/bin/hyper-acp"]

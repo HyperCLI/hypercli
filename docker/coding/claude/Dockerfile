@@ -5,6 +5,8 @@ FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG CLAUDE_CODE_VERSION=2.1.207
 ARG CLAUDE_ACP_VERSION=0.59.0
+ARG HYPER_RUNTIME_HOME=/home/node/.claude
+ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
 USER root
 COPY --chmod=0755 claude/entrypoint.sh /opt/hypercli/bin/claude-entrypoint
@@ -24,9 +26,9 @@ LABEL org.opencontainers.image.title="HyperCLI Claude Code Agent" \
       org.hypercli.coding_runtime_version="${CLAUDE_CODE_VERSION}" \
       org.hypercli.acp_adapter_version="${CLAUDE_ACP_VERSION}"
 
-ENV HYPER_ACP_AGENT_COMMAND=/usr/local/bin/claude-agent-acp \
+ENV HYPER_ACP_AGENT_COMMAND=/opt/hypercli/bin/claude-agent-acp \
     HYPER_ACP_AGENT_ARGS=
 
 USER node
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/claude-entrypoint"]
-CMD ["sleep", "infinity"]
+CMD ["/usr/local/bin/hyper-acp"]

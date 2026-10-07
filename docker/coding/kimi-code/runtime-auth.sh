@@ -55,7 +55,7 @@ print(json.dumps(
 PY
     ;;
   login)
-    exec /usr/local/bin/kimi login "$@"
+    exec /opt/hypercli/bin/kimi login "$@"
     ;;
   -h|--help|help)
     usage

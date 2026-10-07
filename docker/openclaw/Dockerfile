@@ -72,7 +72,8 @@ ENV DISPLAY=:99
 ENV HYPER_ACP_AGENT_COMMAND=openclaw \
     HYPER_ACP_AGENT_ARGS=acp
 
-WORKDIR /app
+# Installed code stays in /app; ACP sessions start in the retained user home.
+WORKDIR /home/node
 USER node
 
 EXPOSE 18789 3000

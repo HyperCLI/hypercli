@@ -4,6 +4,8 @@ ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
 ARG KIMI_CODE_VERSION=0.31.0
+ARG HYPER_RUNTIME_HOME=/home/node/.kimi-code
+ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
 USER root
 COPY --chown=node:node kimi-code/tui.toml /opt/hypercli/share/runtime/kimi-tui.toml
@@ -22,11 +24,10 @@ LABEL org.opencontainers.image.title="HyperCLI Kimi Code Agent" \
       org.hypercli.coding_runtime="kimi-code" \
       org.hypercli.coding_runtime_version="${KIMI_CODE_VERSION}"
 
-ENV KIMI_CODE_HOME=/home/node/.kimi-code \
-    KIMI_DISABLE_TELEMETRY=1 \
-    HYPER_ACP_AGENT_COMMAND=/usr/local/bin/kimi \
+ENV KIMI_DISABLE_TELEMETRY=1 \
+    HYPER_ACP_AGENT_COMMAND=/opt/hypercli/bin/kimi \
     HYPER_ACP_AGENT_ARGS=acp
 
 USER node
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/hypercli/bin/kimi-entrypoint"]
-CMD ["sleep", "infinity"]
+CMD ["/usr/local/bin/hyper-acp"]
