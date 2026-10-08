@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { ContentBlock, SessionUpdate } from '@agentclientprotocol/sdk/experimental/v2';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -544,7 +545,7 @@ describe('Agent.acpConnect', () => {
     const client = track(await acpAgent(bridge).acpConnect({
       onUpdate: (notification) => {
         const update = notification.update;
-        if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text') {
+        if (SessionUpdate.isAgentMessageChunk(update) && ContentBlock.isText(update.content)) {
           updates.push({ sessionId: notification.sessionId, text: update.content.text });
         }
       },

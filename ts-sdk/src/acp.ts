@@ -38,6 +38,7 @@ import * as acp2 from '@agentclientprotocol/sdk/experimental/v2';
 import type {
   InitializeResponse as AcpV2InitializeResponse,
   ReplayFrom as AcpReplayFrom,
+  UpdateSessionNotification as SessionNotification,
 } from '@agentclientprotocol/sdk/experimental/v2';
 import {
   createWebSocketStream,
@@ -46,8 +47,8 @@ import {
   type WebSocketLike,
 } from '@agentclientprotocol/sdk/experimental/ws-client';
 
-export type { ContentBlock, RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk';
-export type { AcpReplayFrom };
+export type { ContentBlock, RequestPermissionRequest } from '@agentclientprotocol/sdk';
+export type { AcpReplayFrom, SessionNotification };
 
 /**
  * Windowed resume cursor — plain range fields on the standard v2 `start`
@@ -296,8 +297,8 @@ export interface CodingAgentAcpConnectOptions {
   /** Proxy creation provenance, carried in the WS query (not ACP). Applies only
    * to newly created sessions on this connection; attaching never changes it. */
   source?: string | null;
-  /** Receives every `session/update` notification. */
-  onUpdate?: (notification: acp.SessionNotification) => void;
+  /** Receives every raw upstream v2 `session/update` notification. */
+  onUpdate?: (notification: SessionNotification) => void;
   /**
    * Permission handler. When omitted, every `session/request_permission`
    * request is answered with the `cancelled` outcome — a raw SDK never
@@ -385,7 +386,7 @@ export class CodingAgentAcpClient {
   private negotiatedVersionValue: CodingAgentAcpProtocolVersion | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
-  private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
+  private readonly updateListeners = new Set<(notification: SessionNotification) => void>();
   private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   /** In-memory only: latest epoch and outstanding replay identities per session. */
@@ -500,13 +501,13 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Register a listener for every `session/update` notification. Listeners
+   * Register a listener for every raw upstream v2 `session/update` notification. Listeners
    * fire in addition to the legacy single `options.onUpdate` callback, which
    * makes one shared connection usable by multiple subscribers (chat, session
    * sweep, ...). Returns an unsubscribe function; a throwing listener is
    * logged and does not break the others. `close()` clears all listeners.
    */
-  addUpdateListener(listener: (notification: acp.SessionNotification) => void): () => void {
+  addUpdateListener(listener: (notification: SessionNotification) => void): () => void {
     this.updateListeners.add(listener);
     return () => {
       this.updateListeners.delete(listener);
@@ -1073,12 +1074,11 @@ export class CodingAgentAcpClient {
         }
         this.settleForeground(notification.sessionId);
       }
-      // Existing subscribers accept structurally open session updates. Do not
-      // rewrite v2 snapshots into append-only v1 chunks.
-      this.options.onUpdate?.(notification as unknown as acp.SessionNotification);
+      // Deliver raw v2 updates, including message snapshots, to every subscriber.
+      this.options.onUpdate?.(notification);
       for (const listener of [...this.updateListeners]) {
         try {
-          listener(notification as unknown as acp.SessionNotification);
+          listener(notification);
         } catch (error) {
           console.error('ACP session/update listener threw', error);
         }
