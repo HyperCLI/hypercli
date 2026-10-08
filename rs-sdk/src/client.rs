@@ -174,7 +174,7 @@ pub struct HyperCliClient {
     product_base: Url,
     pub(crate) api_key: secrecy::SecretString,
     pub(crate) http: HttpClient,
-    async_http: AsyncHttpClient,
+    pub(crate) async_http: AsyncHttpClient,
     trace_file: Option<PathBuf>,
     pub(crate) auth_me_cache: std::sync::OnceLock<Option<AuthMe>>,
 }

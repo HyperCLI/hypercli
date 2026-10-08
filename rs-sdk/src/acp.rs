@@ -3,8 +3,11 @@
 //! Connects to Backend's standard ACP v2 surface. Session creation, resume,
 //! prompt admission, updates and cancellation use the standard protocol.
 //! [`AcpClient::submit_prompt`] returns an accepted message ID, not completion.
-//! [`AcpClient::prompt`] refuses before sending: this SDK has no exact REST
-//! completion reader, and conversation idle cannot prove message completion.
+//! [`AcpClient::prompt`] refuses before sending because a raw connection has no
+//! platform receipt reader. Use [`crate::SessionsClient::wait_prompt_completion`]
+//! with the acceptance for exact REST completion evidence, even after disconnect.
+//! The client profile is the upstream experimental v2 alpha.5 draft, not stable
+//! ACP. Backend runtime v1/v2 negotiation is independent of this boundary.
 //!
 //! Parity across sibling SDKs:
 //!
@@ -86,9 +89,9 @@ pub enum AcpError {
     /// execution. Reconcile by inspecting the agent's session state before
     /// re-issuing the prompt.
     #[error(
-        "ACP connection dropped after the session/prompt frame was sent ({detail}); \
+        "ACP delivery is uncertain after session/prompt ({detail}); \
          not retrying to avoid duplicate execution — the prompt may still reach the \
-         agent; inspect the agent's session state with session/load or session/list \
+         agent; inspect the platform REST session history \
          before re-issuing the prompt"
     )]
     AmbiguousDelivery {
@@ -332,6 +335,7 @@ impl AcpClient {
             Ok(value) => {
                 if value["protocolVersion"].as_u64() != Some(2)
                     || !value["info"]["name"].is_string()
+                    || !value["info"]["version"].is_string()
                 {
                     self.close();
                     return Err(AcpError::Protocol(
@@ -364,7 +368,8 @@ impl AcpClient {
         self.state.dead.load(Ordering::SeqCst)
     }
 
-    /// True when the agent advertised `agentCapabilities.loadSession`.
+    /// Compatibility name for the v2 `capabilities.session` surface. No v1
+    /// `loadSession` capability or `session/load` operation is used.
     pub fn load_session_capable(&self) -> bool {
         self.initialize_response
             .lock()
@@ -381,7 +386,13 @@ impl AcpClient {
     }
 
     /// Create a session with `session/new` and return its session id.
+    /// Supply a concrete absolute cwd resolved by the runner/hosted runtime, or
+    /// an explicit valid absolute override. Relative configuration (including
+    /// runtime `~/.hypercli` paths) must be resolved on the runtime host first.
+    /// The SDK validates path shape only and sends valid overrides verbatim.
     pub async fn new_session(&self, cwd: &str) -> Result<String, AcpError> {
+        self.require_session_surface("session/new")?;
+        validate_cwd(cwd)?;
         let result = self
             .request("session/new", json!({"cwd": cwd, "mcpServers": []}))
             .await?;
@@ -403,18 +414,16 @@ impl AcpClient {
     }
 
     /// Standard v2 resume; never substitutes a new session on failure.
+    /// `cwd` must be the original session setup obtained from discovery or
+    /// stored native setup, not a guessed cwd or a new launch default.
     pub async fn resume_session(
         &self,
         cwd: &str,
         session_id: &str,
         replay: bool,
     ) -> Result<Value, AcpError> {
-        if !self.load_session_capable() {
-            return Err(AcpError::Unavailable {
-                capability: "session/resume".to_owned(),
-                detail: "no v2 session capability advertised".to_owned(),
-            });
-        }
+        self.require_session_surface("session/resume")?;
+        validate_cwd(cwd)?;
         let mut params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":[]});
         if replay {
             params["replayFrom"] = json!({"type":"start"});
@@ -422,12 +431,48 @@ impl AcpClient {
         self.request("session/resume", params).await
     }
 
-    /// Run one prompt turn and return the end-of-turn result.
-    ///
-    /// Sends `session/prompt` exactly once and waits for the response. If the
-    /// connection drops after the frame is sent, this returns
-    /// [`AcpError::AmbiguousDelivery`]; the turn is never resent. A JSON-RPC
-    /// rejection returns [`AcpError::Request`].
+    /// List the peer's standard ACP catalog. Platform discovery status and
+    /// retained metadata are available separately through `client.sessions()`.
+    pub async fn list_sessions(
+        &self,
+        cwd: Option<&str>,
+        cursor: Option<&str>,
+    ) -> Result<Value, AcpError> {
+        self.require_session_surface("session/list")?;
+        if let Some(cwd) = cwd {
+            validate_cwd(cwd)?;
+        }
+        self.request("session/list", json!({"cwd": cwd, "cursor": cursor}))
+            .await
+    }
+
+    /// Close the remote session using the baseline v2 operation. This is
+    /// distinct from closing this client's transport or deleting stored history.
+    pub async fn close_session(&self, session_id: &str) -> Result<Value, AcpError> {
+        self.require_session_surface("session/close")?;
+        self.request("session/close", json!({"sessionId": session_id}))
+            .await
+    }
+
+    fn require_session_surface(&self, method: &str) -> Result<(), AcpError> {
+        if self.closed() {
+            return Err(AcpError::Closed);
+        }
+        if self.is_down() {
+            return Err(AcpError::Retryable("ACP connection is down".to_owned()));
+        }
+        if !self.load_session_capable() {
+            return Err(AcpError::Unavailable {
+                capability: method.to_owned(),
+                detail: "no v2 session capability advertised".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Compatibility convenience that refuses before sending. A raw ACP socket
+    /// cannot prove completion; use `submit_prompt` followed by
+    /// [`crate::SessionsClient::wait_prompt_completion`] with platform credentials.
     pub async fn prompt(
         &self,
         _session_id: &str,
@@ -443,6 +488,7 @@ impl AcpClient {
         session_id: &str,
         blocks: Vec<Value>,
     ) -> Result<AcpPromptAcceptance, AcpError> {
+        self.require_session_surface(PROMPT_METHOD)?;
         let result = self
             .request(
                 PROMPT_METHOD,
@@ -455,7 +501,9 @@ impl AcpClient {
         let message_id = result["messageId"]
             .as_str()
             .filter(|id| !id.is_empty())
-            .ok_or_else(|| AcpError::Protocol("v2 prompt response requires messageId".to_owned()))?
+            .ok_or_else(|| AcpError::AmbiguousDelivery {
+                detail: "v2 prompt response did not contain a usable messageId; inspect REST history before resubmitting".to_owned(),
+            })?
             .to_owned();
         Ok(AcpPromptAcceptance {
             session_id: session_id.to_owned(),
@@ -464,11 +512,10 @@ impl AcpClient {
         })
     }
 
-    /// Stop foreground work without resending input or waiting for an RPC result.
+    /// Queue standard cancellation after previously queued prompt writes. Success
+    /// is only local enqueueing, not acknowledgment that execution has stopped.
     pub fn cancel(&self, session_id: &str) -> Result<(), AcpError> {
-        if self.closed() {
-            return Err(AcpError::Closed);
-        }
+        self.require_session_surface("session/cancel")?;
         let outbound = self
             .outbound
             .lock()
@@ -494,7 +541,8 @@ impl AcpClient {
         }
     }
 
-    /// Raw JSON-RPC escape hatch for extension methods (`_hyper/*` etc).
+    /// Raw JSON-RPC access. Callers must follow the negotiated upstream v2
+    /// schema; platform metadata and private vendor methods do not belong here.
     pub async fn request_raw(&self, method: &str, params: Value) -> Result<Value, AcpError> {
         self.request(method, params).await
     }
@@ -567,6 +615,28 @@ impl Drop for AcpClient {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+fn validate_cwd(cwd: &str) -> Result<(), AcpError> {
+    // The runtime host may use a different OS from the client. Do not resolve,
+    // normalize or substitute a local path or a guessed runtime home directory.
+    let bytes = cwd.as_bytes();
+    let drive_absolute = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\');
+    let unc_absolute = cwd.strip_prefix("\\\\").is_some_and(|rest| {
+        let mut parts = rest.split('\\');
+        parts.next().is_some_and(|part| !part.is_empty())
+            && parts.next().is_some_and(|part| !part.is_empty())
+    });
+    if !cwd.contains('\0') && (cwd.starts_with('/') || drive_absolute || unc_absolute) {
+        return Ok(());
+    }
+    Err(AcpError::Unavailable {
+        capability: "session cwd".to_owned(),
+        detail: "an absolute runtime-host cwd is required".to_owned(),
+    })
 }
 
 async fn write_loop(
@@ -656,7 +726,8 @@ fn dispatch_message(
         }
         let mut responses = Vec::new();
         while let Ok(Message::Text(text)) = replies.try_recv() {
-            responses.push(serde_json::from_str::<Value>(&text).expect("serialized JSON-RPC reply"));
+            responses
+                .push(serde_json::from_str::<Value>(&text).expect("serialized JSON-RPC reply"));
         }
         if !responses.is_empty() {
             let _ = outbound.send(Message::Text(Value::Array(responses).to_string().into()));
@@ -671,11 +742,16 @@ fn valid_envelope(frame: &Value) -> bool {
     if !frame.is_object() || frame.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         return false;
     }
-    if frame.get("id").is_some_and(|id| !(id.is_null() || id.is_string() || id.as_i64().is_some())) {
+    if frame
+        .get("id")
+        .is_some_and(|id| !(id.is_null() || id.is_string() || id.as_i64().is_some()))
+    {
         return false;
     }
     if let Some(method) = frame.get("method") {
-        return method.is_string() && frame.get("result").is_none() && frame.get("error").is_none()
+        return method.is_string()
+            && frame.get("result").is_none()
+            && frame.get("error").is_none()
             && frame.get("params").is_none_or(Value::is_object);
     }
     frame.get("id").is_some()
@@ -716,7 +792,10 @@ fn dispatch_frame(
     if method.is_empty() {
         return;
     }
-    let Some(id) = frame.get("id").filter(|id| id.is_null() || id.is_string() || id.as_i64().is_some()) else {
+    let Some(id) = frame
+        .get("id")
+        .filter(|id| id.is_null() || id.is_string() || id.as_i64().is_some())
+    else {
         if method == "session/update" {
             let _ = updates.send(frame.get("params").cloned().unwrap_or(Value::Null));
         }
@@ -756,14 +835,23 @@ mod tests {
 
     #[tokio::test]
     async fn permission_replies_preserve_upstream_request_id_types() {
-        let state = ConnState { pending: Mutex::new(HashMap::new()), dead: AtomicBool::new(false) };
+        let state = ConnState {
+            pending: Mutex::new(HashMap::new()),
+            dead: AtomicBool::new(false),
+        };
         let (outbound, mut received) = mpsc::unbounded_channel();
         let (updates, _) = mpsc::unbounded_channel();
         for id in [json!("permission-1"), json!(-17), Value::Null, json!(4)] {
-            dispatch_frame(&json!({"jsonrpc":"2.0", "id":id,
+            dispatch_frame(
+                &json!({"jsonrpc":"2.0", "id":id,
                 "method":"session/request_permission", "params":{"sessionId":"s", "options":[]}}),
-                &state, &outbound, &updates);
-            let Message::Text(text) = received.try_recv().unwrap() else { panic!("expected response") };
+                &state,
+                &outbound,
+                &updates,
+            );
+            let Message::Text(text) = received.try_recv().unwrap() else {
+                panic!("expected response")
+            };
             let response: Value = serde_json::from_str(&text).unwrap();
             assert_eq!(response["id"], id);
             assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
@@ -772,21 +860,40 @@ mod tests {
 
     #[test]
     fn decoder_validates_batches_before_dispatch_and_never_answers_notifications() {
-        let state = ConnState { pending: Mutex::new(HashMap::new()), dead: AtomicBool::new(false) };
+        let state = ConnState {
+            pending: Mutex::new(HashMap::new()),
+            dead: AtomicBool::new(false),
+        };
         let (outbound, mut received) = mpsc::unbounded_channel();
         let (updates, _) = mpsc::unbounded_channel();
-        for malformed in [json!([]), json!({"jsonrpc":"2.0","id":true,"method":"x"}),
+        for malformed in [
+            json!([]),
+            json!({"jsonrpc":"2.0","id":true,"method":"x"}),
             json!({"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"x"}}),
-            json!({"id":1,"method":"x"})] {
+            json!({"id":1,"method":"x"}),
+        ] {
             assert!(dispatch_message(&malformed, &state, &outbound, &updates).is_err());
         }
-        dispatch_message(&json!([{"jsonrpc":"2.0","method":"unknown"}]),
-            &state, &outbound, &updates).unwrap();
+        dispatch_message(
+            &json!([{"jsonrpc":"2.0","method":"unknown"}]),
+            &state,
+            &outbound,
+            &updates,
+        )
+        .unwrap();
         assert!(received.try_recv().is_err());
-        dispatch_message(&json!([
+        dispatch_message(
+            &json!([
             {"jsonrpc":"2.0","id":"p","method":"session/request_permission","params":{}},
-            {"jsonrpc":"2.0","id":-1,"method":"unknown"}]), &state, &outbound, &updates).unwrap();
-        let Message::Text(text) = received.try_recv().unwrap() else { panic!("expected batch") };
+            {"jsonrpc":"2.0","id":-1,"method":"unknown"}]),
+            &state,
+            &outbound,
+            &updates,
+        )
+        .unwrap();
+        let Message::Text(text) = received.try_recv().unwrap() else {
+            panic!("expected batch")
+        };
         let replies: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(replies[0]["id"], "p");
         assert_eq!(replies[1]["id"], -1);
@@ -820,6 +927,12 @@ mod tests {
         let (release_tx, release_rx) = oneshot::channel();
         let (finish_tx, finish_rx) = oneshot::channel();
         let (url, server) = start_server(move |mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
             let prompt = read_frame(&mut socket).await;
             assert_eq!(prompt["method"], "session/prompt");
             seen_tx.send(()).unwrap();
@@ -828,18 +941,30 @@ mod tests {
             assert!(cancel.get("id").is_none());
             seen_tx.send(()).unwrap();
             release_rx.await.unwrap();
-            send_frame(&mut socket, json!({"jsonrpc":"2.0", "id":prompt["id"],
-                "result":{"messageId":"accepted-after-silence"}})).await;
+            send_frame(
+                &mut socket,
+                json!({"jsonrpc":"2.0", "id":prompt["id"],
+                "result":{"messageId":"accepted-after-silence"}}),
+            )
+            .await;
             finish_rx.await.unwrap();
-            send_frame(&mut socket, json!({"jsonrpc":"2.0", "method":"session/update",
+            send_frame(
+                &mut socket,
+                json!({"jsonrpc":"2.0", "method":"session/update",
                 "params":{"sessionId":"s", "update":{"sessionUpdate":"state_update",
-                    "state":"idle", "stopReason":"end_turn"}}})).await;
-        }).await;
+                    "state":"idle"}}}),
+            )
+            .await;
+        })
+        .await;
         let client = Arc::new(AcpClient::connect(&url, "").await.unwrap());
+        client.initialize().await.unwrap();
         let mut updates = client.take_updates().unwrap();
         let pending_client = Arc::clone(&client);
         let pending = tokio::spawn(async move {
-            pending_client.submit_prompt("s", vec![json!({"type":"text", "text":"once"})]).await
+            pending_client
+                .submit_prompt("s", vec![json!({"type":"text", "text":"once"})])
+                .await
         });
         seen_rx.recv().await.unwrap();
         client.cancel("s").unwrap();
@@ -851,31 +976,57 @@ mod tests {
         assert!(updates.try_recv().is_err());
         assert!(!client.is_down());
         release_tx.send(()).unwrap();
-        assert_eq!(pending.await.unwrap().unwrap().message_id, "accepted-after-silence");
-        assert!(updates.try_recv().is_err(), "admission is not terminal evidence");
+        assert_eq!(
+            pending.await.unwrap().unwrap().message_id,
+            "accepted-after-silence"
+        );
+        assert!(
+            updates.try_recv().is_err(),
+            "admission is not terminal evidence"
+        );
         finish_tx.send(()).unwrap();
-        assert_eq!(updates.recv().await.unwrap()["update"]["stopReason"], "end_turn");
+        assert_eq!(updates.recv().await.unwrap()["update"]["state"], "idle");
         server.await.unwrap();
         client.close();
     }
 
     #[tokio::test]
     async fn malformed_peer_frames_fail_the_real_pending_request_loudly() {
-        for malformed in ["{", "[]", r#"{"jsonrpc":"1.0","id":1,"result":{}}"#,
+        for malformed in [
+            "{",
+            "[]",
+            r#"{"jsonrpc":"1.0","id":1,"result":{}}"#,
             r#"{"jsonrpc":"2.0","id":{},"result":{}}"#,
-            r#"{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"both"}}"#] {
+            r#"{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"both"}}"#,
+        ] {
             let (url, server) = start_server(move |mut socket| async move {
+                let init = read_frame(&mut socket).await;
+                send_frame(
+                    &mut socket,
+                    respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+                )
+                .await;
                 let request = read_frame(&mut socket).await;
                 assert_eq!(request["method"], "session/prompt");
                 socket.send(Message::Text(malformed.into())).await.unwrap();
-            }).await;
+            })
+            .await;
             let client = AcpClient::connect(&url, "").await.unwrap();
+            client.initialize().await.unwrap();
             let mut updates = client.take_updates().unwrap();
-            let result = client.submit_prompt("s", vec![json!({"type":"text", "text":"once"})]).await;
+            let result = client
+                .submit_prompt("s", vec![json!({"type":"text", "text":"once"})])
+                .await;
             // The input was already written: fail loudly while retaining
             // uncertainty about execution, rather than calling it unsent.
-            assert!(matches!(result, Err(AcpError::AmbiguousDelivery { .. })), "{malformed}: {result:?}");
-            assert!(updates.try_recv().is_err(), "malformed input is not a terminal update");
+            assert!(
+                matches!(result, Err(AcpError::AmbiguousDelivery { .. })),
+                "{malformed}: {result:?}"
+            );
+            assert!(
+                updates.try_recv().is_err(),
+                "malformed input is not a terminal update"
+            );
             assert!(client.is_down());
             client.close();
             server.await.unwrap();
@@ -1209,7 +1360,7 @@ mod tests {
             let init = read_frame(&mut socket).await;
             send_frame(
                 &mut socket,
-                respond(init["id"].as_u64().unwrap(), initialize_result(false)),
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
             )
             .await;
             let new = read_frame(&mut socket).await;
@@ -1235,24 +1386,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn load_alias_uses_standard_resume_without_fallback() {
-        let (url, server) = start_server(|mut socket| async move {
+        let (finished_tx, finished_rx) = oneshot::channel();
+        let (url, server) = start_server(move |mut socket| async move {
             let init = read_frame(&mut socket).await;
             send_frame(
                 &mut socket,
                 respond(init["id"].as_u64().unwrap(), initialize_result(false)),
             )
             .await;
-            let new = read_frame(&mut socket).await;
-            assert_eq!(new["method"], "session/new");
-            send_frame(
-                &mut socket,
-                respond(
-                    new["id"].as_u64().unwrap(),
-                    json!({"sessionId": "sess-fresh"}),
-                ),
-            )
-            .await;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::select! {
+                frame = read_frame(&mut socket) => panic!("unsupported operation emitted: {frame}"),
+                _ = finished_rx => {},
+            }
         })
         .await;
 
@@ -1274,10 +1419,200 @@ mod tests {
         assert!(!error.is_retryable());
         assert!(!error.is_ambiguous());
 
-        // Documented caller fallback: create a fresh session instead.
-        let session_id = client.new_session("/workspace").await.unwrap();
-        assert_eq!(session_id, "sess-fresh");
+        assert!(matches!(
+            client.new_session("/workspace").await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        assert!(matches!(
+            client.list_sessions(None, None).await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        assert!(matches!(
+            client.close_session("sess-stale").await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        assert!(matches!(
+            client.submit_prompt("sess-stale", vec![]).await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        assert!(matches!(
+            client.cancel("sess-stale"),
+            Err(AcpError::Unavailable { .. })
+        ));
+        finished_tx.send(()).unwrap();
+        server.await.unwrap();
         client.close();
+    }
+
+    #[tokio::test]
+    async fn standard_list_resume_close_frames_and_invalid_cwd_rejection() {
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
+            let list = read_frame(&mut socket).await;
+            assert_eq!(list["method"], "session/list");
+            assert_eq!(list["params"], json!({"cwd":null,"cursor":"opaque"}));
+            send_frame(
+                &mut socket,
+                respond(list["id"].as_u64().unwrap(), json!({"sessions":[]})),
+            )
+            .await;
+            let resume = read_frame(&mut socket).await;
+            assert_eq!(resume["method"], "session/resume");
+            assert_eq!(
+                resume["params"],
+                json!({"cwd":"/original", "sessionId":"same-id", "mcpServers":[]})
+            );
+            send_frame(
+                &mut socket,
+                respond(resume["id"].as_u64().unwrap(), json!({})),
+            )
+            .await;
+            let close = read_frame(&mut socket).await;
+            assert_eq!(close["method"], "session/close");
+            assert_eq!(close["params"], json!({"sessionId":"same-id"}));
+            send_frame(
+                &mut socket,
+                respond(close["id"].as_u64().unwrap(), json!({})),
+            )
+            .await;
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        assert!(matches!(
+            client.new_session("/original").await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        client.initialize().await.unwrap();
+        for invalid in [
+            "",
+            "relative",
+            "~/.hypercli/project",
+            "./project",
+            "C:relative",
+            "/bad\0path",
+            "\\\\host",
+        ] {
+            assert!(client.new_session(invalid).await.is_err());
+            assert!(client
+                .resume_session(invalid, "same-id", false)
+                .await
+                .is_err());
+        }
+        client.list_sessions(None, Some("opaque")).await.unwrap();
+        client
+            .resume_session("/original", "same-id", false)
+            .await
+            .unwrap();
+        client.close_session("same-id").await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn explicit_runtime_cwd_overrides_are_sent_verbatim() {
+        const PATHS: [&str; 3] = [
+            "/runtime/custom root/../project",
+            r"C:\Users\runner\.hypercli\project",
+            r"\\runtime\share\project",
+        ];
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
+            for cwd in PATHS {
+                let new = read_frame(&mut socket).await;
+                assert_eq!(new["method"], "session/new");
+                assert_eq!(new["params"], json!({"cwd": cwd, "mcpServers": []}));
+                send_frame(
+                    &mut socket,
+                    respond(
+                        new["id"].as_u64().unwrap(),
+                        json!({"sessionId": "original"}),
+                    ),
+                )
+                .await;
+                let resume = read_frame(&mut socket).await;
+                assert_eq!(resume["method"], "session/resume");
+                assert_eq!(
+                    resume["params"],
+                    json!({"cwd": cwd, "sessionId": "original", "mcpServers": []}),
+                );
+                send_frame(
+                    &mut socket,
+                    respond(resume["id"].as_u64().unwrap(), json!({})),
+                )
+                .await;
+            }
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        for cwd in PATHS {
+            let session_id = client.new_session(cwd).await.unwrap();
+            client
+                .resume_session(cwd, &session_id, false)
+                .await
+                .unwrap();
+        }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn initialize_rejects_non_v2_and_closes_without_fallback() {
+        for result in [
+            json!({"protocolVersion":1,"agentCapabilities":{}}),
+            json!({"protocolVersion":2,"info":{"name":"fixture"}}),
+        ] {
+            let (url, server) = start_server(move |mut socket| async move {
+                let init = read_frame(&mut socket).await;
+                send_frame(&mut socket, respond(init["id"].as_u64().unwrap(), result)).await;
+            })
+            .await;
+            let client = AcpClient::connect(&url, "").await.unwrap();
+            assert!(matches!(
+                client.initialize().await,
+                Err(AcpError::Protocol(_))
+            ));
+            assert!(client.closed());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_admission_identity_is_uncertain_not_safe_to_retry() {
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
+            let prompt = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(
+                    prompt["id"].as_u64().unwrap(),
+                    json!({"stopReason":"end_turn"}),
+                ),
+            )
+            .await;
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        let error = client
+            .submit_prompt("s", vec![json!({"type":"text","text":"once"})])
+            .await
+            .unwrap_err();
+        assert!(error.is_ambiguous());
+        assert!(!error.is_retryable());
         server.await.unwrap();
     }
 }

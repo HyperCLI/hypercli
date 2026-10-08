@@ -117,6 +117,92 @@ so existing public struct literals remain source-compatible. Both envs are
 comma-separated full replacements for the corresponding OpenClaw gateway config
 lists.
 
+## ACP and platform sessions
+
+`AcpClient` uses the upstream **experimental v2 alpha.5 draft** client profile.
+It rejects a v1 initialize answer; Backend negotiates runtime v1/v2 separately.
+The Rust transport remains one-shot: callers explicitly connect and initialize,
+and own reconnection policy. Typed session operations require an initialized peer
+advertising `capabilities.session`. An empty session capability object supports
+the baseline new/list/resume/prompt/cancel/close operations.
+
+`new_session(cwd)` and `resume_session(cwd, id, replay)` require a concrete absolute
+runtime-host path (including Windows paths when appropriate). Paths are never
+resolved on the SDK host or replaced with a guessed default. Only the runner or
+hosted runtime resolves configured paths, including paths relative to runtime
+`~/.hypercli`; pass its concrete absolute result or an explicit valid absolute
+override verbatim. For existing sessions, obtain the original cwd from standard
+session discovery or stored native setup, not the current launch default.
+Rust currently requires that explicit value: automatic lookup awaits the
+coordinated authoritative platform seam. `load_session` is
+retained as a local alias for resume with standard `{ "type": "start" }` replay;
+it never sends v1 `session/load`. `list_sessions` uses the standard ACP catalog.
+`close_session` closes remote session resources; `close` releases the transport.
+`cancel` only queues a notification, not an acknowledgment that execution stopped.
+
+Platform metadata and retained history use the new **async** `client.sessions()`
+API, sharing the parent's agents base URL, credentials and injected async HTTP
+client:
+
+```rust,no_run
+use hypercli_sdk::{AcpClient, HyperCliClient, SessionMessagesOptions};
+use serde_json::json;
+use std::time::Duration;
+
+# async fn example(client: &HyperCliClient, proxy_url: &str, key: &str, agent_id: &str, runtime_cwd: &str)
+# -> Result<(), Box<dyn std::error::Error>> {
+let acp = AcpClient::connect(proxy_url, key).await?;
+acp.initialize().await?;
+// Concrete absolute cwd supplied by the runtime authority or an explicit override.
+let session_id = acp.new_session(runtime_cwd).await?;
+let accepted = acp.submit_prompt(
+    &session_id, vec![json!({"type": "text", "text": "Summarize the project"})],
+).await?;
+// Persist accepted.message_id before observing; admission is not completion.
+let sessions = client.sessions();
+let completion = sessions.wait_prompt_completion(
+    &accepted, agent_id, Duration::from_secs(300),
+).await?;
+println!("{}: {}", completion.message_id, completion.stop_reason);
+let detail = sessions.get_session(&session_id).await?;
+println!("{:?}: {:?}", detail.summary_text, detail.agent_state);
+let history = sessions.get_messages(&session_id, &SessionMessagesOptions::default()).await?;
+// history.page.next_cursor is opaque REST pagination, not an ACP replay cursor.
+acp.close();
+# Ok(())
+# }
+```
+
+Construct/drop `HyperCliClient` outside a Tokio runtime as required by its existing
+blocking transport; session methods themselves use async HTTP. Other session
+methods are `list_sessions`, `get_discovery_status`, `request_discovery`,
+`search_transcript`, `get_messages_around`, and `get_prompt_completion`.
+Unsupported discovery remains an explicit status, not an empty-catalog success.
+
+Detail includes source, summaries, participants, import evidence, `last_message_id`,
+`message_count`, `head_seq`, receipts, and nullable `agent_state` (wire `agentState`).
+Source and availability values are forward-open strings. Missing detail counters
+remain `None`, so an old catalog response is not mistaken for an empty session.
+Detail reads best-effort advance user read progress; history reads can also advance
+read receipts. Search and around reads do not. All work from retained data even
+when the runtime is offline. HTTP failures retain their status.
+
+Completion verification matches the accepted message ID and target agent to the
+original user row, then requires its completion timestamp to match the newest
+corresponding terminal record. Neither `agent_state`, ACP idle, admission, nor a
+detail receipt alone supplies terminal proof. The one-shot getter returns `None`
+when proof is unavailable. The waiter polls once per second with a caller-supplied
+observation timeout; timeout/read errors retain the session and admitted message
+IDs. Dropping the waiter or timing out does not cancel or resubmit work. Observation
+can continue after ACP disconnect. Runtimes without exact retained completion
+evidence cannot produce a successful result through this helper.
+
+The legacy raw `AcpClient::prompt` still refuses before sending; use admission plus
+the REST observer above. `take_updates()` remains the independent raw notification
+stream. No private platform fields are added to ACP, and custom `start.from/limit`
+replay windows are deliberately not implemented. See [PARITY.md](PARITY.md) for
+the audited scope and verification handoff.
+
 ## Plans and agent capacity
 
 Plan IDs remain `String` values so future and historical plans keep parsing;

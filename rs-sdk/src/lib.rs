@@ -20,6 +20,7 @@ mod openclaw;
 mod renders;
 mod routines;
 mod runtime_auth;
+mod sessions;
 mod types;
 mod user;
 mod workspaces;
@@ -78,6 +79,12 @@ pub use routines::{
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthMethod, RuntimeAuthStatus, RuntimeLoginChallenge,
     RuntimeLoginResult, RuntimeLoginSession, RuntimeShellToken,
+};
+pub use sessions::{
+    SessionCompletionError, SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions,
+    SessionMessage, SessionMessagePage, SessionMessagesOptions, SessionMessagesWindow, SessionPage,
+    SessionParticipant, SessionPromptCompletion, SessionReceipt, SessionRecord, SessionSearchHit,
+    SessionSearchOptions, SessionsClient,
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,
