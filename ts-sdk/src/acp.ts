@@ -1372,17 +1372,6 @@ export class CodingAgentAcpClient {
     return this.requireConnection().agent;
   }
 
-  /**
-   * The v2 session surface advertised in `capabilities.session`. Present
-   * (even as `{}`) means the baseline v2 session methods — `session/new`,
-   * `session/list`, `session/resume`, `session/close`, `session/prompt`,
-   * `session/cancel`, `session/update` — are supported; `null` means the
-   * agent supports no `session/*` methods at all.
-   */
-  private v2SessionSurface(): acp2.SessionCapabilities | null {
-    return this.initializeResponseValue?.capabilities?.session ?? null;
-  }
-
   private resolveConnectedWaiters(): void {
     for (const waiter of [...this.connectedWaiters]) {
       this.connectedWaiters.delete(waiter);
