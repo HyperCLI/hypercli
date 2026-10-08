@@ -44,7 +44,7 @@ from .config import (
     DEV_AGENTS_WS_URL,
     get_agents_api_base_url,
     _normalize_agents_api_base as _normalize_config_agents_api_base,
-    _default_agents_ws_url as _config_agents_ws_url,
+    _default_agents_ws_url,
 )
 from .http import HTTPClient, APIError
 from .sessions import SessionPage, SessionRecord
@@ -622,10 +622,6 @@ def _normalize_agents_api_base(url: str) -> str:
     return _normalize_config_agents_api_base(url, preserve_origin=True)
 
 
-def _default_agents_ws_url(api_base: str) -> str:
-    return _config_agents_ws_url(api_base)
-
-
 def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
     """Client-facing ACP session proxy (sessions/README §14) next to the
     agent-keyed ``/ws`` tunnel — the same host, with the path suffixed to
@@ -635,10 +631,6 @@ def agents_acp_proxy_ws_url(agents_ws_url: str) -> str:
     if not base.endswith(suffix):
         raise ValueError(f"agents ws url must end with /ws: {agents_ws_url!r}")
     return f"{base[: -len(suffix)]}/ws/acp"
-
-
-def _default_agents_acp_ws_url(api_base: str) -> str:
-    return agents_acp_proxy_ws_url(_default_agents_ws_url(api_base))
 
 
 MAX_SYNC_OWNER_ID = 4_294_967_294
@@ -3848,14 +3840,19 @@ class Deployments:
         """Read stored metadata by platform session ID, never a runtime/leg ID.
 
         Uses the existing user/runtime-key participation scope. Does not connect
-        to the runtime, bind participants, or advance read receipts.
+        to the runtime or bind participants. The backend advances the caller's
+        user read receipt to the session head on a best-effort basis.
         """
         return SessionRecord.from_dict(
             self._get(f"/sessions/{quote(platform_session_id, safe='')}")
         )
 
     def get_prompt_completion(self, session_id: str, message_id: str, agent_id: str) -> dict | None:
-        """Read exact message/leg completion from existing paged REST history."""
+        """Read exact message/agent completion from existing paged REST history.
+
+        History is newest-first; retain terminal stop reasons across pages until
+        the accepted user row is found. Admission or idle alone is not proof.
+        """
         turns = {}
         cursor = None
         visited = set()
@@ -3868,12 +3865,12 @@ class Deployments:
                 frame = row.get("acp") or {}
                 if (frame.get("type") == "turn_result" and row.get("participant_kind") == "agent"
                         and row.get("participant_id") == agent_id and row.get("completed_at")):
-                    turns[frame.get("messageSeq")] = row
+                    turns[frame.get("messageSeq")] = row.get("stop_reason")
                 if (frame.get("type") == "user_message" and frame.get("messageId") == message_id
                         and frame.get("agentId") == agent_id and row.get("role") == "user"):
-                    terminal = turns.get(row.get("seq"))
-                    if row.get("completed_at") and terminal and isinstance(terminal.get("stop_reason"), str):
-                        return {"stopReason": terminal["stop_reason"]}
+                    stop_reason = turns.get(row.get("seq"))
+                    if row.get("completed_at") and isinstance(stop_reason, str):
+                        return {"stopReason": stop_reason}
                     return None
             cursor = page.get("next_cursor")
             if not page.get("has_more") or not cursor or cursor in visited:

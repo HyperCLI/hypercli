@@ -191,6 +191,26 @@ async def test_submit_accepts_separate_messages_without_waiting_for_idle():
         assert not peer.release.is_set()
 
 
+@pytest.mark.parametrize("state", ["running", "requires_action"])
+async def test_foreground_guard_tracks_active_state_until_idle(state):
+    observed = asyncio.Event()
+    async with server() as (peer, url), await ACPClient.connect(
+        url, on_update=lambda _: observed.set(), get_prompt_completion=peer.completion,
+    ) as client:
+        sid = await client.new_session(cwd="/workspace")
+        await peer.emit(sid, {"sessionUpdate": "state_update", "state": state})
+        await asyncio.wait_for(observed.wait(), 5)
+        with pytest.raises(ACPError, match="Session foreground is active"):
+            await client.prompt(sid, "not sent")
+        assert peer.prompts == []
+        observed.clear()
+        await peer.emit(sid, {"sessionUpdate": "state_update", "state": "idle"})
+        await asyncio.wait_for(observed.wait(), 5)
+        peer.release.set()
+        assert (await client.prompt(sid, "once", timeout=5)).stop_reason == "end_turn"
+        assert len(peer.prompts) == 1
+
+
 async def test_completion_without_receipt_reader_is_refused_before_sending():
     async with server() as (peer, url), await ACPClient.connect(url) as client:
         sid = await client.new_session(cwd="/workspace")
@@ -299,7 +319,7 @@ async def test_explicit_close_settles_pending_requests():
             await task
 
 
-@pytest.mark.parametrize("listener", ["default", "custom", "wildcard", "error", "unsubscribed"])
+@pytest.mark.parametrize("listener", ["default", "custom", "wildcard", "both", "error", "unsubscribed"])
 async def test_standard_permission_policy_and_error_fidelity(listener):
     async with server() as (peer, url), await ACPClient.connect(url) as client:
         sid = await client.new_session(cwd="/workspace")
@@ -311,6 +331,8 @@ async def test_standard_permission_policy_and_error_fidelity(listener):
             return {"outcome": {"outcome": "selected", "optionId": "deny"}}
         if listener != "default":
             remove = client.add_request_listener("*" if listener == "wildcard" else "session/request_permission", answer)
+            if listener == "both":
+                client.add_request_listener("*", lambda *_: pytest.fail("specific listener takes precedence"))
             if listener == "unsubscribed":
                 remove()
         operation = peer.connected.request_permission(session_id=sid, title="Read file", options=[
@@ -325,6 +347,8 @@ async def test_standard_permission_policy_and_error_fidelity(listener):
             assert result.outcome.outcome == expected
         if listener == "wildcard":
             assert calls[0][0] == "session/request_permission"
+        elif listener == "both":
+            assert len(calls[0]) == 1
 
 
 async def test_unknown_standard_request_is_not_silently_served():

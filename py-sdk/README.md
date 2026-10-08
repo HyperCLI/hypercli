@@ -344,14 +344,14 @@ print(session.source, session.summary_text, session.participants)
 
 `get_session()` calls `GET /agents/sessions/{id}` using the existing caller
 credentials and the same `SessionRecord` decoder as `list_sessions()`, extended
-with `import_outcome` and the ACP v2 windowing state (`last_message_id`,
+with `import_outcome` and platform history state (`last_message_id`,
 `message_count`, `head_seq`, per-message `receipts`). Nullable
 source values are forward-compatible strings; the title is `summary_text`.
 Timestamps and participant dictionaries retain the existing catalog shape.
-Reads work offline without runtime connections; as the windowed-history app's
-sole REST session call the detail read advances the caller's user read receipt
-to the session head (transcript history itself flows over ACP v2
-`session/resume` replay windows, never the paged messages route). HTTP
+Reads work offline without runtime connections. The backend advances the caller's
+user read receipt to the session head on a best-effort basis. The app reads
+transcripts over ACP `session/resume`; the Python completion verifier uses the
+existing paged REST history endpoint described below. HTTP
 errors propagate as `APIError`: 404 unknown session, 403 outside participation
 scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occurs.
 
@@ -376,6 +376,9 @@ Use `resume_session(id, cwd=..., replay=True)` to restore and replay via standar
 ACP, without a private URL attachment prerequisite. `load_session` is a local
 compatibility helper name for that v2 operation; it does not send `session/load`.
 `cancel(id)` sends the standard notification, never a replacement prompt.
+The existing custom `replay_from` window/cursor passthrough is retained for
+compatibility; it is not an upstream ACP paging guarantee and requires a
+coordinated app/backend migration.
 
 `prompt(id, blocks, timeout=...)` requires a `get_prompt_completion(session_id,
 message_id)` async callback at connect time. The callback must read authoritative
