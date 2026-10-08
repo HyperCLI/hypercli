@@ -62,7 +62,8 @@ DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude:latest"
 DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
 DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
 DEFAULT_PI_IMAGE = "ghcr.io/hypercli/hypercli-pi:latest"
-DEFAULT_PI_ENV = {"HYPER_RUNTIME_HOME": "/home/node/.pi/agent"}
+# Compatibility export: runtime configuration roots are selected on the host.
+DEFAULT_PI_ENV = {}
 DEFAULT_BUZZ_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-buzz-agent:latest"
 DEFAULT_BUZZ_OPENCODE_IMAGE = DEFAULT_OPENCODE_IMAGE
 DEFAULT_BUZZ_CODEX_IMAGE = DEFAULT_CODEX_IMAGE
@@ -2074,6 +2075,10 @@ class Agent:
         """Reef-backed files scoped to this agent's configured sync root."""
         return AgentFiles(self, self._require_deployments())
 
+    async def acp_connect(self, **options):
+        """Connect to the product ACP proxy with runtime-owned path discovery."""
+        return await self._require_deployments().acp_connect(self.id, **options)
+
     def files_list(self, path: str = "") -> list[dict]:
         return self.files.list(path)
 
@@ -2904,7 +2909,6 @@ class Deployments:
             )
         effective_env = {
             **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
-            **(dict(DEFAULT_PI_ENV) if runtime == "pi" else {}),
             **dict(launch["env"] or {}),
         }
         effective_env.setdefault(
@@ -2954,8 +2958,8 @@ class Deployments:
 
     def create_coding_agent(self, runtime: CodingAgentRuntime, **options: Any) -> Agent:
         """Create an ACP-fronted coding agent. All coding runtimes share one
-        launch contract; ``runtime`` selects the default image, sync includes,
-        and harness env (``pi`` gets ``HYPER_RUNTIME_HOME``), nothing else.
+        launch contract; ``runtime`` selects the default image and sync includes.
+        Runtime configuration roots are selected on the runtime host.
 
         .. deprecated:: use :meth:`create_agent` with the runtime label; the
             folded entry takes the same options.
@@ -3835,6 +3839,28 @@ class Deployments:
     def acp_ws_url(self) -> str:
         """Client-facing ACP session proxy URL derived from the agents WS tunnel URL."""
         return agents_acp_proxy_ws_url(self._agents_ws_url)
+
+    def runtime_paths(self, agent_id: str) -> dict[str, str]:
+        """Read authoritative runtime paths without consulting the SDK host."""
+        return self._get(f"{AGENTS_API_PREFIX}/{quote(agent_id, safe='')}/runtime-paths")
+
+    async def acp_connect(self, agent_id: str, **options):
+        """Connect without caller cwd configuration; resolve only at session/new."""
+        from .acp import ACPClient
+
+        async def default_cwd():
+            return (await asyncio.to_thread(self.runtime_paths, agent_id))["cwd"]
+
+        async def completion(session_id, message_id):
+            return await asyncio.to_thread(self.get_prompt_completion, session_id, message_id, agent_id)
+
+        parts = urlsplit(self.acp_ws_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["agent_id"] = agent_id
+        options.setdefault("token", self._api_key)
+        options.setdefault("resolve_default_cwd", default_cwd)
+        options.setdefault("get_prompt_completion", completion)
+        return await ACPClient.connect(urlunsplit(parts._replace(query=urlencode(query))), **options)
 
     def get_session(self, platform_session_id: str) -> SessionRecord:
         """Read stored metadata by platform session ID, never a runtime/leg ID.

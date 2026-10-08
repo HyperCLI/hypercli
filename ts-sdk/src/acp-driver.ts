@@ -115,9 +115,6 @@ export class AcpTurnDriver {
     if (this.closed) return Promise.reject(new Error('AcpTurnDriver is closed'));
     if (this.failure) return Promise.reject(this.failure);
     const blocks: ContentBlock[] = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
-    if (blocks.length === 0) {
-      return Promise.reject(new Error('AcpTurnDriver.submit() expects a non-empty content-block array'));
-    }
     const waiter = newTurnWaiter();
     this.window.push({ blocks: structuredClone(blocks), waiter });
     this.flush();

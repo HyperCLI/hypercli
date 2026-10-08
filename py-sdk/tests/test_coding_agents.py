@@ -470,13 +470,13 @@ class TestCreateAgentCodingRuntimes:
             ".cache/opencode",
         ]
 
-    def test_pi_gets_hyper_runtime_home_and_caller_env_wins(self, monkeypatch):
+    def test_pi_runtime_home_is_runtime_owned_and_caller_env_wins(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "pi")
 
         deployments.create_agent("pi", env={"HYPER_RUNTIME_HOME": "/custom", "X": "1"})
 
         env = posts[0][1]["env"]
-        assert DEFAULT_PI_ENV["HYPER_RUNTIME_HOME"] == "/home/node/.pi/agent"
+        assert DEFAULT_PI_ENV == {}
         assert env["HYPER_RUNTIME_HOME"] == "/custom"
         assert env["X"] == "1"
 

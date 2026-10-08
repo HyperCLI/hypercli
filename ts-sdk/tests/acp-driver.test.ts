@@ -109,6 +109,15 @@ function makeDriver(options: { commitFailure?: Error } = {}): DriverHarness {
 }
 
 describe('AcpTurnDriver', () => {
+  it('forwards an empty content array and surfaces the peer refusal', async () => {
+    const harness = makeDriver();
+    const refusal = new Error('peer refused empty prompt');
+    harness.client.promptFailure = refusal;
+    await expect(harness.driver.submit([])).rejects.toBe(refusal);
+    expect(harness.client.prompts).toEqual([{ sessionId: SESSION_ID, blocks: [] }]);
+    harness.driver.close();
+  });
+
   it('flushes immediately when idle and completes on the prompt response', async () => {
     const harness = makeDriver();
 

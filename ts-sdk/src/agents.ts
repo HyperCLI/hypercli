@@ -125,9 +125,8 @@ export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
 // Runner-docker bind-mount cap; matches the Backend wire model
 // (AssignmentDockerOptions.volumes max_length).
 export const MAX_DOCKER_VOLUMES = 64;
-export const DEFAULT_PI_ENV = Object.freeze({
-  HYPER_RUNTIME_HOME: `${DEFAULT_CODING_AGENT_SYNC_ROOT}/.pi/agent`,
-});
+// Compatibility export: runtime configuration roots are selected on the host.
+export const DEFAULT_PI_ENV = Object.freeze({});
 // Canonical runtime labels only: the legacy wire spellings (`openclaw`,
 // `hermes-agent`) are folded to their *_acp successors by the Backend at
 // create/patch (launch_contract.py LEGACY_RUNTIME_MIGRATIONS) and are
@@ -2811,19 +2810,6 @@ export class Agent {
     return this._deployments;
   }
 
-  /**
-   * Every non-generic labeled runtime fronts hyper-acp; `generic` (and
-   * unlabeled legacy payloads) have no ACP bridge to dial.
-   */
-  protected requireAcpCapable(): void {
-    const runtime = this.runtime;
-    if (runtime !== null && runtime !== 'generic') return;
-    throw new Error(
-      `Agent runtime '${runtime ?? 'generic'}' does not front hyper-acp; ` +
-      'the ACP surface (acpConnect, acpPool, acpTurnDriver) is available on ACP-capable runtimes only',
-    );
-  }
-
   /** Runtime auth flows for this agent's pod (coding runtimes only). */
   get auth(): RuntimeAuthClient {
     return new RuntimeAuthClient(this);
@@ -2864,7 +2850,6 @@ export class Agent {
     * `options.token` overrides that credential.
     */
   async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
-    this.requireAcpCapable();
     const deployments = this.requireDeployments();
     const transport = options.transport ?? 'proxy';
     if (transport === 'direct' && options.sessionId) {
@@ -2916,9 +2901,8 @@ export class Agent {
    * dedicated `acpConnect({ sessionId })`.
    */
   get acpPool(): CodingAgentAcpPool {
-    this.requireAcpCapable();
     if (this.acpPoolValue === null) {
-      this.acpPoolValue = new CodingAgentAcpPool({ connect: () => this.acpConnect() });
+      this.acpPoolValue = new CodingAgentAcpPool({ connect: (_key, options) => this.acpConnect(options) });
     }
     return this.acpPoolValue;
   }
@@ -3594,7 +3578,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncUid: 1000,
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG.pi.agentCommand,
-    env: DEFAULT_PI_ENV,
     workspacesSyncEnv: true,
     permissionEnv: true,
     codingHarness: true,
@@ -3610,8 +3593,8 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
  * version-keyed (`negotiatedProtocolVersion`), never runtime-keyed.
  *
  * There is no per-runtime facade class: `Agent` carries the ACP members
- * directly and gates them at call time via `requireAcpCapable` and the
- * runtime auth table.
+ * directly. ACP availability is determined by the peer; runtime auth uses
+ * the runtime auth table.
  *
  * @deprecated Every deployment hydrates to the single flat {@link Agent};
  * use `Agent` in place of `CodingAgent`.
@@ -3656,8 +3639,7 @@ export class Deployments {
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
-    // One flat Agent for every runtime: ACP capability is gated at call time
-    // (Agent.requireAcpCapable), not by hydration class.
+    // One flat Agent for every runtime; the peer determines ACP availability.
     return bindAgent(Agent.fromDict(data), this);
   }
 
@@ -3872,8 +3854,8 @@ export class Deployments {
 
   /**
    * Create an ACP-fronted coding agent. All coding runtimes share one launch
-   * contract; `runtime` selects the default image, sync includes, and harness
-   * env (`pi` gets `HYPER_RUNTIME_HOME`), nothing else.
+   * contract; `runtime` selects the default image and sync includes.
+   * Runtime configuration roots are selected on the runtime host.
    *
    * @deprecated Use {@link Deployments.createAgent} with the runtime label;
    * the folded entry takes the same options bag.

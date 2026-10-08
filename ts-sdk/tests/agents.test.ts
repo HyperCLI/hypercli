@@ -2952,10 +2952,10 @@ describe('Agents SDK', () => {
     expect(agent.auth).toBeDefined();
   });
 
-  it('gates the ACP surface by runtime at call time', async () => {
+  it('exposes ACP independently of runtime labels while retaining binding requirements', async () => {
     const generic = Agent.fromDict({ id: 'agent-generic', user_id: 'user-1', state: 'RUNNING', runtime: 'generic' });
-    await expect(generic.acpConnect()).rejects.toThrow(/does not front hyper-acp/);
-    expect(() => generic.acpPool).toThrow(/does not front hyper-acp/);
+    await expect(generic.acpConnect()).rejects.toThrow(/not bound to a Deployments client/);
+    expect(generic.acpPool).toBeDefined();
     expect(() => generic.auth).toThrow(/Runtime authentication is not available/);
   });
 

@@ -12,6 +12,28 @@ npm install @hypercli.com/sdk
 - `ws` - WebSocket client for log streaming
 - Node.js 18+ (uses native `fetch`)
 
+## ACP v2 shape migration (breaking API change)
+
+ACP permission callbacks (`onPermissionRequest`, `setPermissionHandler`) and the
+exported `RequestPermissionRequest` now use the pinned upstream experimental v2
+shape. Read `request.title` and optional `request.subject`; a tool subject carries
+`subject.toolCall`, while command and absent subjects need no synthetic tool call.
+All offered permission options reach the callback, including unfamiliar kinds.
+`onV2PermissionRequest` remains supported with the same v2 shape. Without a handler,
+the SDK answers `cancelled`; it never chooses a permission automatically.
+
+Session creation, resume, fork and configuration responses expose upstream v2
+`configOptions[].configId`, without the former synthetic `id` alias or v1 `modes`
+view. Replace `option.id` with `option.configId` and call
+`setConfigOption(sessionId, option.configId, value)`. `setMode` and `setModel` remain
+deprecated conveniences for advertised category IDs; they do not guess an ID when
+the category is absent. Automatic reconnect retains the same upstream shapes.
+
+Concurrent `prompt` calls each own their accepted message ID and exact REST
+completion observation; `submitPrompt` can be used alongside them. Admission and
+session idle are not completion receipts, and uncertain input is never resent.
+Use `AcpTurnDriver` when the consumer wants serialized turns.
+
 ## Quick Start
 
 ```typescript

@@ -27,6 +27,40 @@ bodies.
 
 ## Launch and lifecycle updates
 
+### ACP working-directory conveniences
+
+The explicit `AcpClient::new_session(cwd)`, `resume_session(cwd, session_id,
+replay)` and `load_session(cwd, session_id)` signatures remain supported.
+Paths are sent verbatim; the runtime determines their validity.
+
+For platform defaults, call `new_session_default(&platform, deployment_id)` on
+an initialized ACP connection. It lazily reads the existing
+`GET /deployments/{id}/runtime-paths` using `HyperCliClient`'s configured async
+HTTP transport and credentials, then sends ordinary `session/new`. Connecting,
+initializing and explicit-cwd calls do not perform this lookup. The REST reader
+is also available as `HyperCliClient::deployment_runtime_cwd`.
+
+`resume_session_stored(session_id, replay)` uses cwd retained by successful typed
+new/resume calls, or finds that exact session in the paginated standard ACP
+catalog. It never uses the current launch default for an existing session and
+never creates a replacement if lookup or resume fails. Raw request users can
+continue supplying setup explicitly; raw responses are not inspected for caching.
+
+`new_session_default` returns `AcpSetupError`, preserving either the original
+platform HTTP error or ACP error. Existing explicit helpers and
+`resume_session_stored` return `AcpError`.
+
+```rust,no_run
+# use hypercli_sdk::{AcpClient, HyperCliClient};
+# async fn setup(acp: &AcpClient, platform: &HyperCliClient) -> Result<(), Box<dyn std::error::Error>> {
+let session_id = acp.new_session_default(platform, "deployment-id").await?;
+acp.resume_session_stored(&session_id, false).await?;
+# Ok(())
+# }
+```
+
+### Deployment lifecycle
+
 Create the authoritative REST resource, then wait for lifecycle events to wake
 REST confirmation:
 

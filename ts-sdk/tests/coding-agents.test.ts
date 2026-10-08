@@ -729,11 +729,11 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       image: 'ghcr.io/hypercli/hypercli-pi:latest',
       command: ['/usr/local/bin/hyper-acp'],
-      env: { HYPER_RUNTIME_HOME: '/home/node/.pi/agent' },
       sync_root: '/home/node',
       sync_include: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
     });
     expect(DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi).toEqual(['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md']);
+    expect(post.mock.calls[0][1].env).not.toHaveProperty('HYPER_RUNTIME_HOME');
     await deployments.createAgent('pi', {
       image: 'registry.example.test/pi:custom',
       command: ['/custom/hyper-acp'],

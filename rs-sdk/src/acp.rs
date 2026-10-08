@@ -40,7 +40,7 @@
 //! with the `cancelled` outcome, and unknown inbound requests get a JSON-RPC
 //! `method not found` error.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -48,12 +48,61 @@ use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use secrecy::ExposeSecret;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
+
+use crate::{HyperCliClient, HyperCliError};
+
+/// Errors from platform default acquisition or the subsequent ACP operation.
+#[derive(Debug, Error)]
+pub enum AcpSetupError {
+    #[error(transparent)]
+    Platform(#[from] HyperCliError),
+    #[error(transparent)]
+    Acp(#[from] AcpError),
+}
+
+impl HyperCliClient {
+    /// Read the runtime-owned launch cwd through the existing platform API.
+    /// The value is opaque to the SDK; no local path resolution is performed.
+    pub async fn deployment_runtime_cwd(
+        &self,
+        deployment_id: &str,
+    ) -> Result<String, HyperCliError> {
+        #[derive(Deserialize)]
+        struct RuntimePaths {
+            cwd: String,
+        }
+        let mut url = self.api_base.clone();
+        url.set_query(None);
+        url.set_fragment(None);
+        url.path_segments_mut()
+            .map_err(|_| HyperCliError::InvalidResponse("invalid agents API base".into()))?
+            .pop_if_empty()
+            .extend(["deployments", deployment_id, "runtime-paths"]);
+        let response = self
+            .async_http
+            .get(url)
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|error| HyperCliError::Transport(error.without_url().to_string()))?;
+        if !response.status().is_success() {
+            return Err(HyperCliError::Status(response.status()));
+        }
+        let paths: RuntimePaths = response
+            .json()
+            .await
+            .map_err(|error| HyperCliError::InvalidResponse(error.without_url().to_string()))?;
+        Ok(paths.cwd)
+    }
+}
 
 /// ACP protocol version sent in `initialize`.
 pub const ACP_PROTOCOL_VERSION: u64 = 2;
@@ -254,6 +303,8 @@ pub struct AcpClient {
     next_id: AtomicU64,
     closed: AtomicBool,
     initialize_response: Mutex<Value>,
+    initialize_started: AtomicBool,
+    session_cwds: Mutex<HashMap<String, String>>,
     updates: Mutex<Option<AcpUpdateReceiver>>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -311,6 +362,8 @@ impl AcpClient {
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             initialize_response: Mutex::new(Value::Null),
+            initialize_started: AtomicBool::new(false),
+            session_cwds: Mutex::new(HashMap::new()),
             updates: Mutex::new(Some(updates_rx)),
             reader: Mutex::new(Some(reader)),
         })
@@ -320,7 +373,19 @@ impl AcpClient {
     /// and the error is classified: transport/handshake failures are
     /// [`AcpError::Retryable`], agent-side JSON-RPC rejections are
     /// [`AcpError::Request`].
+    /// Successful repeats reuse the response; concurrent or cancelled attempts
+    /// return a local error rather than sending another handshake.
     pub async fn initialize(&self) -> Result<Value, AcpError> {
+        if self.initialize_started.swap(true, Ordering::SeqCst) {
+            let response = self.initialize_response();
+            return if response.is_null() {
+                Err(AcpError::Protocol(
+                    "ACP initialization already started on this connection".to_owned(),
+                ))
+            } else {
+                Ok(response)
+            };
+        }
         let response = self
             .request(
                 "initialize",
@@ -333,10 +398,7 @@ impl AcpClient {
             .await;
         match response {
             Ok(value) => {
-                if value["protocolVersion"].as_u64() != Some(2)
-                    || !value["info"]["name"].is_string()
-                    || !value["info"]["version"].is_string()
-                {
+                if value["protocolVersion"].as_u64() != Some(2) {
                     self.close();
                     return Err(AcpError::Protocol(
                         "expected a standard ACP v2 initialize response".to_owned(),
@@ -389,21 +451,37 @@ impl AcpClient {
     /// Supply a concrete absolute cwd resolved by the runner/hosted runtime, or
     /// an explicit valid absolute override. Relative configuration (including
     /// runtime `~/.hypercli` paths) must be resolved on the runtime host first.
-    /// The SDK validates path shape only and sends valid overrides verbatim.
+    /// Overrides are sent verbatim; the peer determines path validity.
     pub async fn new_session(&self, cwd: &str) -> Result<String, AcpError> {
-        self.require_session_surface("session/new")?;
-        validate_cwd(cwd)?;
+        self.require_connection()?;
         let result = self
             .request("session/new", json!({"cwd": cwd, "mcpServers": []}))
             .await?;
-        result
+        let session_id = result
             .get("sessionId")
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty())
             .map(str::to_owned)
             .ok_or_else(|| {
                 AcpError::Protocol("ACP session/new did not return sessionId".to_owned())
-            })
+            })?;
+        self.session_cwds
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), cwd.to_owned());
+        Ok(session_id)
+    }
+
+    /// Create using this deployment's authoritative launch cwd, acquired only
+    /// when called. Explicit overrides continue to use [`Self::new_session`].
+    pub async fn new_session_default(
+        &self,
+        platform: &HyperCliClient,
+        deployment_id: &str,
+    ) -> Result<String, AcpSetupError> {
+        self.require_connection()?;
+        let cwd = platform.deployment_runtime_cwd(deployment_id).await?;
+        Ok(self.new_session(&cwd).await?)
     }
 
     /// Resume a session by id. Kept as the v1-era name for `session/resume`
@@ -422,13 +500,73 @@ impl AcpClient {
         session_id: &str,
         replay: bool,
     ) -> Result<Value, AcpError> {
-        self.require_session_surface("session/resume")?;
-        validate_cwd(cwd)?;
+        self.require_connection()?;
         let mut params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":[]});
         if replay {
             params["replayFrom"] = json!({"type":"start"});
         }
-        self.request("session/resume", params).await
+        let response = self.request("session/resume", params).await?;
+        self.session_cwds
+            .lock()
+            .unwrap()
+            .insert(session_id.to_owned(), cwd.to_owned());
+        Ok(response)
+    }
+
+    /// Resume the exact session using setup retained by successful typed helpers,
+    /// or its original cwd from the standard ACP catalog. Never reads the launch
+    /// default or substitutes a new session when catalog lookup/resume fails.
+    /// Sessions created through raw requests are resolved through the catalog.
+    pub async fn resume_session_stored(
+        &self,
+        session_id: &str,
+        replay: bool,
+    ) -> Result<Value, AcpError> {
+        let stored = self.session_cwds.lock().unwrap().get(session_id).cloned();
+        let cwd = match stored {
+            Some(cwd) => cwd,
+            None => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Session {
+                    session_id: String,
+                    cwd: String,
+                }
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Page {
+                    sessions: Vec<Session>,
+                    next_cursor: Option<String>,
+                }
+                let mut cursor: Option<String> = None;
+                let mut seen = HashSet::new();
+                loop {
+                    let page: Page =
+                        serde_json::from_value(self.list_sessions(None, cursor.as_deref()).await?)
+                            .map_err(|error| AcpError::Protocol(error.to_string()))?;
+                    if let Some(session) = page
+                        .sessions
+                        .into_iter()
+                        .find(|s| s.session_id == session_id)
+                    {
+                        break session.cwd;
+                    }
+                    cursor = page.next_cursor;
+                    let Some(next) = &cursor else {
+                        return Err(AcpError::Unavailable {
+                            capability: "session/resume".into(),
+                            detail: "original session cwd is unavailable from the standard catalog; supply it explicitly".into(),
+                        });
+                    };
+                    if !seen.insert(next.clone()) {
+                        return Err(AcpError::Protocol(
+                            "session/list repeated a pagination cursor".into(),
+                        ));
+                    }
+                }
+            }
+        };
+        self.resume_session(&cwd, session_id, replay).await
     }
 
     /// List the peer's standard ACP catalog. Platform discovery status and
@@ -438,10 +576,7 @@ impl AcpClient {
         cwd: Option<&str>,
         cursor: Option<&str>,
     ) -> Result<Value, AcpError> {
-        self.require_session_surface("session/list")?;
-        if let Some(cwd) = cwd {
-            validate_cwd(cwd)?;
-        }
+        self.require_connection()?;
         self.request("session/list", json!({"cwd": cwd, "cursor": cursor}))
             .await
     }
@@ -449,23 +584,20 @@ impl AcpClient {
     /// Close the remote session using the baseline v2 operation. This is
     /// distinct from closing this client's transport or deleting stored history.
     pub async fn close_session(&self, session_id: &str) -> Result<Value, AcpError> {
-        self.require_session_surface("session/close")?;
-        self.request("session/close", json!({"sessionId": session_id}))
-            .await
+        self.require_connection()?;
+        let response = self
+            .request("session/close", json!({"sessionId": session_id}))
+            .await?;
+        self.session_cwds.lock().unwrap().remove(session_id);
+        Ok(response)
     }
 
-    fn require_session_surface(&self, method: &str) -> Result<(), AcpError> {
+    fn require_connection(&self) -> Result<(), AcpError> {
         if self.closed() {
             return Err(AcpError::Closed);
         }
         if self.is_down() {
             return Err(AcpError::Retryable("ACP connection is down".to_owned()));
-        }
-        if !self.load_session_capable() {
-            return Err(AcpError::Unavailable {
-                capability: method.to_owned(),
-                detail: "no v2 session capability advertised".to_owned(),
-            });
         }
         Ok(())
     }
@@ -488,7 +620,7 @@ impl AcpClient {
         session_id: &str,
         blocks: Vec<Value>,
     ) -> Result<AcpPromptAcceptance, AcpError> {
-        self.require_session_surface(PROMPT_METHOD)?;
+        self.require_connection()?;
         let result = self
             .request(
                 PROMPT_METHOD,
@@ -515,7 +647,7 @@ impl AcpClient {
     /// Queue standard cancellation after previously queued prompt writes. Success
     /// is only local enqueueing, not acknowledgment that execution has stopped.
     pub fn cancel(&self, session_id: &str) -> Result<(), AcpError> {
-        self.require_session_surface("session/cancel")?;
+        self.require_connection()?;
         let outbound = self
             .outbound
             .lock()
@@ -617,28 +749,6 @@ impl Drop for AcpClient {
     }
 }
 
-fn validate_cwd(cwd: &str) -> Result<(), AcpError> {
-    // The runtime host may use a different OS from the client. Do not resolve,
-    // normalize or substitute a local path or a guessed runtime home directory.
-    let bytes = cwd.as_bytes();
-    let drive_absolute = bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && matches!(bytes[2], b'/' | b'\\');
-    let unc_absolute = cwd.strip_prefix("\\\\").is_some_and(|rest| {
-        let mut parts = rest.split('\\');
-        parts.next().is_some_and(|part| !part.is_empty())
-            && parts.next().is_some_and(|part| !part.is_empty())
-    });
-    if !cwd.contains('\0') && (cwd.starts_with('/') || drive_absolute || unc_absolute) {
-        return Ok(());
-    }
-    Err(AcpError::Unavailable {
-        capability: "session cwd".to_owned(),
-        detail: "an absolute runtime-host cwd is required".to_owned(),
-    })
-}
-
 async fn write_loop(
     mut outbound: mpsc::UnboundedReceiver<Message>,
     mut sink: AcpSink,
@@ -666,22 +776,14 @@ async fn read_loop(
     let failure = loop {
         match stream.next().await {
             Some(Ok(Message::Text(text))) => match serde_json::from_str::<Value>(&text) {
-                Ok(frame) => {
-                    if let Err(error) = dispatch_message(&frame, &state, &outbound, &updates) {
-                        break Failure::Protocol(error);
-                    }
-                }
+                Ok(frame) => dispatch_message(&frame, &state, &outbound, &updates),
                 Err(error) => {
                     break Failure::Protocol(format!("ACP bridge returned invalid JSON: {error}"));
                 }
             },
             Some(Ok(Message::Binary(bytes))) => {
                 match serde_json::from_str::<Value>(&String::from_utf8_lossy(&bytes)) {
-                    Ok(frame) => {
-                        if let Err(error) = dispatch_message(&frame, &state, &outbound, &updates) {
-                            break Failure::Protocol(error);
-                        }
-                    }
+                    Ok(frame) => dispatch_message(&frame, &state, &outbound, &updates),
                     Err(error) => {
                         break Failure::Protocol(format!(
                             "ACP bridge returned invalid JSON: {error}"
@@ -711,14 +813,11 @@ fn dispatch_message(
     state: &ConnState,
     outbound: &mpsc::UnboundedSender<Message>,
     updates: &mpsc::UnboundedSender<Value>,
-) -> Result<(), String> {
+) {
     let frames = match message {
         Value::Array(frames) => frames.as_slice(),
         frame => std::slice::from_ref(frame),
     };
-    if frames.is_empty() || frames.iter().any(|frame| !valid_envelope(frame)) {
-        return Err("ACP bridge returned an invalid JSON-RPC envelope".to_owned());
-    }
     if message.is_array() {
         let (batch_outbound, mut replies) = mpsc::unbounded_channel();
         for frame in frames {
@@ -735,31 +834,6 @@ fn dispatch_message(
     } else {
         dispatch_frame(message, state, outbound, updates);
     }
-    Ok(())
-}
-
-fn valid_envelope(frame: &Value) -> bool {
-    if !frame.is_object() || frame.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return false;
-    }
-    if frame
-        .get("id")
-        .is_some_and(|id| !(id.is_null() || id.is_string() || id.as_i64().is_some()))
-    {
-        return false;
-    }
-    if let Some(method) = frame.get("method") {
-        return method.is_string()
-            && frame.get("result").is_none()
-            && frame.get("error").is_none()
-            && frame.get("params").is_none_or(Value::is_object);
-    }
-    frame.get("id").is_some()
-        && (frame.get("result").is_some() != frame.get("error").is_some())
-        && frame.get("error").is_none_or(|error| {
-            error.get("code").and_then(Value::as_i64).is_some()
-                && error.get("message").and_then(Value::as_str).is_some()
-        })
 }
 
 fn dispatch_frame(
@@ -769,7 +843,10 @@ fn dispatch_frame(
     updates: &mpsc::UnboundedSender<Value>,
 ) {
     let id = frame_id(frame);
-    if let Some(id) = id.filter(|_| frame.get("result").is_some() || frame.get("error").is_some()) {
+    if let Some(id) = id.filter(|_| {
+        frame.get("method").is_none()
+            && (frame.get("result").is_some() || frame.get("error").is_some())
+    }) {
         let pending = state.pending.lock().unwrap().remove(&id);
         let Some(pending) = pending else { return };
         let outcome = if let Some(error) = frame.get("error") {
@@ -792,15 +869,15 @@ fn dispatch_frame(
     if method.is_empty() {
         return;
     }
-    let Some(id) = frame
-        .get("id")
-        .filter(|id| id.is_null() || id.is_string() || id.as_i64().is_some())
-    else {
+    let Some(id) = frame.get("id") else {
         if method == "session/update" {
             let _ = updates.send(frame.get("params").cloned().unwrap_or(Value::Null));
         }
         return;
     };
+    if !(id.is_null() || id.is_string() || id.as_i64().is_some()) {
+        return;
+    }
     let reply = if method == "session/request_permission" {
         json!({
             "jsonrpc": "2.0",
@@ -833,6 +910,186 @@ mod tests {
 
     type TestSocket = WebSocketStream<TcpStream>;
 
+    #[test]
+    fn platform_cwd_is_lazy_and_explicit_and_retained_setup_skip_http() {
+        let mut http = mockito::Server::new();
+        let paths = http
+            .mock("GET", "/agents/deployments/agent%2Fid/runtime-paths")
+            .match_header("authorization", "Bearer test-key")
+            .match_header("x-caller-transport", "injected")
+            .with_status(200)
+            .with_body(r#"{"cwd":"/launch/default"}"#)
+            .expect(1)
+            .create();
+        let unavailable = http
+            .mock("GET", "/agents/deployments/unavailable/runtime-paths")
+            .with_status(503)
+            .create();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-caller-transport",
+            reqwest::header::HeaderValue::from_static("injected"),
+        );
+        // Construct/drop the blocking parent transport outside Tokio.
+        let platform = HyperCliClient::with_http_clients(
+            crate::ClientConfig {
+                api_base: Url::parse(&format!("{}/agents", http.url())).unwrap(),
+                api_key: secrecy::SecretString::from("test-key"),
+                trace_file: None,
+                timeout: None,
+            },
+            Url::parse(&http.url()).unwrap(),
+            reqwest::blocking::Client::new(),
+            reqwest::Client::builder()
+                .no_proxy()
+                .default_headers(headers)
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let (url, server) = start_server(|mut socket| async move {
+                let init = read_frame(&mut socket).await;
+                send_frame(
+                    &mut socket,
+                    respond(init["id"].as_u64().unwrap(), initialize_result(false)),
+                )
+                .await;
+                for (id, cwd) in [
+                    ("explicit", "opaque/override"),
+                    ("default", "/launch/default"),
+                ] {
+                    let new = read_frame(&mut socket).await;
+                    assert_eq!(new["method"], "session/new");
+                    assert_eq!(new["params"], json!({"cwd":cwd,"mcpServers":[]}));
+                    send_frame(
+                        &mut socket,
+                        respond(new["id"].as_u64().unwrap(), json!({"sessionId":id})),
+                    )
+                    .await;
+                    let resume = read_frame(&mut socket).await;
+                    assert_eq!(resume["method"], "session/resume");
+                    assert_eq!(
+                        resume["params"],
+                        json!({"sessionId":id,"cwd":cwd,"mcpServers":[]})
+                    );
+                    send_frame(
+                        &mut socket,
+                        respond(resume["id"].as_u64().unwrap(), json!({})),
+                    )
+                    .await;
+                }
+                // A different existing session retains its own cwd, not the launch default.
+                let list = read_frame(&mut socket).await;
+                assert_eq!(list["method"], "session/list");
+                send_frame(
+                    &mut socket,
+                    respond(
+                        list["id"].as_u64().unwrap(),
+                        json!({"sessions":[{"sessionId":"old","cwd":"/original/project"}]}),
+                    ),
+                )
+                .await;
+                let resume = read_frame(&mut socket).await;
+                assert_eq!(resume["method"], "session/resume");
+                assert_eq!(
+                    resume["params"],
+                    json!({"sessionId":"old","cwd":"/original/project","mcpServers":[]})
+                );
+                send_frame(
+                    &mut socket,
+                    respond(resume["id"].as_u64().unwrap(), json!({})),
+                )
+                .await;
+            })
+            .await;
+            let client = AcpClient::connect(&url, "").await.unwrap();
+            client.initialize().await.unwrap();
+            assert!(!paths.matched());
+            let explicit = client.new_session("opaque/override").await.unwrap();
+            client
+                .resume_session_stored(&explicit, false)
+                .await
+                .unwrap();
+            assert!(!paths.matched());
+            assert!(matches!(
+                client.new_session_default(&platform, "unavailable").await,
+                Err(AcpSetupError::Platform(HyperCliError::Status(status)))
+                    if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+            ));
+            let created = client
+                .new_session_default(&platform, "agent/id")
+                .await
+                .unwrap();
+            client.resume_session_stored(&created, false).await.unwrap();
+            client.resume_session_stored("old", false).await.unwrap();
+            server.await.unwrap();
+            client.close();
+        });
+        paths.assert();
+        unavailable.assert();
+    }
+
+    #[tokio::test]
+    async fn stored_resume_paginates_exact_identity_and_missing_session_never_remints() {
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(false)),
+            )
+            .await;
+            for found in [true, false] {
+                for cursor in [Value::Null, json!("next-page")] {
+                    let list = read_frame(&mut socket).await;
+                    assert_eq!(list["method"], "session/list");
+                    assert_eq!(list["params"], json!({"cwd":null,"cursor":cursor}));
+                    let page = if cursor.is_null() {
+                        json!({"sessions":[{"sessionId":"other","cwd":"/other"}],"nextCursor":"next-page"})
+                    } else if found {
+                        json!({"sessions":[{"sessionId":"exact","cwd":"/original"}]})
+                    } else {
+                        json!({"sessions":[]})
+                    };
+                    send_frame(&mut socket, respond(list["id"].as_u64().unwrap(), page)).await;
+                }
+                if found {
+                    let resume = read_frame(&mut socket).await;
+                    assert_eq!(resume["method"], "session/resume");
+                    assert_eq!(
+                        resume["params"],
+                        json!({"sessionId":"exact","cwd":"/original","mcpServers":[],"replayFrom":{"type":"start"}})
+                    );
+                    send_frame(
+                        &mut socket,
+                        respond(resume["id"].as_u64().unwrap(), json!({})),
+                    )
+                    .await;
+                }
+            }
+            // A correlated barrier proves absence did not emit new/resume frames.
+            let barrier = read_frame(&mut socket).await;
+            assert_eq!(barrier["method"], "session/list");
+            assert_eq!(barrier["params"]["cursor"], "barrier");
+            send_frame(
+                &mut socket,
+                respond(barrier["id"].as_u64().unwrap(), json!({"sessions":[]})),
+            )
+            .await;
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        client.resume_session_stored("exact", true).await.unwrap();
+        assert!(matches!(
+            client.resume_session_stored("missing", false).await,
+            Err(AcpError::Unavailable { .. })
+        ));
+        client.list_sessions(None, Some("barrier")).await.unwrap();
+        server.await.unwrap();
+        client.close();
+    }
+
     #[tokio::test]
     async fn permission_replies_preserve_upstream_request_id_types() {
         let state = ConnState {
@@ -859,38 +1116,30 @@ mod tests {
     }
 
     #[test]
-    fn decoder_validates_batches_before_dispatch_and_never_answers_notifications() {
+    fn decoder_routes_batch_members_independently_and_never_answers_notifications() {
         let state = ConnState {
             pending: Mutex::new(HashMap::new()),
             dead: AtomicBool::new(false),
         };
         let (outbound, mut received) = mpsc::unbounded_channel();
         let (updates, _) = mpsc::unbounded_channel();
-        for malformed in [
-            json!([]),
-            json!({"jsonrpc":"2.0","id":true,"method":"x"}),
-            json!({"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"x"}}),
-            json!({"id":1,"method":"x"}),
-        ] {
-            assert!(dispatch_message(&malformed, &state, &outbound, &updates).is_err());
-        }
         dispatch_message(
             &json!([{"jsonrpc":"2.0","method":"unknown"}]),
             &state,
             &outbound,
             &updates,
-        )
-        .unwrap();
+        );
         assert!(received.try_recv().is_err());
         dispatch_message(
             &json!([
+            null,
+            {"jsonrpc":"2.0","id":true,"method":"session/update"},
             {"jsonrpc":"2.0","id":"p","method":"session/request_permission","params":{}},
             {"jsonrpc":"2.0","id":-1,"method":"unknown"}]),
             &state,
             &outbound,
             &updates,
-        )
-        .unwrap();
+        );
         let Message::Text(text) = received.try_recv().unwrap() else {
             panic!("expected batch")
         };
@@ -991,7 +1240,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_peer_frames_fail_the_real_pending_request_loudly() {
+    async fn undecodable_or_uncorrelated_frames_do_not_complete_pending_input() {
         for malformed in [
             "{",
             "[]",
@@ -1226,6 +1475,48 @@ mod tests {
         assert!(!error.is_ambiguous());
     }
 
+    #[tokio::test]
+    async fn initialize_has_one_owner_and_reuses_success() {
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let (url, server) = start_server(move |mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            assert_eq!(init["method"], "initialize");
+            entered_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            // Implementation info is opaque to this raw client.
+            send_frame(
+                &mut socket,
+                respond(
+                    init["id"].as_u64().unwrap(),
+                    json!({"protocolVersion":2,"capabilities":{}}),
+                ),
+            )
+            .await;
+            let next = read_frame(&mut socket).await;
+            assert_eq!(next["method"], "session/list");
+            send_frame(
+                &mut socket,
+                respond(next["id"].as_u64().unwrap(), json!({"sessions":[]})),
+            )
+            .await;
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        let (first, ()) = tokio::join!(client.initialize(), async {
+            entered_rx.await.unwrap();
+            assert!(matches!(
+                client.initialize().await,
+                Err(AcpError::Protocol(_))
+            ));
+            release_tx.send(()).unwrap();
+        });
+        assert_eq!(client.initialize().await.unwrap(), first.unwrap());
+        client.list_sessions(None, None).await.unwrap();
+        server.await.unwrap();
+        client.close();
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn initialize_rpc_error_is_terminal_not_retryable() {
         let (url, server) = start_server(|mut socket| async move {
@@ -1386,7 +1677,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn load_alias_uses_standard_resume_without_fallback() {
-        let (finished_tx, finished_rx) = oneshot::channel();
         let (url, server) = start_server(move |mut socket| async move {
             let init = read_frame(&mut socket).await;
             send_frame(
@@ -1394,10 +1684,25 @@ mod tests {
                 respond(init["id"].as_u64().unwrap(), initialize_result(false)),
             )
             .await;
-            tokio::select! {
-                frame = read_frame(&mut socket) => panic!("unsupported operation emitted: {frame}"),
-                _ = finished_rx => {},
+            for method in [
+                "session/resume",
+                "session/new",
+                "session/list",
+                "session/close",
+                "session/prompt",
+            ] {
+                let frame = read_frame(&mut socket).await;
+                assert_eq!(frame["method"], method);
+                send_frame(
+                    &mut socket,
+                    json!({"jsonrpc":"2.0", "id":frame["id"],
+                    "error":{"code":-32601,"message":"peer refusal"}}),
+                )
+                .await;
             }
+            let cancel = read_frame(&mut socket).await;
+            assert_eq!(cancel["method"], "session/cancel");
+            assert!(cancel.get("id").is_none());
         })
         .await;
 
@@ -1410,42 +1715,43 @@ mod tests {
             .await
             .unwrap_err();
         match &error {
-            AcpError::Unavailable { capability, detail } => {
-                assert_eq!(capability, "session/resume");
-                assert!(detail.contains("v2 session capability"));
+            AcpError::Request {
+                method,
+                code,
+                message,
+            } => {
+                assert_eq!(method, "session/resume");
+                assert_eq!(*code, Some(-32601));
+                assert_eq!(message, "peer refusal");
             }
-            other => panic!("expected AcpError::Unavailable, got {other:?}"),
+            other => panic!("expected peer refusal, got {other:?}"),
         }
         assert!(!error.is_retryable());
         assert!(!error.is_ambiguous());
 
         assert!(matches!(
             client.new_session("/workspace").await,
-            Err(AcpError::Unavailable { .. })
+            Err(AcpError::Request { .. })
         ));
         assert!(matches!(
             client.list_sessions(None, None).await,
-            Err(AcpError::Unavailable { .. })
+            Err(AcpError::Request { .. })
         ));
         assert!(matches!(
             client.close_session("sess-stale").await,
-            Err(AcpError::Unavailable { .. })
+            Err(AcpError::Request { .. })
         ));
         assert!(matches!(
             client.submit_prompt("sess-stale", vec![]).await,
-            Err(AcpError::Unavailable { .. })
+            Err(AcpError::Request { .. })
         ));
-        assert!(matches!(
-            client.cancel("sess-stale"),
-            Err(AcpError::Unavailable { .. })
-        ));
-        finished_tx.send(()).unwrap();
+        client.cancel("sess-stale").unwrap();
         server.await.unwrap();
         client.close();
     }
 
     #[tokio::test]
-    async fn standard_list_resume_close_frames_and_invalid_cwd_rejection() {
+    async fn standard_list_resume_close_frames() {
         let (url, server) = start_server(|mut socket| async move {
             let init = read_frame(&mut socket).await;
             send_frame(
@@ -1483,26 +1789,7 @@ mod tests {
         })
         .await;
         let client = AcpClient::connect(&url, "").await.unwrap();
-        assert!(matches!(
-            client.new_session("/original").await,
-            Err(AcpError::Unavailable { .. })
-        ));
         client.initialize().await.unwrap();
-        for invalid in [
-            "",
-            "relative",
-            "~/.hypercli/project",
-            "./project",
-            "C:relative",
-            "/bad\0path",
-            "\\\\host",
-        ] {
-            assert!(client.new_session(invalid).await.is_err());
-            assert!(client
-                .resume_session(invalid, "same-id", false)
-                .await
-                .is_err());
-        }
         client.list_sessions(None, Some("opaque")).await.unwrap();
         client
             .resume_session("/original", "same-id", false)
@@ -1514,10 +1801,12 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_runtime_cwd_overrides_are_sent_verbatim() {
-        const PATHS: [&str; 3] = [
+        const PATHS: [&str; 5] = [
             "/runtime/custom root/../project",
             r"C:\Users\runner\.hypercli\project",
             r"\\runtime\share\project",
+            "relative",
+            "~/.hypercli/project",
         ];
         let (url, server) = start_server(|mut socket| async move {
             let init = read_frame(&mut socket).await;
@@ -1568,7 +1857,7 @@ mod tests {
     async fn initialize_rejects_non_v2_and_closes_without_fallback() {
         for result in [
             json!({"protocolVersion":1,"agentCapabilities":{}}),
-            json!({"protocolVersion":2,"info":{"name":"fixture"}}),
+            json!({"info":{"name":"fixture"}}),
         ] {
             let (url, server) = start_server(move |mut socket| async move {
                 let init = read_frame(&mut socket).await;

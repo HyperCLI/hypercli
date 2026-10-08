@@ -82,6 +82,11 @@ class Peer:
         assert session_id == "opaque/runtime:id"
         return v2.schema.ResumeSessionResponse()
 
+    async def list_sessions(self, **kwargs):
+        return v2.schema.ListSessionsResponse.model_validate({"sessions": [
+            {"sessionId": "opaque/runtime:id", "cwd": "/original/project"},
+        ]})
+
     async def close_session(self, **kwargs):
         self.entered.set()
         if self.hold_close:
@@ -153,6 +158,17 @@ async def test_v2_handshake_source_and_setup_use_standard_shapes():
         assert not any("source" in f.get("params", {}) for f in inbound)
 
 
+@pytest.mark.parametrize("cwd", ["/runtime/alias/../project", r"C:\runtime\project", r"\\runtime\share\project"])
+async def test_setup_preserves_absolute_runtime_host_cwd_verbatim(cwd):
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        sid = await client.new_session(cwd=cwd)
+        await client.resume_session(sid, cwd=cwd)
+        setup = [f for direction, f in peer.frames if direction == "in" and f["method"].startswith("session/")]
+        assert [f["method"] for f in setup] == ["session/new", "session/resume"]
+        assert [f["params"]["cwd"] for f in setup] == [cwd, cwd]
+        assert setup[-1]["params"]["sessionId"] == sid
+
+
 async def test_resume_windowed_cursor_passes_replay_from_verbatim():
     cursor = {"type": "start", "from": "m-42", "limit": 50}
     async with server() as (peer, url), await ACPClient.connect(url) as client:
@@ -162,6 +178,60 @@ async def test_resume_windowed_cursor_passes_replay_from_verbatim():
         inbound = [f for direction, f in peer.frames if direction == "in"]
         resumes = [f for f in inbound if f["method"] == "session/resume"]
         assert [f["params"]["replayFrom"] for f in resumes] == [cursor, cursor]
+
+
+async def test_default_creation_and_tracked_resume_do_not_re_resolve_launch_cwd():
+    resolutions = []
+
+    async def launch_cwd():
+        resolutions.append(True)
+        return "/runtime/launch"
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_default_cwd=launch_cwd) as client:
+        sid = await client.new_session()
+        await client.resume_session(sid)
+        assert resolutions == [True]
+        setups = [f for direction, f in peer.frames if direction == "in" and f["method"].startswith("session/")]
+        assert [f["method"] for f in setups] == ["session/new", "session/resume"]
+        assert [f["params"]["cwd"] for f in setups] == ["/runtime/launch"] * 2
+
+
+async def test_agent_connect_wires_lazy_runtime_default_without_caller_paths(monkeypatch):
+    from types import SimpleNamespace
+    from urllib.parse import parse_qs, urlsplit
+    from hypercli.agents import Deployments
+
+    async with server() as (peer, url):
+        deployments = Deployments(SimpleNamespace(api_key="fixture", timeout=5),
+                                  api_base="http://fixture.invalid/agents",
+                                  agents_ws_url=url.removesuffix("/acp"))
+        reads = []
+
+        def get(path):
+            reads.append(path)
+            return {"cwd": "/runtime/selected"}
+
+        monkeypatch.setattr(deployments, "_get", get)
+        agent = deployments._hydrate_agent({"id": "agent-1", "runtime": "opencode", "state": "running"})
+        async with await agent.acp_connect() as client:
+            assert reads == []
+            sid = await client.new_session()
+            await client.resume_session(sid)
+            assert reads == ["/deployments/agent-1/runtime-paths"]
+            assert parse_qs(urlsplit(peer.paths[0]).query)["agent_id"] == ["agent-1"]
+            setups = [f for direction, f in peer.frames if direction == "in" and f["method"] in {"session/new", "session/resume"}]
+            assert [f["params"]["cwd"] for f in setups] == ["/runtime/selected"] * 2
+
+
+async def test_fresh_resume_uses_original_catalog_cwd_without_launch_resolution():
+    async def forbidden_launch_resolution():
+        pytest.fail("resume must not resolve the current launch directory")
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_default_cwd=forbidden_launch_resolution) as client:
+        await client.resume_session("opaque/runtime:id")
+        inbound = [f for direction, f in peer.frames if direction == "in"]
+        assert [f["method"] for f in inbound] == ["initialize", "session/list", "session/resume"]
+        assert inbound[-1]["params"] == {"sessionId": "opaque/runtime:id", "cwd": "/original/project", "mcpServers": []}
 
 
 @pytest.mark.parametrize("late_echo", [False, True])
@@ -192,7 +262,7 @@ async def test_submit_accepts_separate_messages_without_waiting_for_idle():
 
 
 @pytest.mark.parametrize("state", ["running", "requires_action"])
-async def test_foreground_guard_tracks_active_state_until_idle(state):
+async def test_active_state_does_not_preempt_prompt_admission(state):
     observed = asyncio.Event()
     async with server() as (peer, url), await ACPClient.connect(
         url, on_update=lambda _: observed.set(), get_prompt_completion=peer.completion,
@@ -200,15 +270,42 @@ async def test_foreground_guard_tracks_active_state_until_idle(state):
         sid = await client.new_session(cwd="/workspace")
         await peer.emit(sid, {"sessionUpdate": "state_update", "state": state})
         await asyncio.wait_for(observed.wait(), 5)
-        with pytest.raises(ACPError, match="Session foreground is active"):
-            await client.prompt(sid, "not sent")
-        assert peer.prompts == []
-        observed.clear()
-        await peer.emit(sid, {"sessionUpdate": "state_update", "state": "idle"})
-        await asyncio.wait_for(observed.wait(), 5)
+        task = asyncio.create_task(client.prompt(sid, "once", timeout=5))
+        await peer.entered.wait()
         peer.release.set()
-        assert (await client.prompt(sid, "once", timeout=5)).stop_reason == "end_turn"
+        assert (await task).stop_reason == "end_turn"
         assert len(peer.prompts) == 1
+
+
+async def test_concurrent_observers_keep_independent_receipts_with_admission_only_input():
+    reads = []
+    entered = {mid: asyncio.Event() for mid in ("input-1", "input-2")}
+    release = {mid: asyncio.Event() for mid in entered}
+
+    async def completion(sid, mid):
+        reads.append((sid, mid))
+        entered[mid].set()
+        await release[mid].wait()
+        return {"stopReason": "cancelled" if mid == "input-2" else "end_turn"}
+
+    async with server() as (peer, url), await ACPClient.connect(url, get_prompt_completion=completion) as client:
+        sid = await client.new_session(cwd="/workspace")
+        first = asyncio.create_task(client.prompt(sid, "A", timeout=5))
+        await peer.entered.wait()
+        second = asyncio.create_task(client.prompt(sid, "B", timeout=5))
+        await until(lambda: len(peer.prompts) == 2)
+        assert (await client.submit_prompt(sid, "C")).message_id == "input-3"
+        await peer.emit(sid, {"sessionUpdate": "state_update", "state": "idle"})
+        await asyncio.wait_for(asyncio.gather(*(event.wait() for event in entered.values())), 5)
+        release["input-2"].set()
+        result = await second
+        assert (result.message_id, result.stop_reason) == ("input-2", "cancelled")
+        assert not first.done()
+        release["input-1"].set()
+        result = await first
+        assert (result.message_id, result.stop_reason) == ("input-1", "end_turn")
+        assert sorted(mid for _, mid in reads) == ["input-1", "input-2"]
+        assert len(peer.prompts) == 3
 
 
 async def test_completion_without_receipt_reader_is_refused_before_sending():

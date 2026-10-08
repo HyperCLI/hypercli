@@ -41,7 +41,7 @@ describe('dist export parity', () => {
     expect(agents.CodingAgent).toBeUndefined();
     expect(root.DEFAULT_PI_IMAGE).toBe(agents.DEFAULT_CODING_AGENT_IMAGES.pi);
     expect(root.DEFAULT_PI_ENV).toBe(agents.DEFAULT_PI_ENV);
-    expect(root.DEFAULT_PI_ENV).toEqual({ HYPER_RUNTIME_HOME: '/home/node/.pi/agent' });
+    expect(root.DEFAULT_PI_ENV).toEqual({});
     const agent = root.Agent.fromDict({ id: 'pi-1', runtime: 'pi', state: 'RUNNING' });
     expect(agent).toBeInstanceOf(root.Agent);
     expect(agent.runtime).toBe('pi');

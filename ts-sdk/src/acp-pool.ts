@@ -17,6 +17,7 @@
  */
 import {
   CodingAgentAcpClient,
+  CodingAgentAcpConnectionError,
   type CodingAgentAcpConnectOptions,
 } from './acp.js';
 
@@ -32,6 +33,8 @@ interface PoolEntry {
   /** Removed from the pool map (last release, drop, or terminal self-close). */
   forgotten: boolean;
   promise: Promise<CodingAgentAcpClient>;
+  controller: AbortController;
+  dispose(): void;
 }
 
 export class CodingAgentAcpPool {
@@ -44,11 +47,10 @@ export class CodingAgentAcpPool {
 
   constructor(options: {
     /**
-     * Dial one connection for the key. When `connectOptions` is also given,
-     * the pool passes the wrapped per-key options as an optional second
-     * argument — thread them into your dial so `onClose` bookkeeping reaches
-     * the wire options; one-argument implementations keep working (the pool
-     * detects terminal closes on its own regardless).
+     * Dial one connection for the key. Forward the optional second argument
+     * into the dial: its signal cancels pending initialization on pool teardown.
+     * Legacy factories that ignore it still have their acquisitions rejected
+     * and late clients closed, but must forward it to abort a pending socket.
      */
     connect: (
       key: string,
@@ -64,8 +66,8 @@ export class CodingAgentAcpPool {
   /**
    * Take a lease on the connection for `key`, dialing on first use. All
    * concurrent acquirers share one in-flight connect; each gets its own
-   * lease. Never resolves with a closed client: a terminal close or a
-   * `drop()` racing the acquire makes it redial instead.
+   * lease. A terminal client close may redial; explicit pool teardown rejects
+   * affected acquisitions instead of silently creating another connection.
    */
   async acquire(key: string): Promise<AcpLease> {
     for (;;) {
@@ -80,6 +82,7 @@ export class CodingAgentAcpPool {
       }
       entry.refs += 1;
       const client = await entry.promise;
+      if (entry.controller.signal.aborted) throw entry.controller.signal.reason;
       if (entry.forgotten || client.closed) {
         entry.refs -= 1;
         continue;
@@ -109,6 +112,8 @@ export class CodingAgentAcpPool {
     if (!entry) return;
     this.entries.delete(key);
     entry.forgotten = true;
+    entry.controller.abort(new CodingAgentAcpConnectionError('ACP pool entry dropped'));
+    entry.dispose();
     entry.client?.close();
   }
 
@@ -135,29 +140,40 @@ export class CodingAgentAcpPool {
       client: null,
       forgotten: false,
       promise: null as unknown as Promise<CodingAgentAcpClient>,
+      controller: new AbortController(),
+      dispose: () => {},
     };
     const base = this.connectOptions?.(key);
-    if (base) {
-      const previous = base.onClose;
-      base.onClose = (event) => {
+    const signal = entry.controller.signal;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+    const abort = () => entry.controller.abort(new CodingAgentAcpConnectionError('ACP pool connect aborted'));
+    base?.signal?.addEventListener('abort', abort, { once: true });
+    entry.dispose = () => base?.signal?.removeEventListener('abort', abort);
+    if (base?.signal?.aborted) abort();
+    const options: CodingAgentAcpConnectOptions = {
+      ...base,
+      signal,
+      onClose: (event) => {
         this.handleClientClosed(key, entry);
-        previous?.(event);
-      };
-    }
-    entry.promise = Promise.resolve()
-      .then(() => this.connect(key, base))
-      .then(
-        (client) => {
-          entry.client = client;
-          this.wrapClose(key, entry, client);
-          if (entry.forgotten || client.closed) client.close();
-          return client;
-        },
-        (error) => {
-          this.forget(key, entry);
-          throw error;
-        },
-      );
+        base?.onClose?.(event);
+      },
+    };
+    const connecting = Promise.resolve().then(() => {
+      if (signal.aborted) throw signal.reason;
+      return this.connect(key, options);
+    }).then((client) => {
+      entry.client = client;
+      this.wrapClose(key, entry, client);
+      if (entry.forgotten || signal.aborted || client.closed) client.close();
+      return client;
+    });
+    entry.promise = Promise.race([connecting, cancelled]).catch((error) => {
+      entry.dispose();
+      this.forget(key, entry);
+      throw error;
+    });
     return entry;
   }
 
@@ -185,15 +201,13 @@ export class CodingAgentAcpPool {
     if (entry.forgotten) return;
     entry.refs -= 1;
     if (entry.refs > 0) return;
-    this.entries.delete(key);
-    entry.forgotten = true;
-    // The connect may still be in flight; close once it resolves.
-    void entry.promise.then((client) => client.close(), () => {});
+    this.drop(key);
   }
 
   private forget(key: string, entry: PoolEntry): void {
     if (this.entries.get(key) !== entry) return;
     this.entries.delete(key);
     entry.forgotten = true;
+    entry.dispose();
   }
 }

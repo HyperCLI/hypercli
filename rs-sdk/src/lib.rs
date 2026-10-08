@@ -26,7 +26,7 @@ mod user;
 mod workspaces;
 
 pub use acp::{
-    AcpClient, AcpError, AcpPromptAcceptance, AcpPromptResult, AcpUpdateReceiver,
+    AcpClient, AcpError, AcpPromptAcceptance, AcpPromptResult, AcpSetupError, AcpUpdateReceiver,
     ACP_PROTOCOL_VERSION, DEFAULT_OPEN_TIMEOUT,
 };
 pub use billing::{Balance, BillingClient, Transaction};
