@@ -153,6 +153,17 @@ async def test_v2_handshake_source_and_setup_use_standard_shapes():
         assert not any("source" in f.get("params", {}) for f in inbound)
 
 
+async def test_resume_windowed_cursor_passes_replay_from_verbatim():
+    cursor = {"type": "start", "from": "m-42", "limit": 50}
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        sid = await client.new_session(cwd="/workspace")
+        await client.resume_session(sid, cwd="/workspace", replay_from=cursor)
+        await client.resume_session(sid, cwd="/workspace", replay=True, replay_from=cursor)
+        inbound = [f for direction, f in peer.frames if direction == "in"]
+        resumes = [f for f in inbound if f["method"] == "session/resume"]
+        assert [f["params"]["replayFrom"] for f in resumes] == [cursor, cursor]
+
+
 @pytest.mark.parametrize("late_echo", [False, True])
 async def test_foreground_waits_for_echo_acceptance_and_idle(late_echo):
     async with server() as (peer, url), await ACPClient.connect(url, on_update=peer.updates.append, get_prompt_completion=peer.completion) as client:

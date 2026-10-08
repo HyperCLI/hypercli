@@ -72,6 +72,38 @@ export interface AcpSessionRecord {
   importOutcome?: SessionImportOutcome | null;
 }
 
+/**
+ * Per-logical-message delivery evidence from the session detail read (backend
+ * `SessionStateDetail.receipts`): the settled markers a chat pane merges onto
+ * already-rendered messages without paging message rows. Merged per message
+ * id: earliest created_at, first non-null delivered_at / completed_at.
+ */
+export interface AcpSessionReceipt {
+  messageId: string;
+  role: 'user' | 'assistant' | 'tool';
+  createdAt: string | null;
+  deliveredAt: string | null;
+  completedAt: string | null;
+}
+
+/**
+ * The session detail read (`GET /sessions/{id}`, backend `SessionStateDetail`):
+ * the catalog record plus the state a chat pane needs to open on the session —
+ * logical-message identity anchors and delivery receipts — without the
+ * messages page. Fields absent on an older backend default empty.
+ */
+export interface AcpSessionState extends AcpSessionRecord {
+  /** Effective identity of the newest replay-eligible logical message; null on an empty session. */
+  lastMessageId: string | null;
+  /** Distinct logical message identities over replay-eligible rows. */
+  messageCount: number;
+  /** Highest stored seq; the read receipt advances to here. */
+  headSeq: number;
+  receipts: AcpSessionReceipt[];
+  /** Agent connection state computed per request by the backend, never stored; null on a pre-state backend. */
+  agentState: 'live' | 'archived' | 'deleted' | null;
+}
+
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
 export interface AcpSessionMessage {
   sessionId: string;
@@ -181,6 +213,35 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   };
 }
 
+function receiptFromWire(row: Record<string, unknown>): AcpSessionReceipt {
+  const role = row.role;
+  return {
+    messageId: String(pick<unknown>(row, 'message_id', 'messageId') ?? ''),
+    role: role === 'user' || role === 'tool' ? role : 'assistant',
+    createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
+    deliveredAt: (pick<string>(row, 'delivered_at', 'deliveredAt') ?? null) as string | null,
+    completedAt: (pick<string>(row, 'completed_at', 'completedAt') ?? null) as string | null,
+  };
+}
+
+function sessionStateFromWire(row: Record<string, unknown>): AcpSessionState {
+  const lastMessageId = pick<unknown>(row, 'last_message_id', 'lastMessageId');
+  const messageCount = pick<unknown>(row, 'message_count', 'messageCount');
+  const headSeq = pick<unknown>(row, 'head_seq', 'headSeq');
+  const receipts = row.receipts;
+  const agentState = pick<unknown>(row, 'agent_state', 'agentState');
+  return {
+    ...sessionFromWire(row),
+    lastMessageId: typeof lastMessageId === 'string' && lastMessageId ? lastMessageId : null,
+    messageCount: typeof messageCount === 'number' ? messageCount : Number(messageCount ?? 0) || 0,
+    headSeq: typeof headSeq === 'number' ? headSeq : Number(headSeq ?? 0) || 0,
+    receipts: Array.isArray(receipts)
+      ? receipts.filter((receipt) => receipt && typeof receipt === 'object').map(receiptFromWire)
+      : [],
+    agentState: agentState === 'live' || agentState === 'archived' || agentState === 'deleted' ? agentState : null,
+  };
+}
+
 function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
   const seq = row.seq;
   const role = row.role;
@@ -229,14 +290,15 @@ export class SessionsAPI {
   }
 
   /**
-   * Stored metadata for one platform session ID (not an agent/runtime session ID).
-   * Uses the caller's existing participation scope; no runtime connection or read receipt.
+   * Stored metadata and chat-open state for one platform session ID (not an
+   * agent/runtime session ID). Uses the caller's existing participation scope;
+   * no runtime connection. Advances the caller's read receipt to the head.
    */
-  async getSession(platformSessionId: string): Promise<AcpSessionRecord> {
+  async getSession(platformSessionId: string): Promise<AcpSessionState> {
     const payload = await this.http.get<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(platformSessionId)}`,
     );
-    return sessionFromWire(payload);
+    return sessionStateFromWire(payload);
   }
 
   /** Session catalog page, newest activity first (`(updated_at, id)` keyset). */

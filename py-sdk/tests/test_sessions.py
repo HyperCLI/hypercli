@@ -29,6 +29,17 @@ def test_old_server_missing_source_is_null():
     assert SessionRecord.from_dict({"id": "old-session"}).source is None
 
 
+@pytest.mark.parametrize("agent_state", ["live", "archived", "deleted"])
+def test_detail_parses_computed_agent_state(agent_state):
+    record = SessionRecord.from_dict({"id": "session", "agent_state": agent_state})
+    assert record.agent_state == agent_state
+
+
+def test_detail_agent_state_defaults_none_when_absent_or_null():
+    assert SessionRecord.from_dict({"id": "old-session"}).agent_state is None
+    assert SessionRecord.from_dict({"id": "old-session", "agent_state": None}).agent_state is None
+
+
 SESSION_ID = "b7a3d1e2-4f50-4c6a-9d2b-8c1f0a5e6d7b"
 SESSION_ROW = {
     "id": SESSION_ID,

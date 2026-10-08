@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
-import { SessionsAPI, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
+import { SessionsAPI, type AcpSessionState, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
 
 describe('durable session import evidence', () => {
   it.each(['retained', 'empty', 'filtered', 'unsupported', 'malformed', 'failed'] as const)(
@@ -151,14 +151,14 @@ describe('session detail HTTP contract', () => {
     vi.stubGlobal('fetch', fetch);
     const client = new HyperCLI({ apiKey: 'caller-key', apiUrl: 'https://example.com' });
 
-    const detail: AcpSessionRecord = await client.sessions.getSession(SESSION_ID);
+    const detail: AcpSessionState = await client.sessions.getSession(SESSION_ID);
     expect(fetch).toHaveBeenCalledExactlyOnceWith(`https://example.com/agents/sessions/${SESSION_ID}`, {
       method: 'GET',
       headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/json' },
       body: undefined,
       signal: expect.any(AbortSignal),
     });
-    expect(detail).toEqual({
+    const record: AcpSessionRecord = {
       importOutcome: null,
       id: SESSION_ID, source,
       summaryText: sessionRow.summary_text, summaryKeywords: sessionRow.summary_keywords,
@@ -167,8 +167,11 @@ describe('session detail HTTP contract', () => {
         { kind: 'agent', participantId: AGENT_ID, internalSessionId: 'claude-session-9f2e', cursorPos: 14 },
         { kind: 'user', participantId: USER_ID, internalSessionId: null, cursorPos: 14 },
       ],
-    });
-    expect((await client.sessions.listSessions()).items[0]).toEqual(detail);
+    };
+    // sessionRow carries no state fields, like a pre-state backend: absent means empty.
+    expect(detail).toEqual({ ...record, lastMessageId: null, messageCount: 0, headSeq: 0, receipts: [], agentState: null });
+    // The catalog read never carries state fields; only the detail read does.
+    expect((await client.sessions.listSessions()).items[0]).toEqual(record);
   });
 
   it('encodes the supplied platform ID without resolving runtime IDs and preserves null metadata', async () => {
@@ -185,7 +188,35 @@ describe('session detail HTTP contract', () => {
       importOutcome: null,
       id: SESSION_ID, source: null, summaryText: null, summaryKeywords: [],
       createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at, participants: [],
+      lastMessageId: null, messageCount: 0, headSeq: 0, receipts: [], agentState: null,
     });
+  });
+
+  it('hydrates the state fields when the backend serves them', async () => {
+    const receipt = {
+      message_id: 'm-user-3', role: 'user',
+      created_at: '2026-09-26T08:30:00+00:00', delivered_at: '2026-09-26T08:30:05+00:00',
+      completed_at: null,
+    };
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue({ ...sessionRow,
+      last_message_id: 'm-agent-7', message_count: 7, head_seq: 64, receipts: [receipt] }) });
+    const detail: AcpSessionState = await api.getSession(SESSION_ID);
+    expect(detail.lastMessageId).toBe('m-agent-7');
+    expect(detail.messageCount).toBe(7);
+    expect(detail.headSeq).toBe(64);
+    expect(detail.receipts).toEqual([{ messageId: 'm-user-3', role: 'user',
+      createdAt: receipt.created_at, deliveredAt: receipt.delivered_at, completedAt: null }]);
+  });
+
+  it.each(['live', 'archived', 'deleted'] as const)('hydrates agent connection state %s computed per request', async (agentState) => {
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue({ ...sessionRow, agent_state: agentState }) });
+    expect((await api.getSession(SESSION_ID)).agentState).toBe(agentState);
+  });
+
+  it.each(['draining', null])('defaults unknown or absent agent state %s to null', async (agentState) => {
+    const wire = agentState === null ? { ...sessionRow } : { ...sessionRow, agent_state: agentState };
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue(wire) });
+    expect((await api.getSession(SESSION_ID)).agentState).toBeNull();
   });
 
   it.each([401, 403, 404, 422])('propagates HTTP %s without ACP fallback', async (status) => {

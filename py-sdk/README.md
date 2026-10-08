@@ -343,10 +343,15 @@ print(session.source, session.summary_text, session.participants)
 ```
 
 `get_session()` calls `GET /agents/sessions/{id}` using the existing caller
-credentials and the same `SessionRecord` decoder as `list_sessions()`. Nullable
+credentials and the same `SessionRecord` decoder as `list_sessions()`, extended
+with `import_outcome` and the ACP v2 windowing state (`last_message_id`,
+`message_count`, `head_seq`, per-message `receipts`). Nullable
 source values are forward-compatible strings; the title is `summary_text`.
 Timestamps and participant dictionaries retain the existing catalog shape.
-Reads work offline without runtime connections or receipt advancement. HTTP
+Reads work offline without runtime connections; as the windowed-history app's
+sole REST session call the detail read advances the caller's user read receipt
+to the session head (transcript history itself flows over ACP v2
+`session/resume` replay windows, never the paged messages route). HTTP
 errors propagate as `APIError`: 404 unknown session, 403 outside participation
 scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occurs.
 

@@ -298,10 +298,12 @@ class ACPClient(v2.Client):
         self._states.setdefault(parsed.session_id, "idle")
         return parsed.session_id
 
-    async def resume_session(self, session_id, *, cwd, mcp_servers=None, replay=False):
+    async def resume_session(self, session_id, *, cwd, mcp_servers=None, replay=False, replay_from=None):
         params = {"sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers or []}
         if replay:
             params["replayFrom"] = {"type": "start"}
+        if replay_from is not None:
+            params["replayFrom"] = replay_from
         return await self.request("session/resume", params)
 
     async def load_session(self, session_id, *, cwd, mcp_servers=None):

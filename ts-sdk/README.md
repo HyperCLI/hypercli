@@ -65,11 +65,16 @@ const session = await client.sessions.getSession(platformSessionId);
 console.log(session.source, session.summaryText, session.participants);
 ```
 
-Returns the existing `AcpSessionRecord` shape, just like `sessions.listSessions()`.
-This calls `GET /agents/sessions/{id}` with the current caller's credentials;
+Returns the `AcpSessionState` shape — the `AcpSessionRecord` catalog record
+extended with `importOutcome` and the ACP v2 windowing state (`lastMessageId`,
+`messageCount`, `headSeq`, per-message `receipts`). This calls
+`GET /agents/sessions/{id}` with the current caller's credentials;
 runtime/leg IDs are not resolved. `source` is `string | null` and unknown values
 are preserved. It reads stored metadata even while the agent is offline, without
-connecting to the runtime or advancing read receipts. HTTP errors propagate as
+connecting to the runtime; as the windowed-history app's sole REST session call
+it advances the caller's user read receipt to the session head (transcript
+history itself flows over ACP v2 `session/resume` replay windows, never the
+paged messages route). HTTP errors propagate as
 `APIError`: 404 unknown session, 403 outside participation scope, 422 invalid UUID.
 
 ### Billing

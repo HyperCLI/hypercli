@@ -49,6 +49,26 @@ import {
 export type { ContentBlock, RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk';
 export type { AcpReplayFrom };
 
+/**
+ * Windowed resume cursor — plain range fields on the standard v2 `start`
+ * cursor for the v2 data plane (both wire ends are ours). The pinned
+ * schema's `ReplayFromStart` allows additional properties, so the window
+ * form adds fields, never protocol types:
+ * - `{ type: 'start', limit }`: the bounded mount — replay the run-atomic
+ *   newest-`limit` window of retained rows.
+ * - `{ type: 'start', from: '<messageId>', limit }`: page the window
+ *   strictly older than the anchored message's first row; an empty page is
+ *   the end-of-history signal. Paging requires the live leg — mount first.
+ * A bare `{ type: 'start' }` (plain `AcpReplayFrom`) replays everything.
+ */
+export type WindowedReplayCursor = {
+  type: 'start';
+  /** Window size in replay-eligible retained rows. */
+  limit: number;
+  /** messageId anchor: replay rows strictly older than this message's first row. */
+  from?: string;
+};
+
 /** ACP major protocol versions this client can negotiate. */
 export type CodingAgentAcpProtocolVersion = 1 | 2;
 
@@ -90,17 +110,19 @@ export const ACP_RECONNECT_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000];
  */
 export const ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404;
 
-// USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the REST history read
-// advances the caller's participant cursor — there is NO client→proxy
-// read-ack frame, and this client emits none. (Earlier versions sent a
-// `_hypercli.dev/session_read_ack` request and treated its response as a
-// durability ack: the proxy never handled that frame — it leg-passthrough'd
-// it to the pod, which moved no cursor, so the "confirmed" receipt was a
-// silent no-op lie. The proxy now pins the retired frame at dispatch.)
+// USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the session-detail GET
+// (the app's sole REST session call) advances the caller's participant
+// cursor — there is NO client→proxy read-ack frame, and this client emits
+// none. (Earlier versions sent a `_hypercli.dev/session_read_ack` request
+// and treated its response as a durability ack: the proxy never handled
+// that frame — it leg-passthrough'd it to the pod, which moved no cursor,
+// so the "confirmed" receipt was a silent no-op lie. The proxy now pins the
+// retired frame at dispatch.)
 // The proxy's `_meta["hypercli.dev"].seq` tee annotation is GONE (removed
 // 2026-09-29): the proxy tee is 100% vanilla ACP (owner ruling, final
 // 2026-09-28), so teed frames arrive unannotated and delivery gaps are
-// recovered with a keyset re-read over the REST history endpoint.
+// recovered with a reconnect re-resume (a `limit`-bounded window
+// on `{ type: 'start' }`, or the full start replay).
 
 /**
  * Bridge close codes that must not be retried: the identity/binding itself is
@@ -630,11 +652,17 @@ export class CodingAgentAcpClient {
 
   /**
    * Restore a session's context (`session/resume`). Without `replayFrom` no
-   * history is replayed. `replayFrom` requests retained history
-   * (`{ type: 'start' }` replays everything) — this is the v2 replacement
-   * for the removed `session/load`; replayed history streams as
-   * `session/update` notifications before the resume response resolves, so
-   * the call runs inside a replay-epoch bracket.
+   * history is replayed. `replayFrom` requests retained history — this is the
+   * v2 replacement for the removed `session/load`; replayed history streams
+   * as `session/update` notifications before the resume response resolves, so
+   * the call runs inside a replay-epoch bracket. Supported `replayFrom`
+   * forms: `{ type: 'start' }` replays everything; adding plain range
+   * fields bounds or pages the window — `{ type: 'start', limit }`
+   * replays the run-atomic newest-`limit` window (the bounded mount), and
+   * `{ type: 'start', from: '<messageId>', limit }` replays the window
+   * strictly older than the anchored message's first row, an empty page
+   * marking the end of history (mount first — paging requires the live
+   * leg). See {@link WindowedReplayCursor}.
    */
   async resumeSession(
     sessionId: string,
