@@ -13,6 +13,7 @@ COPY --chmod=0755 opencode/entrypoint.sh /opt/hypercli/bin/opencode-entrypoint
 RUN export HOME=/root && \
     npm install --global --no-audit --no-fund "opencode-ai@${OPENCODE_VERSION}" && \
     opencode --version && \
+    rm -rf /tmp/opencode && \
     printf '%s\n' opencode > /opt/hypercli/share/runtime/runtime
 
 LABEL org.opencontainers.image.title="HyperCLI OpenCode Agent" \

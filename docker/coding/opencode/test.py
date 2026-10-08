@@ -88,4 +88,17 @@ model_prefix = run(
 )
 assert model_prefix.stdout == "hypercli/"
 
+# opencode's startup scratch dir must be creatable/writable by the runtime
+# user (node); the build-time version smoke check must not leave it
+# root-owned.
+run(
+    image,
+    [
+        "sh",
+        "-c",
+        "if [ -e /tmp/opencode ]; then test -w /tmp/opencode; "
+        "else mkdir /tmp/opencode && rmdir /tmp/opencode; fi",
+    ],
+)
+
 print(f"{image}: OpenCode contract passed")
