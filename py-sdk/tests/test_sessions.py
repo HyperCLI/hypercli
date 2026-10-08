@@ -29,15 +29,25 @@ def test_old_server_missing_source_is_null():
     assert SessionRecord.from_dict({"id": "old-session"}).source is None
 
 
-@pytest.mark.parametrize("agent_state", ["live", "archived", "deleted"])
+@pytest.mark.parametrize("agent_state", ["live", "archived", "deleted", "future-state"])
 def test_detail_parses_computed_agent_state(agent_state):
-    record = SessionRecord.from_dict({"id": "session", "agent_state": agent_state})
+    record = SessionRecord.from_dict({"id": "session", "agentState": agent_state})
     assert record.agent_state == agent_state
 
 
 def test_detail_agent_state_defaults_none_when_absent_or_null():
     assert SessionRecord.from_dict({"id": "old-session"}).agent_state is None
-    assert SessionRecord.from_dict({"id": "old-session", "agent_state": None}).agent_state is None
+    assert SessionRecord.from_dict({"id": "old-session", "agentState": None}).agent_state is None
+
+
+@pytest.mark.parametrize("fields,expected", [
+    ({"agent_state": "archived"}, "archived"),
+    ({"agentState": "live", "agent_state": "archived"}, "live"),
+    ({"agentState": None, "agent_state": "archived"}, None),
+    ({"agentState": 42, "agent_state": "archived"}, None),
+])
+def test_agent_state_snake_compatibility_does_not_override_canonical_wire(fields, expected):
+    assert SessionRecord.from_dict({"id": "session", **fields}).agent_state == expected
 
 
 SESSION_ID = "b7a3d1e2-4f50-4c6a-9d2b-8c1f0a5e6d7b"
@@ -58,7 +68,7 @@ SESSION_ROW = {
 
 @pytest.mark.parametrize("source", [None, "slack", "future-client"])
 def test_detail_http_contract_and_list_consistency(monkeypatch, source):
-    row = {**SESSION_ROW, "source": source}
+    row = {**SESSION_ROW, "source": source, "agentState": "live"}
     requests = []
 
     def send(self, request, **kwargs):
@@ -74,6 +84,7 @@ def test_detail_http_contract_and_list_consistency(monkeypatch, source):
         id=SESSION_ID, source=source, summary_text=row["summary_text"],
         summary_keywords=row["summary_keywords"], created_at=row["created_at"],
         updated_at=row["updated_at"], participants=row["participants"],
+        agent_state="live",
     )
     assert len(requests) == 1
     request = requests[0]
@@ -144,6 +155,24 @@ def test_completion_joins_exact_rows_across_pages_without_contiguous_cursor():
     ]
 
 
+@pytest.mark.parametrize("across_pages", [False, True])
+@pytest.mark.parametrize("newest_reason", ["cancelled", None])
+def test_completion_preserves_newest_terminal_evidence(across_pages, newest_reason):
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    original, older = receipt_rows()
+    newest = {**older, "seq": 11, "stop_reason": newest_reason}
+    pages = (
+        [{"items": [newest], "has_more": True, "next_cursor": "older"},
+         {"items": [older, original], "has_more": False}]
+        if across_pages else
+        [{"items": [newest, older, original], "has_more": False}]
+    )
+    api._get = MagicMock(side_effect=pages)
+    expected = {"stopReason": newest_reason} if newest_reason is not None else None
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") == expected
+    assert api._get.call_count == len(pages)
+
+
 @pytest.mark.parametrize("which,field,value", [
     (0, "completed_at", None), (0, "session_id", "other"), (0, "role", "assistant"),
     (0, "messageId", "other"), (0, "agentId", "other"),
@@ -165,3 +194,27 @@ def test_completion_stops_on_repeated_cursor():
     api._get = MagicMock(return_value={"items": [terminal], "has_more": True, "next_cursor": "same"})
     assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") is None
     assert api._get.call_count == 2
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_completion_uses_newest_attempt_across_pages(complete):
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    original, terminal = receipt_rows()
+    stamp = "2026-10-08T12:00:00Z"
+    newest = {**terminal, "seq": 12, "completed_at": stamp}
+    old = {**terminal, "stop_reason": "cancelled"}
+    api._get = MagicMock(side_effect=[
+        {"items": [newest] if complete else [], "has_more": True, "next_cursor": "older"},
+        {"items": [old, {**original, "completed_at": stamp if complete else None}], "has_more": False},
+    ])
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") == ({"stopReason": "end_turn"} if complete else None)
+
+
+def test_completion_does_not_join_pre_retry_page_to_later_completed_attempt():
+    api = HyperCLI(api_key="test", api_url="https://example.com").deployments
+    original, terminal = receipt_rows()
+    api._get = MagicMock(side_effect=[
+        {"items": [{**terminal, "stop_reason": "cancelled"}], "has_more": True, "next_cursor": "older"},
+        {"items": [{**original, "completed_at": "2026-10-08T12:00:00Z"}], "has_more": False},
+    ])
+    assert api.get_prompt_completion(SESSION_ID, "accepted", "agent") is None

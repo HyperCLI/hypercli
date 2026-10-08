@@ -8,7 +8,7 @@ cd /opt/cli
 
 tests="$(node -p "require('./tests/ci-matrix.json').groups['${GROUP}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
 if [ -n "${tests}" ]; then
-  npx vitest run ${tests}
+  exec python3 /opt/tools/run_unit_tests.py -- npx vitest run ${tests}
 else
   echo "no vitest files declared for group '${GROUP}' in tests/ci-matrix.json"
 fi

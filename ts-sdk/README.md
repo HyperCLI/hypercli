@@ -312,7 +312,7 @@ Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessi
 
 ### ACP v2 conversation operations
 
-The Backend `/ws/acp` surface accepts v2 clients only. Runtime legs negotiate
+The Backend `/ws/acp` surface accepts v2 clients only. Runtime connections negotiate
 their own v1/v2 version; frontend code must not downgrade to a v1 prompt contract.
 The SDK uses `@agentclientprotocol/sdk` 1.5.0's experimental v2 profile.
 
@@ -338,6 +338,17 @@ local `onAccepted` callback exposes the insertion acknowledgement before complet
 Messages retain standard ID-based append, replacement, omission and clear
 semantics. Platform source/title/detail and reader receipts remain on REST.
 Unknown legacy workspace setup is not guessed into ACP catalog entries.
+
+The existing `WindowedReplayCursor` range fields (`limit` and `from` on a
+`start` cursor) are platform-specific compatibility behavior, not upstream
+ACP semantics. They remain supported for the app's bounded history replay;
+replacing them requires a coordinated app/backend change.
+
+`AcpTurnDriver` serializes one queued submission per prompt, preserving all
+content blocks. Its commit hook runs after verified completion and before
+settling the submission or sending the next one. Cancelled completion pauses
+the queue until a new explicit submission. Prompt observation or commit failure
+fences the driver: pending and later submissions reject without resending input.
 
 ### Managed Coding Agents and Buzz ACP
 

@@ -107,6 +107,25 @@ describe('exact prompt completion evidence', () => {
     acp: { type: 'user_message', messageId: 'accepted', agentId: AGENT_ID } };
   const terminal = { ...messageRow, seq: 9, acp: { type: 'turn_result', messageSeq: 7 } };
 
+  it.each([false, true])('keeps the newest retry result (split across pages=%s)', async (splitPages) => {
+    const newest = { ...terminal, seq: 12, stop_reason: 'cancelled' };
+    const get = vi.fn();
+    if (splitPages) {
+      get.mockResolvedValueOnce({ items: [newest], has_more: true, next_cursor: 'older' })
+        .mockResolvedValueOnce({ items: [terminal, input], has_more: false });
+    } else {
+      get.mockResolvedValue({ items: [newest, terminal, input], has_more: false });
+    }
+    expect(await new SessionsAPI({ get }).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID))
+      .toEqual({ stopReason: 'cancelled' });
+    expect(get).toHaveBeenCalledTimes(splitPages ? 2 : 1);
+  });
+
+  it('does not reuse a prior terminal while the backend has reset the input completion receipt', async () => {
+    const get = vi.fn().mockResolvedValue({ items: [terminal, { ...input, completed_at: null }], has_more: false });
+    expect(await new SessionsAPI({ get }).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toBeNull();
+  });
+
   it('joins across pages by accepted ID, input seq and agent, not a contiguous cursor', async () => {
     const http = { get: vi.fn().mockResolvedValueOnce({ items: [terminal], has_more: true, next_cursor: 'older' })
       .mockResolvedValueOnce({ items: [input], has_more: false }) };
@@ -137,6 +156,24 @@ describe('exact prompt completion evidence', () => {
     const http = fakeHttp({ items: [terminal], has_more: true, next_cursor: 'same' });
     expect(await new SessionsAPI(http as never).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toBeNull();
     expect(http.get).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])('uses the newest attempt across pages (retry complete: %s)', async (complete) => {
+    const stamp = '2026-10-08T12:00:00+00:00';
+    const newest = { ...terminal, seq: 12, completed_at: stamp, stop_reason: 'end_turn' };
+    const old = { ...terminal, stop_reason: 'cancelled' };
+    const http = { get: vi.fn()
+      .mockResolvedValueOnce({ items: complete ? [newest] : [], has_more: true, next_cursor: 'older' })
+      .mockResolvedValueOnce({ items: [old, { ...input, completed_at: complete ? stamp : null }], has_more: false }) };
+    expect(await new SessionsAPI(http).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID))
+      .toEqual(complete ? { stopReason: 'end_turn' } : null);
+  });
+
+  it('does not join a pre-retry page to a later completed attempt', async () => {
+    const http = { get: vi.fn()
+      .mockResolvedValueOnce({ items: [{ ...terminal, stop_reason: 'cancelled' }], has_more: true, next_cursor: 'older' })
+      .mockResolvedValueOnce({ items: [{ ...input, completed_at: '2026-10-08T12:00:00+00:00' }], has_more: false }) };
+    expect(await new SessionsAPI(http).getPromptCompletion(SESSION_ID, 'accepted', AGENT_ID)).toBeNull();
   });
 });
 

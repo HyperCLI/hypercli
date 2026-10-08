@@ -11,6 +11,11 @@
 # dist out of the image so the in-image `npm ci` result is what gets tested.
 FROM node:24-bookworm-slim
 
+# Test-only process supervisor, also used by the mounted unit gate scripts.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY tools/run_unit_tests.py /opt/tools/run_unit_tests.py
+
 # ts-sdk first (ts-cli depends on it via file:../ts-sdk).
 COPY ts-sdk/package*.json /opt/ts-sdk/
 WORKDIR /opt/ts-sdk

@@ -22,6 +22,7 @@ class SessionRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SessionRecord":
+        agent_state = data.get("agentState", data.get("agent_state"))
         return cls(
             id=str(data["id"]),
             source=data.get("source") if isinstance(data.get("source"), str) else None,
@@ -35,7 +36,7 @@ class SessionRecord:
             message_count=data.get("message_count"),
             head_seq=data.get("head_seq"),
             receipts=list(data.get("receipts") or []),
-            agent_state=data.get("agent_state") if isinstance(data.get("agent_state"), str) else None,
+            agent_state=agent_state if isinstance(agent_state, str) else None,
         )
 
 

@@ -1,10 +1,9 @@
 /**
- * Per-agent connection pool for {@link CodingAgentAcpClient}.
+ * Keyed connection pool for {@link CodingAgentAcpClient}.
  *
- * Two clients dialed to the same agent through the backend bridge share one
- * underlying stdio session, so every caller must ride one connection instead
- * of dialing its own. The pool hands out refcounted leases on a single
- * connected client per key: concurrent `acquire()` calls dedupe onto one
+ * Callers choose keys for connections they want to share (for example, an
+ * agent ID or an agent/session pair). The pool hands out refcounted leases
+ * on a single connected client per key: concurrent `acquire()` calls dedupe onto one
  * in-flight connect, the last `release()` closes the client, and a terminal
  * self-close makes the pool forget the entry so the next `acquire()` dials
  * fresh. Update fan-out across subscribers is handled by

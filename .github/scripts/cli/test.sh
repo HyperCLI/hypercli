@@ -3,8 +3,4 @@
 set -euo pipefail
 
 cd /opt/cli
-if [ "$#" -gt 0 ]; then
-  npx vitest run "$@"
-else
-  npx vitest run
-fi
+exec python3 /opt/tools/run_unit_tests.py -- npx vitest run "$@"

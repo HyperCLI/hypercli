@@ -123,6 +123,9 @@ class FakeAcpPeer {
       case 'session/prompt':
         this.server.promptHook(this, frame);
         return;
+      case 'session/set_config_option':
+        this.result(frame, { configOptions: this.server.resumeResult?.configOptions ?? [] });
+        return;
       default:
         this.error(frame, -32601, `"Method not found": ${frame.method}`);
     }
@@ -361,6 +364,34 @@ describe('ACP operation diagnostics', () => {
       cause: { code: -32602, message: 'initialize rejected' },
     });
     await waitFor(() => bridge.currentPeer.socketClosed);
+  });
+
+  it.each(['close', 'release', 'abort'] as const)('cancels a stalled reconnect initialize on %s', async (action) => {
+    const bridge = await startBridge();
+    const controller = new AbortController();
+    const events: CodingAgentAcpDiagnostic[] = [];
+    const pool = new CodingAgentAcpPool({
+      connect: () => acpAgent(bridge).acpConnect({ signal: controller.signal, onDiagnostic: event => events.push(event) }),
+    });
+    pools.push(pool);
+    const lease = await pool.acquire('agent');
+    const client = lease.client;
+    bridge.initializeHook = () => {};
+    bridge.currentPeer.drop();
+    await waitFor(() => bridge.peers.length === 2 && bridge.currentPeer.initializeCount === 1);
+    const pendingPeer = bridge.currentPeer;
+    expect(client.connected).toBe(false);
+    const rejected = expect(client.waitConnected()).rejects.toBeInstanceOf(CodingAgentAcpConnectionError);
+    if (action === 'release') lease.release();
+    else if (action === 'abort') controller.abort();
+    else client.close();
+    await rejected;
+    await waitFor(() => pendingPeer.socketClosed);
+    await waitFor(() => events.some(event => event.stage === 'initialize' && event.phase === 'failed'));
+    expect(client.closed).toBe(true);
+    expect(client.connected).toBe(false);
+    expect(pool.size()).toBe(0);
+    expect(pendingPeer.framesFor('session/resume')).toHaveLength(0);
   });
 
   it('reports cwd resolution failure before any session/new and forwards the caller signal', async () => {
@@ -754,6 +785,29 @@ describe('Agent.acpConnect', () => {
 });
 
 describe('ACP version negotiation', () => {
+  it.each(['mode', 'model'] as const)('retains the local config ID alias for set %s after automatic resume', async (category) => {
+    const bridge = await startBridge();
+    const configId = `runtime-${category}`;
+    bridge.resumeResult = { configOptions: [{
+      configId, category, name: category, type: 'select', currentValue: 'initial',
+      options: [{ value: 'initial', name: 'Initial' }, { value: 'next', name: 'Next' }],
+    }] };
+    const client = track(await acpAgent(bridge).acpConnect());
+    const { sessionId } = await client.newSession();
+    const replayed = new Promise<void>(resolve => client.addReplayListener(event => {
+      if (event.phase === 'end' && event.ok) resolve();
+    }));
+    bridge.currentPeer.drop();
+    await replayed;
+    // Round-trip after the replay boundary lets automatic resume apply its state.
+    await client.listSessions();
+    if (category === 'mode') await client.setMode(sessionId, 'next');
+    else await client.setModel(sessionId, 'next');
+    expect(bridge.currentPeer.framesFor('session/set_config_option').map(frame => frame.params)).toEqual([
+      { sessionId, configId, type: 'id', value: 'next' },
+    ]);
+  });
+
   it('a v2-answering agent negotiates v2 and exposes the v2-shaped initialize response', async () => {
     const bridge = await startBridge({ protocolVersion: 2 });
     const client = track(await acpAgent(bridge).acpConnect());
@@ -1136,6 +1190,51 @@ describe('CodingAgentAcpClient replay epoch tracking', () => {
 });
 
 describe('CodingAgentAcpClient foreground admission after resume', () => {
+  it.each([undefined, null])('settles a held idle waiter after successful no-history resume (replayFrom=%s)', async (replayFrom) => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    let entered!: (frame: WireFrame) => void;
+    const resumeEntered = new Promise<WireFrame>(resolve => { entered = resolve; });
+    bridge.loadHook = (_peer, frame) => entered(frame);
+    const resuming = client.resumeSession('session-1', { replayFrom });
+    const held = await resumeEntered;
+    let settled = false;
+    const waiting = client.waitForIdle('session-1').then(() => { settled = true; });
+    const states: string[] = [];
+    stateObserver(client, states);
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle' } });
+    await waitFor(() => states.includes('idle'));
+    expect(settled).toBe(false);
+    bridge.currentPeer.result(held, {});
+    await resuming;
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
+  it('does not let an older no-history resume settle the latest pending resume idle waiter', async () => {
+    const bridge = await startBridge();
+    const client = track(await acpAgent(bridge).acpConnect());
+    await client.newSession();
+    const held: WireFrame[] = [];
+    bridge.loadHook = (_peer, frame) => { held.push(frame); };
+    const older = client.resumeSession('session-1');
+    const latest = client.resumeSession('session-1');
+    await waitFor(() => held.length === 2);
+    let settled = false;
+    const waiting = client.waitForIdle('session-1').then(() => { settled = true; });
+    const states: string[] = [];
+    stateObserver(client, states);
+    bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle' } });
+    await waitFor(() => states.includes('idle'));
+    bridge.currentPeer.result(held[0], {});
+    await older;
+    expect(settled).toBe(false);
+    bridge.currentPeer.result(held[1], {});
+    await latest;
+    await waiting;
+  });
+
   it('does not mistake an untracked session for observed quiet', async () => {
     const bridge = await startBridge();
     const client = track(await acpAgent(bridge).acpConnect());
@@ -1316,7 +1415,7 @@ describe('CodingAgentAcpClient foreground admission after resume', () => {
     let settled = false;
     const waiting = client.waitForIdle('session-1').then(() => { settled = true; });
     await client.resumeSession('session-1', { replayFrom: { type: 'start' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await client.listSessions();
     expect(settled).toBe(false);
     bridge.currentPeer.notify('session/update', { sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } });
     await waiting;

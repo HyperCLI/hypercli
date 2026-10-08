@@ -1,6 +1,6 @@
 /**
  * Serializes original messages through CodingAgentAcpClient.prompt(), which
- * waits for version-specific foreground completion. Commit precedes settlement.
+ * verifies completion through platform REST receipts. Commit precedes settlement.
  * Cancelled completion pauses queued input until a new explicit submission;
  * uncertain delivery or commit failure fences this driver without resending.
  */
@@ -19,16 +19,16 @@ export interface AcpTurnOutcome {
 
 export interface AcpTurnBundle {
   sessionId: string;
-  /** Window messages bundled into this prompt, chronological. */
+  /** Text blocks from the single queued submission, in order. */
   messages: string[];
-  /** The exact `session/prompt` payload sent: one text block per message. */
+  /** The exact content blocks sent in `session/prompt`, including non-text content. */
   blocks: ContentBlock[];
 }
 
 export interface AcpTurnDriverOptions {
   sessionId: string;
   /**
-   * Durable-commit hook run when a turn completes (on the prompt response).
+   * Durable-commit hook run when the client's completion helper resolves.
    * Window advance, submit-promise resolution, and the next bundle's flush
    * all happen only after this resolves. Receives the stopReason verbatim
    * (`end_turn`, `cancelled`, ...); cancelled turns commit normally — their
@@ -38,10 +38,9 @@ export interface AcpTurnDriverOptions {
   /** Fired once per flush with the bundle going on the wire. */
   onBundleOpen?: (bundle: AcpTurnBundle) => void;
   /**
-   * Soft errors: prompt send failure and commit failure. In both cases the
-   * leg returns to idle with the window NOT advanced (messages re-bundle on
-   * the next submit — there is no pod-side retention or re-delivery) and
-   * nothing auto-retries.
+   * Prompt observation and commit failures fence this driver and reject all
+   * pending submissions. The window is retained; later submissions reject
+   * with the same failure without resending input.
    */
   onError?: (error: Error) => void;
 }
@@ -55,11 +54,6 @@ interface TurnWaiter {
 interface PendingMessage {
   blocks: ContentBlock[];
   waiter: TurnWaiter;
-}
-
-interface InFlightTurn {
-  /** Window entries covered by this turn (dropped from the window on commit). */
-  entries: PendingMessage[];
 }
 
 function newTurnWaiter(): TurnWaiter {
@@ -85,7 +79,7 @@ export class AcpTurnDriver {
   private readonly options: AcpTurnDriverOptions;
   private readonly window: PendingMessage[] = [];
   private state: AcpTurnDriverState = 'idle';
-  private inFlight: InFlightTurn | null = null;
+  private inFlight: PendingMessage | null = null;
   private closed = false;
   private failure: Error | null = null;
 
@@ -151,10 +145,9 @@ export class AcpTurnDriver {
 
   private flush(): void {
     if (this.closed || this.state !== 'idle' || this.window.length === 0 || this.inFlight !== null) return;
-    const entries = this.window.slice(0, 1);
-    const blocks = structuredClone(entries[0].blocks);
+    const flight = this.window[0];
+    const blocks = structuredClone(flight.blocks);
     const texts = blocks.filter((block) => block.type === 'text').map((block) => block.text);
-    const flight: InFlightTurn = { entries };
     this.state = 'submitted';
     this.inFlight = flight;
     const bundle: AcpTurnBundle = {
@@ -174,12 +167,12 @@ export class AcpTurnDriver {
   }
 
   /** The client's prompt helper waits for completion, not just v2 acceptance. */
-  private onPromptResponse(flight: InFlightTurn, response: { stopReason?: string | null }): void {
+  private onPromptResponse(flight: PendingMessage, response: { stopReason?: string | null }): void {
     if (this.closed || this.inFlight !== flight) return;
     void this.completeTurn(flight, response.stopReason ?? null);
   }
 
-  private onPromptFailed(flight: InFlightTurn, error: unknown): void {
+  private onPromptFailed(flight: PendingMessage, error: unknown): void {
     if (this.closed || this.inFlight !== flight) return;
     // Delivery is uncertain. Retain the flight as a fence until the caller
     // reconciles/closes this driver; later submissions must not resend it.
@@ -189,24 +182,20 @@ export class AcpTurnDriver {
     this.emitError(failure);
   }
 
-  private async completeTurn(flight: InFlightTurn, stopReason: string | null): Promise<void> {
+  private async completeTurn(flight: PendingMessage, stopReason: string | null): Promise<void> {
     try {
       await this.options.commit(stopReason);
     } catch (error) {
-      if (this.closed || this.inFlight !== flight) return;
       // The runtime completed but persistence failed. Never resend its input.
-      const failure = toError(error);
-      this.failure = failure;
-      for (const entry of this.window) entry.waiter.reject(failure);
-      this.emitError(failure);
+      this.onPromptFailed(flight, error);
       return;
     }
     if (this.closed || this.inFlight !== flight) return;
     this.inFlight = null;
     this.state = 'idle';
-    this.window.splice(0, flight.entries.length);
+    this.window.splice(0, 1);
     const outcome: AcpTurnOutcome = { stopReason };
-    for (const entry of flight.entries) entry.waiter.resolve(outcome);
+    flight.waiter.resolve(outcome);
     if (stopReason !== 'cancelled') this.flush();
   }
 

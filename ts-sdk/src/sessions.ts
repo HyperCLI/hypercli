@@ -182,7 +182,7 @@ export interface AcpSessionMessagesWindow {
 
 function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T | undefined {
   const value = row[snake] ?? row[camel];
-  return value === undefined ? undefined : (value as T);
+  return value as T | undefined;
 }
 
 function participantFromWire(row: Record<string, unknown>): AcpSessionParticipant {
@@ -191,7 +191,7 @@ function participantFromWire(row: Record<string, unknown>): AcpSessionParticipan
   return {
     kind: kind === 'user' ? 'user' : 'agent',
     participantId: String(pick<unknown>(row, 'participant_id', 'participantId') ?? ''),
-    internalSessionId: (pick<string>(row, 'internal_session_id', 'internalSessionId') ?? null) as string | null,
+    internalSessionId: pick<string>(row, 'internal_session_id', 'internalSessionId') ?? null,
     cursorPos: typeof cursorPos === 'number' ? cursorPos : Number(cursorPos ?? 0),
   };
 }
@@ -203,9 +203,9 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
     id: String(row.id ?? ''),
     source: typeof row.source === 'string' ? row.source : null,
     importOutcome: pick<SessionImportOutcome>(row, 'import_outcome', 'importOutcome') ?? null,
-    createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
-    updatedAt: (pick<string>(row, 'updated_at', 'updatedAt') ?? null) as string | null,
-    summaryText: (pick<string>(row, 'summary_text', 'summaryText') ?? null) as string | null,
+    createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
+    updatedAt: pick<string>(row, 'updated_at', 'updatedAt') ?? null,
+    summaryText: pick<string>(row, 'summary_text', 'summaryText') ?? null,
     summaryKeywords: Array.isArray(keywords) ? keywords.map(String) : [],
     participants: Array.isArray(participants)
       ? participants.filter((participant) => participant && typeof participant === 'object').map(participantFromWire)
@@ -218,9 +218,9 @@ function receiptFromWire(row: Record<string, unknown>): AcpSessionReceipt {
   return {
     messageId: String(pick<unknown>(row, 'message_id', 'messageId') ?? ''),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
-    createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
-    deliveredAt: (pick<string>(row, 'delivered_at', 'deliveredAt') ?? null) as string | null,
-    completedAt: (pick<string>(row, 'completed_at', 'completedAt') ?? null) as string | null,
+    createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
+    deliveredAt: pick<string>(row, 'delivered_at', 'deliveredAt') ?? null,
+    completedAt: pick<string>(row, 'completed_at', 'completedAt') ?? null,
   };
 }
 
@@ -250,12 +250,12 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
     seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
     acp: (row.acp && typeof row.acp === 'object' ? row.acp : {}) as Record<string, unknown>,
-    stopReason: (pick<string>(row, 'stop_reason', 'stopReason') ?? null) as string | null,
-    createdAt: (pick<string>(row, 'created_at', 'createdAt') ?? null) as string | null,
-    deliveredAt: (pick<string>(row, 'delivered_at', 'deliveredAt') ?? null) as string | null,
-    completedAt: (pick<string>(row, 'completed_at', 'completedAt') ?? null) as string | null,
-    participantKind: (pick<string>(row, 'participant_kind', 'participantKind') ?? null) as AcpSessionMessage['participantKind'],
-    participantId: (pick<string>(row, 'participant_id', 'participantId') ?? null) as string | null,
+    stopReason: pick<string>(row, 'stop_reason', 'stopReason') ?? null,
+    createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
+    deliveredAt: pick<string>(row, 'delivered_at', 'deliveredAt') ?? null,
+    completedAt: pick<string>(row, 'completed_at', 'completedAt') ?? null,
+    participantKind: pick<AcpSessionMessage['participantKind']>(row, 'participant_kind', 'participantKind') ?? null,
+    participantId: pick<string>(row, 'participant_id', 'participantId') ?? null,
   };
 }
 
@@ -384,10 +384,16 @@ export class SessionsAPI {
       for (const row of page.items) {
         if (row.sessionId !== sessionId) continue;
         if (row.acp.type === 'turn_result' && row.participantKind === 'agent' && row.participantId === agentId &&
-            typeof row.acp.messageSeq === 'number' && row.completedAt) turns.set(row.acp.messageSeq, row);
+            typeof row.acp.messageSeq === 'number' && row.completedAt && !turns.has(row.acp.messageSeq)) {
+          // History is newest-first, including across pages. Keep the newest
+          // qualifying result when retries share the original input sequence.
+          turns.set(row.acp.messageSeq, row);
+        }
         if (row.acp.type === 'user_message' && row.acp.messageId === messageId && row.acp.agentId === agentId && row.role === 'user') {
           const terminal = turns.get(row.seq);
-          return row.completedAt && terminal && typeof terminal.stopReason === 'string'
+          // Resubmit resets the input receipt. Matching the terminal stamp also
+          // rejects pages read before a retry that completed during pagination.
+          return row.completedAt && terminal && row.completedAt === terminal.completedAt && typeof terminal.stopReason === 'string'
             ? { stopReason: terminal.stopReason } : null;
         }
       }

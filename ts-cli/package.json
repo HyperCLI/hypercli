@@ -14,7 +14,7 @@
     "prepack": "npm run build",
     "build": "npm run build:skills && tsc -p tsconfig.json",
     "build:skills": "node scripts/build-skills.mjs",
-    "test": "vitest run",
+    "test": "exec python3 ../tools/run_unit_tests.py -- vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts"
   },

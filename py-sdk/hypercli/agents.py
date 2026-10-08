@@ -3865,11 +3865,16 @@ class Deployments:
                 frame = row.get("acp") or {}
                 if (frame.get("type") == "turn_result" and row.get("participant_kind") == "agent"
                         and row.get("participant_id") == agent_id and row.get("completed_at")):
-                    turns[frame.get("messageSeq")] = row.get("stop_reason")
+                    # Newest-first history: older retries must not replace this evidence.
+                    turns.setdefault(frame.get("messageSeq"), row)
                 if (frame.get("type") == "user_message" and frame.get("messageId") == message_id
                         and frame.get("agentId") == agent_id and row.get("role") == "user"):
-                    stop_reason = turns.get(row.get("seq"))
-                    if row.get("completed_at") and isinstance(stop_reason, str):
+                    terminal = turns.get(row.get("seq")) or {}
+                    stop_reason = terminal.get("stop_reason")
+                    # Resubmit resets this receipt; equal stamps also reject
+                    # mixing a pre-retry page with a newly completed input row.
+                    if (row.get("completed_at") and row["completed_at"] == terminal.get("completed_at")
+                            and isinstance(stop_reason, str)):
                         return {"stopReason": stop_reason}
                     return None
             cursor = page.get("next_cursor")

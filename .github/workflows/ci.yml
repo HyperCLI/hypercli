@@ -109,14 +109,14 @@ jobs:
           npm pack --dry-run --json > "$RUNNER_TEMP/cli-pack.json"
           node --input-type=module -e 'import fs from "node:fs"; const [pkg] = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (!pkg.files.some(file => file.path === "dist/index.js")) process.exit(1)' "$RUNNER_TEMP/cli-pack.json"
       - name: Full vitest suite
-        run: npm --prefix ts-cli test
+        run: exec python3 tools/run_unit_tests.py -- npm --prefix ts-cli test
       # Offline harness for tests/live-lifecycle/{live.sh,lifecycle.sh}: bash
       # runs the real scripts against a stateful mock CLI; no secrets, no
       # network. Already covered by the full suite above; pinned as its own
       # step so drift in vitest include patterns can never silently drop it.
       - name: Lifecycle shell harness (offline mock)
         working-directory: ts-cli
-        run: npx vitest run tests/live-lifecycle.test.mjs
+        run: exec python3 ../tools/run_unit_tests.py -- npx vitest run tests/live-lifecycle.test.mjs
 
   # One gate per command group: the group's vitest files plus the bare
   # `node dist/index.js <group> --help` smoke.
@@ -149,7 +149,7 @@ jobs:
           set -euo pipefail
           tests="$(node -p "require('./tests/ci-matrix.json').groups['${{ matrix.group }}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
           if [ -n "${tests}" ]; then
-            npx vitest run ${tests}
+            exec python3 ../tools/run_unit_tests.py -- npx vitest run ${tests}
           else
             echo "no vitest files declared for group '${{ matrix.group }}' in tests/ci-matrix.json"
           fi
@@ -213,7 +213,7 @@ jobs:
           npm ci --prefix ts-sdk
           npm --prefix ts-sdk run build
       - name: ts-sdk vitest suite
-        run: npm --prefix ts-sdk test
+        run: exec python3 tools/run_unit_tests.py -- npm --prefix ts-sdk test
 
   # py-sdk + py-cli pytest, offline subset: `-k 'not integration'` drops the
   # tests/integration trees and integration-named files (live agent lifecycle,
@@ -242,7 +242,7 @@ jobs:
           pip install -e "py-sdk[dev]"
           pip install -e "py-cli[dev,documents,wallet]"
       - name: pytest (charm-free subset)
-        run: pytest -q --import-mode=importlib py-sdk/tests py-cli/tests -k 'not integration' -m 'not integration'
+        run: exec python3 tools/run_unit_tests.py -- python3 -m pytest -q --import-mode=importlib py-sdk/tests py-cli/tests -k 'not integration' -m 'not integration'
 
   # rs-sdk cargo test. rs-sdk is the only member of the repo-root workspace;
   # --locked pins the checked-in Cargo.lock.
@@ -258,4 +258,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test
         working-directory: rs-sdk
-        run: cargo test --locked
+        run: exec python3 ../tools/run_unit_tests.py -- cargo test --locked

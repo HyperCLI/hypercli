@@ -1,27 +1,25 @@
 /**
  * ACP (Agent Client Protocol) client connectivity for coding agents.
  *
- * Every hosted coding-agent pod runs `hyper-acp`, which bridges the pod-side
- * ACP child (`opencode acp`, `claude-code acp`, ...) onto an outbound
- * WebSocket to the backend bridge at `/ws`. This module dials that bridge as
- * the client side (`?agent_id=<uuid>&token=<api key>`), runs the ACP
- * `initialize` handshake, and exposes typed session helpers plus a raw
- * JSON-RPC escape hatch.
+ * Hosted runtimes connect to the backend bridge through `hyper-acp`.
+ * Product clients default to the backend session authority at `/ws/acp`;
+ * this module initializes that connection and exposes typed session helpers
+ * plus raw JSON-RPC access.
  *
  * The frontend profile is schema-v2.0.0-alpha.5 using the actual
  * upstream experimental/v2 SDK runtime. There is no v1 opt-in: the client
  * closes the connection when the agent answers anything other than version 2.
  * The backend independently negotiates its runtime legs.
  * submitPrompt returns the v2 inserted messageId; prompt is a convenience that
- * additionally waits for the session's foreground idle transition. Neither
+ * additionally verifies completion through a platform REST receipt reader. Neither
  * helper retries input after uncertain delivery.
  * On v2 there is no `session/load` — reattach and history replay go through
  * `session/resume` with a `replayFrom` cursor instead.
  *
  * Reconnect mirrors the ACP reattach contract used by the bridge: the runtime
  * side is long-lived, the client re-dials, re-initializes (re-negotiating),
- * and replays each known session (`session/load` on v1, `session/resume` with
- * `replayFrom: { type: 'start' }` on v2). In-flight prompt turns are never
+ * and replays each known session with `session/resume` and
+ * `replayFrom: { type: 'start' }`. In-flight prompt turns are never
  * retried mid-turn; replay failures surface as soft
  * {@link CodingAgentAcpReplayGapError}s while the connection stays alive.
  *
@@ -51,10 +49,9 @@ export type { ContentBlock, RequestPermissionRequest } from '@agentclientprotoco
 export type { AcpReplayFrom, SessionNotification };
 
 /**
- * Windowed resume cursor — plain range fields on the standard v2 `start`
- * cursor for the v2 data plane (both wire ends are ours). The pinned
- * schema's `ReplayFromStart` allows additional properties, so the window
- * form adds fields, never protocol types:
+ * Existing platform-specific windowed resume cursor. These range fields
+ * are not upstream ACP semantics; replacing them requires a coordinated
+ * app/backend compatibility change. Retained behavior:
  * - `{ type: 'start', limit }`: the bounded mount — replay the run-atomic
  *   newest-`limit` window of retained rows.
  * - `{ type: 'start', from: '<messageId>', limit }`: page the window
@@ -70,7 +67,7 @@ export type WindowedReplayCursor = {
   from?: string;
 };
 
-/** ACP major protocol versions this client can negotiate. */
+/** Legacy public version union; this client only negotiates reference v2. */
 export type CodingAgentAcpProtocolVersion = 1 | 2;
 
 /** Completion result verified by the configured authoritative receipt reader. */
@@ -111,19 +108,9 @@ export const ACP_RECONNECT_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000];
  */
 export const ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404;
 
-// USER READ RECEIPTS ARE BACKEND-OWNED (2026-09-27): the session-detail GET
-// (the app's sole REST session call) advances the caller's participant
-// cursor — there is NO client→proxy read-ack frame, and this client emits
-// none. (Earlier versions sent a `_hypercli.dev/session_read_ack` request
-// and treated its response as a durability ack: the proxy never handled
-// that frame — it leg-passthrough'd it to the pod, which moved no cursor,
-// so the "confirmed" receipt was a silent no-op lie. The proxy now pins the
-// retired frame at dispatch.)
-// The proxy's `_meta["hypercli.dev"].seq` tee annotation is GONE (removed
-// 2026-09-29): the proxy tee is 100% vanilla ACP (owner ruling, final
-// 2026-09-28), so teed frames arrive unannotated and delivery gaps are
-// recovered with a reconnect re-resume (a `limit`-bounded window
-// on `{ type: 'start' }`, or the full start replay).
+// User read receipts are backend-owned: session-detail GET advances the
+// caller's participant cursor. This client emits no ACP read-ack frame.
+// Updates carry no private sequence annotation; reconnect/resume recovers gaps.
 
 /**
  * Bridge close codes that must not be retried: the identity/binding itself is
@@ -180,31 +167,20 @@ export class CodingAgentAcpRequestError extends Error {
 }
 
 /**
- * Soft error delivered via `onError` when a session cannot be replayed after
- * a reconnect (`session/load` rejected, or the child stopped advertising
- * `loadSession`). The connection stays alive; the session is dropped from
- * the replay set and its pre-reconnect state may be lost.
- */
-/**
- * Replay-boundary signal for `session/load` history replays. ACP v1 streams
- * the session's entire history as ordinary `session/update` notifications
- * before the load response resolves, with no replay marker on the wire — a
- * consumer folding updates into an existing transcript cannot otherwise tell
- * replayed history from live traffic and duplicates it. `start` fires before
- * the load request is sent (so it precedes every replayed notification of
- * that load); `end` fires after the load response settles, which per the
- * protocol is after the full history has been streamed. Overlapping loads
- * for one session increment `epoch` — the newest load owns the transcript
- * ("latest wins"); a stale `end` is identifiable by its older epoch.
+ * Local replay boundary for `session/resume` with history. `start` precedes
+ * the request and its replayed notifications; `end` follows settlement.
+ * Overlapping resumes increment `epoch`: the newest resume owns transcript
+ * classification, and a stale `end` is identifiable by its older epoch.
  */
 export interface CodingAgentAcpReplayEvent {
   sessionId: string;
   phase: 'start' | 'end';
   epoch: number;
-  /** `end` only: whether the load resolved. */
+  /** `end` only: whether the resume resolved. */
   ok?: boolean;
 }
 
+/** Soft reconnect replay failure; the connection stays alive and the session is untracked. */
 export class CodingAgentAcpReplayGapError extends Error {
   public readonly sessionId: string;
   constructor(sessionId: string, detail: string, options: { cause?: unknown } = {}) {
@@ -379,11 +355,13 @@ export class CodingAgentAcpClient {
   private readonly clientVersion: string;
   private readonly cookieStore = new MemoryAcpCookieStore();
   private connection: WireConnection | null = null;
+  /** Owned for cancellation, but not usable until initialize succeeds. */
+  private pendingConnection: WireConnection | null = null;
   private readonly foreground = new Map<string, ForegroundObservation>();
   private readonly foregroundStates = new Map<string, string>();
   private readonly idleWaiters = new Map<string, Set<Deferred>>();
-  private initializeResponseValue: acp.InitializeResponse | AcpV2InitializeResponse | null = null;
-  private negotiatedVersionValue: CodingAgentAcpProtocolVersion | null = null;
+  private initializeResponseValue: AcpV2InitializeResponse | null = null;
+  private negotiatedVersionValue: 2 | null = null;
   private readonly sessions = new Map<string, TrackedAcpSession>();
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: SessionNotification) => void>();
@@ -486,10 +464,8 @@ export class CodingAgentAcpClient {
   }
 
   /**
-   * Latest `initialize` response; refreshed on every (re)connect. The shape
-   * follows the negotiated version: v1 responses carry
-   * `agentCapabilities`/`agentInfo`, v2 responses carry
-   * `capabilities`/`info`.
+   * Latest v2 `initialize` response (`capabilities`/`info`), refreshed on
+   * every (re)connect. The legacy public union is retained for compatibility.
    */
   get initializeResponse(): acp.InitializeResponse | AcpV2InitializeResponse | null {
     return this.initializeResponseValue;
@@ -516,7 +492,7 @@ export class CodingAgentAcpClient {
 
   /**
    * Register a listener for replay-boundary events (see
-   * {@link CodingAgentAcpReplayEvent}). Fires for both explicit `loadSession`
+   * {@link CodingAgentAcpReplayEvent}). Fires for both history-replaying `resumeSession`
    * calls and the internal reconnect replay. Returns an unsubscribe function;
    * a throwing listener is logged and does not break the others. `close()`
    * clears all listeners.
@@ -935,7 +911,7 @@ export class CodingAgentAcpClient {
     return this.requireContext().request(acp.methods.agent.providers.disable, request);
   }
 
-  /** Raw request escape hatch for `_hyper/*` and other extension methods. */
+  /** Raw JSON-RPC request; callers are responsible for negotiated protocol support. */
   async request<Response = unknown>(method: string, params?: unknown): Promise<Response> {
     try {
       return await this.requireContext().request<Response>(method, params);
@@ -947,7 +923,7 @@ export class CodingAgentAcpClient {
     }
   }
 
-  /** Raw notification escape hatch for `_hyper/*` and other extension methods. */
+  /** Raw JSON-RPC notification; callers are responsible for negotiated protocol support. */
   notify(method: string, params?: unknown): Promise<void> {
     return this.requireContext().notify(method, params);
   }
@@ -974,6 +950,9 @@ export class CodingAgentAcpClient {
     }
     const connection = this.connection;
     this.connection = null;
+    const pendingConnection = this.pendingConnection;
+    this.pendingConnection = null;
+    pendingConnection?.close(this.terminalError ?? new CodingAgentAcpConnectionError('ACP client closed'));
     if (connection) {
       connection.close(this.terminalError ?? new CodingAgentAcpConnectionError('ACP client closed'));
     }
@@ -987,11 +966,7 @@ export class CodingAgentAcpClient {
       throw new CodingAgentAcpConnectionError('ACP connect aborted');
     }
     this.options.signal?.addEventListener('abort', this.onAbort, { once: true });
-    let dialed: {
-      connection: WireConnection;
-      initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
-      negotiatedVersion: CodingAgentAcpProtocolVersion;
-    };
+    let dialed: Awaited<ReturnType<CodingAgentAcpClient['dialAndInitialize']>>;
     try {
       dialed = await this.dialAndInitialize();
     } catch (error) {
@@ -1004,10 +979,10 @@ export class CodingAgentAcpClient {
       dialed.connection.close(new CodingAgentAcpConnectionError('ACP client closed'));
       throw new CodingAgentAcpConnectionError('ACP connect aborted');
     }
-    const { connection, initializeResponse, negotiatedVersion } = dialed;
+    const { connection, initializeResponse } = dialed;
     this.connection = connection;
     this.initializeResponseValue = initializeResponse;
-    this.negotiatedVersionValue = negotiatedVersion;
+    this.negotiatedVersionValue = 2;
     this.failures = 0;
     this.resolveConnectedWaiters();
   }
@@ -1130,8 +1105,7 @@ export class CodingAgentAcpClient {
    */
   private async dialAndInitialize(): Promise<{
     connection: WireConnection;
-    initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
-    negotiatedVersion: CodingAgentAcpProtocolVersion;
+    initializeResponse: AcpV2InitializeResponse;
   }> {
     const finishConnect = this.beginDiagnostic('connect');
     let finishInitialize: ((error?: unknown) => void) | undefined;
@@ -1146,22 +1120,22 @@ export class CodingAgentAcpClient {
       throw error;
     }
     const { connection, closeInfo } = dialed;
-    // Until initialize finishes this.connection is deliberately unpublished.
-    // close() alone therefore cannot interrupt a peer that accepts WS but
-    // never answers initialize. Bind cancellation to this pending dial too.
-    const abortDial = () => connection.close(new CodingAgentAcpConnectionError('ACP connect aborted'));
-    this.options.signal?.addEventListener('abort', abortDial, { once: true });
-    if (this.options.signal?.aborted) abortDial();
+    // Own the pending dial without publishing it as a usable connection.
+    // Explicit close, pool release and the caller's abort all cancel it.
+    this.pendingConnection = connection;
+    if (this.closedFlag || this.options.signal?.aborted) {
+      connection.close(new CodingAgentAcpConnectionError('ACP connect aborted'));
+    }
     try {
       // The v2 runtime rejects any initialize answer whose protocolVersion is
       // not 2 before this promise resolves, closing the connection on the
       // version mismatch — there is nothing further to negotiate.
-      const initializeResponse = await connection.agent.request<acp.InitializeResponse | AcpV2InitializeResponse>(
+      const initializeResponse = await connection.agent.request<AcpV2InitializeResponse>(
         acp.methods.agent.initialize,
         this.initializeParams(),
       );
       finishInitialize?.();
-      return { connection, initializeResponse, negotiatedVersion: 2 };
+      return { connection, initializeResponse };
     } catch (error) {
       (finishInitialize ?? finishConnect)(error);
       if (error instanceof CodingAgentAcpConnectionError) throw error;
@@ -1173,7 +1147,7 @@ export class CodingAgentAcpClient {
         { code, cause: error },
       );
     } finally {
-      this.options.signal?.removeEventListener('abort', abortDial);
+      if (this.pendingConnection === connection) this.pendingConnection = null;
     }
   }
 
@@ -1232,10 +1206,9 @@ export class CodingAgentAcpClient {
     if (this.closedFlag) return;
     const generation = ++this.generation;
     let connection: WireConnection;
-    let initializeResponse: acp.InitializeResponse | AcpV2InitializeResponse;
-    let negotiatedVersion: CodingAgentAcpProtocolVersion;
+    let initializeResponse: AcpV2InitializeResponse;
     try {
-      ({ connection, initializeResponse, negotiatedVersion } = await this.dialAndInitialize());
+      ({ connection, initializeResponse } = await this.dialAndInitialize());
     } catch {
       if (this.closedFlag || generation !== this.generation) return;
       this.scheduleReconnect(this.lastCloseCode ?? 1006, 'reconnect attempt failed');
@@ -1247,7 +1220,7 @@ export class CodingAgentAcpClient {
     }
     this.connection = connection;
     this.initializeResponseValue = initializeResponse;
-    this.negotiatedVersionValue = negotiatedVersion;
+    this.negotiatedVersionValue = 2;
     this.failures = 0;
     this.resolveConnectedWaiters();
     await this.replaySessions(connection, generation);
@@ -1275,7 +1248,7 @@ export class CodingAgentAcpClient {
       try {
         const replay = this.performResumeReplay(connection.agent, sessionId, tracked.cwd, tracked.mcpServers);
         epoch = this.replayEpochs.get(sessionId)?.epoch;
-        const response = await replay;
+        const response = this.localSessionState(await replay);
         if (this.closedFlag || generation !== this.generation || connection !== this.connection) return;
         if (epoch !== this.replayEpochs.get(sessionId)?.epoch) continue;
         tracked.modes = response?.modes ?? null;
@@ -1369,6 +1342,10 @@ export class CodingAgentAcpClient {
       const pending = this.foreground.get(sessionId);
       if (pending) pending.reconcile = true;
       this.settleForeground(sessionId);
+      // A no-history resume can announce live idle before its response. The
+      // pending ownership gate blocked settlement then; reconsider it now.
+      // Historical state frames never populate foregroundStates.
+      if (ok && this.foregroundStates.get(sessionId) === 'idle') this.settleIdleWaiters(sessionId);
     }
     if (replaying) this.emitReplay({ sessionId, phase: 'end', epoch, ok });
   }
@@ -1416,12 +1393,8 @@ export class CodingAgentAcpClient {
    * `session/cancel`, `session/update` — are supported; `null` means the
    * agent supports no `session/*` methods at all.
    */
-  private v2SessionSurface(): { delete: unknown; fork: unknown } | null {
-    const response = this.initializeResponseValue;
-    if (!response) return null;
-    const session = (response as AcpV2InitializeResponse).capabilities?.session;
-    if (session === null || session === undefined) return null;
-    return { delete: session.delete ?? null, fork: session.fork ?? null };
+  private v2SessionSurface(): acp2.SessionCapabilities | null {
+    return this.initializeResponseValue?.capabilities?.session ?? null;
   }
 
   private requireSessionCapability(
