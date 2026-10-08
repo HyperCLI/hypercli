@@ -105,8 +105,20 @@ pub fn remove_config_api_keys(home: &Path) -> Result<(), ConfigError> {
     remove_config_api_keys_in_data_dir(&home.join(".hypercli"))
 }
 
+/// Read every KEY=VALUE pair from `<data_dir>/config`; a missing file reads as
+/// an empty map. Mirrors the parse rules of [`load_kv_file`] exactly.
+pub fn read_config_values_in_data_dir(
+    data_dir: &Path,
+) -> Result<BTreeMap<String, String>, ConfigError> {
+    load_kv_file(&data_dir.join("config"))
+}
+
 /// Remove the `KEY=...` lines for `keys` from `<data_dir>/config`, preserving
 /// every other line. A missing file is not an error.
+pub fn remove_config_values_in_data_dir(data_dir: &Path, keys: &[&str]) -> Result<(), ConfigError> {
+    remove_config_lines_in_data_dir(data_dir, keys)
+}
+
 fn remove_config_lines_in_data_dir(data_dir: &Path, keys: &[&str]) -> Result<(), ConfigError> {
     let path = data_dir.join("config");
     if let Ok(existing) = fs::read_to_string(&path) {
@@ -918,6 +930,41 @@ mod tests {
         )]);
         let ws = discover_agents_ws_url_from(&env, Some(temp.path())).unwrap();
         assert_eq!(ws.as_str(), "ws://127.0.0.1:8787/ws");
+    }
+
+    #[test]
+    fn read_config_values_in_data_dir_reads_pairs_and_tolerates_a_missing_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        assert!(read_config_values_in_data_dir(&dir).unwrap().is_empty());
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_HTTP_PROXY=http://localhost:8080\n# c\n",
+        )
+        .unwrap();
+        let values = read_config_values_in_data_dir(&dir).unwrap();
+        assert_eq!(
+            values.get("HYPER_HTTP_PROXY").map(String::as_str),
+            Some("http://localhost:8080")
+        );
+    }
+
+    #[test]
+    fn remove_config_values_in_data_dir_removes_only_its_own_lines() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=file-key\nHYPER_HTTP_PROXY=http://localhost:8080\nHYPER_NO_PROXY=localhost\n",
+        )
+        .unwrap();
+        remove_config_values_in_data_dir(&dir, &["HYPER_HTTP_PROXY", "HYPER_NO_PROXY"]).unwrap();
+        let body = fs::read_to_string(dir.join("config")).unwrap();
+        assert_eq!(body, "HYPER_API_KEY=file-key\n");
+        remove_config_values_in_data_dir(&temp.path().join("absent"), &["HYPER_HTTP_PROXY"])
+            .unwrap();
     }
 
     #[test]
