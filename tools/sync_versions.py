@@ -69,6 +69,16 @@ def project(text: str, rule: dict, version: str) -> str:
     raise ValueError(f"unknown projection kind: {kind}")
 
 
+def cargo_lock_coverage(text: str, names: list[str], version: str) -> list[str]:
+    """Every local package at appVersion is a committed projection and must be registered."""
+    data = tomllib.loads(text)
+    return [
+        f'local package "{package["name"]}" tracks appVersion but is not in the cargo-lock names list'
+        for package in data["package"]
+        if package["version"] == version and "source" not in package and package["name"] not in names
+    ]
+
+
 def json_value_span(text: str, keys: list[str], start: int = 0) -> tuple[int, int]:
     """Locate an exact object path while preserving all surrounding formatting."""
     decoder = json.JSONDecoder()
@@ -129,6 +139,8 @@ def synchronize(root: Path, ownership: dict, version: str, check: bool) -> list[
             continue
         try:
             text = changes.get(path, path.read_text() if path.exists() else "")
+            if rule["kind"] == "cargo-lock":
+                errors += [f"{rule['path']}: {error}" for error in cargo_lock_coverage(text, rule["names"], version)]
             expected = project(text, rule, version)
             if expected != text:
                 changes[path] = expected

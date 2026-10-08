@@ -88,6 +88,16 @@ class VersionContract(unittest.TestCase):
             with self.assertRaises(ValueError):
                 versions.app_version(self.root)
 
+    def test_cargo_lock_names_must_cover_local_appversion_packages(self):
+        rule = next(r for r in self.map["projections"] if r["kind"] == "cargo-lock")
+        rule["names"] = []
+        before = self.snapshot()
+        errors = self.sync()
+        self.assertIn('Cargo.lock: local package "hypercli-sdk" tracks appVersion '
+                      "but is not in the cargo-lock names list", errors)
+        self.assertEqual(self.sync(check=False), errors)
+        self.assertEqual(before, self.snapshot())
+
     def test_missing_selector_fails_closed(self):
         path = self.root / "py-sdk/hypercli/__init__.py"
         path.write_text(path.read_text().replace("__version__ =", "version ="))
