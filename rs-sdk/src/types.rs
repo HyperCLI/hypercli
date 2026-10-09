@@ -1474,7 +1474,7 @@ pub struct CreateDeploymentRequest {
     pub size: Option<AgentSize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    /// Self-hosted runner placement (monorepo acp/RUNNER.md).
+    /// Self-hosted runner placement (monorepo acp/hyper-runner/RUNNER.md).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner: Option<RunnerTargetSpec>,
     #[serde(flatten)]
