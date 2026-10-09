@@ -124,8 +124,8 @@ runtimes.
 First identify the runtime without reading secrets:
 
 ```bash
-buzz-acp auth-methods --json
-buzz-acp models --json
+hyper-acp plugin buzz auth-methods --json
+hyper-acp plugin buzz models --json
 ```
 
 Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`,
@@ -151,7 +151,7 @@ or reconnects. ACP transport uses the separate platform runtime key.
 | Kimi Code | The image exposes upstream `login`; inspect with `kimi login --help`. | The runtime key is not a Moonshot/Kimi login. |
 
 OpenCode and Goose should normally start with the injected HyperCLI
-provider. If `buzz-acp models --json` fails, check presence only with the
+provider. If `hyper-acp plugin buzz models --json` fails, check presence only with the
 `test -n` form above; do not print the values or copy the runtime key into
 another file.
 

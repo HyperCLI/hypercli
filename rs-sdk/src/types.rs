@@ -1114,7 +1114,6 @@ pub const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_RELAY_OBSERVER",
     "BUZZ_ACP_RESPOND_TO",
     "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
-    "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
     "BUZZ_ACP_SETUP_PAYLOAD",
     "BUZZ_MANAGED_AGENT",
     "BUZZ_MANAGED_AGENT_START_NONCE",
@@ -1206,9 +1205,6 @@ impl BuzzLaunchConfig {
         if self.relay_url.trim().is_empty() {
             return Err(BuzzLaunchError::MissingRelayUrl);
         }
-        if !(1..=32).contains(&self.parallelism) {
-            return Err(BuzzLaunchError::InvalidParallelism);
-        }
         let (agent_command, agent_args) = match request.runtime {
             ManagedRuntime::BuzzAgent => ("/usr/local/bin/buzz-agent", ""),
             ManagedRuntime::Opencode => ("/opt/hypercli/bin/opencode", "acp"),
@@ -1280,18 +1276,12 @@ impl BuzzLaunchConfig {
         }
         request
             .env
-            .insert("BUZZ_ACP_LAZY_POOL".to_owned(), "true".to_owned());
-        request
-            .env
             .insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
         // HYPER_ACP_WS_URL is NOT minted here: HyperCliClient::create_deployment
         // derives it from the client's configured agents base
         // (crate::config::default_hyper_acp_ws_url, ts `defaultHyperAcpWsUrl`
         // parity) so a dev-configured client never ships a prod-pointing
         // bridge URL. The reserved strip above keeps caller values out.
-        request
-            .env
-            .insert("BUZZ_ACP_AGENTS".to_owned(), self.parallelism.to_string());
         request
             .env
             .insert("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned());
@@ -1357,16 +1347,6 @@ impl BuzzLaunchConfig {
                 }
             }),
         );
-        if let Some(value) = self.idle_timeout_seconds {
-            request
-                .env
-                .insert("BUZZ_ACP_IDLE_TIMEOUT".to_owned(), value.to_string());
-        }
-        if let Some(value) = self.max_turn_duration_seconds {
-            request
-                .env
-                .insert("BUZZ_ACP_MAX_TURN_DURATION".to_owned(), value.to_string());
-        }
         if !self.respond_to_allowlist.is_empty() {
             request.env.insert(
                 "BUZZ_ACP_RESPOND_TO_ALLOWLIST".to_owned(),

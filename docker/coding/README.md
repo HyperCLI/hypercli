@@ -401,7 +401,7 @@ HyperCLI model, URL, or credential overlay.
 
 Only the exact explicit value `HYPERCLI_RUNTIME_INFERENCE=hypercli` asks the
 launcher to perform runtime-specific compatibility translation immediately
-before each native-runtime child spawn and respawn:
+before each native-runtime child launch:
 
 - Claude Code: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`;
 - Codex: a non-secret `CODEX_CONFIG` custom-provider overlay whose credential
@@ -449,8 +449,8 @@ The provider must inject and protect these categories:
 | Display and mentions | none minted — dead `BUZZ_ACP_DISPLAY_NAME` / `BUZZ_ACP_TEXT_MENTIONS` are reserved/stripped |
 | Reply behavior | none minted — dead `BUZZ_ACP_REQUIRE_REPLY` is reserved/stripped; the plugin itself pins `BUZZ_AGENT_REQUIRE_REPLY=0` on native Buzz Agent children because the connector publishes completed text |
 | Prompt and model | `BUZZ_ACP_SYSTEM_PROMPT` / `BUZZ_ACP_SYSTEM_PROMPT_FILE` are reserved/stripped — the plugin hard-rejects any configured system instructions at session create (never delivered); provider mints only `BUZZ_ACP_MODEL`; `BUZZ_ACP_SESSION_TITLE` |
-| Pooling | `BUZZ_ACP_AGENTS`, `BUZZ_ACP_LAZY_POOL`, `BUZZ_ACP_RELAY_OBSERVER` |
-| Event handling | Events queue behind Backend-owned turns; `BUZZ_ACP_DEDUP=queue` |
+| Observer | `BUZZ_ACP_RELAY_OBSERVER` |
+| Event handling | Admitted relay events queue behind the local Buzz turn; `BUZZ_ACP_DEDUP=queue`. Failed turns are not automatically resubmitted. |
 | Workspaces | `HYPER_WORKSPACES_DIR=/home/node/shared`; image boot-sync envs (`HYPER_WORKSPACES_BOOT_SYNC`, `HYPER_WORKSPACES_SYNC_READY_ONLY`) removed — superseded by the typed `workspaces_sync` agent launch config (Lagoon-managed resident `workspaces-sync` sidecar) |
 | ACP WebSocket | outbound `HYPER_ACP_WS_URL`, authenticated only with platform `HYPER_AGENTS_API_KEY` |
 

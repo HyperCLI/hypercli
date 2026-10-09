@@ -108,7 +108,8 @@ def inventory(root: Path, ownership: dict) -> list[str]:
     paths = subprocess.check_output(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root
     ).decode().split("\0")
-    found = {p for p in paths if Path(p).name in MANIFESTS}
+    # Cached paths include unstaged package deletions; inventory the working tree.
+    found = {p for p in paths if Path(p).name in MANIFESTS and (root / p).is_file()}
     classified = set(ownership["manifests"])
     errors = [f"unclassified manifest: {p}" for p in sorted(found - classified)]
     errors += [f"missing classified manifest: {p}" for p in sorted(classified - found)]

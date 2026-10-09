@@ -217,9 +217,8 @@ export const DEFAULT_BUZZ_RUST_LOG =
 // (acp/buzz-backend-provider) — the boundary enforcer — and rs-sdk
 // BUZZ_RESERVED_ENV; a provider-side parity test asserts the three key sets
 // are identical. Keys the provider deliberately passes through as caller
-// policy (BUZZ_ACP_MODEL, BUZZ_ACP_AGENTS, BUZZ_ACP_LAZY_POOL,
-// BUZZ_ACP_DEDUP, BUZZ_ACP_SESSION_TITLE, BUZZ_ACP_IDLE_TIMEOUT,
-// BUZZ_ACP_MAX_TURN_DURATION — typed buzz config mints overwrite caller
+// policy (BUZZ_ACP_MODEL, BUZZ_ACP_DEDUP, BUZZ_ACP_SESSION_TITLE
+// — typed buzz config mints overwrite caller
 // values) are excluded on purpose: they remain caller-settable launch policy
 // at the boundary.
 const BUZZ_RESERVED_ENV_KEYS = new Set([
@@ -239,7 +238,6 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_RELAY_OBSERVER',
   'BUZZ_ACP_RESPOND_TO',
   'BUZZ_ACP_RESPOND_TO_ALLOWLIST',
-  'BUZZ_ACP_EXIT_AFTER_INACTIVITY',
   'BUZZ_ACP_SETUP_PAYLOAD',
   'BUZZ_MANAGED_AGENT',
   'BUZZ_MANAGED_AGENT_START_NONCE',
@@ -1307,19 +1305,12 @@ function buildBuzzLaunchEnv(
 ): Record<string, string> {
   if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
   if (!buzz.relayUrl.trim()) throw new Error('buzz.relayUrl is required');
-  const parallelism = buzz.parallelism ?? 1;
-  if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > 32) {
-    throw new Error('buzz.parallelism must be between 1 and 32');
-  }
-
   const harness = BUZZ_RUNTIME_COMMANDS[runtime];
   const env: Record<string, string> = {
     BUZZ_RELAY_URL: buzz.relayUrl,
     BUZZ_ACP_AGENT_COMMAND: harness.command,
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
-    BUZZ_ACP_LAZY_POOL: 'true',
     BUZZ_ACP_RELAY_OBSERVER: 'true',
-    BUZZ_ACP_AGENTS: String(parallelism),
     BUZZ_ACP_DEDUP: 'queue',
   };
   if (runtime === 'claude-code') {
@@ -1330,12 +1321,6 @@ function buildBuzzLaunchEnv(
     BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
     BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
     BUZZ_ACP_MODEL: buzz.model,
-    BUZZ_ACP_IDLE_TIMEOUT: buzz.idleTimeoutSeconds == null
-      ? undefined
-      : String(buzz.idleTimeoutSeconds),
-    BUZZ_ACP_MAX_TURN_DURATION: buzz.maxTurnDurationSeconds == null
-      ? undefined
-      : String(buzz.maxTurnDurationSeconds),
     BUZZ_ACP_RESPOND_TO: buzz.respondTo,
     BUZZ_ACP_RESPOND_TO_ALLOWLIST: buzz.respondToAllowlist?.length
       ? buzz.respondToAllowlist.join(',')

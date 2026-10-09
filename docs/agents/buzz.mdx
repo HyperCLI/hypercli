@@ -258,7 +258,7 @@ The persistence and workspace roots are intentionally different:
   default; OpenClaw retains full-root persistence.
 - `/home/node/shared` is reserved for HyperCLI Workspace projections.
 - `/home/node/.buzz` is the hosted Buzz nest and the working directory of the
-  `buzz-acp` process and coding runtime.
+  `hyper-acp plugin buzz` process and coding runtime.
 
 Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
@@ -267,10 +267,9 @@ prompt Markdown file into the workspace. Prompt delivery stays in the ACP
 session path; `base_prompt.md` is compiled into `hyper-acp plugin buzz`
 (compiled, not copied to disk).
 
-The provider owns the identity, relay, ACP command, response policy, and timeout
-environment. It validates stock Buzz's `turn_timeout_seconds`,
-`idle_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and
-allowlist values before creating the deployment. For Goose, the selected
+The provider owns the identity, relay, ACP command, and response-policy
+environment. It validates `respond_to` and allowlist values before creating
+the deployment. For Goose, the selected
 provider and model are mapped into Goose's runtime environment.
 
 Image overrides receive the generated agent identity and runtime environment.
@@ -278,7 +277,7 @@ Use only a trusted immutable image reference.
 
 ### Message behavior
 
-Stock Buzz delivers inbound conversation events to the remote `buzz-acp`
+Stock Buzz delivers inbound conversation events to the remote `hyper-acp plugin buzz`
 harness. Non-JSON child output is skipped; there is no plaintext fallback. The
 hosted connector auto-publishes the completed assistant text to the channel—no
 agent-callable send command/tool exists on the hosted lane.
@@ -309,7 +308,7 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   cleanup is confirmed. Desktop still receives no provider acknowledgement
   and retains its local deployed record.
 - Existing deployments created before `restart: false` was supported retain
-  their saved restart policy. Their `buzz-acp` process may be relaunched by
+  their saved restart policy. Their `hyper-acp plugin buzz` process may be relaunched by
   the managed runtime after shutdown until the deployment is recreated with the new
   launch shape.
 - Desktop Stop and Delete actions do not invoke the provider. A local delete
@@ -365,7 +364,7 @@ workspace ownership, passwordless sudo, and idempotent retry.
 
 It handcrafts the provider request; it does not start the official Buzz Desktop
 binary, send a relay prompt, or prove a Desktop-visible tool response. A real
-Desktop → relay → `buzz-acp` → runtime → published-response E2E remains a
+Desktop → relay → `hyper-acp plugin buzz` → runtime → published-response E2E remains a
 production acceptance requirement.
 
 ### Security boundaries

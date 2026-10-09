@@ -10,7 +10,7 @@ inference, API-authentication, or backup policy.
 
 The Python and TypeScript coding-agent helpers apply the defaults below. A
 Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
-`buzz-acp`; it does not change the runtime's native authentication intent.
+`hyper-acp plugin buzz`; it does not change the runtime's native authentication intent.
 
 ## Runtime matrix
 
@@ -32,7 +32,7 @@ state paths. Login therefore requires a running deployment. OpenCode exposes
 its adapter login methods; Buzz Agent and Goose need no login for their default
 HyperCLI inference path.
 
-`HYPERCLI_RUNTIME_INFERENCE=hypercli` is interpreted at the `buzz-acp` child
+`HYPERCLI_RUNTIME_INFERENCE=hypercli` is interpreted at the `hyper-acp plugin buzz` child
 spawn boundary. It is an explicit compatibility switch for Buzz-managed
 Claude Code and Kimi Code launches, not a universal setting for arbitrary
 direct containers. Explicit native provider environment always wins as a

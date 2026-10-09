@@ -81,6 +81,18 @@ class VersionContract(unittest.TestCase):
         path.write_text(path.read_text().replace("version.workspace = true", 'version = "0.8.0"'))
         self.assertIn("app manifest must inherit workspace version: rs-sdk/Cargo.toml", self.sync())
 
+    def test_removed_package_does_not_require_staging_to_update_ownership(self):
+        name = "compat/Cargo.toml"
+        path = self.root / name
+        path.parent.mkdir()
+        path.write_text('[package]\nname = "compat"\nversion = "0.8.0"\n')
+        subprocess.run(["git", "add", name], cwd=self.root, check=True)
+        path.unlink()
+        self.assertEqual(versions.inventory(self.root, self.map), [])
+        self.map["manifests"][name] = "excluded: test compatibility package"
+        self.assertIn(f"missing classified manifest: {name}",
+                      versions.inventory(self.root, self.map))
+
     def test_invalid_authority_and_calendar_version_are_rejected(self):
         for data in ({"appVersion": "2026.10.6"}, {"appVersion": "0.8.0", "packageVersions": {}},
                      {"appVersion": "0.8.0-dev"}, {"appVersion": 8}):

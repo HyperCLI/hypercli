@@ -510,8 +510,6 @@ describe('coding agents', () => {
         BUZZ_ACP_AGENT_ARGS: 'acp',
         BUZZ_ACP_SESSION_TITLE: 'Fizz4',
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
-        BUZZ_ACP_AGENTS: '3',
-        BUZZ_ACP_LAZY_POOL: 'true',
         BUZZ_ACP_RELAY_OBSERVER: 'true',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
         RUST_LOG: 'debug',
