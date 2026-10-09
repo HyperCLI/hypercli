@@ -1076,7 +1076,7 @@ export type OpenClawModelProviderPatch =
 
 /**
  * Self-hosted runner placement for POST /deployments
- * (monorepo acp/RUNNER.md). Tags match runner tags for the same owner;
+ * (monorepo acp/hyper-runner/RUNNER.md). Tags match runner tags for the same owner;
  * runnerId pins one runner when tags are ambiguous.
  */
 export interface RunnerTargetOptions {
