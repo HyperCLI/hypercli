@@ -74,10 +74,18 @@ describe('MemoryAPI HTTP contract', () => {
     expect(await api.getSummary('id/ ?#%')).toEqual({
       sessionId: 'session-1', title: 'Release', summaryText: summary.summary_text, pending: false,
       summaryCursor: 0, summarizedAt: summary.summarized_at, importedAt: null,
+      summaryState: null, summaryFailureReason: null,
     });
     expect(fetch.mock.calls[0][0]).toBe('https://product.example/agents/sessions/id%2F%20%3F%23%25/summary');
     fetch.mockResolvedValue(new Response(JSON.stringify({ ...summary, summary_text: null, summary_cursor: null, summarized_at: null })));
     expect(await api.getSummary('session-1')).toMatchObject({ summaryText: null, summaryCursor: null, summarizedAt: null, importedAt: null });
+  });
+
+  it('preserves worker failure diagnostics for summary inspection', async () => {
+    const { api } = setup({ ...summary, summary_state: 'failed', summary_failure_reason: 'chunk-invalid-output' });
+    expect(await api.getSummary('session-1')).toMatchObject({
+      summaryState: 'failed', summaryFailureReason: 'chunk-invalid-output', pending: false,
+    });
   });
 
   it('preserves chunk pagination and encodes opaque cursors', async () => {

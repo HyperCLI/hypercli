@@ -11,6 +11,8 @@ export interface MemorySummary {
   summaryCursor: number | null;
   summarizedAt: string | null;
   importedAt: string | null;
+  summaryState: string | null;
+  summaryFailureReason: string | null;
   pending: boolean;
 }
 
@@ -86,6 +88,8 @@ interface SummaryWire {
   summary_cursor: number | null;
   summarized_at: string | null;
   imported_at: string | null;
+  summary_state?: string | null;
+  summary_failure_reason?: string | null;
   pending: boolean;
 }
 
@@ -105,6 +109,8 @@ function summaryFromWire(row: SummaryWire): MemorySummary {
     summaryCursor: row.summary_cursor,
     summarizedAt: row.summarized_at,
     importedAt: row.imported_at,
+    summaryState: row.summary_state ?? null,
+    summaryFailureReason: row.summary_failure_reason ?? null,
     pending: row.pending,
   };
 }
