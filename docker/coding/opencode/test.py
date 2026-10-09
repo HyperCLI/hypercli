@@ -31,7 +31,7 @@ assert_auth_methods(
     agent_command="/opt/hypercli/bin/opencode",
     agent_args="acp",
     expected={"opencode-login"},
-    # 1.18.9 advertises the v1 default agent method, not type=terminal.
+    # 1.18.35 advertises the v1 default agent method, not type=terminal.
     # Its human-readable CLI instruction is not a routing capability.
 )
 
