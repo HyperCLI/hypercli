@@ -429,7 +429,7 @@ export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpRequestError,
-  CodingAgentAcpReplayGapError,
+  CodingAgentAcpAttachmentError,
   CodingAgentAcpUnavailableError,
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
   ACP_RECONNECT_DELAYS_MS,

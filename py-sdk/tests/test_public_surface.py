@@ -16,7 +16,6 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "ACPClient",
         "ACPClosedError",
         "ACPError",
-        "ACPObservationError",
         "ACPPromptResult",
         "ACPRequestError",
         "ACPTerminalCloseError",

@@ -3,7 +3,10 @@ import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { CodingAgentAcpClient } from '../src/acp.js';
 
-it.each(['session/list', 'session/resume', 'session/load'])('retains native model config updates delivered during %s', async method => {
+it.each([
+  ['session/list', true], ['session/resume', true], ['session/load', true],
+  ['session/resume', false], ['session/load', false],
+] as const)('retains native model config updates during %s (warm=%s)', async (method, warm) => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>(resolve => server.once('listening', resolve));
   const requests: any[] = [];
@@ -25,7 +28,7 @@ it.each(['session/list', 'session/resume', 'session/load'])('retains native mode
   }));
   const client = await CodingAgentAcpClient.connect({ url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, token: '' }, { cwd: '/workspace' });
   try {
-    await client.newSession();
+    if (warm) await client.newSession();
     if (method === 'session/list') await client.listSessions();
     else if (method === 'session/resume') await client.resumeSession('native-session');
     else await client.loadSession('native-session');

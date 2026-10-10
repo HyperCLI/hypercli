@@ -41,7 +41,7 @@ models = assert_models(
     agent_args="",
     env=runtime_env,
 )
-assert models["agent"]["name"] == "buzz-agent", models
+assert models["initialize"]["agentInfo"]["name"] == "buzz-agent", models
 
 env_probe = """
 import json

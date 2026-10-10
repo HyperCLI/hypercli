@@ -148,7 +148,7 @@ async def test_v1_handshake_source_and_setup_use_standard_shapes():
         sid = await client.new_session(cwd="/workspace")
         await client.resume_session(sid, cwd="/workspace")
         inbound = [f for direction, f in peer.frames if direction == "in"]
-        assert inbound[0]["params"] == {"protocolVersion": 1, "clientInfo": {"name": "hypercli-py-sdk", "version": ""}, "clientCapabilities": {"fs": {}, "auth": {}}}
+        assert inbound[0]["params"] == {"protocolVersion": 1, "clientInfo": {"name": "hypercli-py-sdk", "version": ""}, "clientCapabilities": {}}
         assert [f["method"] for f in inbound] == ["initialize", "session/new", "session/resume"]
         assert inbound[-1]["params"] == {"sessionId": sid, "cwd": "/workspace", "mcpServers": []}
         assert not any("source" in f.get("params", {}) for f in inbound)
@@ -162,6 +162,26 @@ async def test_v2_initialize_answer_is_not_a_supported_execution_profile():
         with pytest.raises(ACPError, match="requires ACP v1"):
             await ACPClient.connect(url)
         assert peer.prompts == []
+
+
+async def test_opaque_update_bypasses_typed_union_with_upstream_callback_correlation():
+    async with server() as (peer, url), await ACPClient.connect(url, on_update=peer.updates.append) as client:
+        sid = await client.new_session(cwd="/workspace")
+        params = {"sessionId": sid, "update": {"sessionUpdate": "future_native_update",
+                  "payload": [None, {"data": "opaque"}], "_meta": {"peer": True}},
+                  "_meta": {"peer": {"untouched": True}}}
+        await peer.connected._conn.send_notification("session/update", params)
+        await until(lambda: len(peer.updates) == 1)
+        assert peer.updates == [params]
+        client.add_request_listener("session/request_permission", lambda _: {
+            "outcome": {"outcome": "selected", "optionId": "allow"}})
+        permission = await peer.connected.request_permission(session_id=sid,
+            tool_call=schema.ToolCallUpdate(tool_call_id="native-tool"),
+            options=[schema.PermissionOption(option_id="allow", name="Allow", kind="allow_once")])
+        assert permission.outcome.option_id == "allow"
+        peer.release.set()
+        assert (await client.prompt(sid, "once")).stop_reason == "end_turn"
+        assert len(peer.prompts) == 1
 
 
 async def test_native_tool_plan_config_and_opaque_payloads_are_preserved():

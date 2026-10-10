@@ -70,7 +70,7 @@ export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpRequestError,
-  CodingAgentAcpReplayGapError,
+  CodingAgentAcpAttachmentError,
   CodingAgentAcpUnavailableError,
   ACP_RECONNECT_DELAYS_MS,
   type CodingAgentAcpConnectOptions,

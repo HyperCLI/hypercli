@@ -32,17 +32,11 @@ export class CodingAgentAcpRequestError extends Error {
     this.name = 'CodingAgentAcpRequestError';
   }
 }
-export class CodingAgentAcpReplayGapError extends Error {
+export class CodingAgentAcpAttachmentError extends Error {
   constructor(public readonly sessionId: string, detail: string, options: { cause?: unknown } = {}) {
     super(`ACP session ${sessionId} could not be reattached: ${detail}`, options);
-    this.name = 'CodingAgentAcpReplayGapError';
+    this.name = 'CodingAgentAcpAttachmentError';
   }
-}
-export interface CodingAgentAcpReplayEvent {
-  sessionId: string;
-  phase: 'start' | 'end';
-  epoch: number;
-  ok?: boolean;
 }
 export type CodingAgentAcpStage = 'connect' | 'initialize' | 'cwd' | 'new' | 'list' | 'resume' | 'prompt';
 export interface CodingAgentAcpDiagnosticError {
@@ -82,9 +76,11 @@ export interface CodingAgentAcpConnectOptions {
   onPermissionRequest?: PermissionHandler;
   onError?: (error: Error) => void;
   onClose?: (event: { code: number; reason: string }) => void;
+  /** Refresh platform history before reconnect resumes the tracked sessions. */
+  onReconnect?: () => void | Promise<void>;
 }
 export interface CodingAgentAcpTarget { url: string; token: string }
-interface Session { cwd: string; mcpServers: acp.McpServer[]; configOptions: acp.SessionConfigOption[] | null }
+interface Session { cwd: string; mcpServers: acp.McpServer[] }
 interface Deferred { resolve(): void; reject(error: Error): void }
 
 export class CodingAgentAcpClient {
@@ -94,13 +90,12 @@ export class CodingAgentAcpClient {
   private pendingConnection: acp.ClientConnection | null = null;
   private initializeValue: acp.InitializeResponse | null = null;
   private readonly sessions = new Map<string, Session>();
+  private readonly sessionConfig = new Map<string, acp.SessionConfigOption[]>();
+  private ready = false;
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
-  private readonly replayListeners = new Set<(event: CodingAgentAcpReplayEvent) => void>();
-  private readonly loads = new Map<string, number>();
-  private nextLoad = 0;
   private permissionHandler: PermissionHandler | null = null;
   private closedFlag = false;
   private terminalError: CodingAgentAcpConnectionError | null = null;
@@ -127,7 +122,7 @@ export class CodingAgentAcpClient {
       return client;
     } catch (error) { client.close(); throw error; }
   }
-  get connected(): boolean { return this.connection !== null && !this.closedFlag; }
+  get connected(): boolean { return this.ready && this.connection !== null && !this.closedFlag; }
   get closed(): boolean { return this.closedFlag; }
   get negotiatedProtocolVersion(): CodingAgentAcpProtocolVersion | null { return this.initializeValue ? 1 : null; }
   get initializeResponse(): acp.InitializeResponse | null { return this.initializeValue; }
@@ -141,10 +136,6 @@ export class CodingAgentAcpClient {
   addCloseListener(listener: (event: { code: number; reason: string }) => void): () => void {
     this.closeListeners.add(listener); return () => { this.closeListeners.delete(listener); };
   }
-  addReplayListener(listener: (event: CodingAgentAcpReplayEvent) => void): () => void {
-    this.replayListeners.add(listener); return () => { this.replayListeners.delete(listener); };
-  }
-  replayEpoch(sessionId: string): number { return this.loads.get(sessionId) ?? 0; }
   setPermissionHandler(handler: PermissionHandler | null): void { this.permissionHandler = handler; }
   waitConnected(): Promise<void> {
     if (this.connected) return Promise.resolve();
@@ -176,7 +167,8 @@ export class CodingAgentAcpClient {
     });
     const mcpServers = options.mcpServers ?? this.options.mcpServers ?? [];
     const result = await this.observe('new', () => this.request<acp.NewSessionResponse>('session/new', { cwd, mcpServers }));
-    this.sessions.set(result.sessionId, { cwd, mcpServers, configOptions: result.configOptions ?? null });
+    this.sessions.set(result.sessionId, { cwd, mcpServers });
+    if (result.configOptions) this.sessionConfig.set(result.sessionId, result.configOptions);
     return result;
   }
   async listSessions(options: { cwd?: string | null; cursor?: string | null } = {}): Promise<acp.ListSessionsResponse> {
@@ -202,51 +194,43 @@ export class CodingAgentAcpClient {
     const previous = this.sessions.get(sessionId);
     const cwd = await this.observe('cwd', () => options.cwd !== undefined ? Promise.resolve(options.cwd) : this.originalSessionCwd(sessionId));
     const mcpServers = previous?.mcpServers ?? this.options.mcpServers ?? [];
+    const connection = this.connection, generation = this.generation;
     const result = await this.observe('resume', () => this.request<acp.ResumeSessionResponse>('session/resume', { sessionId, cwd, mcpServers }));
-    this.sessions.set(sessionId, { cwd, mcpServers,
-      configOptions: result.configOptions === undefined ? this.sessions.get(sessionId)?.configOptions ?? null : result.configOptions });
+    if (connection !== this.connection || generation !== this.generation || this.closedFlag) throw new CodingAgentAcpConnectionError('ACP attachment interrupted');
+    this.sessions.set(sessionId, { cwd, mcpServers });
+    if (result.configOptions) this.sessionConfig.set(sessionId, result.configOptions);
     return result;
   }
   /** Explicit full history load. Reconnect/attachment never invokes it. */
   async loadSession(sessionId: string): Promise<acp.LoadSessionResponse> {
     const cwd = await this.originalSessionCwd(sessionId);
     const mcpServers = this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? [];
-    const epoch = ++this.nextLoad;
-    this.loads.set(sessionId, epoch);
-    const emit = (event: CodingAgentAcpReplayEvent) => { for (const listener of this.replayListeners) listener(event); };
-    emit({ sessionId, epoch, phase: 'start' });
-    let ok = false;
-    try {
-      const result = await this.request<acp.LoadSessionResponse>('session/load', { sessionId, cwd, mcpServers });
-      this.sessions.set(sessionId, { cwd, mcpServers,
-        configOptions: result.configOptions === undefined ? this.sessions.get(sessionId)?.configOptions ?? null : result.configOptions });
-      ok = true;
-      return result;
-    } finally {
-      if (this.loads.get(sessionId) === epoch) this.loads.delete(sessionId);
-      emit({ sessionId, epoch, phase: 'end', ok });
-    }
+    const connection = this.connection, generation = this.generation;
+    const result = await this.request<acp.LoadSessionResponse>('session/load', { sessionId, cwd, mcpServers });
+    if (connection !== this.connection || generation !== this.generation || this.closedFlag) throw new CodingAgentAcpConnectionError('ACP load interrupted');
+    this.sessions.set(sessionId, { cwd, mcpServers });
+    if (result.configOptions) this.sessionConfig.set(sessionId, result.configOptions);
+    return result;
   }
   async prompt(sessionId: string, prompt: string | acp.ContentBlock | acp.ContentBlock[]): Promise<acp.PromptResponse> {
+    await this.waitConnected();
     const blocks = typeof prompt === 'string' ? [{ type: 'text' as const, text: prompt }] : Array.isArray(prompt) ? prompt : [prompt];
     return this.observe('prompt', () => this.request<acp.PromptResponse>('session/prompt', { sessionId, prompt: blocks }));
   }
-  async submitPrompt(sessionId: string, prompt: acp.ContentBlock[]): Promise<acp.PromptResponse> { return this.prompt(sessionId, prompt); }
   async cancel(sessionId: string): Promise<void> { await this.notify('session/cancel', { sessionId }); }
-  async closeSession(sessionId: string): Promise<void> { await this.request('session/close', { sessionId }); this.sessions.delete(sessionId); }
-  async deleteSession(sessionId: string): Promise<void> { await this.request('session/delete', { sessionId }); this.sessions.delete(sessionId); }
+  async closeSession(sessionId: string): Promise<void> { await this.request('session/close', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
+  async deleteSession(sessionId: string): Promise<void> { await this.request('session/delete', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
   async unstableForkSession(sessionId: string): Promise<acp.ForkSessionResponse> {
     return this.request('session/fork', { sessionId, cwd: await this.originalSessionCwd(sessionId), mcpServers: this.options.mcpServers ?? [] });
   }
   async setMode(sessionId: string, modeId: string): Promise<void> { await this.request('session/set_mode', { sessionId, modeId }); }
   async setConfigOption(sessionId: string, configId: string, value: string): Promise<acp.SetSessionConfigOptionResponse> {
     const result = await this.request<acp.SetSessionConfigOptionResponse>('session/set_config_option', { sessionId, configId, value });
-    const session = this.sessions.get(sessionId);
-    if (session) session.configOptions = result.configOptions;
+    this.sessionConfig.set(sessionId, result.configOptions);
     return result;
   }
   async setModel(sessionId: string, modelId: string): Promise<acp.SetSessionConfigOptionResponse> {
-    const option = this.sessions.get(sessionId)?.configOptions?.find(o => o.category === 'model');
+    const option = this.sessionConfig.get(sessionId)?.find(o => o.category === 'model');
     if (!option) throw new CodingAgentAcpUnavailableError('session/set_config_option', 'no model configuration advertised');
     return this.setConfigOption(sessionId, option.id, modelId);
   }
@@ -277,10 +261,11 @@ export class CodingAgentAcpClient {
     this.connection = this.pendingConnection = null;
     for (const waiter of this.connectedWaiters) waiter.reject(error);
     this.connectedWaiters.clear();
-    this.updateListeners.clear(); this.errorListeners.clear(); this.closeListeners.clear(); this.replayListeners.clear();
+    this.updateListeners.clear(); this.errorListeners.clear(); this.closeListeners.clear();
+    this.sessionConfig.clear();
     this.permissionHandler = null;
   }
-  private async open(): Promise<void> {
+  private async open(reconnecting = false): Promise<void> {
     const generation = this.generation;
     const closeInfo: { code?: number; reason: string } = { reason: '' };
     let socketOpened!: () => void;
@@ -315,9 +300,8 @@ export class CodingAgentAcpClient {
     });
     const sessionUpdate = (notification: acp.SessionNotification) => {
       if (this.closedFlag || generation !== this.generation) return;
-      const session = this.sessions.get(notification.sessionId);
-      if (session && notification.update.sessionUpdate === 'config_option_update') {
-        session.configOptions = notification.update.configOptions;
+      if (notification.update.sessionUpdate === 'config_option_update') {
+        this.sessionConfig.set(notification.sessionId, notification.update.configOptions);
       }
       for (const listener of [this.options.onUpdate, ...this.updateListeners]) {
         try { listener?.(notification); } catch (error) { console.error('ACP update listener threw', error); }
@@ -346,6 +330,7 @@ export class CodingAgentAcpClient {
     void connection.closed.then(() => {
       if (this.closedFlag || this.connection !== connection) return;
       this.connection = null;
+      this.ready = false;
       ++this.generation;
       this.scheduleReconnect(closeInfo.code ?? 1006, closeInfo.reason);
     });
@@ -357,10 +342,14 @@ export class CodingAgentAcpClient {
       if (this.closedFlag || generation !== this.generation) throw new CodingAgentAcpConnectionError('ACP connect aborted');
       this.initializeValue = response;
       this.connection = connection;
-      for (const waiter of this.connectedWaiters) waiter.resolve();
-      this.connectedWaiters.clear();
+      if (!reconnecting) this.markReady();
     } catch (error) { connection.close(error instanceof Error ? error : undefined); throw error; }
     finally { if (this.pendingConnection === connection) this.pendingConnection = null; }
+  }
+  private markReady(): void {
+    this.ready = true;
+    for (const waiter of this.connectedWaiters) waiter.resolve();
+    this.connectedWaiters.clear();
   }
   private scheduleReconnect(code: number, reason: string): void {
     if (this.closedFlag) return;
@@ -373,16 +362,31 @@ export class CodingAgentAcpClient {
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.open().then(async () => {
+      void this.open(true).then(async () => {
+        const connection = this.connection, generation = this.generation;
+        const ownsConnection = () => !this.closedFlag && connection === this.connection && generation === this.generation;
         this.failures = 0;
+        try { await this.options.onReconnect?.(); }
+        catch (error) {
+          if (ownsConnection()) for (const listener of [this.options.onError, ...this.errorListeners]) listener?.(error instanceof Error ? error : new Error(String(error)));
+        }
         for (const [sid, setup] of this.sessions) {
+          if (!ownsConnection()) return;
           try { await this.resumeSession(sid, { cwd: setup.cwd }); }
           catch (error) {
+            if (!ownsConnection()) return;
+            if (!(error instanceof CodingAgentAcpRequestError)) {
+              connection?.close(error instanceof Error ? error : undefined);
+              return;
+            }
             this.sessions.delete(sid);
-            const gap = new CodingAgentAcpReplayGapError(sid, String(error), { cause: error });
+            const gap = new CodingAgentAcpAttachmentError(sid, String(error), { cause: error });
+            for (const waiter of this.connectedWaiters) waiter.reject(gap);
+            this.connectedWaiters.clear();
             for (const listener of [this.options.onError, ...this.errorListeners]) listener?.(gap);
           }
         }
+        if (ownsConnection()) this.markReady();
       }, () => this.scheduleReconnect(code, reason));
     }, ACP_RECONNECT_DELAYS_MS[this.failures++]);
   }

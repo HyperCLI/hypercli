@@ -24,9 +24,8 @@ Session setup and configuration retain native v1 shapes, including
 `configOptions[].id` and native `modes`. `setConfigOption(sessionId, option.id, value)`
 sends the standard v1 request. Optional runtime capabilities are not guaranteed.
 
-Concurrent `prompt` calls each own their correlated terminal result.
-`submitPrompt` has the same terminal semantics. Neither requires REST receipts,
-and uncertain input is never resent.
+Concurrent `prompt` calls each own their correlated native terminal result.
+They do not require REST receipts, and uncertain input is never resent.
 Use `AcpTurnDriver` when the consumer wants serialized turns.
 
 ## Quick Start
@@ -92,6 +91,28 @@ connecting to the runtime. It advances the caller's user read receipt to the
 session head; transcript pages use `getMessages` independently of ACP.
 HTTP errors propagate as
 `APIError`: 404 unknown session, 403 outside participation scope, 422 invalid UUID.
+
+### Complete history pages
+
+```typescript
+const page = await client.sessions.getMessages(platformSessionId, { limit: 20 });
+// { items: AcpSessionMessage[], nextCursor: string | null,
+//   hasMore: boolean, importOutcome: SessionImportOutcome | null }
+const older = page.hasMore
+  ? await client.sessions.getMessages(platformSessionId, { cursor: page.nextCursor })
+  : null;
+```
+
+This canonical helper normalizes platform DTO fields only. Native v1 ACP payloads,
+message/tool IDs, complete non-binary tool fields, and separate platform identities
+are retained. Rows are descending by sequence; readers fold ascending. The default
+limit is 20, a target the server may extend for chunk runs and transitive tool
+creation dependencies. The opaque cursor reads strictly older rows.
+
+A page is delivered as one coherent result; it is not a transaction with a live
+subscription and promises no zero-gap boundary. Keep fetched history and live
+notifications independently owned. No SDK renderer, compatibility decoder, replay
+cache, or ACP pagination extension is involved.
 
 ### Billing
 

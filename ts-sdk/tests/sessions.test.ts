@@ -251,6 +251,28 @@ describe('transcript search and window reads', () => {
 });
 
 describe('SessionsAPI (§15)', () => {
+  it('returns one coherent canonical page without rewriting native identity or complete tool fields', async () => {
+    const output = 'large output '.repeat(10000);
+    const acp = { type: 'session/update', protocolVersion: 1, params: { sessionId: 'native-session', update: {
+      sessionUpdate: 'tool_call_update', toolCallId: 'native-tool', content: [], rawOutput: output,
+    } } };
+    const http = fakeHttp({ items: [
+      { ...messageRow, seq: '43', message_id: 'platform-tool', acp },
+      { ...messageRow, seq: 42, message_id: 'platform-tool', acp: { type: 'session/update', protocolVersion: 1,
+        params: { update: { sessionUpdate: 'tool_call', toolCallId: 'native-tool', title: 'Read' } } } },
+    ], next_cursor: 'opaque+/older=', has_more: true });
+    const api = new SessionsAPI(http as never);
+    const page = await api.getMessages('session');
+    expect(http.get).toHaveBeenCalledWith('/sessions/session/messages', { limit: 20 });
+    expect(page.nextCursor).toBe('opaque+/older='); expect(page.hasMore).toBe(true);
+    expect(page.items.map(row => row.seq)).toEqual([43, 42]);
+    expect(page.items[0].messageId).toBe('platform-tool');
+    expect(page.items[0].acp).toBe(acp);
+    expect(page.items[0].participantId).toBe(AGENT_ID);
+    expect(page.items[0].acp).toEqual(acp);
+    await api.getMessages('session', { cursor: page.nextCursor, limit: 1 });
+    expect(http.get).toHaveBeenLastCalledWith('/sessions/session/messages', { cursor: 'opaque+/older=', limit: 1 });
+  });
   it.each([undefined, null, 'slack', 'future-client'])('decodes nullable open-ended source %s', async (source) => {
     const http = fakeHttp({ items: [{ ...sessionRow, source }], has_more: false });
     const page = await new SessionsAPI(http as never).listSessions();
@@ -360,7 +382,7 @@ describe('SessionsAPI (§15)', () => {
 
     await api.getMessages('sess/odd id');
 
-    expect(http.get).toHaveBeenCalledWith('/sessions/sess%2Fodd%20id/messages', {});
+    expect(http.get).toHaveBeenCalledWith('/sessions/sess%2Fodd%20id/messages', { limit: 20 });
   });
 
   it('tolerates camelCase wire keys inside rows', async () => {

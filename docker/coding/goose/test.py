@@ -20,6 +20,7 @@ from testlib import (  # noqa: E402
     docker,
     require_image_argument,
     run_python,
+    native_setup_command,
 )
 
 
@@ -33,7 +34,8 @@ def assert_exec_models(image: str, env: dict[str, str]) -> None:
     )
     namespace = {}
     exec(compile(ast.Module(body=[probe], type_ignores=[]), str(smoke), "exec"), namespace)
-    command = shlex.split(namespace["_acp_probe_command"]("goose"))
+    command = shlex.split(namespace["_acp_probe_command"]("goose", shlex.join(
+        native_setup_command("session/new", agent_command="goose", agent_args="acp"))))
     source = r'''
 import json
 import os
@@ -79,16 +81,12 @@ finally:
     child.terminate()
     child.communicate(timeout=10)
 
-bare = subprocess.run(['hyper-acp', 'plugin', 'buzz', 'models', '--json'],
-                      capture_output=True, text=True, timeout=60)
-assert bare.returncode != 0
-assert 'Agent reported error (code -32603): Internal error' in bare.stderr
-wrapped = subprocess.run(json.loads(sys.argv[1]) + ['models', '--json'],
+wrapped = subprocess.run(json.loads(sys.argv[1]),
                          capture_output=True, text=True, timeout=60)
 assert wrapped.returncode == 0, 'wrapped models failed'
 models = json.loads(wrapped.stdout)
-assert models['agent']['name'] == 'goose'
-assert isinstance(models['stable'], dict)
+assert models['initialize']['agentInfo']['name'] == 'goose'
+assert isinstance(models['session'], dict)
 print('Goose pod-exec config/session/models regression passed')
 '''
     for root in ("/home/node/.goose", "/home/node/custom-goose"):

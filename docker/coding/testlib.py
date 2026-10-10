@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -161,24 +162,15 @@ def run_python(
     return run_json(image, ["python3", "-c", source], env=env, mounts=mounts)
 
 
-def acp_command(
+def native_setup_command(
     operation: str,
     *,
     agent_command: str,
     agent_args: str,
 ) -> list[str]:
-    command = [
-        "hyper-acp",
-        "plugin",
-        "buzz",
-        operation,
-        "--agent-command",
-        agent_command,
-    ]
-    if agent_args:
-        command.extend(["--agent-args", agent_args])
-    command.append("--json")
-    return command
+    assert operation in {"initialize", "session/new"}
+    source = Path(__file__).with_name("native_acp_setup.py").read_text()
+    return ["python3", "-c", source, operation, json.dumps([agent_command, *shlex.split(agent_args)])]
 
 
 def assert_auth_methods(
@@ -192,19 +184,16 @@ def assert_auth_methods(
 ) -> None:
     payload = run_json(
         image,
-        acp_command(
-            "auth-methods",
+        native_setup_command(
+            "initialize",
             agent_command=agent_command,
             agent_args=agent_args,
         ),
         env=env,
     )
-    methods = payload.get("methods")
+    methods = payload["initialize"].get("authMethods", [])
     assert isinstance(methods, list), payload
-    # auth-methods initializes the current image runtimes as ACP v1. See
-    # acp/hyper-acp/schema/v1/schema.json: AuthMethod{,Agent,Terminal}.
-    # v2 instead requires methodId and an explicit type; do not mix eras here.
-    # Buzz advertises clientCapabilities.auth.terminal, not private _meta.
+    # Inspect the actual native v1 initialize response, not a plugin probe.
     terminal = terminal or set()
     assert terminal <= expected
     ids = []
@@ -280,15 +269,16 @@ def assert_models(
 ) -> dict[str, Any]:
     payload = run_json(
         image,
-        acp_command(
-            "models",
+        native_setup_command(
+            "session/new",
             agent_command=agent_command,
             agent_args=agent_args,
         ),
         env=env,
         mounts=mounts,
     )
-    assert isinstance(payload.get("agent"), dict), payload
+    assert isinstance(payload["initialize"].get("agentInfo"), dict), payload
+    assert isinstance(payload.get("session"), dict), payload
     return payload
 
 

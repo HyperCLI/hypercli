@@ -185,7 +185,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     // The proxy's session/new answers with its own backend session record id.
     expect(created.sessionId).toBe(BACKEND_SESSION_ID);
     expect(client.sessionIds).toEqual([BACKEND_SESSION_ID]);
-    const accepted = await client.submitPrompt(BACKEND_SESSION_ID, [{ type: 'text', text: 'hi' }]);
+    const accepted = await client.prompt(BACKEND_SESSION_ID, [{ type: 'text', text: 'hi' }]);
     expect(accepted).toEqual({ stopReason: 'end_turn' });
     expect(proxy.promptCalls).toBe(1);
     // Prompts address the backend session id verbatim (no client-side remap).

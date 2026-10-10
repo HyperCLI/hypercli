@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import acp
 from acp import schema
+from acp.connection import Connection
 from acp.exceptions import RequestError
 from acp.ws.client import create_websocket_stream
 from pydantic import ValidationError
@@ -67,13 +67,6 @@ class ACPUnavailableError(ACPError):
     def __init__(self, capability, detail):
         self.capability = capability
         super().__init__(f"{capability} is not available: {detail}")
-
-
-class ACPObservationError(ACPError):
-    """Prompt was sent, but foreground observation failed; never auto-resubmit."""
-    def __init__(self, detail, message_id=None):
-        self.message_id = message_id
-        super().__init__(detail)
 
 
 @dataclass(frozen=True)
@@ -132,7 +125,7 @@ class ACPClient:
         self._resolve_default_cwd = resolve_default_cwd
         self._session_setups: dict[str, dict[str, Any]] = {}
         self._transport = _Transport(transport, self)
-        self._connection = acp.connect_to_agent(self, self._transport)
+        self._connection = Connection(self._handle_message, self._transport)
 
     @classmethod
     async def connect(cls, url, *, token=None, open_timeout=DEFAULT_OPEN_TIMEOUT, source=None,
@@ -151,9 +144,11 @@ class ACPClient:
         client = cls(transport, on_update=on_update,
                      resolve_default_cwd=resolve_default_cwd)
         try:
-            result = await asyncio.wait_for(client._connection.initialize(protocol_version=ACP_PROTOCOL_VERSION,
+            request = schema.InitializeRequest(protocol_version=ACP_PROTOCOL_VERSION,
                 client_info=schema.Implementation.model_validate(client_info or DEFAULT_CLIENT_INFO),
-                client_capabilities=schema.ClientCapabilities.model_validate(client_capabilities or {})), open_timeout)
+                client_capabilities=schema.ClientCapabilities.model_validate(client_capabilities or {}))
+            result = schema.InitializeResponse.model_validate(await asyncio.wait_for(
+                client._connection.send_request("initialize", request.model_dump(by_alias=True, exclude_unset=True)), open_timeout))
             client._initialize_response = result.model_dump(by_alias=True, exclude_unset=True)
             if result.protocol_version != ACP_PROTOCOL_VERSION:
                 raise ACPUnavailableError("initialize", "This client requires ACP v1")
@@ -235,14 +230,22 @@ class ACPClient:
         except ACPRequestError as exc:
             raise RequestError(exc.code, exc.rpc_message, exc.data) from exc
 
-    async def session_update(self, session_id, update, **kwargs):
-        params = {"sessionId": session_id, "update": update.model_dump(mode="json", by_alias=True, exclude_unset=True)}
-        if "_meta" in kwargs:
-            params["_meta"] = kwargs["_meta"]
-        for listener in list(self._update_listeners):
-            result = listener(params)
-            if inspect.isawaitable(result):
-                await result
+    async def _handle_message(self, method, params, is_notification):
+        # Upstream owns RPC/callback correlation; updates are opaque peer data.
+        if is_notification:
+            if method == "session/update":
+                for listener in list(self._update_listeners):
+                    try:
+                        result = listener(params)
+                        if inspect.isawaitable(result):
+                            await result
+                    except Exception:
+                        logger.exception("ACP update listener failed")
+            return None
+        if method == "session/request_permission":
+            result = await self.request_permission(**params)
+            return result.model_dump(by_alias=True, exclude_unset=True)
+        raise RequestError.method_not_found(method)
 
     async def new_session(self, *, cwd=_UNSET_CWD, mcp_servers=None) -> str:
         """Create using the runtime-owned launch default or a verbatim override."""
@@ -317,7 +320,8 @@ class ACPClient:
             result.model_dump(mode="json", by_alias=True, exclude_unset=True))
 
     async def cancel(self, session_id):
-        await self._connection.cancel(session_id=session_id)
+        params = schema.CancelNotification(session_id=session_id)
+        await self._connection.send_notification("session/cancel", params.model_dump(by_alias=True, exclude_unset=True))
 
     async def request(self, method, params=None):
         """Low-level SDK JSON-RPC request, preserving result and error data."""
@@ -328,7 +332,7 @@ class ACPClient:
                 raise self._transport_error
             raise RetryableACPError("ACP transport disconnected before request write")
         try:
-            return dict(await self._connection._conn.send_request(method, params or {}) or {})
+            return dict(await self._connection.send_request(method, params or {}) or {})
         except RequestError as exc:
             raise ACPRequestError(method, exc.code, str(exc), exc.data) from exc
         except (ConnectionError, WebSocketException, OSError) as exc:

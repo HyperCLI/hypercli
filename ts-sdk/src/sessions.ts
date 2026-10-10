@@ -11,9 +11,10 @@
  * envelope: `{ items, next_cursor, has_more }`.
  *
  * Pagination contract (§15 "Type & pagination"): every list is keyset over a
- * server-issued opaque cursor with a LIMIT N+1 `has_more` sentinel — never
- * OFFSET. Messages page BACKWARDS from last-seen (`seq < cursor`, newest
- * first); sessions page over `(updated_at, id)`.
+ * server-issued opaque cursor — never OFFSET. Messages page BACKWARDS from
+ * last-seen (`seq < cursor`, newest first), extending whole chunk runs and tool
+ * dependencies; has_more says older eligible rows exist. Sessions page over
+ * `(updated_at, id)`.
  */
 import type { HTTPClient } from './http.js';
 
@@ -37,7 +38,7 @@ export interface SessionDiscoveryStatus {
  */
 export interface SessionImportOutcome {
   status: 'retained' | 'empty' | 'filtered' | 'unsupported' | 'malformed' | 'failed';
-  protocol_version: 1 | 2 | null;
+  protocol_version: 1 | null;
   generation: number;
   recorded_at: string;
   observed_updates: number;
@@ -131,7 +132,7 @@ export interface AcpSessionPage<T> {
   items: T[];
   /** Opaque server cursor for the next page; null when exhausted. */
   nextCursor: string | null;
-  /** LIMIT N+1 sentinel: the server saw one more row than the page. */
+  /** The server has more eligible rows beyond this page. */
   hasMore: boolean;
 }
 
@@ -315,16 +316,19 @@ export class SessionsAPI {
   }
 
   /**
-   * History page for one session, BACKWARDS from the cursor (or from the
-   * newest message when omitted): `seq < cursor`, `ORDER BY seq DESC`,
-   * LIMIT N+1. Feed `nextCursor` back in to walk further into the past.
+   * Canonical complete history page, delivered as one coherent result.
+   * Rows stay descending by seq; feed the opaque nextCursor back to read older
+   * rows. Limit (default 20) is a target: the server extends chunk runs and tool
+   * creation dependencies. Native ACP payloads/IDs and full tool content are
+   * untouched; only platform DTO fields are normalized. This read does not
+   * establish a transaction or gap-free boundary with a live subscription.
    */
   async getMessages(sessionId: string, options: AcpSessionMessagesOptions = {}): Promise<AcpSessionMessagePage> {
     const payload = await this.http.get<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
         ...(options.cursor ? { cursor: options.cursor } : {}),
-        ...(options.limit !== undefined ? { limit: options.limit } : {}),
+        limit: options.limit ?? 20,
       },
     );
     return { ...pageFromWire(payload ?? {}, messageFromWire),

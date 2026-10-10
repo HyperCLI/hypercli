@@ -379,8 +379,8 @@ standard v1 `session/load`; managed native reconciliation belongs to Backend.
 There are no replay/window cursor arguments. Both `prompt` and `submit_prompt`
 wait for the native terminal response. `submit_prompt` returns the upstream typed
 `PromptResponse`; `prompt` returns `ACPPromptResult`. Neither requires a receipt
-reader or infers completion from notifications. `Deployments.get_prompt_completion`
-remains an explicit platform-history API for separately inspecting stored evidence.
+reader or infers completion from notifications. Inspect stored evidence separately
+through the sessions REST API.
 
 Known pre-write failures raise `RetryableACPError`; uncertain post-write/foreground
 outcomes raise `AmbiguousDeliveryError`. Neither is automatically retried. Protocol

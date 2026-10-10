@@ -3779,41 +3779,6 @@ class Deployments:
             self._get(f"/sessions/{quote(platform_session_id, safe='')}")
         )
 
-    def get_prompt_completion(self, session_id: str, message_id: str, agent_id: str) -> dict | None:
-        """Read exact message/agent completion from existing paged REST history.
-
-        History is newest-first; retain terminal stop reasons across pages until
-        the accepted user row is found. Admission or idle alone is not proof.
-        """
-        turns = {}
-        cursor = None
-        visited = set()
-        while True:
-            page = self._get(f"/sessions/{quote(session_id, safe='')}/messages",
-                             params={"limit": 100, **({"cursor": cursor} if cursor else {})})
-            for row in page.get("items", []):
-                if row.get("session_id") != session_id:
-                    continue
-                frame = row.get("acp") or {}
-                if (frame.get("type") == "turn_result" and row.get("participant_kind") == "agent"
-                        and row.get("participant_id") == agent_id and row.get("completed_at")):
-                    # Newest-first history: older retries must not replace this evidence.
-                    turns.setdefault(frame.get("messageSeq"), row)
-                if (frame.get("type") == "user_message" and frame.get("messageId") == message_id
-                        and frame.get("agentId") == agent_id and row.get("role") == "user"):
-                    terminal = turns.get(row.get("seq")) or {}
-                    stop_reason = terminal.get("stop_reason")
-                    # Resubmit resets this receipt; equal stamps also reject
-                    # mixing a pre-retry page with a newly completed input row.
-                    if (row.get("completed_at") and row["completed_at"] == terminal.get("completed_at")
-                            and isinstance(stop_reason, str)):
-                        return {"stopReason": stop_reason}
-                    return None
-            cursor = page.get("next_cursor")
-            if not page.get("has_more") or not cursor or cursor in visited:
-                return None
-            visited.add(cursor)
-
     def list_sessions(
         self, *, agent_id: str | None = None, cursor: str | None = None, limit: int = 50,
     ) -> SessionPage:

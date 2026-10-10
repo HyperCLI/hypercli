@@ -176,6 +176,29 @@ it('reports reconnect resume refusal without creating a replacement session', as
   expect(f.calls('session/new')).toHaveLength(1); expect(f.calls('session/prompt')).toHaveLength(0);
 });
 
+it('retains the session across a second disconnect during resume and waits before first send', async () => {
+  const f = await fixture(), errors: Error[] = [], refresh = vi.fn(async () => {});
+  const client = await f.connect({ onError: error => errors.push(error), onReconnect: refresh });
+  const { sessionId } = await client.newSession({ cwd: '/original' });
+  f.hooks.set('session/resume', () => {});
+  f.peers[0].terminate();
+  await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(1), { timeout: 3000 });
+  expect(client.connected).toBe(false);
+  const pending = client.prompt(sessionId, 'not yet sent');
+  f.peers[1].terminate();
+  await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(2), { timeout: 3000 });
+  expect(client.sessionIds).toEqual([sessionId]);
+  expect(f.calls('session/prompt')).toHaveLength(0);
+  expect(errors).toEqual([]);
+  f.result(f.peers[2], f.calls('session/resume')[1], {});
+  await expect(pending).resolves.toEqual({ stopReason: 'end_turn' });
+  expect(refresh).toHaveBeenCalledTimes(2);
+  expect(f.calls('session/new')).toHaveLength(1);
+  expect(f.calls('session/load')).toHaveLength(0);
+  expect(f.calls('session/prompt')).toHaveLength(1);
+  expect(f.calls('session/resume').map(frame => frame.params.sessionId)).toEqual([sessionId, sessionId]);
+});
+
 it.each([false, true])('routes native permission toolCall and opaque peer extensions (handler=%s)', async handled => {
   const f = await fixture(), handler = vi.fn(async (_params: unknown) => ({ outcome: { outcome: 'selected' as const, optionId: 'allow' } }));
   await f.connect(handled ? { onPermissionRequest: handler } : {});
