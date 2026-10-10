@@ -93,6 +93,7 @@ export class CodingAgentAcpClient {
   private readonly sessionConfig = new Map<string, acp.SessionConfigOption[]>();
   private ready = false;
   private readonly connectedWaiters = new Set<Deferred>();
+  private readonly pendingPrompts = new Set<{ sessionId: string; controller: AbortController }>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
@@ -137,10 +138,17 @@ export class CodingAgentAcpClient {
     this.closeListeners.add(listener); return () => { this.closeListeners.delete(listener); };
   }
   setPermissionHandler(handler: PermissionHandler | null): void { this.permissionHandler = handler; }
-  waitConnected(): Promise<void> {
+  waitConnected(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.connected) return Promise.resolve();
     if (this.closedFlag) return Promise.reject(this.terminalError ?? new CodingAgentAcpConnectionError('ACP client closed'));
-    return new Promise((resolve, reject) => { this.connectedWaiters.add({ resolve, reject }); });
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { this.connectedWaiters.delete(waiter); signal?.removeEventListener('abort', abort); };
+      const waiter = { resolve: () => { cleanup(); resolve(); }, reject: (error: Error) => { cleanup(); reject(error); } };
+      const abort = () => waiter.reject(signal!.reason);
+      this.connectedWaiters.add(waiter);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
   }
   private diagnostic(event: CodingAgentAcpDiagnostic): void {
     try { this.options.onDiagnostic?.(event); } catch { /* Observer failures do not change outcomes. */ }
@@ -213,11 +221,21 @@ export class CodingAgentAcpClient {
     return result;
   }
   async prompt(sessionId: string, prompt: string | acp.ContentBlock | acp.ContentBlock[]): Promise<acp.PromptResponse> {
-    await this.waitConnected();
+    const pending = { sessionId, controller: new AbortController() };
+    this.pendingPrompts.add(pending);
+    try {
+      await this.waitConnected(pending.controller.signal);
+      pending.controller.signal.throwIfAborted();
+    } finally { this.pendingPrompts.delete(pending); }
     const blocks = typeof prompt === 'string' ? [{ type: 'text' as const, text: prompt }] : Array.isArray(prompt) ? prompt : [prompt];
     return this.observe('prompt', () => this.request<acp.PromptResponse>('session/prompt', { sessionId, prompt: blocks }));
   }
-  async cancel(sessionId: string): Promise<void> { await this.notify('session/cancel', { sessionId }); }
+  async cancel(sessionId: string): Promise<void> {
+    for (const pending of this.pendingPrompts) {
+      if (pending.sessionId === sessionId) pending.controller.abort(new Error('ACP prompt cancelled before delivery'));
+    }
+    await this.notify('session/cancel', { sessionId });
+  }
   async closeSession(sessionId: string): Promise<void> { await this.request('session/close', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
   async deleteSession(sessionId: string): Promise<void> { await this.request('session/delete', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
   async unstableForkSession(sessionId: string): Promise<acp.ForkSessionResponse> {

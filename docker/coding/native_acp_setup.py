@@ -37,7 +37,8 @@ def request(identifier, method, params):
 
 
 try:
-    initialized = request(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {}})
+    # Discovery profile supports the standard v1 terminal-auth launch contract.
+    initialized = request(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {"auth": {"terminal": True}}})
     assert initialized["protocolVersion"] == 1
     result = {"initialize": initialized}
     if sys.argv[1] == "session/new":

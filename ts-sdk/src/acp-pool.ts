@@ -12,7 +12,7 @@
  * Protocol-version awareness: negotiation happens per connection — every key
  * negotiates independently — and the negotiated version is read off the
  * lease's client (`lease.client.negotiatedProtocolVersion`; the client only
- * speaks v2). Pool bookkeeping itself (refcounts, close discipline) is
+ * speaks v1). Pool bookkeeping itself (refcounts, close discipline) is
  * version-agnostic.
  */
 import {

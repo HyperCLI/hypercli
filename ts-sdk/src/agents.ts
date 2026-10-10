@@ -2805,8 +2805,8 @@ export class Agent {
    *   proxy's `session/new`, minting the backend session.
    * - provided: the dial itself is session-less; AFTER the `initialize`
    * handshake the client resumes the session over the connected socket
-   * (`session/resume` on v2), so the replayed
-   *   history stream reaches this connection. Backend-side, an attach
+   * (`session/resume` on v1), without replay. History uses the separate
+   * platform sessions API. Backend-side, an attach
    *   naming an id the store does not hold is refused with close code
    *   4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
    *
@@ -2815,10 +2815,9 @@ export class Agent {
    * being hardened to runtime + backend-service identities, and combining
    * it with `sessionId` throws (the bridge has no session binding).
    *
-   * The ACP `initialize` handshake offers protocol version 2 only
+   * The ACP `initialize` handshake offers protocol version 1 only
    * (see `client.negotiatedProtocolVersion`). The proxy authority is
-   * v2-only — it rejects a v1 `initialize` outright — and the client
-   * closes on any answered version other than 2.
+   * v1-only and the client closes on any answered version other than 1.
    * The `cwd` default comes from the runtime's validated launch-directory
    * advertisement, never from the pod sync root or the caller's machine.
     *

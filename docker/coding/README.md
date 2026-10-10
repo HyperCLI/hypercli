@@ -481,8 +481,8 @@ assistant text locally.
 
 ## Messages, Mentions, And Replies
 
-ACP activity and thinking output are observer telemetry. In Buzz provider mode,
-the adapter publishes accumulated assistant `agent_message_chunk` text as the
+ACP activity and thinking output remain native session updates. In Buzz provider mode,
+the plugin publishes accumulated assistant `agent_message_chunk` text as the
 turn's Buzz channel message after a successful ACP `end_turn`. Child runtimes
 must not call Buzz-specific commands to publish their final reply.
 
@@ -492,8 +492,7 @@ nowhere (it stays reserved so caller/policy injection is stripped). For native
 `BUZZ_AGENT_REQUIRE_REPLY=0` at spawn to disable its tool-only reply loop.
 
 `respond_to` authorizes who may instruct the agent. Text mention fallback is a
-separate routing compatibility feature. The provider always supplies the
-display name and enables text mentions only for a valid compatible name.
+separate live routing feature. The plugin resolves mentions for its single identity.
 Matching is boundary-safe and case-insensitive. It does not bypass
 `owner-only`, `allowlist`, `anyone`, or `nobody` authorization.
 
@@ -510,9 +509,9 @@ the live HyperCLI deployment. Presence is a separate relay signal.
 | Add or mention a deployed agent | none | Changes membership only. |
 | Save settings | none | Persists Desktop state; does not hot-reload the pod. |
 | Remove from channel | none | Changes membership only; the pod keeps running. |
-| Stop current turn | none | Sends observer `cancel_turn`; does not stop the deployment. |
-| Shutdown/Stop running agents | none | Sends signed `!shutdown` through a resolvable channel. |
-| Delete agent | none | Best-effort shutdown, then local/relay deletion; an unreachable deployment can be orphaned. |
+| Stop current turn | none | No hosted observer/control command is implemented. |
+| Shutdown/Stop running agents | none | No hosted `!shutdown` command is implemented. |
+| Delete agent | none | Local/relay deletion does not stop the hosted deployment. |
 | Desktop launch or quit | none | Provider-backed agents are excluded from local process restore/shutdown. |
 
 Normal UI can suppress Play while a stale provider ID still says `deployed`,
@@ -520,10 +519,9 @@ even after the remote deployment has stopped. Provider idempotency makes a
 future explicit `deploy` safe but cannot repair Desktop's local status without
 a new Desktop lifecycle operation.
 
-Hosted `hyper-acp` exits after an authorized exact `!shutdown`. With
-`restart: false`, that process exit must terminate the pod. HyperCLI lifecycle
-operations remain available through the authenticated agents API and CLI; they
-are not provider protocol operations.
+HyperCLI lifecycle operations remain available through the authenticated agents
+API and CLI; they are not provider protocol operations. With `restart: false`,
+an actual process exit terminates the pod.
 
 ## Authentication Boundary
 
@@ -584,16 +582,15 @@ Provider, SDK, ACP, or image changes must verify:
     resolved native instruction root (workspace root only for `buzz-agent`,
     whose home is its instruction root), carries the `~/.hypercli/USER.md` and
     `~/.hypercli/SOUL.md` persona references, and never overwrites an existing
-     user-managed path. No prompt is delivered over ACP; hyper-acp's own gates
-     cover the `systemPrompt`/base-prompt reject path.
+      user-managed path. System instructions belong in native configuration;
+      ACP carries ordinary user turns.
 7. The real `tini` and setup entrypoint chain terminates promptly and preserves
    the launched command's nonzero exit status.
    Built image inspection also checks the default CMD and child environment for
    every runtime. The local OpenCode ACP smoke test launches the candidate with
    nothing after the image name and verifies a correlated successful initialize
    from the real OpenCode child through a synthetic local `/ws` peer.
-8. A real Nostr keypair and owner-signed, agent-mentioned `!shutdown` drives
-   online-to-offline presence, relay close, and candidate-container exit.
+8. Live Buzz intake verifies signatures, membership, mentions and author policy.
 9. Native configuration supplies system instructions; ordinary ACP carries turns
    without host-authored prompt extensions.
 10. The connector signs completed assistant text locally; the runtime does not

@@ -3,12 +3,14 @@ import ast
 import copy
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from testlib import assert_auth_methods, assert_buzz_launch_contract
+from testlib import assert_auth_methods, assert_buzz_launch_contract, native_setup_command
 
 
 ROOT = Path(__file__).parent
@@ -16,6 +18,21 @@ RECORDED = json.loads((ROOT / "fixtures/auth-methods.json").read_text())
 
 
 class AuthContractTests(unittest.TestCase):
+    def test_actual_native_helper_terminal_auth_discovery_profile(self):
+        child = '''import json, sys
+request = json.loads(sys.stdin.readline())
+assert request == {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+    "protocolVersion": 1, "clientCapabilities": {"auth": {"terminal": True}}}}
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1,
+    "authMethods": [{"id": "login", "name": "Login", "type": "terminal", "args": []}]}}), flush=True)
+sys.stdin.read()
+'''
+        import shlex
+        result = subprocess.run(native_setup_command("initialize", agent_command=sys.executable,
+            agent_args=f"-c {shlex.quote(child)}"), capture_output=True, text=True, timeout=10, check=True)
+        self.assertEqual(json.loads(result.stdout), {"initialize": {"protocolVersion": 1,
+            "authMethods": [{"id": "login", "name": "Login", "type": "terminal", "args": []}]}})
+
     def test_launch_contract_uses_explicit_parent_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory) / "parent-golden.json"
@@ -32,10 +49,11 @@ class AuthContractTests(unittest.TestCase):
             self.assertEqual(run.call_args.args[1], ["/bin/hyper-acp", "plugin", "buzz", "--help"])
 
     def check_methods(self, methods, expected, terminal=None):
-        with patch("testlib.run_json", return_value={"methods": methods}) as run:
+        with patch("testlib.run_json", return_value={"initialize": {"protocolVersion": 1, "authMethods": methods}}) as run:
             assert_auth_methods("fixture", agent_command="agent", agent_args="",
                                 expected=expected, terminal=terminal)
-        self.assertEqual(run.call_args.args[1][3], "auth-methods")
+        self.assertEqual(run.call_args.args[1][3], "initialize")
+        self.assertEqual(json.loads(run.call_args.args[1][4]), ["agent"])
 
     def test_recorded_claude(self):
         self.check_methods([RECORDED["claude"]["method"]], {"claude-ai-login"}, {"claude-ai-login"})

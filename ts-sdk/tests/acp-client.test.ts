@@ -176,6 +176,52 @@ it('reports reconnect resume refusal without creating a replacement session', as
   expect(f.calls('session/new')).toHaveLength(1); expect(f.calls('session/prompt')).toHaveLength(0);
 });
 
+it.each(['queued', 'uncertain', 'cancelled'])('fresh-client crash recovery never resubmits %s input', async state => {
+  const f = await fixture(), original = await f.connect();
+  const { sessionId } = await original.newSession({ cwd: '/original' });
+  if (state === 'queued') {
+    f.peers[0].terminate();
+    await vi.waitFor(() => expect(original.connected).toBe(false));
+  }
+  if (state === 'uncertain') f.hooks.set('session/prompt', () => {});
+  const rejected = expect(original.prompt(sessionId, 'old user work')).rejects.toThrow();
+  if (state === 'uncertain') await vi.waitFor(() => expect(f.calls('session/prompt')).toHaveLength(1));
+  if (state === 'cancelled') await original.cancel(sessionId);
+  original.close();
+  await rejected;
+  f.hooks.delete('session/prompt');
+  const recovered = await f.connect({ sessionId });
+  await recovered.listSessions(); // response barrier after same-session restore
+  expect(f.calls('session/prompt')).toHaveLength(state === 'uncertain' ? 1 : 0);
+  expect(f.calls('session/new')).toHaveLength(1);
+  expect(f.calls('session/resume').at(-1)?.params.sessionId).toBe(sessionId);
+  await recovered.prompt(sessionId, 'new explicit user work');
+  expect(f.calls('session/prompt').map(frame => frame.params.prompt[0].text)).toEqual(
+    state === 'uncertain' ? ['old user work', 'new explicit user work'] : ['new explicit user work']);
+});
+
+it.each(['disconnected', 'history'])('cancel retires every first send held by %s, without affecting other sessions', async stage => {
+  const f = await fixture();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let refreshing = false;
+  const client = await f.connect({ onReconnect: async () => { refreshing = true; await held; } });
+  const { sessionId } = await client.newSession();
+  f.peers[0].terminate();
+  await vi.waitFor(() => expect(client.connected).toBe(false));
+  if (stage === 'history') await vi.waitFor(() => expect(refreshing).toBe(true), { timeout: 3000 });
+  const cancelled = Promise.allSettled([client.prompt(sessionId, 'old 1'), client.prompt(sessionId, 'old 2')]);
+  const other = client.prompt('other', 'independent');
+  if (stage === 'disconnected') await expect(client.cancel(sessionId)).rejects.toThrow('unavailable');
+  else await client.cancel(sessionId);
+  expect((await cancelled).map(result => result.status)).toEqual(['rejected', 'rejected']);
+  const fresh = client.prompt(sessionId, 'new explicit input');
+  release();
+  await Promise.all([other, fresh]);
+  expect(f.calls('session/prompt').map(frame => frame.params.prompt[0].text)).toEqual(['independent', 'new explicit input']);
+  expect(f.calls('session/new')).toHaveLength(1);
+});
+
 it('retains the session across a second disconnect during resume and waits before first send', async () => {
   const f = await fixture(), errors: Error[] = [], refresh = vi.fn(async () => {});
   const client = await f.connect({ onError: error => errors.push(error), onReconnect: refresh });
