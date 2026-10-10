@@ -1,10 +1,6 @@
-"""Upstream experimental ACP v2 client for the backend conversation authority.
+"""Vanilla ACP v1 client. Prompts settle on their correlated terminal response.
 
-``submit_prompt`` returns durable conversation admission, not execution.
-``prompt`` requires an authoritative per-message completion reader. Idle only
-triggers a REST check; a missing receipt fails truthfully, including when older
-queued work has ended but this input is still pending.
-Neither API reconnects, retries, decorates prompts, or interprets slash text.
+Platform history and receipts are separate APIs. This client never resends input.
 """
 from __future__ import annotations
 
@@ -17,14 +13,15 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from acp.connection import StreamDirection
+import acp
+from acp import schema
 from acp.exceptions import RequestError
-from acp.experimental import v2
 from acp.ws.client import create_websocket_stream
+from pydantic import ValidationError
 from websockets.exceptions import WebSocketException
 
 logger = logging.getLogger("hypercli.acp")
-ACP_PROTOCOL_VERSION = 2
+ACP_PROTOCOL_VERSION = 1
 DEFAULT_OPEN_TIMEOUT = 30.0
 DEFAULT_CLIENT_INFO = {"name": "hypercli-py-sdk", "version": ""}
 ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404
@@ -81,19 +78,11 @@ class ACPObservationError(ACPError):
 
 @dataclass(frozen=True)
 class ACPPromptResult:
-    """Admission identity and completion verified by the supplied REST reader."""
+    """Native terminal prompt result, without a platform receipt dependency."""
     session_id: str
     stop_reason: str | None
     raw: dict[str, Any]
     message_id: str | None = None
-
-
-@dataclass(eq=False)
-class _Foreground:
-    future: asyncio.Future[ACPPromptResult]
-    message_id: str | None = None
-    idle: bool = False
-    checking: asyncio.Task[None] | None = None
 
 
 class _Transport:
@@ -131,25 +120,23 @@ class _Transport:
         self.owner._disconnect(error)
 
 
-class ACPClient(v2.Client):
-    """One v2 connection, using the pinned upstream versioned SDK runtime."""
-    def __init__(self, transport, *, on_update=None, get_prompt_completion=None, resolve_default_cwd=None):
+class ACPClient:
+    """One connection using the pinned upstream v1 SDK runtime."""
+    def __init__(self, transport, *, on_update=None, resolve_default_cwd=None):
         self._closed = False
         self._disconnected = False
         self._transport_error = None
         self._initialize_response = {}
         self._update_listeners = [on_update] if on_update else []
         self._request_listeners = {}
-        self._foreground: dict[str, set[_Foreground]] = {}
-        self._get_prompt_completion = get_prompt_completion
         self._resolve_default_cwd = resolve_default_cwd
         self._session_setups: dict[str, dict[str, Any]] = {}
         self._transport = _Transport(transport, self)
-        self._connection = v2.connect_to_agent(self, self._transport, observers=[self._observe])
+        self._connection = acp.connect_to_agent(self, self._transport)
 
     @classmethod
     async def connect(cls, url, *, token=None, open_timeout=DEFAULT_OPEN_TIMEOUT, source=None,
-                      client_info=None, client_capabilities=None, on_update=None, get_prompt_completion=None,
+                      client_info=None, client_capabilities=None, on_update=None,
                       resolve_default_cwd=None):
         if source is not None:
             parts = urlsplit(url)
@@ -161,15 +148,15 @@ class ACPClient(v2.Client):
                 headers={"Authorization": f"Bearer {token}"} if token else None), open_timeout)
         except (TimeoutError, WebSocketException, OSError) as exc:
             raise RetryableACPError(f"ACP connect failed: {exc}") from exc
-        client = cls(transport, on_update=on_update, get_prompt_completion=get_prompt_completion,
+        client = cls(transport, on_update=on_update,
                      resolve_default_cwd=resolve_default_cwd)
         try:
             result = await asyncio.wait_for(client._connection.initialize(protocol_version=ACP_PROTOCOL_VERSION,
-                info=v2.schema.Implementation.model_validate(client_info or DEFAULT_CLIENT_INFO),
-                capabilities=v2.schema.ClientCapabilities.model_validate(client_capabilities or {})), open_timeout)
+                client_info=schema.Implementation.model_validate(client_info or DEFAULT_CLIENT_INFO),
+                client_capabilities=schema.ClientCapabilities.model_validate(client_capabilities or {})), open_timeout)
             client._initialize_response = result.model_dump(by_alias=True, exclude_unset=True)
             if result.protocol_version != ACP_PROTOCOL_VERSION:
-                raise ACPUnavailableError("initialize", "This client requires ACP v2")
+                raise ACPUnavailableError("initialize", "This client requires ACP v1")
         except BaseException as exc:
             await client.close()
             if isinstance(client._transport_error, ACPTerminalCloseError):
@@ -191,8 +178,7 @@ class ACPClient(v2.Client):
 
     @property
     def load_session_capable(self):
-        """Compatibility name for standard v2 session/resume capability."""
-        return isinstance(self._initialize_response.get("capabilities", {}).get("session"), dict)
+        return self._initialize_response.get("agentCapabilities", {}).get("loadSession") is True
 
     async def __aenter__(self):
         return self
@@ -215,10 +201,6 @@ class ACPClient(v2.Client):
         self._disconnected = True
         if error is not None:
             self._transport_error = error
-        for observations in self._foreground.values():
-            for pending in observations:
-                if not pending.future.done():
-                    pending.future.set_exception(AmbiguousDeliveryError("connection closed before foreground observation finished"))
 
     def add_update_listener(self, listener):
         self._update_listeners.append(listener)
@@ -237,19 +219,19 @@ class ACPClient(v2.Client):
             listeners.remove(listener)
 
     async def request_permission(self, **params):
-        request = v2.schema.RequestPermissionRequest.model_validate(params)
+        request = schema.RequestPermissionRequest.model_validate(params)
         wire = request.model_dump(by_alias=True, exclude_unset=True)
         listeners = self._request_listeners.get("session/request_permission")
         specific = bool(listeners)
         listeners = listeners or self._request_listeners.get("*")
         if not listeners:
-            return v2.schema.RequestPermissionResponse.model_validate({"outcome": {"outcome": "cancelled"}})
+            return schema.RequestPermissionResponse.model_validate({"outcome": {"outcome": "cancelled"}})
         try:
             listener = listeners[0]
             result = listener(wire) if specific else listener("session/request_permission", wire)
             if inspect.isawaitable(result):
                 result = await result
-            return v2.schema.RequestPermissionResponse.model_validate(result)
+            return schema.RequestPermissionResponse.model_validate(result)
         except ACPRequestError as exc:
             raise RequestError(exc.code, exc.rpc_message, exc.data) from exc
 
@@ -262,39 +244,6 @@ class ACPClient(v2.Client):
             if inspect.isawaitable(result):
                 await result
 
-    def _observe(self, event):
-        message = event.message
-        if event.direction != StreamDirection.INCOMING or message.get("method") != "session/update":
-            return
-        params = message["params"]
-        sid, update = params["sessionId"], params["update"]
-        kind = update.get("sessionUpdate")
-        for pending in self._foreground.get(sid, ()):
-            if pending.future.done():
-                continue
-            if kind == "notice" and update.get("severity") == "error":
-                pending.future.set_exception(ACPObservationError(f"ACP session error: {update['title']}: {update.get('description') or ''}", pending.message_id))
-            elif kind == "state_update" and update["state"] == "idle":
-                pending.idle = True
-            self._settle(sid, pending)
-
-    def _settle(self, sid, pending):
-        if pending.future.done() or pending.message_id is None:
-            return
-        if pending.idle and pending.checking is None:
-            async def verify():
-                try:
-                    proof = await self._get_prompt_completion(sid, pending.message_id)
-                    if pending.future.done() or pending not in self._foreground.get(sid, ()):
-                        return
-                    if not proof:
-                        raise ACPObservationError("Input accepted, but no completion receipt exists for this message; follow history without resubmitting", pending.message_id)
-                    pending.future.set_result(ACPPromptResult(sid, proof["stopReason"], proof, pending.message_id))
-                except Exception as exc:
-                    if not pending.future.done():
-                        pending.future.set_exception(ACPObservationError(f"Completion receipt unavailable: {exc}", pending.message_id))
-            pending.checking = asyncio.create_task(verify())
-
     async def new_session(self, *, cwd=_UNSET_CWD, mcp_servers=None) -> str:
         """Create using the runtime-owned launch default or a verbatim override."""
         if cwd is _UNSET_CWD:
@@ -305,7 +254,7 @@ class ACPClient(v2.Client):
                 cwd = await cwd
         setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers or [])}
         result = await self.request("session/new", setup)
-        session_id = v2.schema.NewSessionResponse.model_validate(result).session_id
+        session_id = schema.NewSessionResponse.model_validate(result).session_id
         self._session_setups[session_id] = setup
         return session_id
 
@@ -316,7 +265,7 @@ class ACPClient(v2.Client):
         cursor = None
         seen = set()
         while True:
-            page = v2.schema.ListSessionsResponse.model_validate(
+            page = schema.ListSessionsResponse.model_validate(
                 await self.request("session/list", {"cursor": cursor} if cursor is not None else {}))
             for entry in page.sessions:
                 if entry.session_id == session_id:
@@ -328,73 +277,47 @@ class ACPClient(v2.Client):
                 raise ACPUnavailableError("session/list", "catalog repeated a pagination cursor")
             seen.add(cursor)
 
-    async def resume_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None, replay=False, replay_from=None):
+    async def resume_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None):
         """Resume the exact identity with its original catalog/stored setup."""
         cwd = await self._original_session_cwd(session_id) if cwd is _UNSET_CWD else cwd
         previous = self._session_setups.get(session_id, {})
         setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
         params = {"sessionId": session_id, **setup}
-        if replay:
-            params["replayFrom"] = {"type": "start"}
-        if replay_from is not None:
-            params["replayFrom"] = replay_from
         result = await self.request("session/resume", params)
         self._session_setups[session_id] = setup
         return result
 
     async def load_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None):
-        """Compatibility helper name; sends standard v2 resume with replay."""
-        return await self.resume_session(session_id, cwd=cwd, mcp_servers=mcp_servers, replay=True)
+        """Explicit standard full load; attachment never falls back to this."""
+        cwd = await self._original_session_cwd(session_id) if cwd is _UNSET_CWD else cwd
+        previous = self._session_setups.get(session_id, {})
+        setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
+        result = await self.request("session/load", {"sessionId": session_id, **setup})
+        self._session_setups[session_id] = setup
+        return result
 
-    async def submit_prompt(self, session_id, prompt, *, timeout=None) -> v2.schema.PromptResponse:
-        """Return the standard inserted messageId, independent of execution."""
+    async def submit_prompt(self, session_id, prompt, *, timeout=None) -> schema.PromptResponse:
+        """Submit once and await the native terminal stop reason."""
         return await self._submit(session_id, prompt, timeout=timeout)
 
-    async def _submit(self, session_id, prompt, *, timeout=None) -> v2.schema.PromptResponse:
+    async def _submit(self, session_id, prompt, *, timeout=None) -> schema.PromptResponse:
         blocks = [{"type": "text", "text": prompt}] if isinstance(prompt, str) else prompt
         params = {"sessionId": session_id, "prompt": blocks}
         operation = self.request("session/prompt", params)
         result = await asyncio.wait_for(operation, timeout) if timeout is not None else await operation
-        return v2.schema.PromptResponse.model_validate(result)
+        try:
+            return schema.PromptResponse.model_validate(result)
+        except ValidationError as exc:
+            raise ACPError("Invalid native terminal prompt response; input is not retried") from exc
 
     async def prompt(self, session_id, prompt, *, timeout=None) -> ACPPromptResult:
-        """Submit once; resolve only with exact Backend message completion evidence.
-
-        Without get_prompt_completion this helper refuses before submission.
-        Missing evidence at idle is an error, never an inferred end_turn.
-        """
-        if self._get_prompt_completion is None:
-            raise ACPUnavailableError("prompt", "v2 has no per-message completion event; use submit_prompt or supply an exact platform REST receipt reader")
-        pending = _Foreground(asyncio.get_running_loop().create_future())
-        pending.future.add_done_callback(lambda done: None if done.cancelled() else done.exception())
-        observations = self._foreground.setdefault(session_id, set())
-        observations.add(pending)
-        async def observe():
-            submission = asyncio.create_task(self._submit(session_id, prompt))
-            try:
-                await asyncio.wait({submission, pending.future}, return_when=asyncio.FIRST_COMPLETED)
-                if pending.future.done():
-                    return await pending.future
-                accepted = await submission
-                pending.message_id = accepted.message_id
-                self._settle(session_id, pending)
-                return await pending.future
-            finally:
-                if not submission.done():
-                    submission.cancel()
-                await asyncio.gather(submission, return_exceptions=True)
-        try:
-            return await asyncio.wait_for(observe(), timeout) if timeout is not None else await observe()
-        finally:
-            observations.discard(pending)
-            if not observations and self._foreground.get(session_id) is observations:
-                self._foreground.pop(session_id, None)
-            if pending.checking is not None:
-                pending.checking.cancel()
-                await asyncio.gather(pending.checking, return_exceptions=True)
+        """Resolve on this request's terminal response, never activity or history."""
+        result = await self._submit(session_id, prompt, timeout=timeout)
+        return ACPPromptResult(session_id, result.stop_reason,
+            result.model_dump(mode="json", by_alias=True, exclude_unset=True))
 
     async def cancel(self, session_id):
-        await self._connection.cancel_session(session_id=session_id)
+        await self._connection.cancel(session_id=session_id)
 
     async def request(self, method, params=None):
         """Low-level SDK JSON-RPC request, preserving result and error data."""

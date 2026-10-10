@@ -43,19 +43,6 @@ impl NativeRuntime {
         matches!(self, Self::Codex | Self::KimiCode)
     }
 
-    /// The ACP agent command used for auth-method discovery, matching the
-    /// Python SDK's `RuntimeAuthClient._COMMANDS[*]["agent"]`.
-    fn acp_agent_command(self) -> Vec<String> {
-        match self {
-            Self::ClaudeCode => vec!["claude-agent-acp"],
-            Self::Codex => vec!["codex-acp"],
-            Self::KimiCode => vec!["kimi", "acp"],
-        }
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-    }
-
     /// Login methods the runtime natively supports but does not advertise
     /// over ACP, matching the Python SDK's `native_methods`.
     fn native_auth_methods(self) -> Vec<RuntimeAuthMethod> {
@@ -490,153 +477,14 @@ pub(crate) fn auth_status_command() -> Vec<String> {
     vec![AUTH_STATUS_EXECUTABLE.to_owned(), "status".to_owned()]
 }
 
-/// Parse the `hyper-acp plugin auth-methods --json` payload, mirroring the
-/// Python SDK's `RuntimeAuthClient.methods` discovery normalization.
-fn parse_auth_methods_payload(stdout: &str) -> Vec<RuntimeAuthMethod> {
-    let parse_command = |item: &serde_json::Map<String, Value>| -> Vec<String> {
-        (|| {
-            let raw = match item.get("command") {
-                Some(value) => value.clone(),
-                None => return Vec::new(),
-            };
-            match raw {
-                Value::Array(parts) => parts
-                    .iter()
-                    .map(|part| part.as_str().unwrap_or_default().to_owned())
-                    .collect(),
-                Value::String(command) => {
-                    let mut command = vec![command];
-                    if let Some(args) = item.get("args").and_then(Value::as_array) {
-                        command.extend(
-                            args.iter()
-                                .map(|arg| arg.as_str().unwrap_or_default().to_owned()),
-                        );
-                    }
-                    command
-                }
-                _ => Vec::new(),
-            }
-        })()
-    };
-    let payload: Value = match serde_json::from_str(stdout) {
-        Ok(payload) => payload,
-        Err(_) => return Vec::new(),
-    };
-    let Some(methods) = payload.get("methods").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    methods
-        .iter()
-        .filter_map(Value::as_object)
-        .map(|item| {
-            let metadata: BTreeMap<String, Value> = item
-                .get("_meta")
-                .and_then(Value::as_object)
-                .map(|meta| meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default();
-            let mut command = parse_command(item);
-            // The ACP `terminal-auth` metadata carries the real command.
-            if command.is_empty() {
-                if let Some(terminal) = metadata.get("terminal-auth").and_then(Value::as_object) {
-                    let raw = terminal.get("command").cloned().unwrap_or(Value::Null);
-                    command = match raw {
-                        Value::Array(parts) => parts
-                            .iter()
-                            .map(|part| part.as_str().unwrap_or_default().to_owned())
-                            .collect(),
-                        Value::String(command) => {
-                            let mut command = vec![command];
-                            if let Some(args) = terminal.get("args").and_then(Value::as_array) {
-                                command.extend(
-                                    args.iter()
-                                        .map(|arg| arg.as_str().unwrap_or_default().to_owned()),
-                                );
-                            }
-                            command
-                        }
-                        _ => Vec::new(),
-                    };
-                    if item.get("id").and_then(Value::as_str) == Some("claude-login")
-                        && !command.is_empty()
-                    {
-                        command.extend(["auth".to_owned(), "login".to_owned()]);
-                    }
-                }
-            }
-            let kind = item
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or(if command.is_empty() {
-                    "acp"
-                } else {
-                    "terminal"
-                })
-                .to_owned();
-            RuntimeAuthMethod {
-                id: item
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                name: item
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .or_else(|| item.get("id").and_then(Value::as_str))
-                    .unwrap_or_default()
-                    .to_owned(),
-                description: item
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                kind,
-                command,
-                metadata,
-            }
-        })
-        .filter(|method| !method.id.is_empty())
-        .collect()
-}
-
 impl HyperCliClient {
-    /// Discover the login methods a coding runtime advertises, merging ACP
-    /// discovery with the runtime's static native methods.
-    ///
-    /// Discovery runs through the existing protected exec surface; a failed
-    /// discovery command degrades to the native list, matching the Python
-    /// SDK's `RuntimeAuthClient.methods`.
+    /// Return supported native runtime login methods without starting a probe child.
     pub async fn runtime_auth_methods(
         &self,
-        deployment_id: &str,
+        _deployment_id: &str,
         runtime: NativeRuntime,
     ) -> Result<Vec<RuntimeAuthMethod>, RuntimeAuthError> {
-        let agent_command = runtime.acp_agent_command();
-        let mut argv = vec![
-            "hyper-acp".to_owned(),
-            "plugin".to_owned(),
-            "auth-methods".to_owned(),
-            "--agent-command".to_owned(),
-            agent_command[0].clone(),
-        ];
-        if agent_command.len() > 1 {
-            argv.push("--agent-args".to_owned());
-            argv.push(agent_command[1..].join(","));
-        }
-        argv.push("--json".to_owned());
-        let mut request = crate::ExecDeploymentRequest::new(argv);
-        request.timeout = 30;
-        let response = self.exec_deployment(deployment_id, &request).await?;
-        let mut methods = if response.exit_code == 0 {
-            parse_auth_methods_payload(&response.stdout)
-        } else {
-            Vec::new()
-        };
-        for method in runtime.native_auth_methods() {
-            if !methods.iter().any(|existing| existing.id == method.id) {
-                methods.push(method);
-            }
-        }
-        Ok(methods)
+        Ok(runtime.native_auth_methods())
     }
 
     /// Run the runtime's non-interactive logout, then re-read its status.
@@ -943,58 +791,6 @@ mod tests {
 
     fn parser(runtime: NativeRuntime) -> RuntimeLoginParser {
         RuntimeLoginParser::new(runtime, "__HYPERCLI_AUTH_EXIT_test__".to_owned())
-    }
-
-    #[test]
-    fn parses_acp_auth_methods_with_meta_and_terminal_auth_fallback() {
-        let stdout = serde_json::json!({
-            "methods": [
-                {
-                    "id": "oauth",
-                    "name": "Sign in",
-                    "description": "",
-                    "_meta": {
-                        "terminal-auth": {"command": "codex", "args": ["login", "--device-auth"]}
-                    }
-                },
-                {
-                    "id": "claude-login",
-                    "name": "Claude",
-                    "description": "",
-                    "_meta": {
-                        "terminal-auth": {"command": ["claude"]}
-                    }
-                },
-                {
-                    "id": "terminal",
-                    "name": "Shell",
-                    "description": "",
-                    "command": ["kimi", "auth"]
-                },
-                {
-                    "id": "command-and-args",
-                    "name": "Shell args",
-                    "description": "",
-                    "command": "codex",
-                    "args": ["login"]
-                },
-                {"id": "empty", "name": "", "description": ""}
-            ]
-        })
-        .to_string();
-        let methods = parse_auth_methods_payload(&stdout);
-
-        assert_eq!(methods.len(), 5);
-        assert_eq!(methods[0].command, vec!["codex", "login", "--device-auth"]);
-        assert_eq!(methods[0].kind, "terminal");
-        assert_eq!(methods[1].command, vec!["claude", "auth", "login"]);
-        assert_eq!(methods[2].kind, "terminal");
-        assert_eq!(methods[3].command, vec!["codex", "login"]);
-        assert!(methods[4].command.is_empty());
-        assert_eq!(methods[4].kind, "acp");
-        // Falls back to native list when ACP does not advertise any methods.
-        assert!(parse_auth_methods_payload("{}").is_empty());
-        assert!(parse_auth_methods_payload("not json").is_empty());
     }
 
     #[test]

@@ -439,10 +439,9 @@ platform callbacks or reconnects; ACP uses the separate platform runtime key.
 
 Buzz launches keep `sync_root=/home/node` and reserve `/home/node/shared` for
 Workspace projections, and run from the image-managed `/home/node/.buzz` nest.
-The nest is reconciled after the persistent home mount, but prompt delivery
-stays in the ACP session path. `base_prompt.md` is compiled into the Buzz ACP
-plugin (compiled, not copied to disk). An explicit `image=` overrides the
-default.
+The nest is reconciled after the persistent home mount. The plugin sends ordinary
+ACP turns; native runtime configuration supplies instructions, not a compiled
+Buzz prompt. An explicit `image=` overrides the default.
 
 The Desktop provider maps structured Goose model/provider fields to
 `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific

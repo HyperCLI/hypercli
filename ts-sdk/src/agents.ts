@@ -94,7 +94,6 @@ export {
 } from './buzz-activity.js';
 import { APIError } from './errors.js';
 import { HTTPClient, type RequestOverrides } from './http.js';
-import { SessionsAPI } from './sessions.js';
 import { normalizeSlackRelayBaseUrl } from './channels.js';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
@@ -217,7 +216,7 @@ export const DEFAULT_BUZZ_RUST_LOG =
 // (acp/buzz-backend-provider) — the boundary enforcer — and rs-sdk
 // BUZZ_RESERVED_ENV; a provider-side parity test asserts the three key sets
 // are identical. Keys the provider deliberately passes through as caller
-// policy (BUZZ_ACP_MODEL, BUZZ_ACP_DEDUP, BUZZ_ACP_SESSION_TITLE
+// policy (BUZZ_ACP_MODEL
 // — typed buzz config mints overwrite caller
 // values) are excluded on purpose: they remain caller-settable launch policy
 // at the boundary.
@@ -1285,23 +1284,18 @@ export interface BuzzLaunchConfig {
   authTag?: string | null;
   systemPrompt?: string | null;
   model?: string | null;
-  idleTimeoutSeconds?: number | null;
-  maxTurnDurationSeconds?: number | null;
-  parallelism?: number;
   respondTo?: string | null;
   respondToAllowlist?: string[];
   /** @deprecated No reader remains: BUZZ_ACP_DISPLAY_NAME is no longer minted. */
   displayName?: string | null;
   /** @deprecated No reader remains: BUZZ_ACP_TEXT_MENTIONS is no longer minted. */
   textMentions?: boolean;
-  sessionTitle?: string | null;
   rustLog?: string;
 }
 
 function buildBuzzLaunchEnv(
   runtime: CodingAgentRuntime,
   buzz: BuzzLaunchConfig,
-  defaultSessionTitle?: string,
 ): Record<string, string> {
   if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
   if (!buzz.relayUrl.trim()) throw new Error('buzz.relayUrl is required');
@@ -1310,15 +1304,12 @@ function buildBuzzLaunchEnv(
     BUZZ_RELAY_URL: buzz.relayUrl,
     BUZZ_ACP_AGENT_COMMAND: harness.command,
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
-    BUZZ_ACP_RELAY_OBSERVER: 'true',
-    BUZZ_ACP_DEDUP: 'queue',
   };
   if (runtime === 'claude-code') {
     env.CLAUDE_CODE_EXECUTABLE = '/opt/hypercli/bin/claude';
   }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
-    BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
     BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
     BUZZ_ACP_MODEL: buzz.model,
     BUZZ_ACP_RESPOND_TO: buzz.respondTo,
@@ -2854,8 +2845,7 @@ export class Agent {
       { url: url.toString(), token: '' },
       { ...options,
         resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id, { signal: options.signal })).cwd),
-        getPromptCompletion: options.getPromptCompletion ?? (transport === 'proxy'
-          ? (sid, mid) => deployments.getPromptCompletion(sid, mid, this.id) : undefined) },
+      },
     );
     if (options.sessionId) {
       try {
@@ -3047,7 +3037,7 @@ export class Agent {
 
 type RuntimeAuthConfig = {
   agentCommand: string[];
-  statusCommand: string[];
+  statusCommand: string[] | null;
   logoutCommand: string[] | null;
   nativeMethods: RuntimeAuthMethod[];
 };
@@ -3058,13 +3048,13 @@ type RuntimeAuthConfig = {
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   'buzz-agent': {
     agentCommand: ['buzz-agent'],
-    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'buzz-agent', '--json'],
+    statusCommand: null,
     logoutCommand: null,
     nativeMethods: [],
   },
   opencode: {
     agentCommand: ['opencode', 'acp'],
-    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+    statusCommand: ['opencode', 'auth', 'list'],
     logoutCommand: ['opencode', 'auth', 'logout'],
     nativeMethods: [],
   },
@@ -3093,19 +3083,19 @@ const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   },
   goose: {
     agentCommand: ['goose', 'acp'],
-    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
+    statusCommand: null,
     logoutCommand: null,
     nativeMethods: [],
   },
   'kimi-code': {
     agentCommand: ['kimi', 'acp'],
-    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
+    statusCommand: null,
     logoutCommand: null,
     nativeMethods: [],
   },
   pi: {
     agentCommand: ['pi-acp'],
-    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'pi-acp', '--json'],
+    statusCommand: null,
     logoutCommand: null,
     nativeMethods: [],
   },
@@ -3129,33 +3119,6 @@ const TERMINAL_ESCAPE_PATTERN = new RegExp(
 
 function stripTerminalCodes(value: string): string {
   return value.replace(TERMINAL_ESCAPE_PATTERN, '').replace(/\r/g, '');
-}
-
-function authMethodFromPayload(value: unknown): RuntimeAuthMethod | null {
-  if (!isPlainRecord(value)) return null;
-  const id = typeof value.id === 'string' ? value.id : '';
-  if (!id) return null;
-  const metadata = isPlainRecord(value._meta) ? { ...value._meta } : {};
-  let command: string[] = [];
-  const terminal = isPlainRecord(metadata['terminal-auth']) ? metadata['terminal-auth'] : null;
-  const source = terminal ?? value;
-  if (Array.isArray(source.command) && source.command.every((part) => typeof part === 'string')) {
-    command = [...source.command];
-  } else if (typeof source.command === 'string') {
-    const args = Array.isArray(source.args) ? source.args.filter((part): part is string => typeof part === 'string') : [];
-    command = [source.command, ...args];
-  }
-  if (id === 'claude-login' && command.length > 0 && !command.includes('login')) {
-    command.push('auth', 'login');
-  }
-  return {
-    id,
-    name: typeof value.name === 'string' ? value.name : id,
-    description: typeof value.description === 'string' ? value.description : '',
-    kind: typeof value.kind === 'string' ? value.kind : 'acp',
-    command,
-    metadata,
-  };
 }
 
 async function websocketMessageText(data: unknown): Promise<string> {
@@ -3289,24 +3252,7 @@ export class RuntimeAuthClient {
   }
 
   async methods(): Promise<RuntimeAuthMethod[]> {
-    const [agentCommand, ...agentArgs] = this.config.agentCommand;
-    const command = ['hyper-acp', 'plugin', 'auth-methods', '--agent-command', agentCommand];
-    if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
-    command.push('--json');
-    const result = await this.agent.exec(command);
     const discovered: RuntimeAuthMethod[] = [];
-    if (result.exitCode === 0) {
-      try {
-        const payload = JSON.parse(stripTerminalCodes(result.stdout)) as unknown;
-        const values = isPlainRecord(payload) && Array.isArray(payload.methods) ? payload.methods : [];
-        for (const value of values) {
-          const method = authMethodFromPayload(value);
-          if (method) discovered.push(method);
-        }
-      } catch {
-        // Native fallbacks still make authentication available.
-      }
-    }
     if (this.agent.runtime === 'opencode' && discovered.length === 0) {
       discovered.push({
         id: 'provider',
@@ -3325,6 +3271,9 @@ export class RuntimeAuthClient {
   }
 
   async status(): Promise<RuntimeAuthStatus> {
+    if (!this.config.statusCommand) {
+      throw new Error(`Runtime authentication status is unsupported for '${this.agent.runtime}'; use the runtime's native authentication interface`);
+    }
     const result = await this.agent.exec([...this.config.statusCommand]);
     const output = stripTerminalCodes([result.stdout, result.stderr].filter(Boolean).join('\n')).trim();
     const detail: Record<string, unknown> = { exitCode: result.exitCode, output };
@@ -3362,10 +3311,7 @@ export class RuntimeAuthClient {
     }
     let command = [...method.command];
     if (!command.length) {
-      const [agentCommand, ...agentArgs] = this.config.agentCommand;
-      command = ['hyper-acp', 'plugin', 'authenticate', '--agent-command', agentCommand];
-      if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
-      command.push('--method-id', method.id);
+      throw new Error(`Authentication method '${method.id}' has no native login command`);
     }
     if (this.agent.runtime === 'opencode') {
       if (options.provider) command.push('--provider', options.provider);
@@ -3617,10 +3563,6 @@ export class Deployments {
   /** Authoritative runtime-host launch directory, resolved by the platform. */
   runtimePaths(agentId: string, requestOptions: RequestOverrides = {}): Promise<{ cwd: string }> {
     return this.agentHttp.get(`/deployments/${encodeURIComponent(agentId)}/runtime-paths`, undefined, requestOptions);
-  }
-
-  getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
-    return new SessionsAPI(this.agentHttp).getPromptCompletion(sessionId, messageId, agentId);
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
@@ -3927,7 +3869,7 @@ export class Deployments {
       }
       Object.assign(
         effectiveEnv,
-        buildBuzzLaunchEnv(runtime as CodingAgentRuntime, options.buzz, options.name),
+        buildBuzzLaunchEnv(runtime as CodingAgentRuntime, options.buzz),
       );
       Object.assign(effectiveSecrets, buildBuzzLaunchSecrets(options.buzz));
     }
@@ -3944,6 +3886,7 @@ export class Deployments {
         'HYPER_ACP_WS_LISTEN',
         'HYPER_ACP_LOG',
         'HYPER_ACP_WS_TOKEN',
+        'BUZZ_ACP_RELAY_OBSERVER',
         'HYPER_ACP_AGENT_COMMAND',
         'HYPER_ACP_AGENT_ARGS',
         'HYPER_ACP_AUTO_APPROVE_PERMISSION',
@@ -3954,7 +3897,6 @@ export class Deployments {
         delete effectiveSecrets[key];
       }
       effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
-      effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'true';
     }
     let syncInclude: readonly string[] | undefined;
     let syncExclude: readonly string[] | undefined;

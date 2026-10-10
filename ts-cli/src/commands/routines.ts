@@ -440,22 +440,13 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
         reply += acpContentText(update.content);
       },
     };
-    // Session-keyed dial through the /ws/acp proxy: a bound session_id
-    // attaches at the socket level, which is what re-drives a cold session's
-    // leg there. An id the proxy store does not hold rejects the connect
-    // (4404); fall back to a session-less dial and mint a fresh session,
-    // mirroring the load-failure fallback below.
+    // A bound routine must retain its exact conversation, including on failure.
     let acp: CodingAgentAcpClient;
-    let boundAttached = false;
     if (routine.sessionId) {
       try {
         acp = await agent.acpConnect({ ...acpBase, sessionId: routine.sessionId });
-        boundAttached = true;
       } catch (err) {
-        ctx.output.info(
-          `could not attach bound session ${routine.sessionId} (${describeError(err)}); starting a new session`,
-        );
-        acp = await agent.acpConnect(acpBase);
+        throw new CliError(`could not attach bound session ${routine.sessionId}: ${describeError(err)}`);
       }
     } else {
       acp = await agent.acpConnect(acpBase);
@@ -465,22 +456,13 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
       stage = 'session';
       let sessionId: string;
       let resume = false;
-      if (routine.sessionId && boundAttached) {
+      if (routine.sessionId) {
         try {
-          // ACP v2 removed session/load; resume with a full history replay.
-          await acp.resumeSession(routine.sessionId, { replayFrom: { type: 'start' } });
+          await acp.resumeSession(routine.sessionId);
           sessionId = routine.sessionId;
           resume = true;
         } catch (err) {
-          ctx.output.info(
-            `could not resume bound session ${routine.sessionId} (${describeError(err)}); starting a new session`,
-          );
-          sessionId = (await acp.newSession()).sessionId;
-        }
-        if (resume) {
-          // A resumed session can still own a live foreground turn: wait the
-          // old epoch out before prompting (chat resume parity).
-          await acp.waitForIdle(sessionId);
+          throw new CliError(`could not resume bound session ${routine.sessionId}: ${describeError(err)}`);
         }
       } else {
         sessionId = (await acp.newSession()).sessionId;

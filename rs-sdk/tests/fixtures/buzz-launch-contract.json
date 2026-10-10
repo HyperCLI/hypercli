@@ -18,7 +18,6 @@
     "sync_gid": 1000
   },
   "common_env": {
-    "BUZZ_ACP_RELAY_OBSERVER": "true",
     "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws"
   },
   "runtimes": {

@@ -144,7 +144,7 @@ Plain hosted ACP launches use:
 | --- | --- |
 | Default image CMD | `["/usr/local/bin/hyper-acp"]` (no deployment command/args override required) |
 | ACP child | `HYPER_ACP_AGENT_COMMAND`, `HYPER_ACP_AGENT_ARGS` |
-| Prompt transport | none — hyper-acp is a pure passthrough; a client `systemPrompt` on `session/new|load|resume` is rejected, and setting `HYPER_ACP_BASE_PROMPT(_FILE)` configures that rejection, not an injection (`acp/hyper-acp` `adapter.rs`) |
+| System instructions | native runtime configuration and instruction files; hyper-acp does not inject private prompt fields |
 | Permission mode | `HYPER_ACP_PERMISSION_MODE` defaults to `default`; supported values are `default`, `auto`, `bypass-permissions`/`bypassPermissions`, `accept-edits`/`acceptEdits`, `dont-ask`/`dontAsk`, and `plan` |
 | Restart | runtime-specific caller choice |
 | Home and sync root | `/home/node` |
@@ -190,16 +190,13 @@ error without upstream response bodies or secrets.
 | Codex | `ghcr.io/hypercli/hypercli-codex:latest` | `codex-acp` | `/opt/hypercli/bin/codex-acp` | none | none | none — passthrough | `.codex` |
 | Claude Code | `ghcr.io/hypercli/hypercli-claude:latest` | `claude-agent-acp` | `/opt/hypercli/bin/claude-agent-acp` | none | none | none — passthrough | `.claude`, `.claude.json` |
 | Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose` | `/usr/local/bin/goose` | `acp` | none | none — passthrough | `.goose` |
-| Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi` | `/opt/hypercli/bin/kimi` | `acp` | none | none — passthrough; `systemPrompt` rejected | `.kimi-code` |
+| Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi` | `/opt/hypercli/bin/kimi` | `acp` | none | none — passthrough | `.kimi-code` |
 | Pi | `hypercli-pi:local` (local gate) / `ghcr.io/hypercli/hypercli-pi:latest` (hosted) | `pi-acp` | `/opt/hypercli/bin/pi-acp` | none | none | none — passthrough | `.pi/agent` |
 
-Prompt transport is uniform across the matrix: hyper-acp forwards frames
-byte-for-byte and REJECTS any `systemPrompt` on `session/new|load|resume`
-— and any configured `HYPER_ACP_BASE_PROMPT(_FILE)` — instead of injecting
-(`acp/hyper-acp/crates/hyper-acp/src/adapter.rs:26-46`). Instructions live in
-each runtime's seeded native instruction file (below), not on the ACP wire.
-The Buzz plugin's compiled `base_prompt.md` likewise is never delivered —
-see `acp/hyper-acp/plugins/buzz/README.md` and `agents/SESSIONS.md` §4.1.
+Hyper-acp forwards ordinary ACP turns without injecting system instructions.
+Instructions belong in native runtime configuration and seeded instruction files
+(below). The Buzz plugin supplies no compiled prompt asset; see
+`acp/hyper-acp/plugins/buzz/README.md` for its execution/signing boundary.
 
 Pi's minimal image installs the official `@earendil-works/pi-coding-agent` and
 ordinary `pi-acp` releases, pinned by `PI_VERSION` and `PI_ACP_VERSION` build
@@ -285,22 +282,15 @@ The shared entrypoint `exec`s the default or caller-supplied command, and its
 exit status becomes the container exit status. Intentional Nostr callers can
 still supply `/usr/local/bin/hyper-acp plugin buzz` explicitly.
 
-Plain ACP runtimes carry no ACP prompt transport at all: platform identity,
-file, and environment instructions land in the runtime's seeded native
-instruction file (the AGENTS.md.template seed above), not on the ACP wire.
-Frames pass through byte-for-byte; a client `systemPrompt` on
-`session/new|load|resume` is rejected, and setting `HYPER_ACP_BASE_PROMPT` or
-`HYPER_ACP_BASE_PROMPT_FILE` (the two remain mutually exclusive at parse time)
-no longer injects anything — it makes the transport REJECT those setup frames
-(`acp/hyper-acp/crates/hyper-acp/src/adapter.rs:26-46`, `prompt.rs`).
-Buzz provider launches likewise deliver no prompt over ACP: hosted Buzz
-sessions send `mcpServers: []`, system instruction sources are rejected by the
-plugin, and the compiled `base_prompt.md` asset survives only as test pins.
-See `agents/SESSIONS.md` §4.1 and `acp/hyper-acp/plugins/buzz/README.md`.
+User and Buzz turns use ordinary ACP prompts. Platform identity, file and
+environment instructions belong in native runtime configuration and the seeded
+instruction file (`AGENTS.md.template`), not host-authored ACP extensions.
+Hosted Buzz sessions send `mcpServers: []`; the connector publishes completed
+replies locally. Retired context-injection assets are not part of this path.
 
 Bundled HyperCLI skills live in `/opt/hypercli/skills`. Runtime
 entrypoints no longer create workspace skill symlink farms. No Buzz-specific
-instructions are delivered over ACP (the compiled base prompt is never sent);
+instructions are delivered over ACP;
 no workspace skill file carries them either. OpenCode reads skills directly from `/opt/hypercli/skills` through
 its generated config. The CLI's generated `index.json` and per-skill JSON files
 live alongside the skill directories and support offline `hyper skills list`
@@ -448,15 +438,15 @@ The provider must inject and protect these categories:
 | Owner and access | `BUZZ_ACP_AGENT_OWNER`, `BUZZ_ACP_RESPOND_TO`, `BUZZ_ACP_RESPOND_TO_ALLOWLIST` |
 | Display and mentions | none minted — dead `BUZZ_ACP_DISPLAY_NAME` / `BUZZ_ACP_TEXT_MENTIONS` are reserved/stripped |
 | Reply behavior | none minted — dead `BUZZ_ACP_REQUIRE_REPLY` is reserved/stripped; the plugin itself pins `BUZZ_AGENT_REQUIRE_REPLY=0` on native Buzz Agent children because the connector publishes completed text |
-| Prompt and model | `BUZZ_ACP_SYSTEM_PROMPT` / `BUZZ_ACP_SYSTEM_PROMPT_FILE` are reserved/stripped — the plugin hard-rejects any configured system instructions at session create (never delivered); provider mints only `BUZZ_ACP_MODEL`; `BUZZ_ACP_SESSION_TITLE` |
+| Prompt and model | `BUZZ_ACP_SYSTEM_PROMPT` / `BUZZ_ACP_SYSTEM_PROMPT_FILE` are reserved/stripped — the plugin hard-rejects any configured system instructions at session create (never delivered); provider mints only `BUZZ_ACP_MODEL` |
 | Observer | `BUZZ_ACP_RELAY_OBSERVER` |
-| Event handling | Admitted relay events queue behind the local Buzz turn; `BUZZ_ACP_DEDUP=queue`. Failed turns are not automatically resubmitted. |
+| Event handling | Distinct admitted relay events queue behind the local Buzz turn. Event-ID deduplication remains; failed turns are not automatically resubmitted. |
 | Workspaces | `HYPER_WORKSPACES_DIR=/home/node/shared`; image boot-sync envs (`HYPER_WORKSPACES_BOOT_SYNC`, `HYPER_WORKSPACES_SYNC_READY_ONLY`) removed — superseded by the typed `workspaces_sync` agent launch config (Lagoon-managed resident `workspaces-sync` sidecar) |
 | ACP WebSocket | outbound `HYPER_ACP_WS_URL`, authenticated only with platform `HYPER_AGENTS_API_KEY` |
 
 The provider also projects validated non-reserved `launch.env` values. It must
 not allow user environment to override identity, relay, authorization,
-runtime command, text mentions, reply guard, or workspace bootstrap fields.
+runtime command, text mentions, signing identity, or workspace bootstrap fields.
 
 `BUZZ_ACP_SYSTEM_PROMPT` is reserved and stripped from all launch tiers: the
 plugin rejects any system instruction source at session create ("system
@@ -604,10 +594,12 @@ Provider, SDK, ACP, or image changes must verify:
    from the real OpenCode child through a synthetic local `/ws` peer.
 8. A real Nostr keypair and owner-signed, agent-mentioned `!shutdown` drives
    online-to-offline presence, relay close, and candidate-container exit.
-9. No composed prompt reaches a runtime over ACP; system instruction sources
-   are rejected before session create.
-10. ACP assistant text remains activity until the runtime explicitly publishes.
-11. Reply-guard retries are bounded under one hard deadline.
+9. Native configuration supplies system instructions; ordinary ACP carries turns
+   without host-authored prompt extensions.
+10. The connector signs completed assistant text locally; the runtime does not
+    publish Buzz messages or hold Buzz signing keys.
+11. Failed turns are not automatically resubmitted; real native outcomes govern
+    completion, not a reply-guard deadline.
 12. Text mentions and author authorization remain independent.
 13. Provider deploy reuses running state and restarts stopped state in place.
 14. Tests do not claim Desktop settings, membership, shutdown, deletion, or

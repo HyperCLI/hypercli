@@ -263,9 +263,8 @@ The persistence and workspace roots are intentionally different:
 Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
 It creates the standard Buzz directories and skill links without materializing a
-prompt Markdown file into the workspace. Prompt delivery stays in the ACP
-session path; `base_prompt.md` is compiled into `hyper-acp plugin buzz`
-(compiled, not copied to disk).
+prompt Markdown file into the workspace. The plugin sends ordinary ACP turns;
+native runtime configuration supplies instructions, not a compiled Buzz prompt.
 
 The provider owns the identity, relay, ACP command, and response-policy
 environment. It validates `respond_to` and allowlist values before creating

@@ -4279,7 +4279,7 @@ mod tests {
 
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         crate::BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut request, None)
+            .apply_to(&mut request)
             .unwrap();
         client(&server).create_deployment(&request).unwrap();
 
@@ -4292,7 +4292,7 @@ mod tests {
 
         let mut buzz = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         crate::BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut buzz, None)
+            .apply_to(&mut buzz)
             .unwrap();
         let mut buzz_body = deployment_request_body(&buzz).unwrap();
         mint_buzz_bridge_env(&buzz, &mut buzz_body, &api_base).unwrap();

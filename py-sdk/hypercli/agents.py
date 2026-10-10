@@ -1342,28 +1342,12 @@ class RuntimeAuthClient:
     _COMMANDS: dict[str, dict[str, Any]] = {
         "buzz-agent": {
             "agent": ("buzz-agent",),
-            "status": (
-                "hyper-acp",
-                "plugin",
-                "models",
-                "--agent-command",
-                "buzz-agent",
-                "--json",
-            ),
+            "status": None,
             "logout": None,
         },
         "opencode": {
             "agent": ("opencode", "acp"),
-            "status": (
-                "hyper-acp",
-                "plugin",
-                "models",
-                "--agent-command",
-                "opencode",
-                "--agent-args",
-                "acp",
-                "--json",
-            ),
+            "status": ("opencode", "auth", "list"),
             "logout": ("opencode", "auth", "logout"),
         },
         "codex": {
@@ -1407,37 +1391,17 @@ class RuntimeAuthClient:
         },
         "goose": {
             "agent": ("goose", "acp"),
-            "status": (
-                "hyper-acp",
-                "plugin",
-                "models",
-                "--agent-command",
-                "goose",
-                "--agent-args",
-                "acp",
-                "--json",
-            ),
+            "status": None,
             "logout": None,
         },
         "kimi-code": {
             "agent": ("kimi", "acp"),
-            "status": (
-                "hyper-acp",
-                "plugin",
-                "models",
-                "--agent-command",
-                "kimi",
-                "--agent-args",
-                "acp",
-                "--json",
-            ),
+            "status": None,
             "logout": None,
         },
         "pi": {
             "agent": ("pi-acp",),
-            "status": (
-                "hyper-acp", "plugin", "models", "--agent-command", "pi-acp", "--json",
-            ),
+            "status": None,
             "logout": None,
         },
     }
@@ -1459,56 +1423,7 @@ class RuntimeAuthClient:
         return self.agent.exec(list(command), timeout=timeout)
 
     def methods(self) -> list[RuntimeAuthMethod]:
-        agent_command = tuple(self._config["agent"])
-        argv = ["hyper-acp", "plugin", "auth-methods", "--agent-command", agent_command[0]]
-        if len(agent_command) > 1:
-            argv.extend(["--agent-args", ",".join(agent_command[1:])])
-        argv.append("--json")
-        discovered: list[RuntimeAuthMethod] = []
-        result = self._exec(tuple(argv))
-        if result.exit_code == 0:
-            try:
-                payload = json.loads(result.stdout or "{}")
-            except json.JSONDecodeError:
-                payload = {}
-            for item in payload.get("methods", []):
-                if not isinstance(item, dict):
-                    continue
-                raw_metadata = item.get("_meta")
-                metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-                terminal = metadata.get("terminal-auth")
-                command: tuple[str, ...] = ()
-                if isinstance(terminal, dict) and terminal.get("command"):
-                    raw_command = terminal["command"]
-                    if isinstance(raw_command, list):
-                        command = tuple(str(value) for value in raw_command)
-                    else:
-                        command = (
-                            str(raw_command),
-                            *(str(value) for value in (terminal.get("args") or [])),
-                        )
-                    if item.get("id") == "claude-login":
-                        command = (*command, "auth", "login")
-                elif item.get("command"):
-                    raw_command = item["command"]
-                    if isinstance(raw_command, list):
-                        command = tuple(str(value) for value in raw_command)
-                    else:
-                        command = (
-                            str(raw_command),
-                            *(str(value) for value in (item.get("args") or [])),
-                        )
-                discovered.append(
-                    RuntimeAuthMethod(
-                        id=str(item.get("id") or ""),
-                        name=str(item.get("name") or item.get("id") or ""),
-                        description=str(item.get("description") or ""),
-                        kind=str(item.get("type") or ("terminal" if command else "acp")),
-                        command=command,
-                        metadata=metadata,
-                    )
-                )
-        by_id = {method.id: method for method in discovered if method.id}
+        by_id: dict[str, RuntimeAuthMethod] = {}
         for method in self._config.get("native_methods", ()):
             by_id.setdefault(method.id, method)
         if self.runtime == "opencode":
@@ -1525,6 +1440,11 @@ class RuntimeAuthClient:
         return list(by_id.values())
 
     def status(self) -> RuntimeAuthStatus:
+        if self._config["status"] is None:
+            raise ValueError(
+                f"Runtime authentication status is unsupported for '{self.runtime}'; "
+                "use the runtime's native authentication interface"
+            )
         result = self._exec(tuple(self._config["status"]))
         raw = _clean_terminal_output((result.stdout or "") + (result.stderr or "")).strip()
         detail: dict[str, Any] = {"exit_code": result.exit_code, "output": raw}
@@ -1587,17 +1507,7 @@ class RuntimeAuthClient:
         if selected.command:
             command = list(selected.command)
         else:
-            agent_command = tuple(self._config["agent"])
-            command = [
-                "hyper-acp",
-                "plugin",
-                "authenticate",
-                "--agent-command",
-                agent_command[0],
-            ]
-            if len(agent_command) > 1:
-                command.extend(["--agent-args", ",".join(agent_command[1:])])
-            command.extend(["--method-id", selected.id])
+            raise ValueError(f"Authentication method '{selected.id}' has no native login command")
         if self.runtime == "opencode":
             if provider:
                 command.extend(["--provider", provider])
@@ -3851,15 +3761,11 @@ class Deployments:
         async def default_cwd():
             return (await asyncio.to_thread(self.runtime_paths, agent_id))["cwd"]
 
-        async def completion(session_id, message_id):
-            return await asyncio.to_thread(self.get_prompt_completion, session_id, message_id, agent_id)
-
         parts = urlsplit(self.acp_ws_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["agent_id"] = agent_id
         options.setdefault("token", self._api_key)
         options.setdefault("resolve_default_cwd", default_cwd)
-        options.setdefault("get_prompt_completion", completion)
         return await ACPClient.connect(urlunsplit(parts._replace(query=urlencode(query))), **options)
 
     def get_session(self, platform_session_id: str) -> SessionRecord:

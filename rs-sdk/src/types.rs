@@ -1154,9 +1154,6 @@ pub struct BuzzLaunchConfig {
     pub auth_tag: Option<String>,
     pub system_prompt: Option<String>,
     pub model: Option<String>,
-    pub idle_timeout_seconds: Option<u64>,
-    pub max_turn_duration_seconds: Option<u64>,
-    pub parallelism: u32,
     pub respond_to: Option<String>,
     pub respond_to_allowlist: Vec<String>,
     /// Retained for source compatibility. `BUZZ_ACP_DISPLAY_NAME` /
@@ -1165,7 +1162,6 @@ pub struct BuzzLaunchConfig {
     pub display_name: Option<String>,
     /// See `display_name`.
     pub text_mentions: bool,
-    pub session_title: Option<String>,
     pub rust_log: Option<String>,
     /// Retained for source compatibility. Hosted Buzz now always uses the raw
     /// outbound hyper-acp tunnel; the old observer route is no longer
@@ -1181,24 +1177,16 @@ impl BuzzLaunchConfig {
             auth_tag: None,
             system_prompt: None,
             model: None,
-            idle_timeout_seconds: None,
-            max_turn_duration_seconds: None,
-            parallelism: 1,
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             display_name: None,
             text_mentions: false,
-            session_title: None,
             rust_log: None,
             activity: true,
         }
     }
 
-    pub fn apply_to(
-        &self,
-        request: &mut CreateDeploymentRequest,
-        default_session_title: Option<&str>,
-    ) -> Result<(), BuzzLaunchError> {
+    pub fn apply_to(&self, request: &mut CreateDeploymentRequest) -> Result<(), BuzzLaunchError> {
         if self.private_key_nsec.trim().is_empty() {
             return Err(BuzzLaunchError::MissingPrivateKey);
         }
@@ -1274,17 +1262,11 @@ impl BuzzLaunchConfig {
                 "/opt/hypercli/bin/claude".to_owned(),
             );
         }
-        request
-            .env
-            .insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
         // HYPER_ACP_WS_URL is NOT minted here: HyperCliClient::create_deployment
         // derives it from the client's configured agents base
         // (crate::config::default_hyper_acp_ws_url, ts `defaultHyperAcpWsUrl`
         // parity) so a dev-configured client never ships a prod-pointing
         // bridge URL. The reserved strip above keeps caller values out.
-        request
-            .env
-            .insert("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned());
         if let Some(rust_log) = self.rust_log.as_ref().filter(|value| !value.is_empty()) {
             request.env.insert("RUST_LOG".to_owned(), rust_log.clone());
         } else {
@@ -1301,11 +1283,6 @@ impl BuzzLaunchConfig {
             &mut request.secrets,
             "BUZZ_AUTH_TAG",
             self.auth_tag.as_deref(),
-        );
-        insert_nonempty(
-            &mut request.env,
-            "BUZZ_ACP_SESSION_TITLE",
-            self.session_title.as_deref().or(default_session_title),
         );
         insert_nonempty(
             &mut request.env,
@@ -1369,8 +1346,6 @@ pub enum BuzzLaunchError {
     MissingPrivateKey,
     #[error("Buzz relay URL is required")]
     MissingRelayUrl,
-    #[error("Buzz parallelism must be between 1 and 32")]
-    InvalidParallelism,
     #[error("Buzz requires a coding-agent runtime")]
     UnsupportedRuntime,
 }
@@ -2487,11 +2462,10 @@ mod tests {
 
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.model = Some("hypercli/kimi-k3-anthropic".to_owned());
-        buzz.parallelism = 3;
         buzz.display_name = Some("Fizz4".to_owned());
         buzz.text_mentions = true;
         buzz.auth_tag = Some("[\"auth\",\"owner\",\"\",\"sig\"]".to_owned());
-        buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
+        buzz.apply_to(&mut request).unwrap();
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
@@ -2546,13 +2520,6 @@ mod tests {
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
         assert_eq!(
-            request
-                .env
-                .get("BUZZ_ACP_SESSION_TITLE")
-                .map(String::as_str),
-            Some("Fizz4")
-        );
-        assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("debug")
         );
@@ -2579,7 +2546,7 @@ mod tests {
                 overrides.insert(key.to_owned(), value.to_owned());
             }
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-                .apply_to(&mut request, None)
+                .apply_to(&mut request)
                 .unwrap();
             let overrides = if secret_override {
                 &request.secrets
@@ -2616,7 +2583,7 @@ mod tests {
         buzz.model = Some("kimi-k3".to_owned());
 
         let mut agent_request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
-        buzz.apply_to(&mut agent_request, None).unwrap();
+        buzz.apply_to(&mut agent_request).unwrap();
         assert_eq!(
             agent_request.env.get("BUZZ_ACP_MODEL").map(String::as_str),
             Some("kimi-k3")
@@ -2630,7 +2597,7 @@ mod tests {
         );
 
         let mut goose_request = CreateDeploymentRequest::new(ManagedRuntime::Goose);
-        buzz.apply_to(&mut goose_request, None).unwrap();
+        buzz.apply_to(&mut goose_request).unwrap();
         assert_eq!(
             goose_request.env.get("GOOSE_MODEL").map(String::as_str),
             Some("kimi-k3")
@@ -2638,7 +2605,7 @@ mod tests {
 
         buzz.model = Some("hypercli/kimi-k3-anthropic".to_owned());
         let mut prefixed = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
-        buzz.apply_to(&mut prefixed, None).unwrap();
+        buzz.apply_to(&mut prefixed).unwrap();
         assert_eq!(
             prefixed.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
             Some("kimi-k3-anthropic")
@@ -2881,7 +2848,7 @@ mod tests {
             let contract = &golden["runtimes"][runtime_name];
             let mut request = CreateDeploymentRequest::new(runtime);
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-                .apply_to(&mut request, None)
+                .apply_to(&mut request)
                 .unwrap();
 
             assert_eq!(serde_json::to_value(runtime).unwrap(), runtime_name);
@@ -2975,7 +2942,7 @@ mod tests {
         ] {
             let mut request = CreateDeploymentRequest::new(runtime);
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-                .apply_to(&mut request, None)
+                .apply_to(&mut request)
                 .unwrap();
             if runtime == ManagedRuntime::BuzzAgent {
                 assert_eq!(request.sync_include, None);
@@ -2993,7 +2960,7 @@ mod tests {
         custom.sync_include = Some(vec!["work".to_owned()]);
         custom.sync_exclude = Some(vec!["tmp".to_owned()]);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut custom, None)
+            .apply_to(&mut custom)
             .unwrap();
         assert_eq!(custom.sync_include, Some(vec!["work".to_owned()]));
         assert_eq!(custom.sync_exclude, None);
@@ -3034,7 +3001,7 @@ mod tests {
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.respond_to = Some("owner".to_owned());
 
-        buzz.apply_to(&mut request, None).unwrap();
+        buzz.apply_to(&mut request).unwrap();
 
         assert_eq!(request.env["BUZZ_ACP_RESPOND_TO"], "owner-only");
     }
@@ -3045,7 +3012,7 @@ mod tests {
         let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
 
         assert_eq!(
-            buzz.apply_to(&mut request, None),
+            buzz.apply_to(&mut request),
             Err(BuzzLaunchError::UnsupportedRuntime)
         );
     }
@@ -3056,7 +3023,7 @@ mod tests {
         request.image = Some("registry.example.test/custom-buzz:sha".to_owned());
 
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut request, None)
+            .apply_to(&mut request)
             .unwrap();
 
         assert_eq!(
@@ -3074,7 +3041,7 @@ mod tests {
         );
         let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
 
-        buzz.apply_to(&mut request, None).unwrap();
+        buzz.apply_to(&mut request).unwrap();
 
         assert_eq!(
             request.env["CLAUDE_CODE_EXECUTABLE"],
@@ -3086,7 +3053,7 @@ mod tests {
     fn buzz_launch_selects_plugin_and_preserves_image_entrypoint() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut request, None)
+            .apply_to(&mut request)
             .unwrap();
 
         // The builder no longer mints the bridge URL; the client create path
@@ -3103,13 +3070,7 @@ mod tests {
             serde_json::json!(["/usr/local/bin/hyper-acp", "plugin", "buzz"])
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
-        assert_eq!(
-            request
-                .env
-                .get("BUZZ_ACP_RELAY_OBSERVER")
-                .map(String::as_str),
-            Some("true")
-        );
+        assert!(!request.env.contains_key("BUZZ_ACP_RELAY_OBSERVER"));
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
         assert!(!request.env.contains_key("HYPER_ACP_LOG"));
         assert!(!request.routes.contains_key("hyper-acp"));
@@ -3121,7 +3082,7 @@ mod tests {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.activity = false;
-        buzz.apply_to(&mut request, None).unwrap();
+        buzz.apply_to(&mut request).unwrap();
         assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
@@ -3135,7 +3096,7 @@ mod tests {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
 
-        buzz.apply_to(&mut request, None).unwrap();
+        buzz.apply_to(&mut request).unwrap();
 
         assert!(!request.env.contains_key("BUZZ_ACP_DISPLAY_NAME"));
         assert!(!request.env.contains_key("BUZZ_ACP_TEXT_MENTIONS"));
@@ -3155,7 +3116,7 @@ mod tests {
         let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         buzz_request.restart = true;
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
-            .apply_to(&mut buzz_request, None)
+            .apply_to(&mut buzz_request)
             .unwrap();
         assert_eq!(
             serde_json::to_value(&buzz_request).unwrap()["restart"],

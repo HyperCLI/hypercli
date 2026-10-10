@@ -1,6 +1,6 @@
 /**
  * Serializes original messages through CodingAgentAcpClient.prompt(), which
- * verifies completion through platform REST receipts. Commit precedes settlement.
+ * waits for the native v1 terminal response. Commit precedes settlement.
  * Cancelled completion pauses queued input until a new explicit submission;
  * uncertain delivery or commit failure fences this driver without resending.
  */
@@ -163,7 +163,7 @@ export class AcpTurnDriver {
     );
   }
 
-  /** The client's prompt helper waits for completion, not just v2 acceptance. */
+  /** The correlated native prompt result settles the owned turn. */
   private onPromptResponse(flight: PendingMessage, response: { stopReason?: string | null }): void {
     if (this.closed || this.inFlight !== flight) return;
     void this.completeTurn(flight, response.stopReason ?? null);

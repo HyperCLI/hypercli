@@ -86,7 +86,7 @@ def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():
         agent.auth.logout()
 
 
-def test_codex_auth_methods_merge_acp_and_native_device_login():
+def test_codex_auth_methods_use_native_login_without_probe():
     agent = Agent.from_dict(_agent_payload("codex"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
@@ -103,20 +103,12 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
 
     methods = agent.auth.methods()
 
-    assert [method.id for method in methods] == ["api-key", "device"]
-    assert methods[1].command == ("codex", "login", "--device-auth")
-    command = agent._deployments.exec.call_args.args[1]
-    assert command == [
-        "hyper-acp",
-            "plugin",
-            "auth-methods",
-        "--agent-command",
-        "codex-acp",
-        "--json",
-    ]
+    assert [method.id for method in methods] == ["device"]
+    assert methods[0].command == ("codex", "login", "--device-auth")
+    agent._deployments.exec.assert_not_called()
 
 
-def test_pi_auth_methods_use_the_native_adapter_terminal_login():
+def test_pi_auth_discovery_and_status_do_not_launch_removed_probe():
     agent = Agent.from_dict(_agent_payload("pi"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
@@ -132,14 +124,13 @@ def test_pi_auth_methods_use_the_native_adapter_terminal_login():
         stderr="",
     )
     methods = agent.auth.methods()
-    assert len(methods) == 1
-    assert methods[0].command == ("pi-acp", "--terminal-login")
-    assert agent._deployments.exec.call_args.args[1] == [
-        "hyper-acp", "plugin", "auth-methods", "--agent-command", "pi-acp", "--json",
-    ]
+    assert methods == []
+    with pytest.raises(ValueError, match="status is unsupported"):
+        agent.auth.status()
+    agent._deployments.exec.assert_not_called()
 
 
-def test_claude_auth_methods_honor_adapter_terminal_metadata():
+def test_claude_auth_methods_use_native_owner():
     agent = Agent.from_dict(_agent_payload("claude-code"))
     agent._deployments = Mock()
     agent._deployments.exec.return_value = ExecResult(
@@ -166,18 +157,14 @@ def test_claude_auth_methods_honor_adapter_terminal_metadata():
 
     methods = {method.id: method for method in agent.auth.methods()}
 
-    assert methods["claude-login"].command == (
-        "node",
-        "/opt/claude/cli.js",
-        "auth",
-        "login",
-    )
-    assert methods["console-login"].command == (
+    assert methods["claude-ai"].command == ("claude", "auth", "login", "--claudeai")
+    assert methods["console"].command == (
         "claude",
         "auth",
         "login",
         "--console",
     )
+    agent._deployments.exec.assert_not_called()
 
 
 class _LoginSocket:
@@ -207,7 +194,7 @@ class _LoginSocket:
 
 
 @pytest.mark.asyncio
-async def test_adapter_owned_login_uses_buzz_acp_authenticate():
+async def test_unrunnable_login_does_not_fall_back_to_removed_plugin_command():
     socket = _LoginSocket(
         messages=["Open https://auth.example/device and enter device code ACP-1234\n"]
     )
@@ -229,15 +216,9 @@ async def test_adapter_owned_login_uses_buzz_acp_authenticate():
         )
     ]
 
-    session = await auth.login("oauth")
-
-    assert session.verification_url == "https://auth.example/device"
-    assert session.user_code == "ACP-1234"
-    assert socket.sent[0].startswith(
-        "hyper-acp plugin authenticate --agent-command opencode "
-        "--agent-args acp --method-id oauth;"
-    )
-    await session.cancel()
+    with pytest.raises(ValueError, match="no native login command"):
+        await auth.login("oauth")
+    assert socket.sent == []
 
 
 @pytest.mark.parametrize(

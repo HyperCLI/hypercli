@@ -1579,7 +1579,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 //
 // Sessions: NO session flag means a brand-new session every invocation
 // (there is no carried-over default session). -s/--session NAME resumes via
-// session/resume with replayFrom 'start' (the NAME is the ACP session id).
+// session/resume without history (the NAME is the ACP session id).
 // ---------------------------------------------------------------------------
 
 type ChatStage = 'start' | 'wait' | CodingAgentAcpStage;
@@ -1607,12 +1607,7 @@ function acpContentText(content: unknown): string {
 /** Open (or resume) the ACP session; SDK diagnostics identify the setup stage. */
 async function acpOpenSession(client: CodingAgentAcpClient, name: string | undefined): Promise<string> {
   if (name !== undefined) {
-    // ACP v2 removed session/load; resume with a full history replay instead.
-    await client.resumeSession(name, { replayFrom: { type: 'start' } });
-    // A resumed session can still own a live foreground turn (its state is
-    // announced on resume): wait the old epoch out so the next prompt is
-    // admitted rather than refused by the foreground gate.
-    await client.waitForIdle(name);
+    await client.resumeSession(name);
     return name;
   }
   const created = await client.newSession();

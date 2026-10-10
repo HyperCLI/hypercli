@@ -282,12 +282,13 @@ the command line. Runtime credentials and state live under the persistent
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and
-provider configuration. OpenCode combines adapter discovery with its
-interactive provider login; Codex
-adds native device login; Claude Code exposes Claude.ai, Console, and SSO;
-Goose uses its injected deployment credential; and Kimi Code uses the
-upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
-logout command through this SDK surface.
+provider configuration. `methods()` returns supported native commands: OpenCode
+provider login, Codex device login, and Claude Code's Claude.ai, Console and SSO
+login. Status uses the native OpenCode, Codex or Claude command. Buzz, Goose,
+Kimi and Pi status discovery is unsupported through this SDK surface and raises
+an error; use their native runtime authentication interface. No plugin probe or
+fallback `authenticate` command is launched. Goose and Kimi expose no
+noninteractive logout through this surface.
 
 The images default to a long-lived direct shell/exec container. The managed
 platform (runner/Lagoon) injects consistent defaults for `HYPER_API_BASE`
@@ -349,55 +350,43 @@ with `import_outcome` and platform history state (`last_message_id`,
 source values are forward-compatible strings; the title is `summary_text`.
 Timestamps and participant dictionaries retain the existing catalog shape.
 Reads work offline without runtime connections. The backend advances the caller's
-user read receipt to the session head on a best-effort basis. The app reads
-transcripts over ACP `session/resume`; the Python completion verifier uses the
-existing paged REST history endpoint described below. HTTP
+user read receipt to the session head on a best-effort basis. Platform history
+and pagination remain separate from ACP attachment and live turns. HTTP
 errors propagate as `APIError`: 404 unknown session, 403 outside participation
 scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occurs.
 
-## ACP v2 conversation client
+## ACP v1 conversation client
 
 `hypercli.acp.ACPClient` connects to the backend `/ws/acp` authority using the
-pinned upstream experimental v2 SDK (alpha.5 schema, Git commit
+pinned upstream v1 SDK (schema-v1.23.0, Git commit
 `9d07d7871ef4b220b8507e15fc4b1560f0950a64`). Install with a Git-enabled pip
 environment; pip provisions the upstream declared `pdm-backend` build prerequisite
-in build isolation. The frontend is v2; runtime leg negotiation belongs to Backend.
+in build isolation. Product ACP traffic targets vanilla v1 throughout.
 
 ```python
 from hypercli.acp import ACPClient, AmbiguousDeliveryError, RetryableACPError
 
 async with await ACPClient.connect(proxy_url, token=api_key, on_update=handle_update) as acp:
     session_id = await acp.new_session(cwd="/home/node")
-    accepted = await acp.submit_prompt(session_id, "Summarize overnight mail")
-    print(accepted.message_id)  # conversation insertion, not execution
+    result = await acp.prompt(session_id, "Summarize overnight mail")
+    print(result.stop_reason)  # correlated native terminal response
 ```
 
-Use `resume_session(id, cwd=..., replay=True)` to restore and replay via standard
-ACP, without a private URL attachment prerequisite. `load_session` is a local
-compatibility helper name for that v2 operation; it does not send `session/load`.
+Use `resume_session(id, cwd=...)` for supported native attachment. It never
+falls back to full load or resubmits a turn. `load_session` explicitly sends
+standard v1 `session/load`; managed native reconciliation belongs to Backend.
 `cancel(id)` sends the standard notification, never a replacement prompt.
-The existing custom `replay_from` window/cursor passthrough is retained for
-compatibility; it is not an upstream ACP paging guarantee and requires a
-coordinated app/backend migration.
-
-`prompt(id, blocks, timeout=...)` requires a `get_prompt_completion(session_id,
-message_id)` async callback at connect time. The callback must read authoritative
-completion evidence for that exact insertion. `Deployments.get_prompt_completion`
-does this using the existing paged session-history endpoint, matching the accepted
-ID, user row sequence, target agent and terminal record. Wrap this synchronous
-getter with `asyncio.to_thread` for the async callback.
-
-Idle only triggers verification. If this input has no receipt (for example older
-queued work stopped first, or a v2 runtime provided only acceptance), the helper
-fails rather than guessing success. Without a reader it refuses before sending.
-`submit_prompt` remains standard admission-only and needs no REST reader.
+There are no replay/window cursor arguments. Both `prompt` and `submit_prompt`
+wait for the native terminal response. `submit_prompt` returns the upstream typed
+`PromptResponse`; `prompt` returns `ACPPromptResult`. Neither requires a receipt
+reader or infers completion from notifications. `Deployments.get_prompt_completion`
+remains an explicit platform-history API for separately inspecting stored evidence.
 
 Known pre-write failures raise `RetryableACPError`; uncertain post-write/foreground
 outcomes raise `AmbiguousDeliveryError`. Neither is automatically retried. Protocol
 errors preserve code, message and data through `ACPRequestError`. Metadata and read
 receipts stay on the existing platform REST APIs, not ACP fields or `_meta`.
 
-The TypeScript SDK exposes the same separation as `submitPrompt` versus `prompt`.
 Python is one-shot: it does not reconnect or replay submissions automatically.
 
 ## Error Handling

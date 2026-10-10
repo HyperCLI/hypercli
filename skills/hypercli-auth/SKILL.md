@@ -121,12 +121,11 @@ runtimes.
 
 ## Authenticate Hosted Buzz Runtimes
 
-First identify the runtime without reading secrets:
-
-```bash
-hyper-acp plugin buzz auth-methods --json
-hyper-acp plugin buzz models --json
-```
+Identify the runtime from the deployment's runtime label, then use that runtime's
+native authentication interface below. The Buzz plugin exposes no auth-method or
+model probe commands. SDK auth helpers offer native OpenCode, Codex and Claude
+login methods. Other runtimes return no SDK login methods, and unsupported status
+returns an explicit error rather than launching a probe child.
 
 Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`,
 `HYPER_AGENTS_API_BASE`, the appropriate ACP URL, and scoped `HYPER_AGENTS_API_KEY`.

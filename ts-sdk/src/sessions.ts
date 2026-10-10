@@ -106,6 +106,8 @@ export interface AcpSessionState extends AcpSessionRecord {
 
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
 export interface AcpSessionMessage {
+  /** Stable platform history identity; never an ACP wire field. */
+  messageId?: string | null;
   sessionId: string;
   /** Per-session ordering; the store's "where are we" value (the ACP wire has no ordinals). */
   seq: number;
@@ -246,6 +248,7 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
   const seq = row.seq;
   const role = row.role;
   return {
+    messageId: pick<string>(row, 'message_id', 'messageId') ?? null,
     sessionId: String(pick<unknown>(row, 'session_id', 'sessionId') ?? ''),
     seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
@@ -374,32 +377,4 @@ export class SessionsAPI {
     };
   }
 
-  /** Exact Backend completion evidence. Session idle is deliberately not used. */
-  async getPromptCompletion(sessionId: string, messageId: string, agentId: string): Promise<{ stopReason: string } | null> {
-    const turns = new Map<number, AcpSessionMessage>();
-    const visited = new Set<string>();
-    let cursor: string | null = null;
-    for (;;) {
-      const page = await this.getMessages(sessionId, { cursor, limit: 100 });
-      for (const row of page.items) {
-        if (row.sessionId !== sessionId) continue;
-        if (row.acp.type === 'turn_result' && row.participantKind === 'agent' && row.participantId === agentId &&
-            typeof row.acp.messageSeq === 'number' && row.completedAt && !turns.has(row.acp.messageSeq)) {
-          // History is newest-first, including across pages. Keep the newest
-          // qualifying result when retries share the original input sequence.
-          turns.set(row.acp.messageSeq, row);
-        }
-        if (row.acp.type === 'user_message' && row.acp.messageId === messageId && row.acp.agentId === agentId && row.role === 'user') {
-          const terminal = turns.get(row.seq);
-          // Resubmit resets the input receipt. Matching the terminal stamp also
-          // rejects pages read before a retry that completed during pagination.
-          return row.completedAt && terminal && row.completedAt === terminal.completedAt && typeof terminal.stopReason === 'string'
-            ? { stopReason: terminal.stopReason } : null;
-        }
-      }
-      if (!page.hasMore || !page.nextCursor || visited.has(page.nextCursor)) return null;
-      cursor = page.nextCursor;
-      visited.add(cursor);
-    }
-  }
 }

@@ -429,14 +429,14 @@ A typed Buzz launch:
   Workspace projections;
 - runs from the image-managed `/home/node/.buzz` nest.
 
-The nest is reconciled after the persistent home mount, but prompt delivery
-stays in the ACP session path. `base_prompt.md` is compiled into the Buzz ACP
-plugin (compiled, not copied to disk).
+The nest is reconciled after the persistent home mount. The plugin sends ordinary
+ACP turns; native runtime configuration supplies instructions, not a compiled
+Buzz prompt.
 An explicit `image` overrides the default. `buzzEnabled` is the deprecated
 raw-environment compatibility path and cannot be combined with a typed `buzz`
 value or explicit `command`.
 
-The typed SDK renderer checks required identity fields and parallelism but does
+The typed SDK renderer checks required identity fields but does
 not duplicate every stock Desktop cross-field validation. The Desktop provider
 also maps structured Goose model/provider fields to
 `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific

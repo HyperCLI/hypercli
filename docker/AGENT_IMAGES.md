@@ -132,8 +132,8 @@ user content is preserved.
 
 Coding images read skill bodies from `/opt/hypercli/skills`, without workspace
 skill links or a static Markdown index. No Buzz
-instructions are delivered over ACP: the Buzz plugin's compiled
-`base_prompt.md` is never sent (it survives only as plugin test pins), and
+instructions are delivered over ACP: the Buzz plugin supplies no compiled prompt,
+and
 nothing is copied into the image workspace as a skill file.
 
 Coding images boot generic ACP by default. Intentional Buzz/Nostr launches

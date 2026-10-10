@@ -153,24 +153,22 @@ lists.
 
 ## ACP and platform sessions
 
-`AcpClient` uses the upstream **experimental v2 alpha.5 draft** client profile.
-It rejects a v1 initialize answer; Backend negotiates runtime v1/v2 separately.
+`AcpClient` uses vanilla **ACP v1** end to end.
 The Rust transport remains one-shot: callers explicitly connect and initialize,
-and own reconnection policy. Typed session operations require an initialized peer
-advertising `capabilities.session`. An empty session capability object supports
-the baseline new/list/resume/prompt/cancel/close operations.
+and own reconnection policy. Requests preserve native responses and refusals;
+prompt completion is the correlated terminal result, including its `stopReason`.
 
-`new_session(cwd)` and `resume_session(cwd, id, replay)` require a concrete absolute
+`new_session(cwd)` and `resume_session(cwd, id)` take the original
 runtime-host path (including Windows paths when appropriate). Paths are never
 resolved on the SDK host or replaced with a guessed default. Only the runner or
 hosted runtime resolves configured paths, including paths relative to runtime
 `~/.hypercli`; pass its concrete absolute result or an explicit valid absolute
 override verbatim. For existing sessions, obtain the original cwd from standard
 session discovery or stored native setup, not the current launch default.
-Rust currently requires that explicit value: automatic lookup awaits the
-coordinated authoritative platform seam. `load_session` is
-retained as a local alias for resume with standard `{ "type": "start" }` replay;
-it never sends v1 `session/load`. `list_sessions` uses the standard ACP catalog.
+`new_session_default` uses the platform runtime-path read; `resume_session_stored`
+uses retained setup or standard catalog discovery. `load_session` sends an explicit
+full native history request, never an attachment fallback or a scrolling request.
+`list_sessions` uses the standard ACP catalog.
 `close_session` closes remote session resources; `close` releases the transport.
 `cancel` only queues a notification, not an acknowledgment that execution stopped.
 
@@ -181,7 +179,6 @@ client:
 ```rust,no_run
 use hypercli_sdk::{AcpClient, HyperCliClient, SessionMessagesOptions};
 use serde_json::json;
-use std::time::Duration;
 
 # async fn example(client: &HyperCliClient, proxy_url: &str, key: &str, agent_id: &str, runtime_cwd: &str)
 # -> Result<(), Box<dyn std::error::Error>> {
@@ -189,15 +186,11 @@ let acp = AcpClient::connect(proxy_url, key).await?;
 acp.initialize().await?;
 // Concrete absolute cwd supplied by the runtime authority or an explicit override.
 let session_id = acp.new_session(runtime_cwd).await?;
-let accepted = acp.submit_prompt(
+let result = acp.submit_prompt(
     &session_id, vec![json!({"type": "text", "text": "Summarize the project"})],
 ).await?;
-// Persist accepted.message_id before observing; admission is not completion.
+println!("{:?}", result.stop_reason);
 let sessions = client.sessions();
-let completion = sessions.wait_prompt_completion(
-    &accepted, agent_id, Duration::from_secs(300),
-).await?;
-println!("{}: {}", completion.message_id, completion.stop_reason);
 let detail = sessions.get_session(&session_id).await?;
 println!("{:?}: {:?}", detail.summary_text, detail.agent_state);
 let history = sessions.get_messages(&session_id, &SessionMessagesOptions::default()).await?;
@@ -210,7 +203,7 @@ acp.close();
 Construct/drop `HyperCliClient` outside a Tokio runtime as required by its existing
 blocking transport; session methods themselves use async HTTP. Other session
 methods are `list_sessions`, `get_discovery_status`, `request_discovery`,
-`search_transcript`, `get_messages_around`, and `get_prompt_completion`.
+`search_transcript` and `get_messages_around`.
 Unsupported discovery remains an explicit status, not an empty-catalog success.
 
 Detail includes source, summaries, participants, import evidence, `last_message_id`,
@@ -221,21 +214,10 @@ Detail reads best-effort advance user read progress; history reads can also adva
 read receipts. Search and around reads do not. All work from retained data even
 when the runtime is offline. HTTP failures retain their status.
 
-Completion verification matches the accepted message ID and target agent to the
-original user row, then requires its completion timestamp to match the newest
-corresponding terminal record. Neither `agent_state`, ACP idle, admission, nor a
-detail receipt alone supplies terminal proof. The one-shot getter returns `None`
-when proof is unavailable. The waiter polls once per second with a caller-supplied
-observation timeout; timeout/read errors retain the session and admitted message
-IDs. Dropping the waiter or timing out does not cancel or resubmit work. Observation
-can continue after ACP disconnect. Runtimes without exact retained completion
-evidence cannot produce a successful result through this helper.
-
-The legacy raw `AcpClient::prompt` still refuses before sending; use admission plus
-the REST observer above. `take_updates()` remains the independent raw notification
-stream. No private platform fields are added to ACP, and custom `start.from/limit`
-replay windows are deliberately not implemented. See [PARITY.md](PARITY.md) for
-the audited scope and verification handoff.
+`take_updates()` is the independent native notification stream. REST receipts and
+stable message identities describe retained history; they do not settle ACP
+prompts. A disconnected attempted prompt remains uncertain and is never resent
+automatically. No private platform fields or history windows are added to ACP.
 
 ## Plans and agent capacity
 
@@ -295,8 +277,7 @@ use hypercli_sdk::{BuzzLaunchConfig, CreateDeploymentRequest, ManagedRuntime};
 let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
 let mut buzz = BuzzLaunchConfig::new(agent_nsec, relay_url);
 buzz.auth_tag = Some(owner_signed_auth_tag);
-buzz.parallelism = 1;
-buzz.apply_to(&mut request, Some("Fizz"))?;
+buzz.apply_to(&mut request)?;
 ```
 
 `BuzzLaunchConfig::apply_to` leaves size unset for live backend selection,
@@ -320,8 +301,8 @@ the backend's `stopped` state.
 `/home/node/shared` remains reserved for Workspace projections. The
 Buzz-specialized images reconcile their nest after mount and run the harness
 from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
-Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` is compiled into
-`hyper-acp` (compiled, not copied to disk).
+Code receives `CLAUDE.md -> AGENTS.md`. The Buzz plugin supplies no compiled
+prompt or context-injection asset.
 
 For a generic `CreateDeploymentRequest`, whole-root sync is represented by
 omitting both selectors or by `sync_exclude: Some(vec![])`. An explicit empty
@@ -365,6 +346,10 @@ Claude Code, Codex, and Kimi Code images expose one normalized wrapper at
 `/usr/local/bin/hypercli-runtime-auth`. The SDK fixes both the status and login
 commands; Desktop does not have to expose arbitrary remote exec just to render
 an authentication button:
+
+`runtime_auth_methods` returns the supported native method list without launching
+an ACP probe child. Runtime status/login remain owned by the installed native
+runtime-auth wrapper; the retired plugin discovery commands are not used.
 
 ```rust,no_run
 use std::time::Duration;

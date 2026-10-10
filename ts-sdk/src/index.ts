@@ -428,7 +428,6 @@ export {
 export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
-  CodingAgentAcpObservationError,
   CodingAgentAcpRequestError,
   CodingAgentAcpReplayGapError,
   CodingAgentAcpUnavailableError,
@@ -441,7 +440,6 @@ export {
   type CodingAgentAcpProtocolVersion,
   type CodingAgentAcpPromptResult,
   type CodingAgentAcpTransport,
-  type AcpReplayFrom,
   type CodingAgentAcpTarget,
 } from './acp.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';

@@ -26,8 +26,8 @@ mod user;
 mod workspaces;
 
 pub use acp::{
-    AcpClient, AcpError, AcpPromptAcceptance, AcpPromptResult, AcpSetupError, AcpUpdateReceiver,
-    ACP_PROTOCOL_VERSION, DEFAULT_OPEN_TIMEOUT,
+    AcpClient, AcpError, AcpPromptResult, AcpSetupError, AcpUpdateReceiver, ACP_PROTOCOL_VERSION,
+    DEFAULT_OPEN_TIMEOUT,
 };
 pub use billing::{Balance, BillingClient, Transaction};
 pub use client::{
@@ -81,10 +81,10 @@ pub use runtime_auth::{
     RuntimeLoginResult, RuntimeLoginSession, RuntimeShellToken,
 };
 pub use sessions::{
-    SessionCompletionError, SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions,
-    SessionMessage, SessionMessagePage, SessionMessagesOptions, SessionMessagesWindow, SessionPage,
-    SessionParticipant, SessionPromptCompletion, SessionReceipt, SessionRecord, SessionSearchHit,
-    SessionSearchOptions, SessionsClient,
+    SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions, SessionMessage,
+    SessionMessagePage, SessionMessagesOptions, SessionMessagesWindow, SessionPage,
+    SessionParticipant, SessionReceipt, SessionRecord, SessionSearchHit, SessionSearchOptions,
+    SessionsClient,
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,

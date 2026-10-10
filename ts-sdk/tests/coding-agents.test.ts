@@ -359,7 +359,6 @@ describe('coding agents', () => {
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
         RUST_LOG: DEFAULT_BUZZ_RUST_LOG,
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
-        BUZZ_ACP_RELAY_OBSERVER: 'true',
       },
     });
     await expect(deployments.createAgent('codex', {
@@ -494,7 +493,6 @@ describe('coding agents', () => {
         privateKeyNsec: 'nsec1test',
         relayUrl: 'wss://buzz.example.test',
         model: 'hypercli/kimi-k2.6-anthropic',
-        parallelism: 3,
       },
     });
 
@@ -508,9 +506,7 @@ describe('coding agents', () => {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
         BUZZ_ACP_AGENT_COMMAND: '/opt/hypercli/bin/opencode',
         BUZZ_ACP_AGENT_ARGS: 'acp',
-        BUZZ_ACP_SESSION_TITLE: 'Fizz4',
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
-        BUZZ_ACP_RELAY_OBSERVER: 'true',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
@@ -747,15 +743,14 @@ describe('coding agents', () => {
     });
   });
 
-  it('uses ordinary pi-acp for inherited runtime auth', async () => {
+  it('reports unsupported pi auth status without launching a removed probe', async () => {
     const agent = Agent.fromDict(response('pi'));
     const exec = vi.spyOn(agent, 'exec').mockResolvedValue({
       exitCode: 0, stdout: '{}', stderr: '',
     });
-    await agent.auth.status();
-    expect(exec.mock.calls[0][0]).toEqual([
-      'hyper-acp', 'plugin', 'models', '--agent-command', 'pi-acp', '--json',
-    ]);
+    await expect(agent.auth.status()).rejects.toThrow('status is unsupported');
+    expect(await agent.auth.methods()).toEqual([]);
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it('hydrates coding runtimes returned by get', async () => {
@@ -782,7 +777,7 @@ describe('coding agents', () => {
     await expect(deployments.get(agentId)).resolves.toBeInstanceOf(Agent);
   });
 
-  it('discovers Buzz ACP methods and merges native runtime methods', async () => {
+  it('uses native runtime login methods without a probe', async () => {
     const agent = Agent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec').mockResolvedValue({
       exitCode: 0,
@@ -799,9 +794,10 @@ describe('coding agents', () => {
     const methods = await agent.auth.methods();
 
     expect(methods).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'oauth', command: ['codex', 'login'] }),
       expect.objectContaining({ id: 'device', command: ['codex', 'login', '--device-auth'] }),
     ]));
+    expect(methods).toHaveLength(1);
+    expect(agent.exec).not.toHaveBeenCalled();
   });
 
   it('does not pretend managed Goose credentials have a vendor logout', async () => {
@@ -838,14 +834,13 @@ describe('coding agents', () => {
     await expect(agent.auth.logout('anthropic')).resolves.toMatchObject({ authenticated: false });
     expect(exec.mock.calls.map(([command]) => command)).toEqual([
       ['opencode', 'auth', 'logout', 'anthropic'],
-      ['hyper-acp', 'plugin', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+      ['opencode', 'auth', 'list'],
     ]);
   });
 
   it('runs login in an authenticated shell and captures the browser challenge', async () => {
     const agent = Agent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec')
-      .mockResolvedValueOnce({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 0, stdout: 'Logged in', stderr: '' });
     let finishPrompt: (() => void) | undefined;
     const socket = {
@@ -1076,7 +1071,7 @@ describe('buzz acp raw outbound launch', () => {
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
-    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('true');
+    expect(payload.env).not.toHaveProperty('BUZZ_ACP_RELAY_OBSERVER');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
@@ -1099,7 +1094,7 @@ describe('buzz acp raw outbound launch', () => {
     const payload = post.mock.calls[0][1];
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
-    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('true');
+    expect(payload.env).not.toHaveProperty('BUZZ_ACP_RELAY_OBSERVER');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');

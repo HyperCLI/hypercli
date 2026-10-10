@@ -1,15 +1,13 @@
 //! Platform HTTP contract tests. Construct/drop the blocking parent transport
 //! outside Tokio; session operations themselves use its injected async client.
-use std::time::Duration;
-
 use hypercli_sdk::{
-    AcpPromptAcceptance, ClientConfig, HyperCliClient, SessionCompletionError, SessionListOptions,
-    SessionMessagesOptions, SessionRecord, SessionSearchOptions,
+    ClientConfig, HyperCliClient, SessionListOptions, SessionMessagesOptions, SessionRecord,
+    SessionSearchOptions,
 };
 use mockito::Matcher;
 use reqwest::header::{HeaderMap, HeaderValue};
 use secrecy::SecretString;
-use serde_json::{json, Value};
+use serde_json::json;
 use url::Url;
 
 fn client(server: &mockito::ServerGuard) -> HyperCliClient {
@@ -34,19 +32,6 @@ fn client(server: &mockito::ServerGuard) -> HyperCliClient {
             .unwrap(),
     )
     .unwrap()
-}
-
-fn input() -> Value {
-    json!({"session_id":"s", "seq":4, "role":"user",
-        "acp":{"type":"user_message", "messageId":"accepted", "agentId":"agent"},
-        "completed_at":"2026-10-08T12:00:00Z"})
-}
-
-fn terminal() -> Value {
-    json!({"session_id":"s", "seq":8, "role":"assistant",
-        "participant_kind":"agent", "participant_id":"agent",
-        "acp":{"type":"turn_result", "messageSeq":4},
-        "completed_at":"2026-10-08T12:00:00Z", "stop_reason":"end_turn"})
 }
 
 #[test]
@@ -104,7 +89,13 @@ fn session_routes_keep_cursors_and_filters_in_rest() {
         .mock("GET", "/agents/sessions/s/messages")
         .match_query(Matcher::UrlEncoded("cursor".into(), "opaque+/=".into()))
         .with_status(200)
-        .with_body(r#"{"items":[],"has_more":false,"import_outcome":null}"#)
+        .with_body(
+            json!({"items":[{"session_id":"s", "seq":4, "message_id":"platform-tool",
+            "role":"tool", "acp":{"type":"session/update", "params":{"update":{
+                "sessionUpdate":"tool_call_update", "toolCallId":"native", "content":[]}}}}],
+            "has_more":false,"import_outcome":null})
+            .to_string(),
+        )
         .create();
     let search = server
         .mock("GET", "/agents/sessions/search")
@@ -147,7 +138,7 @@ fn session_routes_keep_cursors_and_filters_in_rest() {
             })
             .await
             .unwrap();
-        sessions
+        let page = sessions
             .get_messages(
                 "s",
                 &SessionMessagesOptions {
@@ -157,6 +148,14 @@ fn session_routes_keep_cursors_and_filters_in_rest() {
             )
             .await
             .unwrap();
+        assert_eq!(
+            page.page.items[0].message_id.as_deref(),
+            Some("platform-tool")
+        );
+        assert_eq!(
+            page.page.items[0].acp["params"]["update"]["sessionUpdate"],
+            "tool_call_update"
+        );
         sessions
             .search_transcript(
                 "words & more",
@@ -186,245 +185,5 @@ fn session_routes_keep_cursors_and_filters_in_rest() {
     });
     for mock in [catalog, messages, search, around, discovery, request] {
         mock.assert();
-    }
-}
-
-#[test]
-fn completion_matches_exact_admission_across_history_pages() {
-    let mut server = mockito::Server::new();
-    let newest = server
-        .mock("GET", "/agents/sessions/s/messages")
-        .match_query(Matcher::UrlEncoded("limit".into(), "100".into()))
-        .with_status(200)
-        .with_body(
-            json!({"items":[terminal()], "has_more":true,"next_cursor":"older+/="}).to_string(),
-        )
-        .create();
-    let older = server
-        .mock("GET", "/agents/sessions/s/messages")
-        .match_query(Matcher::AllOf(vec![
-            Matcher::UrlEncoded("limit".into(), "100".into()),
-            Matcher::UrlEncoded("cursor".into(), "older+/=".into()),
-        ]))
-        .with_status(200)
-        .with_body(json!({"items":[input()], "has_more":false}).to_string())
-        .create();
-    let client = client(&server);
-    let accepted = AcpPromptAcceptance {
-        session_id: "s".into(),
-        message_id: "accepted".into(),
-        raw: json!({"messageId":"accepted"}),
-    };
-    let completion = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(client.sessions().wait_prompt_completion(
-            &accepted,
-            "agent",
-            Duration::from_secs(5),
-        ))
-        .unwrap();
-    assert_eq!(completion.message_id, "accepted");
-    assert_eq!(completion.stop_reason, "end_turn");
-    newest.assert();
-    older.assert();
-}
-
-#[test]
-fn completion_uses_newest_retry_and_rejects_cross_attempt_pages() {
-    for same_attempt in [true, false] {
-        let mut server = mockito::Server::new();
-        let mut newest = terminal();
-        newest["seq"] = json!(12);
-        newest["completed_at"] = json!("2026-10-08T12:01:00Z");
-        let mut older = terminal();
-        older["stop_reason"] = json!("cancelled");
-        let mut original = input();
-        original["completed_at"] = json!(if same_attempt {
-            "2026-10-08T12:01:00Z"
-        } else {
-            "2026-10-08T12:02:00Z"
-        });
-        let first = server
-            .mock("GET", "/agents/sessions/s/messages")
-            .match_query(Matcher::UrlEncoded("limit".into(), "100".into()))
-            .with_status(200)
-            .with_body(json!({"items":[newest],"has_more":true,"next_cursor":"older"}).to_string())
-            .create();
-        let second = server
-            .mock("GET", "/agents/sessions/s/messages")
-            .match_query(Matcher::AllOf(vec![
-                Matcher::UrlEncoded("limit".into(), "100".into()),
-                Matcher::UrlEncoded("cursor".into(), "older".into()),
-            ]))
-            .with_status(200)
-            .with_body(json!({"items":[older,original],"has_more":false}).to_string())
-            .create();
-        let client = client(&server);
-        let result = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(
-                client
-                    .sessions()
-                    .get_prompt_completion("s", "accepted", "agent"),
-            )
-            .unwrap();
-        if same_attempt {
-            assert_eq!(result.unwrap().stop_reason, "end_turn");
-        } else {
-            assert_eq!(result, None);
-        }
-        first.assert();
-        second.assert();
-    }
-}
-
-#[test]
-fn completion_never_uses_foreign_stale_or_missing_evidence() {
-    let mut cases = Vec::new();
-    for field in [
-        "session_id",
-        "participant_id",
-        "participant_kind",
-        "completed_at",
-    ] {
-        let mut wrong = terminal();
-        wrong[field] = json!("other");
-        cases.push(vec![wrong, input()]);
-    }
-    let mut wrong_seq = terminal();
-    wrong_seq["acp"]["messageSeq"] = json!(3);
-    cases.push(vec![wrong_seq, input()]);
-    let mut pending = input();
-    pending["completed_at"] = Value::Null;
-    cases.push(vec![terminal(), pending]);
-    let mut foreign_input = input();
-    foreign_input["acp"]["agentId"] = json!("other");
-    cases.push(vec![terminal(), foreign_input]);
-    let mut neighboring_input = input();
-    neighboring_input["acp"]["messageId"] = json!("another-admission");
-    cases.push(vec![terminal(), neighboring_input]);
-    cases.push(vec![input()]); // A detail-style completion stamp alone is insufficient.
-    let mut idle = terminal();
-    idle["acp"] = json!({"type":"session/update", "params":{"sessionId":"s",
-        "update":{"sessionUpdate":"state_update","state":"idle","stopReason":"end_turn"}}});
-    cases.push(vec![idle, input()]); // Idle is not message-level completion evidence.
-    let mut retry = terminal();
-    retry["seq"] = json!(9);
-    retry["completed_at"] = Value::Null;
-    cases.push(vec![retry, terminal(), input()]); // Never fall back to an older result.
-    for items in cases {
-        let mut server = mockito::Server::new();
-        let page = server
-            .mock("GET", "/agents/sessions/s/messages")
-            .match_query(Matcher::Any)
-            .with_status(200)
-            .with_body(json!({"items":items,"has_more":false}).to_string())
-            .create();
-        let client = client(&server);
-        let result = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(
-                client
-                    .sessions()
-                    .get_prompt_completion("s", "accepted", "agent"),
-            )
-            .unwrap();
-        assert_eq!(result, None);
-        page.assert();
-    }
-}
-
-#[test]
-fn observation_errors_preserve_identity_and_http_status() {
-    let mut server = mockito::Server::new();
-    let denied = server
-        .mock("GET", "/agents/sessions/s/messages")
-        .match_query(Matcher::Any)
-        .with_status(403)
-        .create();
-    let client = client(&server);
-    let accepted = AcpPromptAcceptance {
-        session_id: "s".into(),
-        message_id: "accepted".into(),
-        raw: json!({"messageId":"accepted"}),
-    };
-    let error = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(client.sessions().wait_prompt_completion(
-            &accepted,
-            "agent",
-            Duration::from_secs(5),
-        ))
-        .unwrap_err();
-    match error {
-        SessionCompletionError::Read {
-            session_id,
-            message_id,
-            source,
-        } => {
-            assert_eq!(session_id, "s");
-            assert_eq!(message_id, "accepted");
-            assert_eq!(source.status(), Some(reqwest::StatusCode::FORBIDDEN));
-        }
-        other => panic!("unexpected: {other:?}"),
-    }
-    denied.assert();
-}
-
-#[test]
-fn repeated_history_cursor_is_an_error_not_an_end_or_infinite_loop() {
-    let mut server = mockito::Server::new();
-    let pages = server
-        .mock("GET", "/agents/sessions/s/messages")
-        .match_query(Matcher::Any)
-        .with_status(200)
-        .expect(2)
-        .with_body(r#"{"items":[],"has_more":true,"next_cursor":"loop"}"#)
-        .create();
-    let client = client(&server);
-    let error = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(
-            client
-                .sessions()
-                .get_prompt_completion("s", "accepted", "agent"),
-        )
-        .unwrap_err();
-    assert!(error.to_string().contains("repeated a cursor"));
-    pages.assert();
-}
-
-#[test]
-fn observation_timeout_retains_admission_without_claiming_execution_stopped() {
-    let mut server = mockito::Server::new();
-    let _history = server
-        .mock("GET", "/agents/sessions/s/messages")
-        .match_query(Matcher::Any)
-        .with_status(200)
-        .with_body(r#"{"items":[],"has_more":false}"#)
-        .create();
-    let client = client(&server);
-    let accepted = AcpPromptAcceptance {
-        session_id: "s".into(),
-        message_id: "accepted".into(),
-        raw: json!({"messageId":"accepted"}),
-    };
-    let error = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(
-            client
-                .sessions()
-                .wait_prompt_completion(&accepted, "agent", Duration::ZERO),
-        )
-        .unwrap_err();
-    match error {
-        SessionCompletionError::Timeout {
-            session_id,
-            message_id,
-        } => {
-            assert_eq!(session_id, "s");
-            assert_eq!(message_id, "accepted");
-        }
-        other => panic!("unexpected: {other:?}"),
     }
 }

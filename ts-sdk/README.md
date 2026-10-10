@@ -12,26 +12,21 @@ npm install @hypercli.com/sdk
 - `ws` - WebSocket client for log streaming
 - Node.js 18+ (uses native `fetch`)
 
-## ACP v2 shape migration (breaking API change)
+## Vanilla ACP v1 (breaking API change)
 
 ACP permission callbacks (`onPermissionRequest`, `setPermissionHandler`) and the
-exported `RequestPermissionRequest` now use the pinned upstream experimental v2
-shape. Read `request.title` and optional `request.subject`; a tool subject carries
-`subject.toolCall`, while command and absent subjects need no synthetic tool call.
+exported `RequestPermissionRequest` use the upstream v1 shape: `request.toolCall`.
 All offered permission options reach the callback, including unfamiliar kinds.
-`onV2PermissionRequest` remains supported with the same v2 shape. Without a handler,
+Without a handler,
 the SDK answers `cancelled`; it never chooses a permission automatically.
 
-Session creation, resume, fork and configuration responses expose upstream v2
-`configOptions[].configId`, without the former synthetic `id` alias or v1 `modes`
-view. Replace `option.id` with `option.configId` and call
-`setConfigOption(sessionId, option.configId, value)`. `setMode` and `setModel` remain
-deprecated conveniences for advertised category IDs; they do not guess an ID when
-the category is absent. Automatic reconnect retains the same upstream shapes.
+Session setup and configuration retain native v1 shapes, including
+`configOptions[].id` and native `modes`. `setConfigOption(sessionId, option.id, value)`
+sends the standard v1 request. Optional runtime capabilities are not guaranteed.
 
-Concurrent `prompt` calls each own their accepted message ID and exact REST
-completion observation; `submitPrompt` can be used alongside them. Admission and
-session idle are not completion receipts, and uncertain input is never resent.
+Concurrent `prompt` calls each own their correlated terminal result.
+`submitPrompt` has the same terminal semantics. Neither requires REST receipts,
+and uncertain input is never resent.
 Use `AcpTurnDriver` when the consumer wants serialized turns.
 
 ## Quick Start
@@ -88,15 +83,14 @@ console.log(session.source, session.summaryText, session.participants);
 ```
 
 Returns the `AcpSessionState` shape — the `AcpSessionRecord` catalog record
-extended with `importOutcome` and the ACP v2 windowing state (`lastMessageId`,
+extended with `importOutcome` and platform history state (`lastMessageId`,
 `messageCount`, `headSeq`, per-message `receipts`). This calls
 `GET /agents/sessions/{id}` with the current caller's credentials;
 runtime/leg IDs are not resolved. `source` is `string | null` and unknown values
 are preserved. It reads stored metadata even while the agent is offline, without
-connecting to the runtime; as the windowed-history app's sole REST session call
-it advances the caller's user read receipt to the session head (transcript
-history itself flows over ACP v2 `session/resume` replay windows, never the
-paged messages route). HTTP errors propagate as
+connecting to the runtime. It advances the caller's user read receipt to the
+session head; transcript pages use `getMessages` independently of ACP.
+HTTP errors propagate as
 `APIError`: 404 unknown session, 403 outside participation scope, 422 invalid UUID.
 
 ### Billing
@@ -332,39 +326,30 @@ to build the launch env.
 
 Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 
-### ACP v2 conversation operations
+### ACP v1 conversation operations
 
-The Backend `/ws/acp` surface accepts v2 clients only. Runtime connections negotiate
-their own v1/v2 version; frontend code must not downgrade to a v1 prompt contract.
-The SDK uses `@agentclientprotocol/sdk` 1.5.0's experimental v2 profile.
+The Backend `/ws/acp` surface and native runtime leg use vanilla v1.
+The SDK uses `@agentclientprotocol/sdk` 1.5.0's v1 construction and types.
 
 ```typescript
 const acp = await agent.acpConnect({ onUpdate: handleSessionUpdate });
 const { sessionId } = await acp.newSession({ cwd: '/home/node' });
-const accepted = await acp.submitPrompt(sessionId, [{ type: 'text', text: '  /plan\n' }]);
-// accepted.messageId is durable conversation insertion, NOT execution.
-await acp.resumeSession(sessionId, { replayFrom: { type: 'start' } });
+const result = await acp.prompt(sessionId, [{ type: 'text', text: '  /plan\n' }]);
+// result.stopReason is this native prompt's terminal result.
+await acp.resumeSession(sessionId);
 await acp.cancel(sessionId); // standard notification; never a replacement prompt
 ```
 
-`prompt()` requires authoritative completion evidence, separate from admission.
-`Agent.acpConnect()` supplies the existing `SessionsAPI.getPromptCompletion`
-reader. Direct `CodingAgentAcpClient.connect()` callers must supply
-`getPromptCompletion(sessionId, messageId)` or use `submitPrompt` instead.
-The reader matches the accepted ID, stored user sequence, agent and terminal
-record through the existing history endpoint. Idle only triggers that check:
-older queued work's idle cannot complete this input. Missing evidence fails
-truthfully; error notices/disconnects also reject without resending. An optional
-local `onAccepted` callback exposes the insertion acknowledgement before completion.
-
-Messages retain standard ID-based append, replacement, omission and clear
-semantics. Platform source/title/detail and reader receipts remain on REST.
+`prompt()` remains outstanding through callbacks and updates until its real
+terminal response. Native text/thought chunks, tool creation and patches, plans
+and configuration notifications are delivered directly. Platform source/title,
+history identities and reader receipts remain on REST.
 Unknown legacy workspace setup is not guessed into ACP catalog entries.
 
-The existing `WindowedReplayCursor` range fields (`limit` and `from` on a
-`start` cursor) are platform-specific compatibility behavior, not upstream
-ACP semantics. They remain supported for the app's bounded history replay;
-replacing them requires a coordinated app/backend change.
+History pages use `SessionsAPI.getMessages`; ACP has no custom history-window
+options. Reconnect reattaches tracked sessions with supported `session/resume`
+and never resends a turn. Explicit `loadSession` uses v1 `session/load`; managed
+native reconciliation belongs to Backend and is never driven by scrolling.
 
 `AcpTurnDriver` serializes one queued submission per prompt, preserving all
 content blocks. Its commit hook runs after verified completion and before
@@ -396,7 +381,6 @@ const agent = await client.deployments.createCodingAgent('opencode', {
     privateKeyNsec: agentNsec,
     relayUrl,
     authTag: ownerSignedAuthTag,
-    parallelism: 1,
   },
   workspacesSync: { workspace: 'buzz' },
 });
@@ -424,18 +408,19 @@ no Agents base is supplied. ACP authentication uses the separate runtime key.
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and
-provider configuration. OpenCode combines adapter discovery with its
-interactive provider login; Codex
-adds native device login; Claude Code exposes Claude.ai, Console, and SSO;
-Goose uses its injected deployment credential; and Kimi Code uses the
-upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
-logout command through this SDK surface.
+provider configuration. `methods()` returns supported native commands: OpenCode
+provider login, Codex device login, and Claude Code's Claude.ai, Console and SSO
+login. Status uses the native OpenCode, Codex or Claude command. Buzz, Goose,
+Kimi and Pi status discovery is unsupported through this SDK surface and raises
+an error; use their native runtime authentication interface. No plugin probe or
+fallback `authenticate` command is launched. Goose and Kimi expose no
+noninteractive logout through this surface.
 
 All seven runtimes launch through one helper, `createCodingAgent(runtime,
 ...)` — `buzz-agent`, `opencode`, `codex`, `claude-code`, `goose`,
 `kimi-code`, and `pi`. Set
 the typed `buzz` object to derive the canonical child command, arguments,
-lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
+native harness and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
 Buzz launches keep the runtime's normal default image; only native Buzz
@@ -447,9 +432,9 @@ root, reserve `/home/node/shared` for Workspace projections, and run
 `hyper-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
 the nest after the home mount. OpenCode and Codex consume its canonical
 `AGENTS.md`; Claude Code receives `CLAUDE.md -> AGENTS.md`.
-`base_prompt.md` remains compiled into `hyper-acp plugin buzz`.
+The Buzz plugin supplies no compiled prompt or context-injection asset.
 
-The typed `buzz` renderer writes timeout and response-policy values but does not
+The typed `buzz` renderer writes model and response-policy values but does not
 duplicate the stock Desktop provider's validation; invalid combinations are
 rejected later by `hyper-acp`. The Desktop provider also maps structured Goose
 model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct TypeScript SDK
