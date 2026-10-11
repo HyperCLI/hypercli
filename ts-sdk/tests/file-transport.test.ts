@@ -111,6 +111,67 @@ describe.each(['hosted', 'native'])('%s file transport through the real HTTP cli
   });
 });
 
+describe('runner discovery before an executor observation', () => {
+  const unobserved = { ...native, executor: null };
+
+  it.each(['text', 'bytes', 'bound'] as const)('dispatches an authenticated %s write through the real HTTP client', async (caller) => {
+    const calls: string[] = [];
+    const content = 'create-time profile 🌍';
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      calls.push(url);
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer api-secret');
+      if (url === `https://api.example.test/agents/deployments/${id}`) return json({ id, state: 'STOPPED' });
+      expect(init.method).toBe('POST');
+      expect(init.redirect).toBe('error');
+      if (url.endsWith('/files/token')) return json(unobserved);
+      expect(url).toBe(`https://api.example.test/agents/deployments/${id}/files/write`);
+      expect(JSON.parse(init.body as string)).toEqual({
+        path: '.hypercli/USER.md', content_base64: Buffer.from(content).toString('base64'),
+      });
+      return json({ ok: true });
+    }));
+    const deployments = client();
+    const result = caller === 'bound'
+      ? await (await deployments.get(id)).files.write('.hypercli/USER.md', content)
+      : caller === 'bytes'
+        ? await deployments.fileWriteBytes(id, '.hypercli/USER.md', new TextEncoder().encode(content))
+        : await deployments.fileWrite(id, '.hypercli/USER.md', content);
+    expect(result).toEqual({ ok: true });
+    expect(calls.filter((url) => url.includes('/files/'))).toEqual([
+      `https://api.example.test/agents/deployments/${id}/files/token`,
+      `https://api.example.test/agents/deployments/${id}/files/write`,
+    ]);
+  });
+
+  it.each([401, 403, 409, 501, 503])('preserves authoritative write failure %i without fallback or replay', async (status) => {
+    const fetch = vi.fn(async (url: string) => url.endsWith('/files/token')
+      ? json(unobserved) : json({ detail: 'operation rejected' }, status));
+    vi.stubGlobal('fetch', fetch);
+    await expect(client().fileWrite(id, 'x', 'content')).rejects.toMatchObject({ statusCode: status, detail: 'operation rejected' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toBe(`https://api.example.test/agents/deployments/${id}/files/write`);
+  });
+
+  it('still enforces the native write byte limit before dispatch', async () => {
+    const fetch = vi.fn(async () => json(unobserved));
+    vi.stubGlobal('fetch', fetch);
+    await expect(client().fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('Runner files are limited');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ...[undefined, '', 'null', 'kubernetes', 0, false, [], {}].map((executor) => ({ ...unobserved, executor })),
+    ...[undefined, null, '262144', 0, RUNNER_FILE_MAX_BYTES + 1].map((max_bytes) => ({ ...unobserved, max_bytes })),
+    ...[undefined, null, 'other'].map((transport) => ({ ...unobserved, transport })),
+    { ...unobserved, extra: true },
+  ].map((value) => [value]))('rejects invalid discovery before write dispatch: %j', async (value) => {
+    const fetch = vi.fn(async () => json(value));
+    vi.stubGlobal('fetch', fetch);
+    await expect(client().fileWrite(id, 'x', 'content')).rejects.toThrow(/invalid (Agent file token response|runner file transport)/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 it('does not replay a committed native write after the response is lost', async () => {
   let writes = 0;
   let content = '';

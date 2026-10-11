@@ -505,6 +505,197 @@ async def test_unknown_standard_request_is_not_silently_served():
         assert error.value.code == -32601
 
 
+CALLBACKS = [
+    ("fs/read_text_file", {"path": "/workspace/input", "line": 2, "limit": 3},
+     {"content": "hello\n"}, schema.ReadTextFileRequest, schema.ReadTextFileResponse),
+    ("fs/write_text_file", {"path": "/workspace/output", "content": "hello\n"},
+     {}, schema.WriteTextFileRequest, schema.WriteTextFileResponse),
+    ("terminal/create", {"command": "fixture", "args": ["arg"], "cwd": "/workspace",
+                         "env": [{"name": "FIXTURE", "value": "yes"}], "outputByteLimit": 1024},
+     {"terminalId": "terminal:opaque"}, schema.CreateTerminalRequest, schema.CreateTerminalResponse),
+    ("terminal/output", {"terminalId": "terminal:opaque"},
+     {"output": "hello\n", "truncated": False, "exitStatus": {"exitCode": 0}},
+     schema.TerminalOutputRequest, schema.TerminalOutputResponse),
+    ("terminal/wait_for_exit", {"terminalId": "terminal:opaque"},
+     {"exitCode": 0}, schema.WaitForTerminalExitRequest, schema.WaitForTerminalExitResponse),
+    ("terminal/kill", {"terminalId": "terminal:opaque"},
+     {}, schema.KillTerminalRequest, schema.KillTerminalResponse),
+    ("terminal/release", {"terminalId": "terminal:opaque"},
+     {}, schema.ReleaseTerminalRequest, schema.ReleaseTerminalResponse),
+]
+CALLBACK_IDS = [case[0] for case in CALLBACKS]
+CALLBACK_CAPABILITIES = {"fs": {"readTextFile": True, "writeTextFile": True}, "terminal": True}
+
+
+@pytest.mark.parametrize("method,params,result,request_model,response_model", CALLBACKS, ids=CALLBACK_IDS)
+@pytest.mark.parametrize("wildcard", [False, True], ids=["exact", "wildcard"])
+async def test_registered_callbacks_round_trip(method, params, result, request_model, response_model, wildcard):
+    async with server() as (peer, url), await ACPClient.connect(
+        url, client_capabilities=CALLBACK_CAPABILITIES,
+    ) as client:
+        calls = []
+        wire = {"sessionId": "opaque/runtime:id", **params}
+        request_model.model_validate(wire)
+        response_model.model_validate(result)
+
+        def answer(*args):
+            calls.append(args)
+            return result
+
+        async def async_answer(*args):
+            await asyncio.sleep(0)
+            return answer(*args)
+
+        client.add_request_listener("*" if wildcard else method, async_answer if wildcard else answer)
+        assert await asyncio.wait_for(peer.connected._conn.send_request(method, wire), 5) == result
+        assert calls == ([(method, wire)] if wildcard else [(wire,)])
+        initialize = next(f for d, f in peer.frames if d == "in" and f.get("method") == "initialize")
+        assert initialize["params"]["clientCapabilities"] == CALLBACK_CAPABILITIES
+        request = next(f for d, f in peer.frames if d == "out" and f.get("method") == method)
+        responses = [f for d, f in peer.frames if d == "in" and "method" not in f and f.get("id") == request["id"]]
+        assert responses == [{"jsonrpc": "2.0", "id": request["id"], "result": result}]
+
+
+@pytest.mark.parametrize("method,params,result,request_model,response_model", CALLBACKS, ids=CALLBACK_IDS)
+@pytest.mark.parametrize("wildcard", [False, True], ids=["exact", "wildcard"])
+async def test_callback_refusal_is_preserved(method, params, result, request_model, response_model, wildcard):
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        calls = []
+        data = {"reason": "fixture refusal", "detail": [None, False, {"retained": 1}]}
+
+        def refuse(*args):
+            calls.append(args)
+            if wildcard:
+                raise RequestError(-32012, "denied verbatim", data)
+            raise ACPRequestError(method, -32012, "denied verbatim", data)
+
+        client.add_request_listener("*" if wildcard else method, refuse)
+        wire = {"sessionId": "opaque/runtime:id", **params}
+        with pytest.raises(RequestError) as error:
+            await asyncio.wait_for(peer.connected._conn.send_request(method, wire), 5)
+        assert (error.value.code, str(error.value), error.value.data) == (-32012, "denied verbatim", data)
+        assert calls == ([(method, wire)] if wildcard else [(wire,)])
+        request = next(f for d, f in peer.frames if d == "out" and f.get("method") == method)
+        responses = [f for d, f in peer.frames if d == "in" and "method" not in f and f.get("id") == request["id"]]
+        assert responses == [{"jsonrpc": "2.0", "id": request["id"], "error": {
+            "code": -32012, "message": "denied verbatim", "data": data}}]
+
+
+@pytest.mark.parametrize("method", CALLBACK_IDS + ["unknown/method"])
+async def test_unhandled_callbacks_report_method_not_found(method):
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        client.add_request_listener("unrelated/method", lambda _: pytest.fail("unrelated listener called"))
+        with pytest.raises(RequestError) as error:
+            await asyncio.wait_for(peer.connected._conn.send_request(method, {}), 5)
+        assert (error.value.code, str(error.value), error.value.data) == (
+            -32601, "Method not found", {"method": method})
+
+
+async def test_callback_selection_unsubscribe_and_notification_boundary():
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        method = "fs/read_text_file"
+        wire = {"sessionId": "opaque/runtime:id", "path": "/workspace/input"}
+        calls = []
+
+        def answer(label, args):
+            calls.append((label, args))
+            return {"content": label}
+
+        # Wildcard registration order does not override the existing exact-first policy.
+        remove_wildcard = client.add_request_listener("*", lambda *args: answer("wildcard", args))
+        remove_first = client.add_request_listener(method, lambda *args: answer("first", args))
+        remove_second = client.add_request_listener(method, lambda *args: answer("second", args))
+        for label, remove in [("first", remove_first), ("second", remove_second), ("wildcard", remove_wildcard)]:
+            assert await peer.connected._conn.send_request(method, wire) == {"content": label}
+            remove()
+            remove()
+        assert calls == [("first", (wire,)), ("second", (wire,)), ("wildcard", (method, wire))]
+        with pytest.raises(RequestError) as error:
+            await peer.connected._conn.send_request(method, wire)
+        assert error.value.code == -32601
+        notification_calls = []
+        client.add_request_listener("*", lambda *args: notification_calls.append(args))
+        await peer.connected._conn.send_notification(method, wire)
+        # A subsequent observed update is a barrier for notification processing.
+        client.add_update_listener(peer.updates.append)
+        await peer.emit("opaque/runtime:id", {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "barrier"}})
+        await until(lambda: len(peer.updates) == 1)
+        assert notification_calls == []
+
+
+@pytest.mark.parametrize("wildcard", [False, True], ids=["exact", "wildcard"])
+async def test_registered_unknown_callback_uses_raw_dispatch(wildcard):
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        method, params, result = "unknown/method", {"opaque": [None, False]}, {"answer": [1, None]}
+        calls = []
+
+        def answer(*args):
+            calls.append(args)
+            return result
+
+        client.add_request_listener("*" if wildcard else method, answer)
+        assert await peer.connected._conn.send_request(method, params) == result
+        assert calls == ([(method, params)] if wildcard else [(params,)])
+
+
+async def test_concurrent_callbacks_keep_ids_and_do_not_block_outbound_requests():
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def read(params):
+            if params["path"] == "/slow":
+                entered.set()
+                await release.wait()
+            return {"content": params["path"]}
+
+        client.add_request_listener("fs/read_text_file", read)
+        transport = Transport(peer.socket, peer)
+        for request_id, path in [("opaque:slow", "/slow"), (0, "/fast")]:
+            await transport.send({"jsonrpc": "2.0", "id": request_id, "method": "fs/read_text_file",
+                                  "params": {"sessionId": "opaque/runtime:id", "path": path}})
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            def responses():
+                return [f for d, f in peer.frames if d == "in" and "method" not in f]
+            await until(lambda: len(responses()) == 1)
+            assert responses() == [{"jsonrpc": "2.0", "id": 0, "result": {"content": "/fast"}}]
+            assert await client.new_session(cwd="/workspace") == "opaque/runtime:id"
+            release.set()
+            await until(lambda: len(responses()) == 2)
+            assert responses()[1] == {"jsonrpc": "2.0", "id": "opaque:slow", "result": {"content": "/slow"}}
+        finally:
+            release.set()
+
+
+@pytest.mark.parametrize("wildcard", [False, True], ids=["exact", "wildcard"])
+async def test_close_cancels_inflight_callback_without_fabricated_response(wildcard):
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+
+        async def wait(*args):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        client.add_request_listener("*" if wildcard else "terminal/wait_for_exit", wait)
+        pending = asyncio.create_task(peer.connected._conn.send_request("terminal/wait_for_exit", {
+            "sessionId": "opaque/runtime:id", "terminalId": "terminal:opaque"}))
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            await asyncio.wait_for(client.close(), 5)
+            assert cancelled.is_set()
+            with pytest.raises(ConnectionError):
+                await asyncio.wait_for(pending, 5)
+            assert not any(d == "in" and "method" not in f for d, f in peer.frames)
+        finally:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
 async def test_reader_failure_racing_write_does_not_leak_duplicate_future_error(monkeypatch):
     import hypercli.acp as implementation
     class InterruptedTransport:

@@ -3657,7 +3657,7 @@ export class Deployments {
   }
 
   private async fileAccess(agentId: string): Promise<AgentFileAccess> {
-    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: 'process' | 'docker'; max_bytes: number }>(
+    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
       undefined,
       { redirect: 'error' },
@@ -3670,7 +3670,8 @@ export class Deployments {
       throw new Error('Backend returned an invalid Agent file token response');
     }
     if ('transport' in payload) {
-      if (payload.transport !== 'runner' || !['process', 'docker'].includes(payload.executor) || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
+      // Executor is informational and null until observed; the file operation determines availability.
+      if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
         throw new Error('Backend returned an invalid runner file transport');
       }
       return { transport: 'runner' };

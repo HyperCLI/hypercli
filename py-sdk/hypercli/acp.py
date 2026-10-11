@@ -131,6 +131,11 @@ class ACPClient:
     async def connect(cls, url, *, token=None, open_timeout=DEFAULT_OPEN_TIMEOUT, source=None,
                       client_info=None, client_capabilities=None, on_update=None,
                       resolve_default_cwd=None):
+        """Connect with caller-declared capabilities (empty by default).
+
+        Callers advertising filesystem or terminal support must register the
+        corresponding request listeners before starting session operations.
+        """
         if source is not None:
             parts = urlsplit(url)
             query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -205,6 +210,11 @@ class ACPClient:
         return unsubscribe
 
     def add_request_listener(self, method, listener):
+        """Register a sync/async handler: exact receives params, '*' receives method, params.
+
+        The first exact handler wins; otherwise the first wildcard handler runs.
+        Registration does not change the capabilities sent during initialize.
+        """
         self._request_listeners.setdefault(method, []).append(listener)
         return lambda: self.remove_request_listener(method, listener)
 
@@ -216,17 +226,23 @@ class ACPClient:
     async def request_permission(self, **params):
         request = schema.RequestPermissionRequest.model_validate(params)
         wire = request.model_dump(by_alias=True, exclude_unset=True)
-        listeners = self._request_listeners.get("session/request_permission")
+        result = await self._dispatch_request("session/request_permission", wire)
+        return schema.RequestPermissionResponse.model_validate(result)
+
+    async def _dispatch_request(self, method, params):
+        listeners = self._request_listeners.get(method)
         specific = bool(listeners)
         listeners = listeners or self._request_listeners.get("*")
         if not listeners:
-            return schema.RequestPermissionResponse.model_validate({"outcome": {"outcome": "cancelled"}})
+            if method == "session/request_permission":
+                return {"outcome": {"outcome": "cancelled"}}
+            raise RequestError.method_not_found(method)
         try:
             listener = listeners[0]
-            result = listener(wire) if specific else listener("session/request_permission", wire)
+            result = listener(params) if specific else listener(method, params)
             if inspect.isawaitable(result):
                 result = await result
-            return schema.RequestPermissionResponse.model_validate(result)
+            return result
         except ACPRequestError as exc:
             raise RequestError(exc.code, exc.rpc_message, exc.data) from exc
 
@@ -245,7 +261,7 @@ class ACPClient:
         if method == "session/request_permission":
             result = await self.request_permission(**params)
             return result.model_dump(by_alias=True, exclude_unset=True)
-        raise RequestError.method_not_found(method)
+        return await self._dispatch_request(method, params)
 
     async def new_session(self, *, cwd=_UNSET_CWD, mcp_servers=None) -> str:
         """Create using the runtime-owned launch default or a verbatim override."""
