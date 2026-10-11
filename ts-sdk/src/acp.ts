@@ -242,9 +242,15 @@ export class CodingAgentAcpClient {
     return this.request('session/fork', { sessionId, cwd: await this.originalSessionCwd(sessionId), mcpServers: this.options.mcpServers ?? [] });
   }
   async setMode(sessionId: string, modeId: string): Promise<void> { await this.request('session/set_mode', { sessionId, modeId }); }
-  async setConfigOption(sessionId: string, configId: string, value: string): Promise<acp.SetSessionConfigOptionResponse> {
-    const result = await this.request<acp.SetSessionConfigOptionResponse>('session/set_config_option', { sessionId, configId, value });
-    this.sessionConfig.set(sessionId, result.configOptions);
+  async setConfigOption(params: acp.SetSessionConfigOptionRequest): Promise<acp.SetSessionConfigOptionResponse>;
+  async setConfigOption(sessionId: string, configId: string, value: string | boolean): Promise<acp.SetSessionConfigOptionResponse>;
+  async setConfigOption(...args: [acp.SetSessionConfigOptionRequest] | [string, string, string | boolean]): Promise<acp.SetSessionConfigOptionResponse> {
+    const params = args.length === 1 ? args[0] : {
+      sessionId: args[0], configId: args[1], value: args[2],
+      ...(typeof args[2] === 'boolean' ? { type: 'boolean' as const } : {}),
+    };
+    const result = await this.request<acp.SetSessionConfigOptionResponse>('session/set_config_option', params);
+    this.sessionConfig.set(params.sessionId, result.configOptions);
     return result;
   }
   async setModel(sessionId: string, modelId: string): Promise<acp.SetSessionConfigOptionResponse> {
