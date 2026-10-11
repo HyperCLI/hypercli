@@ -448,10 +448,9 @@ The Desktop provider maps structured Goose model/provider fields to
 environment when needed.
 
 Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
-stop callback. A successfully delivered and accepted `!shutdown` can exit a
-new one-shot launch; hosted cleanup reports `stopping`, then `stopped`, and
-releases the slot. Desktop receives no acknowledgement and retains its local
-deployed record. See [Buzz Desktop](/agents/buzz) for the full protocol,
+stop callback. Hosted Buzz implements no chat shutdown command; use authenticated
+HyperCLI lifecycle APIs to stop or delete deployments.
+See [Buzz Desktop](/agents/buzz) for the full protocol,
 message-publishing, ownership, and security boundaries.
 
 ### Route Configuration

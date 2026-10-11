@@ -1182,11 +1182,6 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
   buzzEnabled?: boolean;
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
   buzz?: BuzzLaunchConfig | null;
-  /**
-   * @deprecated Hosted Buzz now always uses the raw outbound hyper-acp tunnel.
-   * The old observer route is no longer provisioned.
-   */
-  buzzActivity?: boolean;
 }
 
 /** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
@@ -1282,14 +1277,9 @@ export interface BuzzLaunchConfig {
   privateKeyNsec: string;
   relayUrl: string;
   authTag?: string | null;
-  systemPrompt?: string | null;
   model?: string | null;
   respondTo?: string | null;
   respondToAllowlist?: string[];
-  /** @deprecated No reader remains: BUZZ_ACP_DISPLAY_NAME is no longer minted. */
-  displayName?: string | null;
-  /** @deprecated No reader remains: BUZZ_ACP_TEXT_MENTIONS is no longer minted. */
-  textMentions?: boolean;
   rustLog?: string;
 }
 
@@ -1310,7 +1300,6 @@ function buildBuzzLaunchEnv(
   }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
-    BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
     BUZZ_ACP_MODEL: buzz.model,
     BUZZ_ACP_RESPOND_TO: buzz.respondTo,
     BUZZ_ACP_RESPOND_TO_ALLOWLIST: buzz.respondToAllowlist?.length
@@ -3962,8 +3951,8 @@ export class Deployments {
       syncExclude,
       syncUid: options.syncUid ?? family.syncUid,
       syncGid: options.syncGid ?? family.syncGid,
-      // Hosted Buzz shutdown is process-driven; generic launch options cannot
-      // opt it back into automatic restart.
+      // Native process exit leaves hosted Buzz stopped; generic launch options
+      // cannot opt it back into automatic restart.
       restart: buzzLaunch ? false : options.restart,
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };

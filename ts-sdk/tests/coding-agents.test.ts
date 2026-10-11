@@ -409,7 +409,6 @@ describe('coding agents', () => {
     await deployments.createAgent(runtime, {
       // The shared golden pins the exact buzz launch payload, including the
       // complete secrets map; hyper-acp provisioning is tested separately.
-      buzzActivity: false,
       buzz: {
         privateKeyNsec: 'nsec1test',
         relayUrl: 'wss://buzz.example.test',
@@ -478,7 +477,6 @@ describe('coding agents', () => {
       name: 'Fizz4',
       // Exact secrets/routes assertions below pin the buzz contract;
       // hyper-acp provisioning is tested separately.
-      buzzActivity: false,
       env: {
         BUZZ_RELAY_URL: 'wss://attacker.invalid',
         BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
@@ -1098,17 +1096,6 @@ describe('buzz acp raw outbound launch', () => {
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-  });
-
-  it('deprecated buzzActivity flag does not reenable the observer route', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createAgent('buzz-agent', { buzzEnabled: true, buzzActivity: true });
-    const payload = post.mock.calls[0][1];
-    expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
-    expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
-    expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
-    expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
-    expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
   });
 
   it('provisions nothing on a non-buzz image by default', async () => {

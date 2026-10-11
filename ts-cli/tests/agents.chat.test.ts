@@ -129,7 +129,7 @@ async function runErr(ctx: CommandContext, args: string[]): Promise<unknown> {
 // ---------- fake ACP chat surface (plain object) ----------
 
 type AcpNotification = { update: Record<string, unknown> };
-type AcpOptions = { onUpdate?: (notification: AcpNotification) => void; onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void };
+type AcpOptions = { sessionId?: string; signal?: AbortSignal; onUpdate?: (notification: AcpNotification) => void; onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void };
 
 function acpChunk(text: string): AcpNotification {
   return {
@@ -142,7 +142,7 @@ function fakeAcpClient(chunks: string[], sessionId = 'sess-acp-1') {
   let onUpdate: ((notification: AcpNotification) => void) | undefined;
   const client = {
     newSession: vi.fn(async () => ({ sessionId })),
-    resumeSession: vi.fn(async () => ({})),
+    resumeSession: vi.fn(async (_sessionId: string) => ({})),
     prompt: vi.fn(async () => {
       for (const chunk of chunks) onUpdate?.(acpChunk(chunk));
       return { stopReason: 'end_turn' };
@@ -151,6 +151,11 @@ function fakeAcpClient(chunks: string[], sessionId = 'sess-acp-1') {
   };
   const acpConnect = vi.fn(async (options: AcpOptions) => {
     onUpdate = options.onUpdate;
+    // Match Agent.acpConnect: bound attachment settles before returning.
+    if (options.sessionId) {
+      try { await client.resumeSession(options.sessionId); }
+      catch (error) { client.close(); throw error; }
+    }
     return client;
   });
   return { acpConnect, client };
@@ -190,7 +195,7 @@ describe('hyper agents chat — sessions', () => {
 
     await agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'sess-old-9']);
 
-    expect(client.resumeSession).toHaveBeenCalledWith('sess-old-9');
+    expect(client.resumeSession).toHaveBeenCalledExactlyOnceWith('sess-old-9');
     expect(client.newSession).not.toHaveBeenCalled();
     expect(client.prompt).toHaveBeenCalledWith('sess-old-9', 'hi');
     const order = (fn: ReturnType<typeof vi.fn>) => fn.mock.invocationCallOrder[0];
@@ -215,6 +220,20 @@ describe('hyper agents chat — sessions', () => {
 
     expect(client.prompt).toHaveBeenCalledWith('sess-old-9', 'ping');
     expect(stdout()).toBe('waited\n');
+  });
+
+  it('--session refusal preserves identity without a replacement or prompt', async () => {
+    const { acpConnect, client } = fakeAcpClient([]);
+    client.resumeSession.mockRejectedValue(new Error('selected session refused'));
+    const agent = chatAgentFixture({ acpConnect });
+    const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'table');
+    await expect(agents.run(ctx, ['chat', ID_A, 'hi', '--session', 'selected']))
+      .rejects.toThrow('selected session refused');
+    expect(acpConnect).toHaveBeenCalledTimes(1);
+    expect(client.resumeSession).toHaveBeenCalledExactlyOnceWith('selected');
+    expect(client.newSession).not.toHaveBeenCalled();
+    expect(client.prompt).not.toHaveBeenCalled();
+    expect(client.close).toHaveBeenCalledOnce();
   });
 
   it('--session works identically on openclaw, but via the shared ACP surface', async () => {
@@ -363,7 +382,10 @@ describe('hyper agents chat — stage evidence', () => {
         options.onDiagnostic?.({ stage, phase: 'started', operationId: 2, timestamp: Date.now(), elapsedMs: 0 });
         return new Promise(() => {});
       };
-      if (stage === 'initialize') return stall();
+      if (stage === 'initialize' || stage === 'resume') {
+        options.signal?.addEventListener('abort', close, { once: true });
+        return stall();
+      }
       return { newSession: stall, resumeSession: stall, prompt, close };
     }) });
     const ctx = makeCtx(fakeClient(chatDeployments([agent])), 'json');

@@ -347,7 +347,13 @@ describe('hyper routines run', () => {
     agentOverrides: Record<string, unknown> = {},
     acp: MockFns = fakeAcp(),
   ) {
-    const acpConnect = vi.fn(async () => acp);
+    const acpConnect = vi.fn(async (options: { sessionId?: string; clientInfo: { name: string } }) => {
+      if (options.sessionId) {
+        try { await acp.resumeSession(options.sessionId); }
+        catch (error) { acp.close(); throw error; }
+      }
+      return acp;
+    });
     const get = vi.fn(async () => routineFixture(routineOverrides));
     const deploymentsGet = vi.fn(async () =>
       agentFixture({ acpConnect, ...agentOverrides }));
@@ -383,7 +389,7 @@ describe('hyper routines run', () => {
 
     await routines.run(ctx, ['run', 'routine-1']);
 
-    expect(acp.resumeSession).toHaveBeenCalledWith('sess-bound');
+    expect(acp.resumeSession).toHaveBeenCalledExactlyOnceWith('sess-bound');
     expect(acp.newSession).not.toHaveBeenCalled();
     expect(acp.prompt).toHaveBeenCalledWith('sess-bound', 'write the standup notes');
     const order = (fn: ReturnType<typeof vi.fn>) => fn.mock.invocationCallOrder[0];
@@ -419,7 +425,7 @@ describe('hyper routines run', () => {
     const { client } = runClient({ sessionId: 'sess-bound' }, {}, acp);
     const { ctx } = makeCtx(client, 'table');
 
-    await expect(routines.run(ctx, ['run', 'routine-1'])).rejects.toThrow('could not resume bound session sess-bound');
+    await expect(routines.run(ctx, ['run', 'routine-1'])).rejects.toThrow('could not attach bound session sess-bound: session/resume not advertised');
     expect(acp.newSession).not.toHaveBeenCalled();
     expect(acp.prompt).not.toHaveBeenCalled();
     expect(acp.close).toHaveBeenCalled();

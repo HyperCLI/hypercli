@@ -457,13 +457,9 @@ async function cmdRunNow(ctx: CommandContext, args: string[]): Promise<void> {
       let sessionId: string;
       let resume = false;
       if (routine.sessionId) {
-        try {
-          await acp.resumeSession(routine.sessionId);
-          sessionId = routine.sessionId;
-          resume = true;
-        } catch (err) {
-          throw new CliError(`could not resume bound session ${routine.sessionId}: ${describeError(err)}`);
-        }
+        // acpConnect has already awaited attachment to this exact session.
+        sessionId = routine.sessionId;
+        resume = true;
       } else {
         sessionId = (await acp.newSession()).sessionId;
       }

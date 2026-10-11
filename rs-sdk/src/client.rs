@@ -3096,6 +3096,11 @@ impl HyperCliClient {
         self.send_json("create_api_key", "POST", &url, trace_request, builder)
     }
 
+    /// Authoritative Agents control endpoint, independent of the product endpoint.
+    pub fn agents_api_base(&self) -> &Url {
+        &self.api_base
+    }
+
     /// Product endpoint: explicit override, canonical env/config, then default.
     /// The Agents constructor endpoint never determines the product endpoint.
     pub fn product_api_base(&self) -> String {

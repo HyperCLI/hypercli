@@ -186,7 +186,7 @@ error without upstream response bodies or secrets.
 | Hosted runtime | Canonical image | Portable command | Injected ACP child | Child args | MCP command | Prompt transport | Runtime state |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Buzz Agent | `ghcr.io/hypercli/hypercli-buzz-agent:latest` | `buzz-agent` | `/usr/local/bin/buzz-agent` | none | none | none — hosted Buzz sessions send `mcpServers: []`; system instructions rejected | environment-only for hosted OpenAI-compatible chat auth |
-| OpenCode | `ghcr.io/hypercli/hypercli-opencode:latest` | `opencode` | `/opt/hypercli/bin/opencode` | `acp` | none | none — passthrough; `systemPrompt` rejected | `.config/opencode`, `.local/share/opencode`, `.local/state/opencode`, `.cache/opencode` |
+| OpenCode | `ghcr.io/hypercli/hypercli-opencode:latest` | `opencode` | `/opt/hypercli/bin/opencode` | `acp` | none | native instruction configuration | `.config/opencode`, `.local/share/opencode`, `.local/state/opencode`, `.cache/opencode` |
 | Codex | `ghcr.io/hypercli/hypercli-codex:latest` | `codex-acp` | `/opt/hypercli/bin/codex-acp` | none | none | none — passthrough | `.codex` |
 | Claude Code | `ghcr.io/hypercli/hypercli-claude:latest` | `claude-agent-acp` | `/opt/hypercli/bin/claude-agent-acp` | none | none | none — passthrough | `.claude`, `.claude.json` |
 | Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose` | `/usr/local/bin/goose` | `acp` | none | none — passthrough | `.goose` |
@@ -438,8 +438,8 @@ The provider must inject and protect these categories:
 | Owner and access | `BUZZ_ACP_AGENT_OWNER`, `BUZZ_ACP_RESPOND_TO`, `BUZZ_ACP_RESPOND_TO_ALLOWLIST` |
 | Display and mentions | none minted — dead `BUZZ_ACP_DISPLAY_NAME` / `BUZZ_ACP_TEXT_MENTIONS` are reserved/stripped |
 | Reply behavior | none minted — dead `BUZZ_ACP_REQUIRE_REPLY` is reserved/stripped; the plugin itself pins `BUZZ_AGENT_REQUIRE_REPLY=0` on native Buzz Agent children because the connector publishes completed text |
-| Prompt and model | `BUZZ_ACP_SYSTEM_PROMPT` / `BUZZ_ACP_SYSTEM_PROMPT_FILE` are reserved/stripped — the plugin hard-rejects any configured system instructions at session create (never delivered); provider mints only `BUZZ_ACP_MODEL` |
-| Observer | `BUZZ_ACP_RELAY_OBSERVER` |
+| Prompt and model | Retired `BUZZ_ACP_SYSTEM_PROMPT` / `BUZZ_ACP_SYSTEM_PROMPT_FILE` are stripped; instructions belong to native runtime configuration. Provider mints only `BUZZ_ACP_MODEL`. |
+| Observer | none; retired `BUZZ_ACP_RELAY_OBSERVER` is stripped |
 | Event handling | Distinct admitted relay events queue behind the local Buzz turn. Event-ID deduplication remains; failed turns are not automatically resubmitted. |
 | Workspaces | `HYPER_WORKSPACES_DIR=/home/node/shared`; image boot-sync envs (`HYPER_WORKSPACES_BOOT_SYNC`, `HYPER_WORKSPACES_SYNC_READY_ONLY`) removed — superseded by the typed `workspaces_sync` agent launch config (Lagoon-managed resident `workspaces-sync` sidecar) |
 | ACP WebSocket | outbound `HYPER_ACP_WS_URL`, authenticated only with platform `HYPER_AGENTS_API_KEY` |
@@ -448,10 +448,9 @@ The provider also projects validated non-reserved `launch.env` values. It must
 not allow user environment to override identity, relay, authorization,
 runtime command, text mentions, signing identity, or workspace bootstrap fields.
 
-`BUZZ_ACP_SYSTEM_PROMPT` is reserved and stripped from all launch tiers: the
-plugin rejects any system instruction source at session create ("system
-instructions require native runtime configuration",
-`acp/hyper-acp/plugins/buzz` `pool.rs`). Hosted Buzz sessions are created with
+`BUZZ_ACP_SYSTEM_PROMPT` is reserved and stripped from all launch tiers.
+The SDK and provider expose no Buzz system-prompt option; native runtime
+configuration owns instructions. Hosted Buzz sessions are created with
 `cwd` + `mcpServers: []` and completed assistant text is auto-published by the
 connector. An image must not append its own response policy or duplicate the
 prompt in a runtime-specific instruction file.

@@ -28,7 +28,6 @@ import {
   type AgentLaunchConfig,
   type AgentRouteConfig,
   type AgentState,
-  type CodingAgentAcpClient,
   type CodingAgentAcpDiagnostic,
   type CodingAgentAcpDiagnosticError,
   type CodingAgentAcpStage,
@@ -1604,16 +1603,6 @@ function acpContentText(content: unknown): string {
   return '';
 }
 
-/** Open (or resume) the ACP session; SDK diagnostics identify the setup stage. */
-async function acpOpenSession(client: CodingAgentAcpClient, name: string | undefined): Promise<string> {
-  if (name !== undefined) {
-    await client.resumeSession(name);
-    return name;
-  }
-  const created = await client.newSession();
-  return created.sessionId;
-}
-
 async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, {
     session: { type: 'string', short: 's' },
@@ -1705,7 +1694,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     let reply = '';
     let streamedText = '';
     let sessionId = '';
-    // Resumed iff acpOpenSession went resumeSession (a --session NAME was given).
+    // acpConnect resumes the selected session before returning.
     let sessionResumed = false;
     // --stream deltas go to stdout in table mode; under --json stdout belongs
     // to the result bag, so deltas ride stderr there instead.
@@ -1719,9 +1708,8 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     // ACP is the single chat surface for every supported runtime: the flat
     // Agent owns acpConnect and call-time gates on the runtime label (a
     // non-ACP label throws rather than dialing). The dial rides the backend
-    // session proxy (/ws/acp) by default; --session attaches that session at
-    // the socket level so the resume replay is delivered (an unknown id
-    // fails the connect — the proxy closes with 4404).
+    // session proxy (/ws/acp) by default; --session awaits native v1 resume
+    // inside acpConnect. A refusal fails attachment without a replacement.
     const acp = await atStage('connect', () =>
       agent.acpConnect({
         signal: controller.signal,
@@ -1742,7 +1730,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       }));
     try {
       closeActive = () => acp.close();
-      sessionId = await atStage('connect', () => acpOpenSession(acp, sessionName));
+      sessionId = sessionName ?? (await atStage('connect', () => acp.newSession())).sessionId;
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
       await atStage('prompt', () => acp.prompt(sessionId, promptText));

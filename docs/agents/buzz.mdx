@@ -298,17 +298,12 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
 - A `failed`, `restore_failed`, or `sync_failed` deployment is not restarted
   through its uncleared runtime. Let no-restart cleanup reach `stopped`, or
   stop it with authenticated HyperCLI lifecycle tooling, then deploy again.
-- Desktop's Shutdown action sends a best-effort owner-authored,
-  agent-mentioned `!shutdown` channel message. It fails without a shared
-  channel. New provider launches set `restart: false`; with a backend and
-  control-plane version that supports that launch field, an accepted shutdown
-  lets the runtime terminate. The backend reports `stopping` while managed
-  cleanup runs, then reports `stopped` and releases the slot only after
-  cleanup is confirmed. Desktop still receives no provider acknowledgement
-  and retains its local deployed record.
+- Hosted Buzz implements no chat shutdown command. Stop or delete deployments
+  through the authenticated HyperCLI lifecycle APIs. Native process exit follows
+  ordinary `restart: false` cleanup and releases the slot once stopped.
 - Existing deployments created before `restart: false` was supported retain
   their saved restart policy. Their `hyper-acp plugin buzz` process may be relaunched by
-  the managed runtime after shutdown until the deployment is recreated with the new
+  the managed runtime after process exit until the deployment is recreated with the new
   launch shape.
 - Desktop Stop and Delete actions do not invoke the provider. A local delete
   can therefore leave remote infrastructure running if shutdown was not

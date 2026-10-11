@@ -1077,15 +1077,6 @@ pub const DEV_HYPER_ACP_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
 /// tag is deliberately independent of that identity so clients can filter a
 /// fleet without parsing launch configuration or environment values.
 pub const BUZZ_DEPLOYMENT_TAG: &str = "app=buzz";
-/// Maximum reminders emitted when a hosted harness turn ends without publishing.
-pub const BUZZ_ACP_MAX_REPLY_NAGS: u32 = 2;
-
-/// Reminder used by HyperCLI's hosted ACP harness when a turn produced no Buzz publish.
-pub const BUZZ_ACP_REPLY_GUARD_NAG: &str = "You are about to end this turn without calling `buzz messages send`. \
-Your assistant text and reasoning are never shown to anyone — if you did work, found an answer, \
-or hit a blocker that someone is waiting on, it exists only if you publish it. \
-If you already posted, or if silence is genuinely correct for this turn, ignore this and end your turn.";
-
 pub const BUZZ_RUNTIME_SCOPES: [&str; 7] = [
     "agents:none",
     "files:*",
@@ -1152,21 +1143,10 @@ pub struct BuzzLaunchConfig {
     pub private_key_nsec: String,
     pub relay_url: String,
     pub auth_tag: Option<String>,
-    pub system_prompt: Option<String>,
     pub model: Option<String>,
     pub respond_to: Option<String>,
     pub respond_to_allowlist: Vec<String>,
-    /// Retained for source compatibility. `BUZZ_ACP_DISPLAY_NAME` /
-    /// `BUZZ_ACP_TEXT_MENTIONS` have no readers anymore, so the launch request
-    /// no longer mints them.
-    pub display_name: Option<String>,
-    /// See `display_name`.
-    pub text_mentions: bool,
     pub rust_log: Option<String>,
-    /// Retained for source compatibility. Hosted Buzz now always uses the raw
-    /// outbound hyper-acp tunnel; the old observer route is no longer
-    /// provisioned.
-    pub activity: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -1175,14 +1155,10 @@ impl BuzzLaunchConfig {
             private_key_nsec: private_key_nsec.into(),
             relay_url: relay_url.into(),
             auth_tag: None,
-            system_prompt: None,
             model: None,
             respond_to: None,
             respond_to_allowlist: Vec::new(),
-            display_name: None,
-            text_mentions: false,
             rust_log: None,
-            activity: true,
         }
     }
 
@@ -1232,8 +1208,7 @@ impl BuzzLaunchConfig {
         }
         request.sync_uid = Some(1000);
         request.sync_gid = Some(1000);
-        // Hosted Buzz shutdown is process-driven; automatic restart would
-        // resurrect an agent after its owner-signed `!shutdown` completes.
+        // A native process exit leaves this one-shot deployment stopped.
         request.restart = false;
         request.runtime_scopes = BUZZ_RUNTIME_SCOPES
             .iter()
@@ -1283,11 +1258,6 @@ impl BuzzLaunchConfig {
             &mut request.secrets,
             "BUZZ_AUTH_TAG",
             self.auth_tag.as_deref(),
-        );
-        insert_nonempty(
-            &mut request.env,
-            "BUZZ_ACP_SYSTEM_PROMPT",
-            self.system_prompt.as_deref(),
         );
         if let Some(model) = self
             .model
@@ -2462,8 +2432,6 @@ mod tests {
 
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.model = Some("hypercli/kimi-k3-anthropic".to_owned());
-        buzz.display_name = Some("Fizz4".to_owned());
-        buzz.text_mentions = true;
         buzz.auth_tag = Some("[\"auth\",\"owner\",\"\",\"sig\"]".to_owned());
         buzz.apply_to(&mut request).unwrap();
 
@@ -3071,20 +3039,6 @@ mod tests {
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("BUZZ_ACP_RELAY_OBSERVER"));
-        assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
-        assert!(!request.env.contains_key("HYPER_ACP_LOG"));
-        assert!(!request.routes.contains_key("hyper-acp"));
-        assert!(!request.secrets.contains_key("HYPER_ACP_WS_TOKEN"));
-    }
-
-    #[test]
-    fn buzz_launch_activity_flag_does_not_reenable_observer_route() {
-        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
-        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
-        buzz.activity = false;
-        buzz.apply_to(&mut request).unwrap();
-        assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
-        assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
         assert!(!request.env.contains_key("HYPER_ACP_LOG"));
         assert!(!request.routes.contains_key("hyper-acp"));

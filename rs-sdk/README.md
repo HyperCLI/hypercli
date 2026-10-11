@@ -282,13 +282,9 @@ buzz.apply_to(&mut request)?;
 
 `BuzzLaunchConfig::apply_to` leaves size unset for live backend selection,
 adds the stable `app=buzz` deployment tag, and enforces `/home/node`
-persistence with UID/GID 1000, no public routes, lazy pool creation, relay
-observation, `restart: false`, and canonical runtime launch values. The
-restart policy lets an accepted Buzz `!shutdown` leave the coding process
-stopped instead of having the runtime automatically restart it. The hosted
-terminal-state observer then completes runtime cleanup, marks the deployment
-`stopped`, and releases its slot. Desktop receives no provider
-acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
+persistence with UID/GID 1000, no public routes, `restart: false`, and canonical
+runtime launch values. Native process exit follows ordinary deployment cleanup,
+leaving the deployment stopped. Raw non-Buzz `CreateDeploymentRequest` sizing remains
 caller-selected. The config does not implement `Debug` or `Serialize` because
 it owns the agent nsec.
 
@@ -319,11 +315,9 @@ Desktop provider's cross-field validation. It has no structured Buzz provider
 field, so direct Goose callers must supply `GOOSE_PROVIDER` when needed.
 
 Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
-`deploy`; there is no provider stop or undeploy request. Desktop's best-effort
-`!shutdown` chat control can trigger the hosted one-shot terminal cleanup
-described above, but Desktop neither acknowledges nor reconciles that remote
-transition. Use authenticated HyperCLI lifecycle APIs when reliable
-infrastructure stop/delete is required.
+`deploy`; there is no provider stop or undeploy request. Hosted Buzz implements
+no chat shutdown command. Use authenticated HyperCLI lifecycle APIs to stop or
+delete deployments.
 
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout and there is no
 plaintext fallback; the hosted connector auto-publishes completed assistant
