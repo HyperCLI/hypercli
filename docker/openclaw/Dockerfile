@@ -14,6 +14,10 @@ ARG OPENCLAW_BASE_IMAGE
 USER root
 # hyper-acp comes from hypercli-agent-base (/usr/local/bin/hyper-acp symlink).
 COPY --from=upstream-openclaw /app /app
+COPY patch-acp-session-id*.mjs /tmp/openclaw-identity/
+RUN node --test /tmp/openclaw-identity/patch-acp-session-id.test.mjs && \
+    node /tmp/openclaw-identity/patch-acp-session-id.mjs /app && \
+    rm -rf /tmp/openclaw-identity
 RUN hyper-acp --help >/dev/null
 RUN mkdir -p /opt/hypercli-openclaw /home/node/.openclaw && \
     chown -R node:node /home/node /opt/hypercli-openclaw /app
