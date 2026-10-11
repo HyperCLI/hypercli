@@ -141,6 +141,8 @@ export interface AcpSessionPage<T> {
 
 export interface AcpSessionMessagePage extends AcpSessionPage<AcpSessionMessage> {
   importOutcome: SessionImportOutcome | null;
+  /** Session event head read with the page's receipts; missing on older servers. */
+  headSeq?: number | null;
 }
 
 export interface AcpSessionListOptions {
@@ -336,6 +338,7 @@ export class SessionsAPI {
       },
     );
     return { ...pageFromWire(payload ?? {}, messageFromWire),
+      headSeq: pick<number>(payload ?? {}, 'head_seq', 'headSeq') ?? null,
       importOutcome: pick<SessionImportOutcome>(payload ?? {}, 'import_outcome', 'importOutcome') ?? null };
   }
 

@@ -287,6 +287,15 @@ describe('SessionsAPI (§15)', () => {
     await api.getMessages('session', { cursor: page.nextCursor, limit: 1 });
     expect(http.get).toHaveBeenLastCalledWith('/sessions/session/messages', { cursor: 'opaque+/older=', limit: 1 });
   });
+  it.each([
+    [{ head_seq: 64 }, 64], [{ headSeq: 65 }, 65], [{}, null],
+  ])('preserves the page receipt snapshot head without inferring it from row seq (%j)', async (fields, expected) => {
+    const api = new SessionsAPI(fakeHttp({ ...fields, items: [messageRow], has_more: false }));
+    const page = await api.getMessages(SESSION_ID);
+    expect(page.headSeq).toBe(expected);
+    expect(page.items[0].seq).toBe(messageRow.seq);
+  });
+
   it.each([undefined, null, 'slack', 'future-client'])('decodes nullable open-ended source %s', async (source) => {
     const http = fakeHttp({ items: [{ ...sessionRow, source }], has_more: false });
     const page = await new SessionsAPI(http as never).listSessions();
