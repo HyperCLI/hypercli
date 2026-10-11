@@ -76,12 +76,15 @@ export interface AcpSessionRecord {
 /**
  * Per-logical-message delivery evidence from the session detail read (backend
  * `SessionStateDetail.receipts`): the settled markers a chat pane merges onto
- * already-rendered messages without paging message rows. Merged per message
- * id: earliest created_at, first non-null delivered_at / completed_at.
+ * already-rendered messages without paging message rows. Merged per
+ * participant, role and message id: earliest created_at, first non-null delivery
+ * and user completion (latest assistant completion). Missing scope stays unknown.
  */
 export interface AcpSessionReceipt {
   messageId: string;
   role: 'user' | 'assistant' | 'tool';
+  /** Author scope, matching messages-page participantId; absent on older servers. */
+  participantId?: string | null;
   createdAt: string | null;
   deliveredAt: string | null;
   completedAt: string | null;
@@ -221,6 +224,7 @@ function receiptFromWire(row: Record<string, unknown>): AcpSessionReceipt {
   return {
     messageId: String(pick<unknown>(row, 'message_id', 'messageId') ?? ''),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
+    participantId: pick<string>(row, 'participant_id', 'participantId') ?? null,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
     deliveredAt: pick<string>(row, 'delivered_at', 'deliveredAt') ?? null,
     completedAt: pick<string>(row, 'completed_at', 'completedAt') ?? null,

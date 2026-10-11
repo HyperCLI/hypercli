@@ -2795,9 +2795,9 @@ export class Agent {
    * - provided: the dial itself is session-less; AFTER the `initialize`
    * handshake the client resumes the session over the connected socket
    * (`session/resume` on v1), without replay. History uses the separate
-   * platform sessions API. Backend-side, an attach
-   *   naming an id the store does not hold is refused with close code
-   *   4404 (`ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE`).
+   * platform sessions API. A refused resume rejects acpConnect with the
+   * original error and closes its client; it never creates a replacement
+   * session.
    *
    * `transport: 'direct'` dials the agent-keyed `/ws` bridge instead
    * (`?agent_id&token`), the pre-proxy path. Infra/debug only: `/ws` is

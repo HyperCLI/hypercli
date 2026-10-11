@@ -166,13 +166,27 @@ describe('session detail HTTP contract', () => {
     expect(detail.lastMessageId).toBe('m-agent-7');
     expect(detail.messageCount).toBe(7);
     expect(detail.headSeq).toBe(64);
-    expect(detail.receipts).toEqual([{ messageId: 'm-user-3', role: 'user',
+    expect(detail.receipts).toEqual([{ messageId: 'm-user-3', role: 'user', participantId: null,
       createdAt: receipt.created_at, deliveredAt: receipt.delivered_at, completedAt: null }]);
   });
 
   it.each(['live', 'archived', 'deleted'] as const)('hydrates agent connection state %s computed per request', async (agentState) => {
     const api = new SessionsAPI({ get: vi.fn().mockResolvedValue({ ...sessionRow, agent_state: agentState }) });
     expect((await api.getSession(SESSION_ID)).agentState).toBe(agentState);
+  });
+
+  it('preserves receipt author scope in snake/camel case and leaves missing scope unknown', async () => {
+    const api = new SessionsAPI(fakeHttp({ ...sessionRow, receipts: [
+      { message_id: 'same-native-id', role: 'user', participant_id: AGENT_ID, completed_at: 'agent-complete' },
+      { messageId: 'same-native-id', role: 'user', participantId: USER_ID, completedAt: null },
+      { message_id: 'same-native-id', role: 'user' },
+    ] }));
+    expect((await api.getSession(SESSION_ID)).receipts.map(r => [r.messageId, r.role, r.participantId, r.completedAt]))
+      .toEqual([
+        ['same-native-id', 'user', AGENT_ID, 'agent-complete'],
+        ['same-native-id', 'user', USER_ID, null],
+        ['same-native-id', 'user', null, null],
+      ]);
   });
 
   it.each(['draining', null])('defaults unknown or absent agent state %s to null', async (agentState) => {

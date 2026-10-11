@@ -306,8 +306,8 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   the managed runtime after process exit until the deployment is recreated with the new
   launch shape.
 - Desktop Stop and Delete actions do not invoke the provider. A local delete
-  can therefore leave remote infrastructure running if shutdown was not
-  delivered first.
+  can therefore leave remote infrastructure running. Stop or delete the remote
+  deployment through authenticated HyperCLI lifecycle tooling first.
 - Apply launch changes by stopping the deployment through authenticated
   HyperCLI lifecycle tooling, then deploying it again from Buzz.
 
