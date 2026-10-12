@@ -14,5 +14,21 @@
   ["https://custom.test/ws/tenant/agents", "wss://custom.test/ws/tenant/ws/runners"],
   ["https://custom.test/nested/ws/agents", "wss://custom.test/nested/ws/runners"],
   ["https://custom.test/ws/agents", "wss://custom.test/ws/runners"],
-  ["https://custom.test/ws/api", "wss://custom.test/ws/runners"]
+  ["https://custom.test/ws/api", "wss://custom.test/ws/runners"],
+  ["http://ws/agents", "ws://ws/ws/runners"],
+  ["https://ws/api", "wss://ws/ws/runners"],
+  ["http://ws:80/agents", "ws://ws/ws/runners"],
+  ["https://ws:443/api", "wss://ws/ws/runners"],
+  ["http://ws", "ws://ws/ws/runners"],
+  ["https://ws/", "wss://ws/ws/runners"],
+  ["http://ws/ws", "ws://ws/ws/runners"],
+  ["https://ws:443/ws", "wss://ws/ws/runners"],
+  ["http://ws/ws/agents", "ws://ws/ws/runners"],
+  ["https://ws/nested/ws/agents", "wss://ws/nested/ws/runners"],
+  ["http://ws:80/nested/ws/api", "ws://ws/nested/ws/runners"],
+  ["http://ws:8080/agents", "ws://ws:8080/ws/runners"],
+  ["https://ws:8443/api", "wss://ws:8443/ws/runners"],
+  ["http://ws:8080/ws/agents", "ws://ws:8080/ws/runners"],
+  ["https://ws/api?next=/ws#fragment", "wss://ws/ws/runners"],
+  ["http://ws/nested/api?next=/ws#fragment", "ws://ws/nested/ws/runners"]
 ]

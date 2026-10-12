@@ -151,14 +151,11 @@ def _default_agents_ws_url(api_base: str) -> str:
         return DEFAULT_AGENTS_WS_URL
     if parsed.path == "/agents" and netloc in _AGENTS_DEV_HOSTS and netloc != "api.agents.dev.hypercli.com":
         return DEV_AGENTS_WS_URL
-    raw = raw.removesuffix("/agents").rstrip("/")
-    if not raw.endswith("/ws"):
-        raw = f"{raw}/ws"
-    if raw.startswith("https://"):
-        return f"wss://{raw[len('https://'):]}"
-    if raw.startswith("http://"):
-        return f"ws://{raw[len('http://'):]}"
-    return raw
+    path = parsed.path.removesuffix("/agents").rstrip("/")
+    if not path.endswith("/ws"):
+        path = f"{path}/ws"
+    scheme = {"https": "wss", "http": "ws"}.get(parsed.scheme, parsed.scheme)
+    return f"{scheme}://{netloc}{path}"
 
 
 def get_ws_url() -> str:

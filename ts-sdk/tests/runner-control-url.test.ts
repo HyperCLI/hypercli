@@ -16,15 +16,13 @@ it('composes with configured agents-base discovery without overriding the select
   expect(defaultRunnerControlUrl(getAgentsApiBaseUrl())).toBe('ws://127.0.0.1:8765/prefix/ws/runners');
 });
 
-it('exports the same production and explicit runner control routes for Node and browsers', () => {
+it.each(urlVectors)('exports matching Node, browser and Agents routes for %s', (base, expected) => {
   expect(DEFAULT_RUNNER_CONTROL_URL).toBe('wss://api.agents.hypercli.com/ws/runners');
   expect(browser.DEFAULT_RUNNER_CONTROL_URL).toBe(DEFAULT_RUNNER_CONTROL_URL);
-  for (const [base, expected] of urlVectors) {
-    expect(defaultRunnerControlUrl(base)).toBe(expected);
-    expect(browser.defaultRunnerControlUrl(base)).toBe(expected);
-    const wsUrl = expected.replace(/\/runners$/, '');
-    expect(getAgentsWsUrlFromProductBase(base)).toBe(wsUrl);
-    vi.stubEnv('HYPER_AGENTS_API_BASE', base);
-    expect(getAgentsWsUrl()).toBe(wsUrl);
-  }
+  expect(defaultRunnerControlUrl(base)).toBe(expected);
+  expect(browser.defaultRunnerControlUrl(base)).toBe(expected);
+  const wsUrl = expected.replace(/\/runners$/, '');
+  expect(getAgentsWsUrlFromProductBase(base)).toBe(wsUrl);
+  vi.stubEnv('HYPER_AGENTS_API_BASE', base);
+  expect(getAgentsWsUrl()).toBe(wsUrl);
 });

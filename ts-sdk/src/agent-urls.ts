@@ -31,7 +31,10 @@ function toWsBaseUrl(baseUrl: string): string {
 export function normalizeAgentsWsUrl(url: string): string {
   const base = toWsBaseUrl(url);
   if (!base) return '';
-  return base.endsWith('/ws') ? base : `${base}/ws`;
+  const parsed = new URL(base);
+  const path = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = path.endsWith('/ws') ? path : `${path}/ws`;
+  return parsed.toString();
 }
 
 /**
@@ -95,7 +98,9 @@ function classifyAgentsApiBase(apiBase: string): { tier: AgentsHostTier; resolve
 // The `/ws` tunnel lives next to (never on) the agents REST prefix: strip a
 // trailing `/agents` path suffix, then append the tunnel path.
 function agentsTunnelWsUrl(resolvedApiBase: string): string {
-  return normalizeAgentsWsUrl(resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, ''));
+  const parsed = new URL(resolvedApiBase);
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/agents$/, '');
+  return normalizeAgentsWsUrl(parsed.toString());
 }
 
 export function defaultAgentsWsUrl(apiBase: string): string {
