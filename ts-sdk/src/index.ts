@@ -205,6 +205,7 @@ export {
   type RunnerMeta,
   type RunnerUiMeta,
   type RunnerUpdateOptions,
+  type RunnerRegisterOptions,
 } from './runners.js';
 
 // Logs

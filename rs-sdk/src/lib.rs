@@ -19,6 +19,7 @@ mod models;
 mod openclaw;
 mod renders;
 mod routines;
+mod runners;
 mod runtime_auth;
 mod sessions;
 mod types;
@@ -43,10 +44,11 @@ pub use config::{
     discover_client_config, discover_client_config_from, discover_client_config_from_config_dir,
     normalize_agents_api_base, normalize_agents_ws_url, normalize_explicit_agents_api_base,
     read_config_values_in_data_dir, remove_config_api_keys, remove_config_api_keys_in_data_dir,
-    remove_config_values_in_data_dir, save_api_base_in_data_dir, save_api_key,
-    save_api_key_in_data_dir, write_config_values, write_config_values_in_data_dir, ClientConfig,
-    ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_ADMIN_API_BASE, DEFAULT_AGENTS_API_BASE,
-    DEFAULT_AGENTS_WS_URL, DEFAULT_RUNNER_CONTROL_URL,
+    remove_config_values_in_data_dir, runner_api_base_from_control_url, runner_client_config,
+    save_api_base_in_data_dir, save_api_key, save_api_key_in_data_dir, write_config_values,
+    write_config_values_in_data_dir, ClientConfig, ConfigError, API_KEY_CONFIG_KEYS,
+    DEFAULT_AGENTS_ADMIN_API_BASE, DEFAULT_AGENTS_API_BASE, DEFAULT_AGENTS_WS_URL,
+    DEFAULT_RUNNER_CONTROL_URL,
 };
 pub use files::{File, FilesClient};
 pub use instances::{GpuConfig, GpuPricing, GpuType, InstancesClient, PricingTier, Region};
@@ -77,6 +79,7 @@ pub use routines::{
     derive_routines_api_base, Routine, RoutineCreate, RoutinePatch, RoutinesApiClient,
     RoutinesApiError,
 };
+pub use runners::{Runner, RunnerPlatform, RunnerRegisterRequest, RunnersClient};
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthMethod, RuntimeAuthStatus, RuntimeLoginChallenge,
     RuntimeLoginResult, RuntimeLoginSession, RuntimeShellToken,

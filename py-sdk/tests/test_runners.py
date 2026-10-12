@@ -1,4 +1,8 @@
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import httpx
+import pytest
 
 from hypercli import Runner, RunnersAPI
 from hypercli.runners import _derive_runners_base
@@ -18,6 +22,34 @@ RUNNER_PAYLOAD = {
     "ready": False,
     "connection_scope": "current_backend_instance",
 }
+
+
+def test_register_shared_construction_and_single_attempt(monkeypatch):
+    fixture = json.loads((Path(__file__).parents[2] / "rs-sdk/tests/fixtures/runner_registration.json").read_text())
+    calls = []
+
+    def request(_self, method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return httpx.Response(200, json={**RUNNER_PAYLOAD, "runner_id": fixture["runner_id"]})
+
+    monkeypatch.setattr(httpx.Client, "request", request)
+    api = RunnersAPI("key", agents_api_base="http://agents.test/prefix/agents")
+    for runner_id in [None, fixture["runner_id"]]:
+        assert api.register(**fixture["request"], runner_id=runner_id).runner_id == fixture["runner_id"]
+        method, url, options = calls[-1]
+        assert (method, url) == ("POST", "http://agents.test/prefix/agents/runners")
+        assert options["headers"]["Authorization"] == "Bearer key"
+        assert options["json"] == {**fixture["request"], **({"runner_id": runner_id} if runner_id else {})}
+
+    def lost(*args, **kwargs):
+        calls.append(None)
+        raise httpx.ReadError("lost reply")
+
+    monkeypatch.setattr(httpx.Client, "request", lost)
+    calls.clear()
+    with pytest.raises(httpx.ReadError, match="lost reply"):
+        api.register(**fixture["request"])
+    assert len(calls) == 1
 
 
 def test_runners_base_derives_from_agents_base(monkeypatch):

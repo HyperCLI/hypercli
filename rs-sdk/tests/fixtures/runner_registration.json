@@ -1,0 +1,9 @@
+{
+  "request": {
+    "name": "workstation",
+    "tags": ["self-hosted", "process"],
+    "version": "0.8.3",
+    "platform": { "os": "linux", "arch": "x86_64" }
+  },
+  "runner_id": "11111111-2222-4333-8444-555555555555"
+}
