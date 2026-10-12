@@ -5090,7 +5090,10 @@ export class Deployments {
     path: string,
     options?: AgentFileReadOptions,
   ): Promise<AgentFileReadBytesResult> {
-    const resolvedPath = resolveSyncRootFilePath(path);
+    // Preserve absolute runtime addresses for the existing runner read command.
+    // Relative callers retain workspace semantics; hosted reads remain sync-root relative.
+    const absolute = path.startsWith('/') || /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\');
+    const resolvedPath = absolute ? path : resolveSyncRootFilePath(path);
     if (!resolvedPath) throw new Error('agent file path is required');
     const agentId = await this.agentIdFor(target);
     const access = await this.fileAccess(agentId);
@@ -5099,7 +5102,7 @@ export class Deployments {
       if (!Number.isInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a nonnegative integer');
       const payload = await this.agentHttp.post<{ content_base64: string }>(
         `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/read`,
-        { path: nativeFilePath(resolvedPath), max_bytes: maxBytes },
+        { path: absolute ? resolvedPath : nativeFilePath(resolvedPath), max_bytes: maxBytes },
         { signal: options?.signal, redirect: 'error' },
       );
       if (typeof payload?.content_base64 !== 'string' || payload.content_base64.length > Math.ceil(maxBytes / 3) * 4
@@ -5115,6 +5118,7 @@ export class Deployments {
       if (content.byteLength > maxBytes) throw fileReadLimitError(path, maxBytes);
       return { content };
     }
+    if (absolute) resolveSyncRootFilePath(path); // Hosted transport has no runtime-absolute address space.
     const response = await this.fetchReef(access, `/files/${encodeFilePath(resolvedPath)}`, {
       signal: options?.signal,
     });

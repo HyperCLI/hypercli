@@ -87,11 +87,26 @@ describe.each(['hosted', 'native'])('%s file transport through the real HTTP cli
     if (transport === 'hosted') expect(calls.some((url) => url.endsWith('/a%252Fb'))).toBe(true);
   });
 
-  it.each(vectors.invalid_paths)('rejects unsafe path %j before any request', async (path) => {
-    const { deployments, calls } = setup();
+  it.each(vectors.invalid_paths)('keeps workspace mutation rules and discovers the read address space for %j', async (path) => {
+    const { deployments, calls, files } = setup();
     await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
-    await expect(deployments.fileRead(id, path)).rejects.toThrow();
     expect(calls).toEqual([]);
+    if (path.startsWith('/') || /^[a-z]:\//i.test(path)) {
+      files.set(path, new TextEncoder().encode('absolute fixture'));
+      if (transport === 'native') {
+        await expect(deployments.fileRead(id, path)).resolves.toBe('absolute fixture');
+        expect(calls.map(url => new URL(url).pathname)).toEqual([
+          `/agents/deployments/${id}/files/token`, `/agents/deployments/${id}/files/read`,
+        ]);
+      } else {
+        await expect(deployments.fileRead(id, path)).rejects.toThrow('relative to the sync root');
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toContain('/files/token');
+      }
+    } else {
+      await expect(deployments.fileRead(id, path)).rejects.toThrow();
+      expect(calls).toEqual([]);
+    }
   });
 
   it('copy helpers use the same discovered byte methods', async () => {

@@ -94,6 +94,20 @@ it('uses original catalog cwd after a fresh connection, never a replacement laun
   expect(resolveDefaultCwd).not.toHaveBeenCalled();
 });
 
+it('exposes exact session cwd from tracked state or paginated catalog, never a connection default', async () => {
+  const f = await fixture(), client = await f.connect({ cwd: '/not-the-selected-session' });
+  const { sessionId } = await client.newSession({ cwd: '/original/tracked' });
+  expect(await client.sessionCwd(sessionId)).toBe('/original/tracked');
+  expect(f.calls('session/list')).toHaveLength(0);
+  f.hooks.set('session/list', (frame, socket) => f.result(socket, frame, frame.params.cursor
+    ? { sessions: [{ sessionId: 'selected', cwd: '/original/catalog' }] }
+    : { sessions: [{ sessionId: 'other', cwd: '/wrong' }], nextCursor: 'next' }));
+  expect(await client.sessionCwd('selected')).toBe('/original/catalog');
+  await expect(client.sessionCwd('missing')).rejects.toThrow(/original session cwd is unavailable/);
+  expect(f.calls('session/resume')).toHaveLength(0);
+  expect(f.calls('session/load')).toHaveLength(0);
+});
+
 it('explicit cwd bypasses unavailable listing; catalog errors propagate without launch fallback', async () => {
   const f = await fixture();
   f.hooks.set('session/list', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32000, message: 'Not authorized' } }));
