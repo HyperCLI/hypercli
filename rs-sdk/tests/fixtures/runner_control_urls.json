@@ -1,0 +1,18 @@
+[
+  ["https://api.hypercli.com/agents", "wss://api.agents.hypercli.com/ws/runners"],
+  ["https://api.dev.hypercli.com/agents", "wss://api.agents.dev.hypercli.com/ws/runners"],
+  ["https://api.agents.hypercli.com/agents", "wss://api.agents.hypercli.com/ws/runners"],
+  ["http://127.0.0.1:8765/prefix/agents/", "ws://127.0.0.1:8765/prefix/ws/runners"],
+  ["https://custom.test/api", "wss://custom.test/ws/runners"],
+  ["https://custom.test", "wss://custom.test/ws/runners"],
+  ["https://custom.test/agents/", "wss://custom.test/ws/runners"],
+  ["https://custom.test/nested/api", "wss://custom.test/nested/ws/runners"],
+  ["https://custom.test/nested/agents", "wss://custom.test/nested/ws/runners"],
+  ["https://custom.test/nested", "wss://custom.test/nested/ws/runners"],
+  ["http://custom.test:8080/nested/api", "ws://custom.test:8080/nested/ws/runners"],
+  ["https://CUSTOM.test:443/nested/agents///", "wss://custom.test/nested/ws/runners"],
+  ["https://custom.test/ws/tenant/agents", "wss://custom.test/ws/tenant/ws/runners"],
+  ["https://custom.test/nested/ws/agents", "wss://custom.test/nested/ws/runners"],
+  ["https://custom.test/ws/agents", "wss://custom.test/ws/runners"],
+  ["https://custom.test/ws/api", "wss://custom.test/ws/runners"]
+]

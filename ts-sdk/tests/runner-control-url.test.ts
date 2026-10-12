@@ -1,6 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl, getAgentsApiBaseUrl } from '../src/index.js';
 import * as browser from '../src/browser.js';
+import { readFileSync } from 'node:fs';
+import { getAgentsWsUrl, getAgentsWsUrlFromProductBase } from '../src/config.js';
+
+const urlVectors: [string, string][] = JSON.parse(readFileSync(
+  new URL('../../rs-sdk/tests/fixtures/runner_control_urls.json', import.meta.url), 'utf8',
+));
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -13,14 +19,12 @@ it('composes with configured agents-base discovery without overriding the select
 it('exports the same production and explicit runner control routes for Node and browsers', () => {
   expect(DEFAULT_RUNNER_CONTROL_URL).toBe('wss://api.agents.hypercli.com/ws/runners');
   expect(browser.DEFAULT_RUNNER_CONTROL_URL).toBe(DEFAULT_RUNNER_CONTROL_URL);
-  for (const [base, expected] of [
-    ['https://api.hypercli.com/agents', DEFAULT_RUNNER_CONTROL_URL],
-    ['https://api.dev.hypercli.com/agents', 'wss://api.agents.dev.hypercli.com/ws/runners'],
-    ['https://api.agents.hypercli.com/agents', DEFAULT_RUNNER_CONTROL_URL],
-    ['http://127.0.0.1:8765/prefix/agents/', 'ws://127.0.0.1:8765/prefix/ws/runners'],
-    ['https://custom.test/api', 'wss://custom.test/ws/runners'],
-  ]) {
+  for (const [base, expected] of urlVectors) {
     expect(defaultRunnerControlUrl(base)).toBe(expected);
     expect(browser.defaultRunnerControlUrl(base)).toBe(expected);
+    const wsUrl = expected.replace(/\/runners$/, '');
+    expect(getAgentsWsUrlFromProductBase(base)).toBe(wsUrl);
+    vi.stubEnv('HYPER_AGENTS_API_BASE', base);
+    expect(getAgentsWsUrl()).toBe(wsUrl);
   }
 });
