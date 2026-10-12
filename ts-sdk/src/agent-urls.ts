@@ -7,6 +7,7 @@
 export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.hypercli.com/agents';
 export const DEV_AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
 export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
+export const DEFAULT_RUNNER_CONTROL_URL = `${DEFAULT_AGENTS_WS_URL}/runners`;
 export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 const AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.hypercli.com/ws/acp';
 const DEV_AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.dev.hypercli.com/ws/acp';
@@ -102,6 +103,11 @@ export function defaultAgentsWsUrl(apiBase: string): string {
   if (tier === 'prod') return DEFAULT_AGENTS_WS_URL;
   if (tier === 'dev') return DEV_AGENTS_WS_URL;
   return agentsTunnelWsUrl(resolvedApiBase);
+}
+
+/** Runner control uses the shared agents WebSocket route plus /runners. */
+export function defaultRunnerControlUrl(apiBase: string): string {
+  return `${defaultAgentsWsUrl(apiBase)}/runners`;
 }
 
 /**

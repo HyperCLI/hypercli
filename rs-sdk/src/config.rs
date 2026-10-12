@@ -309,9 +309,17 @@ pub fn discover_config_value(key: &str) -> Option<String> {
 }
 
 pub const DEFAULT_AGENTS_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
+pub const DEFAULT_RUNNER_CONTROL_URL: &str = "wss://api.agents.hypercli.com/ws/runners";
 const DEV_AGENTS_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
 pub const DEFAULT_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.hypercli.com";
 const DEV_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.dev.hypercli.com";
+
+/// Derive runner control from an explicit agents API base using the shared
+/// agents WebSocket routing (including custom origins and path prefixes).
+pub fn default_runner_control_url(api_base: &str) -> Result<String, ConfigError> {
+    let base = normalize_explicit_agents_api_base(api_base)?;
+    Ok(format!("{}/runners", default_agents_ws_url(&base)?))
+}
 
 /// Lowercased host with the scheme-default port dropped and non-default
 /// ports kept; IPv6 literals are bracket-wrapped. Matches the py-sdk

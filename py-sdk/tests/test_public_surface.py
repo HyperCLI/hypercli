@@ -43,6 +43,8 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "ComfyUIJob",
         "DEFAULT_AGENTS_API_BASE_URL",
         "DEFAULT_AGENTS_WS_URL",
+        "DEFAULT_RUNNER_CONTROL_URL",
+        "default_runner_control_url",
         "DEFAULT_AGENT_RUNTIME_SCOPES",
         "DEFAULT_API_URL",
         "DEFAULT_BUZZ_AGENT_IMAGE",

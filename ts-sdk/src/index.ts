@@ -9,6 +9,7 @@ export { BrowserHyperCLI, type BrowserHyperCLIOptions } from './browser.js';
 export { BrowserJobs } from './browser-jobs.js';
 
 // Configuration
+export { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl } from './agent-urls.js';
 export {
   configure,
   getApiKey,

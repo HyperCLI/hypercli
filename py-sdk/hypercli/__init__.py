@@ -8,6 +8,8 @@ from .config import (
     DEFAULT_WS_URL,
     DEFAULT_AGENTS_API_BASE_URL,
     DEFAULT_AGENTS_WS_URL,
+    DEFAULT_RUNNER_CONTROL_URL,
+    default_runner_control_url,
     DEV_AGENTS_API_BASE_URL,
     DEV_AGENTS_WS_URL,
     get_api_key,
@@ -178,6 +180,8 @@ __all__ = [
     "DEFAULT_WS_URL",
     "DEFAULT_AGENTS_API_BASE_URL",
     "DEFAULT_AGENTS_WS_URL",
+    "DEFAULT_RUNNER_CONTROL_URL",
+    "default_runner_control_url",
     "DEV_AGENTS_API_BASE_URL",
     "DEV_AGENTS_WS_URL",
     # Instance types
