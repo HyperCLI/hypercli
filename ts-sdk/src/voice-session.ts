@@ -378,8 +378,6 @@ export class VoiceSession {
         } catch (error) {
           this.close();
           throw error;
-        } finally {
-          this.state = this.ws ? 'idle' : 'closed';
         }
       }
       this.state = this.ws ? 'idle' : 'closed';
