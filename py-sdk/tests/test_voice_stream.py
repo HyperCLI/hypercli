@@ -27,6 +27,58 @@ async def _start_server(handler):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["unknown", "legacy", "unnegotiated", "bad-count", "missing-count", "cancel"])
+async def test_incremental_pcm_negotiation(mode):
+    release = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        assert message["stream_mode"] == "incremental_pcm"
+        rid = message["request_id"]
+        await ws.send(json.dumps({"type": "start", "request_id": rid, "format": "pcm",
+                                  **({} if mode in ("legacy", "unnegotiated") else {"stream_mode": "incremental_pcm"})}))
+        await ws.send(json.dumps({"type": "audio", "request_id": rid, "seq": 0, "bytes": 2,
+                                  **({"total": 1, "final": True} if mode == "legacy" else {"total": None})}))
+        await ws.send(b"\x01\x00")
+        if mode in ("cancel", "unnegotiated"):
+            assert json.loads(await ws.recv())["type"] == "cancel"
+            cancelled.set()
+        else:
+            await release.wait()
+            await ws.send(json.dumps({"type": "done", "request_id": rid,
+                                      **({} if mode == "missing-count" else {"total_chunks": 2 if mode == "bad-count" else 1})}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "offline") as session:
+            stream = session.speak("test", response_format="pcm", stream_mode="incremental_pcm")
+            if mode == "unnegotiated":
+                with pytest.raises(VoiceStreamError, match="not negotiated"):
+                    await anext(stream)
+                await asyncio.wait_for(cancelled.wait(), 1)
+                return
+            first = await anext(stream)
+            assert first.total == (1 if mode == "legacy" else None)
+            if mode == "cancel":
+                await stream.aclose()
+                await asyncio.wait_for(cancelled.wait(), 1)
+            else:
+                release.set()
+                if mode in ("bad-count", "missing-count"):
+                    with pytest.raises(VoiceStreamError):
+                        await anext(stream)
+                else:
+                    with pytest.raises(StopAsyncIteration):
+                        await anext(stream)
+    finally:
+        release.set()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_speak_yields_ordered_chunks_then_done():
     received = []
 

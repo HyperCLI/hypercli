@@ -42,6 +42,41 @@ describe('VoiceSession', () => {
     received = [];
   });
 
+  it.each(['unknown', 'legacy', 'unnegotiated', 'bad-count', 'missing-count', 'cancel'] as const)('incremental PCM: %s', async mode => {
+    let finish: (() => void) | undefined;
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      expect(message.stream_mode).toBe('incremental_pcm');
+      const request_id = message.request_id;
+      ws.send(JSON.stringify({ type: 'start', request_id, format: 'pcm',
+        ...(['legacy', 'unnegotiated'].includes(mode) ? {} : { stream_mode: 'incremental_pcm' }) }));
+      ws.send(JSON.stringify({ type: 'audio', request_id, seq: 0, bytes: 2,
+        ...(mode === 'legacy' ? { total: 1, final: true } : { total: null }) }));
+      ws.send(Buffer.from([1, 0]));
+      finish = () => ws.send(JSON.stringify({ type: 'done', request_id,
+        ...(mode === 'missing-count' ? {} : { total_chunks: mode === 'bad-count' ? 2 : 1 }) }));
+    });
+    const session = await new VoiceSession({ wsUrl: url, credential: 'offline' }).open();
+    try {
+      const stream = session.speak({ text: 'test', format: 'pcm', streamMode: 'incremental_pcm' });
+      if (mode === 'unnegotiated') {
+        await expect(stream.next()).rejects.toThrow('not negotiated');
+        return;
+      }
+      const first = await stream.next();
+      expect(first.value?.total).toBe(mode === 'legacy' ? 1 : null);
+      if (mode === 'cancel') {
+        await stream.return();
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(received.at(-1)?.type).toBe('cancel');
+      } else {
+        finish!();
+        if (mode === 'bad-count' || mode === 'missing-count') await expect(stream.next()).rejects.toThrow(VoiceStreamError);
+        else expect((await stream.next()).done).toBe(true);
+      }
+    } finally { session.close(); }
+  });
+
   afterEach(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });

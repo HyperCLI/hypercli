@@ -22,7 +22,8 @@ export interface VoiceAudioMetadata {
 export interface VoiceChunkEvent {
   requestId: string;
   index: number;
-  total: number;
+  /** null only for explicitly negotiated incremental PCM; DONE carries the count. */
+  total: number | null;
   audio: Uint8Array;
   final: boolean;
   metadata?: VoiceAudioMetadata;
@@ -38,6 +39,7 @@ export interface VoiceSessionOptions {
 }
 
 export interface SpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   voice?: string;
   language?: string;
@@ -48,6 +50,7 @@ export interface SpeakOptions {
 }
 
 export interface CloneSpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   refAudio: Uint8Array | ArrayBuffer;
   language?: string;
@@ -58,6 +61,7 @@ export interface CloneSpeakOptions {
 }
 
 export interface DesignSpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   description: string;
   language?: string;
@@ -247,7 +251,7 @@ export class VoiceSession {
   private async *runSpeak(
     op: string,
     body: Record<string, unknown>,
-    options: { format?: string; chunks?: boolean; requestId?: string },
+    options: { format?: string; chunks?: boolean; requestId?: string; streamMode?: 'incremental_pcm' },
   ): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     if (!this.ws || this.state === 'closed') {
       throw new Error("Session is not connected; call open() first");
@@ -267,6 +271,7 @@ export class VoiceSession {
         op,
         format: options.format ?? 'mp3',
         chunks: options.chunks ?? true,
+        ...(options.streamMode ? { stream_mode: options.streamMode } : {}),
         ...body,
       });
 
@@ -274,6 +279,8 @@ export class VoiceSession {
       let receivedChunks = 0;
       let sawFinal = false;
       let metadata: VoiceAudioMetadata | undefined;
+      let incremental = false;
+      let unknownTotal = false;
 
       while (true) {
         const remaining = deadline - Date.now();
@@ -296,8 +303,13 @@ export class VoiceSession {
         switch (message.type) {
           case 'start':
             metadata = metadataFromStartFrame(message);
+            incremental = options.streamMode === 'incremental_pcm' && message.stream_mode === 'incremental_pcm'
+              && options.format === 'pcm' && message.format === 'pcm' && options.chunks !== false;
             break;
           case 'audio': {
+            if (!incremental && message.total === null) {
+              throw new VoiceStreamError('protocol', 'Unknown audio total was not negotiated');
+            }
             if (sawFinal) {
               throw new VoiceStreamError('protocol', 'Audio frame received after final chunk');
             }
@@ -306,7 +318,7 @@ export class VoiceSession {
               throw new VoiceStreamError('protocol', `Unexpected audio sequence: expected ${expectedSeq}, got ${seq}`);
             }
             const expected = Number(message.bytes ?? -1);
-            if (expected < 0) {
+            if (!Number.isSafeInteger(expected) || expected < 0) {
               throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
             }
             const payloadRaw = await this.nextMessage(Math.max(0, deadline - Date.now()));
@@ -314,11 +326,12 @@ export class VoiceSession {
             if (audio.length !== expected) {
               throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
             }
-            const total = Number(message.total ?? 1);
+            const total = incremental && message.total == null ? null : Number(message.total ?? 1);
             const final = Boolean(message.final);
-            if (total < 1 || seq >= total) {
+            if (total !== null && (!Number.isSafeInteger(total) || total < 1 || seq >= total)) {
               throw new VoiceStreamError('protocol', `Invalid audio total ${total} for sequence ${seq}`);
             }
+            unknownTotal ||= total === null;
             expectedSeq += 1;
             receivedChunks += 1;
             sawFinal = final;
@@ -334,13 +347,16 @@ export class VoiceSession {
             break;
           }
           case 'done':
+            if (incremental && !Number.isSafeInteger(message.total_chunks)) {
+              throw new VoiceStreamError('protocol', 'Unknown audio total requires exact DONE total_chunks');
+            }
             if (message.total_chunks !== undefined && Number(message.total_chunks) !== receivedChunks) {
               throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.total_chunks)}`);
             }
             if (message.chunks !== undefined && Number(message.chunks) !== receivedChunks) {
               throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.chunks)}`);
             }
-            if (receivedChunks > 0 && !sawFinal) {
+            if (receivedChunks > 0 && !sawFinal && !unknownTotal) {
               throw new VoiceStreamError('protocol', 'Done received before final audio chunk');
             }
             finished = true;

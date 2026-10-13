@@ -33,3 +33,27 @@ instead of failing.
 
 For text-to-speech, cloning, and transcription from the terminal, see
 [`hyper voice`](/cli/commands/voice).
+
+## Incremental PCM framing
+
+Opt in on a voice session with `streamMode: 'incremental_pcm'` (TypeScript)
+or `stream_mode='incremental_pcm'` (Python), PCM format and chunks enabled.
+The wire `speak.stream_mode` must be echoed by `start.stream_mode` before
+unknown audio totals are accepted. Older servers may ignore the request and
+return the existing known-total/final framing, which new SDKs still accept.
+Requests without the opt-in retain the old wire contract.
+
+In the negotiated mode, `audio.total: null` means unknown, not an estimate.
+`final` may be omitted for unknown totals; `done.total_chunks` must contain
+the exact number of audio frames received. Sequence and byte-length checks
+still apply. Closing the iterator cancels the request.
+
+Source compatibility: `VoiceChunkEvent.total` is now `number | null` and
+Python `VoiceChunk.total` is `int | None`; callers doing arithmetic or showing
+progress must handle unknown totals. `final: false` does not imply another
+frame will follow in this mode. Python chunks also carry start-frame metadata.
+Release version remains governed by `versions.json` (0.8.3).
+
+This removes operator-side whole-WAV buffering for opted-in WebSocket PCM.
+The upstream Qwen worker still fully generates and encodes each text segment
+before sending its first frame. This is not a model streaming or TTFA claim.
