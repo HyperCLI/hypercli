@@ -13,6 +13,17 @@ There are two HyperCLI-related namespaces in the TS SDK:
 `client.agent` covers account metadata.
 `client.deployments` covers live runtime containers.
 
+## Inference migration
+
+`Deployments.bootstrapInference`, its three `BootstrapInference*` types, and
+the bespoke `POST /agents/bootstrap` endpoint have been removed. This is a
+breaking removal. Use `HTTPClient` from `@hypercli.com/sdk/http` with the product
+base and a user API key to POST `/v1/chat/completions`; JWT-only callers can use
+the existing `issueApiKeyFromJwt` exchange. Supply the model, messages, and
+response format explicitly, and read generated text from
+`choices[0].message.content`. Validate structured output and required facts at
+the caller; provider output is not repaired by the gateway.
+
 ## URL Model
 
 Configure the canonical product base through `HYPER_API_BASE` (or the SDK's

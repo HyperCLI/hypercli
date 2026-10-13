@@ -25,6 +25,16 @@ client = HyperCLI(
 )
 ```
 
+## Inference migration
+
+`Deployments.bootstrap_inference` and the bespoke `POST /agents/bootstrap`
+endpoint have been removed. This is a breaking removal. Send OpenAI-compatible
+requests to the product gateway's `/v1/chat/completions` with a user API key;
+JWT-only callers can use the existing `issue_api_key_from_jwt` exchange. Supply
+the model, messages, and response format explicitly, and read generated text
+from `choices[0].message.content`. Validate structured output and required facts
+at the caller; provider output is not repaired by the gateway.
+
 ## `client.agent`
 
 Use `client.agent` for account-level metadata, billing-backed subscriptions, effective entitlements, and configuration snippets:
