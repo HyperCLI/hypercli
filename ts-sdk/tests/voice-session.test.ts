@@ -45,6 +45,23 @@ describe('VoiceSession', () => {
     received = [];
   });
 
+  it.each(['speak', 'speakClone', 'speakDesign'] as const)('%s assembles default PCM without incremental mode when chunks=false', async method => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      sendAudio(ws, String(message.request_id), 0, 1, 'assembled');
+      ws.send(JSON.stringify({ type: 'done', request_id: message.request_id, total_chunks: 1 }));
+    });
+    const session = await new VoiceSession({ wsUrl: url, credential: 'offline' }).open();
+    try {
+      const chunks = [];
+      for await (const chunk of session[method]({ text: 'test', refAudio: new Uint8Array([1]), description: 'narrator', chunks: false })) chunks.push(chunk);
+      expect(received[0]).toMatchObject({ format: 'pcm', chunks: false });
+      expect(received[0].stream_mode).toBeUndefined();
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]).toMatchObject({ total: 1, final: true });
+    } finally { session.close(); }
+  });
+
   it.each(['unknown', 'legacy', 'unnegotiated', 'bad-count', 'missing-count', 'cancel'] as const)('incremental PCM: %s', async mode => {
     let finish: (() => void) | undefined;
     await startServer((ws, message) => {

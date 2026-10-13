@@ -5,6 +5,8 @@
  * audio chunks. One request at a time: idle → rendering → receiving → idle.
  * Works in both Node (`ws` package, Authorization header) and the browser
  * (global WebSocket, `?token=` query — browsers cannot set WS headers).
+ * Generation defaults to PCM, automatically requesting incremental delivery
+ * when chunked. Request an encoded format explicitly for file output.
  */
 import type NodeWebSocket from 'ws';
 
@@ -44,7 +46,7 @@ export interface SpeakOptions {
   voice?: string;
   language?: string;
   format?: string;
-  /** true (default): receive each server-side split; false: one assembled file. */
+  /** true (default): stream audio frames; false: one assembled file. */
   chunks?: boolean;
   requestId?: string;
 }
@@ -260,6 +262,9 @@ export class VoiceSession {
       throw new Error(`Session is ${this.state}; one request at a time`);
     }
 
+    const format = options.format ?? 'pcm';
+    const streamMode = options.streamMode
+      ?? (format === 'pcm' && options.chunks !== false ? 'incremental_pcm' : undefined);
     const requestId = options.requestId ?? randomRequestId();
     const deadline = Date.now() + this.timeoutMs;
     this.state = 'rendering';
@@ -269,9 +274,9 @@ export class VoiceSession {
         type: 'speak',
         request_id: requestId,
         op,
-        format: options.format ?? 'mp3',
+        format,
         chunks: options.chunks ?? true,
-        ...(options.streamMode ? { stream_mode: options.streamMode } : {}),
+        ...(streamMode ? { stream_mode: streamMode } : {}),
         ...body,
       });
 
@@ -303,8 +308,8 @@ export class VoiceSession {
         switch (message.type) {
           case 'start':
             metadata = metadataFromStartFrame(message);
-            incremental = options.streamMode === 'incremental_pcm' && message.stream_mode === 'incremental_pcm'
-              && options.format === 'pcm' && message.format === 'pcm' && options.chunks !== false;
+            incremental = streamMode === 'incremental_pcm' && message.stream_mode === 'incremental_pcm'
+              && format === 'pcm' && message.format === 'pcm' && options.chunks !== false;
             break;
           case 'audio': {
             if (!incremental && message.total === null) {

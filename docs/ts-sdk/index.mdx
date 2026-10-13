@@ -81,21 +81,19 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 ### Use `client.voice` for subscription voice routes
 
 ```ts
-const audio = await client.voice.tts({
+const audio = await client.voice.clone({
   text: "Hello from HyperCLI",
-  voice: "serena",
+  refAudio, // Uint8Array containing reference audio
   responseFormat: "mp3",
 });
 ```
 
-Additional helpers:
-
-- `client.voice.clone(...)`
-- `client.voice.design(...)`
+Cloning is the supported speech-generation path for new integrations. Preset TTS
+and design helpers remain available for legacy compatibility.
 
 The TypeScript SDK sends these requests through the derived agents API base.
-For `apiUrl: "https://api.hypercli.com"`, `client.voice.tts(...)` posts to
-`https://api.hypercli.com/agents/voice/tts`.
+For `apiUrl: "https://api.hypercli.com"`, `client.voice.clone(...)` posts to
+`https://api.hypercli.com/agents/voice/clone`.
 
 Streaming voice uses the agents WebSocket base plus `/voice`:
 
@@ -104,17 +102,28 @@ const session = client.voice.connect();
 await session.open();
 
 try {
-  for await (const chunk of session.speak({ text: "Hello from HyperCLI", voice: "serena" })) {
+  for await (const chunk of session.speakClone({ text: "Hello from HyperCLI", refAudio })) {
     handleAudio(chunk.audio);
   }
 } finally {
   session.close();
 }
 
-for await (const chunk of client.voice.ttsStream({ text: "Hello from HyperCLI", voice: "serena" })) {
+for await (const chunk of client.voice.cloneStream({ text: "Hello from HyperCLI", refAudio })) {
   handleAudio(chunk.audio);
 }
 ```
+
+**WebSocket compatibility change:** generation now defaults to raw PCM, not MP3,
+in both convenience calls and `VoiceSession`. Chunked PCM automatically requests
+`stream_mode: "incremental_pcm"`; no extra caller flag is needed. Only an echoed
+START acknowledgement enables unknown `chunk.total` (`null`), with the exact count
+validated at DONE. Older servers without the acknowledgement retain known totals
+and final markers. Use the returned audio metadata to play PCM; it is not an MP3 file.
+For encoded output, pass `responseFormat: "mp3"` to `cloneStream`, or
+`format: "mp3"` to `speakClone`. REST defaults and CLI MP3 file/stdout output are
+unchanged. `chunks: false` requests assembled audio without automatic incremental
+negotiation. `ttsStream` and `designStream` are deprecated but remain callable.
 
 The streaming request frame is a JSON message with `type: "speak"`, an
 `op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.

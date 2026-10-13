@@ -153,31 +153,39 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 Voice helpers go through the current `/agents/voice/*` surface:
 
 ```python
-audio = client.voice.tts("Hello from HyperCLI", voice="serena", response_format="mp3")
+audio = client.voice.clone("Hello from HyperCLI", ref_audio="reference.wav", response_format="mp3")
 
 with open("hello.mp3", "wb") as f:
     f.write(audio)
 ```
 
-Additional helpers:
-
-- `client.voice.clone(...)`
-- `client.voice.design(...)`
+Cloning is the supported speech-generation path for new integrations. Preset TTS
+and design helpers remain available for legacy compatibility.
 
 The Python SDK sends these requests through the derived agents API base. For
-`api_url="https://api.hypercli.com"`, `client.voice.tts(...)` posts to
-`https://api.hypercli.com/agents/voice/tts`.
+`api_url="https://api.hypercli.com"`, `client.voice.clone(...)` posts to
+`https://api.hypercli.com/agents/voice/clone`.
 
 Streaming voice uses the agents WebSocket base plus `/voice`:
 
 ```python
 async with client.voice.connect() as session:
-    async for chunk in session.speak("Hello from HyperCLI", voice="serena"):
+    async for chunk in session.speak_clone("Hello from HyperCLI", ref_audio="reference.wav"):
         handle_audio(chunk.audio)
 
-async for chunk in client.voice.tts_stream("Hello from HyperCLI", voice="serena"):
+async for chunk in client.voice.clone_stream("Hello from HyperCLI", ref_audio="reference.wav"):
     handle_audio(chunk.audio)
 ```
+
+**WebSocket compatibility change:** generation now defaults to raw PCM, not MP3,
+in both convenience calls and `VoiceSession`. Chunked PCM automatically requests
+`stream_mode="incremental_pcm"`; no extra caller flag is needed. Only an echoed
+START acknowledgement enables unknown `chunk.total` (`None`), with the exact count
+validated at DONE. Older servers without the acknowledgement retain known totals
+and final markers. Use audio metadata to play PCM; it is not an MP3 file. Pass
+`response_format="mp3"` explicitly for encoded output. REST and CLI file defaults
+are unchanged. `chunks=False` requests assembled audio without automatic
+incremental negotiation. Preset/design streaming helpers remain legacy APIs.
 
 The streaming request frame is a JSON message with `type="speak"`, an
 `op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.

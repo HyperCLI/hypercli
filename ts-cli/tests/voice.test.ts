@@ -179,7 +179,7 @@ describe('hyper voice', () => {
 
     await voice.run(ctx, ['tts', 'stream me', '--out', outFile, '--stream', '--json']);
 
-    expect(ttsStream).toHaveBeenCalledWith({ text: 'stream me', voice: 'serena' });
+    expect(ttsStream).toHaveBeenCalledWith({ text: 'stream me', voice: 'serena', responseFormat: 'mp3' });
     expect(tts).not.toHaveBeenCalled();
     const onDisk = await readFile(outFile);
     expect(onDisk).toEqual(Buffer.from([1, 2, 3, 4, 5]));
@@ -219,6 +219,7 @@ describe('hyper voice', () => {
     expect(cloneStream).toHaveBeenCalledWith({
       text: 'hello clone',
       refAudio: Buffer.from('reference-audio'),
+      responseFormat: 'mp3',
     });
     expect(clone).not.toHaveBeenCalled();
     expect(await readFile(outFile)).toEqual(Buffer.from([3, 4, 5]));
@@ -267,6 +268,7 @@ describe('hyper voice', () => {
     expect(cloneStream).toHaveBeenCalledWith({
       text: 'hello',
       refAudio: Buffer.from('remote-reference'),
+      responseFormat: 'mp3',
     });
     expect(stdout()).toBe('cloned-audio');
   });
@@ -362,6 +364,7 @@ describe('hyper voice', () => {
     expect(designStream).toHaveBeenCalledWith({
       text: 'designed voice text',
       description: 'warm upbeat narrator',
+      responseFormat: 'mp3',
     });
     expect(design).not.toHaveBeenCalled();
     expect(await readFile(outFile)).toEqual(Buffer.from([1, 2, 3]));
@@ -403,6 +406,7 @@ describe('hyper voice', () => {
     expect(designStream).toHaveBeenCalledWith({
       text: 'hello',
       description: 'bright voice',
+      responseFormat: 'mp3',
     });
     expect(stdout()).toBe('designed-audio');
   });

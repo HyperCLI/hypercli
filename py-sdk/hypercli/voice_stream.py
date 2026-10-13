@@ -4,6 +4,8 @@ from __future__ import annotations
 
 The server owns text chunking; a session receives an ordered stream of
 audio chunks. One request at a time: idle → rendering → receiving → idle.
+Generation defaults to PCM with automatic incremental negotiation when chunked.
+Request an encoded response_format explicitly for file output.
 
 Usage:
     async with client.voice.connect() as session:
@@ -104,7 +106,7 @@ class VoiceSession:
         *,
         voice: str = "serena",
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
         stream_mode: str | None = None,
         request_id: Optional[str] = None,
@@ -112,7 +114,7 @@ class VoiceSession:
     ) -> AsyncIterator[VoiceChunk]:
         """Speak text with a preset voice; yield ordered VoiceChunk items.
 
-        chunks=True streams each server-side split as its own chunk;
+        chunks=True streams audio frames;
         chunks=False yields a single chunk holding the assembled file.
         """
         stream = self._speak(
@@ -135,7 +137,7 @@ class VoiceSession:
         ref_audio,
         language: str = "auto",
         x_vector_only: bool = True,
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
         stream_mode: str | None = None,
         request_id: Optional[str] = None,
@@ -168,7 +170,7 @@ class VoiceSession:
         *,
         description: str,
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
         stream_mode: str | None = None,
         request_id: Optional[str] = None,
@@ -204,6 +206,8 @@ class VoiceSession:
         if self.state != "idle":
             raise RuntimeError(f"Session is {self.state}; one request at a time")
 
+        if stream_mode is None and response_format == "pcm" and chunks:
+            stream_mode = "incremental_pcm"
         rid = request_id or uuid.uuid4().hex[:12]
         deadline = asyncio.get_running_loop().time() + (timeout or self._timeout)
         self.state = "rendering"

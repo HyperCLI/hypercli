@@ -6,6 +6,7 @@ import pytest
 import websockets
 
 from hypercli.voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
+from hypercli.voice import VoiceAPI
 
 
 async def _send_audio(ws, request_id: str, index: int, total: int, payload: bytes) -> None:
@@ -24,6 +25,77 @@ async def _start_server(handler):
     server = await websockets.serve(handler, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     return server, f"ws://127.0.0.1:{port}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["clone_stream", "tts_stream", "design_stream", "speak_clone", "speak", "speak_design"])
+@pytest.mark.parametrize("mode", ["default", "pcm", "mp3", "wav", "legacy", "unnegotiated", "bad-count", "missing-count"])
+async def test_websocket_defaults_and_negotiation(method, mode, monkeypatch):
+    release = asyncio.Event()
+    received = []
+    done_sent = False
+    encoded = mode in ("mp3", "wav")
+    fmt = mode if encoded else "pcm"
+    unknown_total = not encoded and mode != "legacy"
+
+    async def handler(ws):
+        nonlocal done_sent
+        message = json.loads(await ws.recv())
+        received.append(message)
+        rid = message["request_id"]
+        await ws.send(json.dumps({"type": "start", "request_id": rid, "format": fmt,
+                                  **({"stream_mode": "incremental_pcm"} if unknown_total and mode != "unnegotiated" else {})}))
+        await ws.send(json.dumps({"type": "audio", "request_id": rid, "seq": 0, "bytes": 2,
+                                  **({"total": None} if unknown_total else {"total": 1, "final": True})}))
+        await ws.send(b"\x01\x00")
+        await release.wait()
+        if mode != "unnegotiated" and ws.close_code is None:
+            done_sent = True
+            await ws.send(json.dumps({"type": "done", "request_id": rid,
+                                      **({} if mode == "missing-count" else {"total_chunks": 2 if mode == "bad-count" else 1})}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    session = VoiceSession(url, "offline", timeout=1)
+    api = VoiceAPI(None)
+    monkeypatch.setattr(api, "connect", lambda **kwargs: session)
+    try:
+        options = {}
+        if "clone" in method:
+            options["ref_audio"] = b"reference"
+        if "design" in method:
+            options["description"] = "narrator"
+        if mode == "pcm" or encoded:
+            options["response_format"] = fmt
+        if method.endswith("_stream"):
+            stream = getattr(api, method)("test", **options)
+        else:
+            await session.open()
+            stream = getattr(session, method)("test", **options)
+        if mode == "unnegotiated":
+            with pytest.raises(VoiceStreamError, match="not negotiated"):
+                await anext(stream)
+        else:
+            first = await asyncio.wait_for(anext(stream), 1)
+            assert first.audio == b"\x01\x00"
+            assert first.total == (None if unknown_total else 1)
+            assert not done_sent
+            release.set()
+            if mode in ("bad-count", "missing-count"):
+                with pytest.raises(VoiceStreamError):
+                    await anext(stream)
+            else:
+                with pytest.raises(StopAsyncIteration):
+                    await anext(stream)
+        assert received[0]["format"] == fmt
+        assert received[0]["chunks"] is True
+        assert received[0]["op"] == ("clone" if "clone" in method else "design" if "design" in method else "tts")
+        assert received[0].get("stream_mode") == (None if encoded else "incremental_pcm")
+    finally:
+        await session.close()
+        release.set()
+        server.close()
+        await server.wait_closed()
 
 
 @pytest.mark.asyncio
@@ -74,6 +146,38 @@ async def test_incremental_pcm_negotiation(mode):
                         await anext(stream)
     finally:
         release.set()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["speak", "speak_clone", "speak_design"])
+async def test_assembled_pcm_does_not_request_incremental_mode(method):
+    received = []
+
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        received.append(message)
+        rid = message["request_id"]
+        await _send_audio(ws, rid, 0, 1, b"assembled")
+        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "offline") as session:
+            options = {"chunks": False}
+            if method == "speak_clone":
+                options["ref_audio"] = b"reference"
+            if method == "speak_design":
+                options["description"] = "narrator"
+            chunks = [chunk async for chunk in getattr(session, method)("test", **options)]
+        assert received[0]["format"] == "pcm"
+        assert received[0]["chunks"] is False
+        assert "stream_mode" not in received[0]
+        assert len(chunks) == 1
+        assert chunks[0].total == 1 and chunks[0].final
+    finally:
         server.close()
         await server.wait_closed()
 

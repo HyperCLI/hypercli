@@ -142,6 +142,7 @@ def test_voice_clone_accepts_file_alias(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout
     assert captured["kwargs"]["ref_audio"] == ref
+    assert captured["kwargs"]["response_format"] == "mp3"
 
 
 def test_voice_clone_rest_uses_assembled_audio(monkeypatch, tmp_path):
@@ -201,6 +202,7 @@ def test_voice_clone_downloads_url(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout
     assert captured["url"] == "https://example.test/ref.wav"
     assert captured["kwargs"]["ref_audio"] == b"downloaded-reference"
+    assert captured["kwargs"]["response_format"] == "mp3"
 
 
 def test_voice_clone_requires_exactly_one_source(monkeypatch, tmp_path):

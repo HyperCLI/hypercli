@@ -128,10 +128,13 @@ class VoiceAPI:
         *,
         voice: str = "serena",
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         timeout: float | None = None,
     ) -> AsyncIterator["VoiceChunk"]:
-        """One-shot streaming TTS: opens a session, speaks, closes."""
+        """Legacy preset streaming API; prefer reference-audio clone_stream.
+
+        Defaults to PCM. Specify response_format="mp3" for MP3 file output.
+        """
         async with self.connect(timeout=timeout) as session:
             async for chunk in session.speak(
                 text,
@@ -149,10 +152,14 @@ class VoiceAPI:
         ref_audio: bytes | str | Path,
         language: str = "auto",
         x_vector_only: bool = True,
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         timeout: float | None = None,
     ) -> AsyncIterator["VoiceChunk"]:
-        """One-shot streaming voice clone: opens a session, speaks, closes."""
+        """Clone with automatic incremental PCM negotiation by default.
+
+        Older servers may return known-total chunks. Unlike REST clone(), the
+        default is no longer MP3; select an encoded response_format for files.
+        """
         async with self.connect(timeout=timeout) as session:
             async for chunk in session.speak_clone(
                 text,
@@ -170,10 +177,13 @@ class VoiceAPI:
         *,
         description: str,
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         timeout: float | None = None,
     ) -> AsyncIterator["VoiceChunk"]:
-        """One-shot streaming voice design: opens a session, speaks, closes."""
+        """Legacy design streaming API; prefer reference-audio clone_stream.
+
+        Defaults to PCM. Specify response_format="mp3" for MP3 file output.
+        """
         async with self.connect(timeout=timeout) as session:
             async for chunk in session.speak_design(
                 text,

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VoiceAPI } from '../src/voice.js';
+import { VoiceSession } from '../src/voice-session.js';
+import { WebSocketServer } from 'ws';
 
 const originalFetch = globalThis.fetch;
 
@@ -9,6 +11,73 @@ afterEach(() => {
 });
 
 describe('Voice API', () => {
+  describe.each(['cloneStream', 'ttsStream', 'designStream', 'speakClone', 'speak', 'speakDesign'] as const)('%s wire contract', method => {
+    it.each(['default', 'pcm', 'mp3', 'wav', 'legacy', 'unnegotiated', 'bad-count', 'missing-count'] as const)('%s', async mode => {
+      const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const address = server.address();
+      const session = new VoiceSession({
+        wsUrl: `ws://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`,
+        credential: 'offline', timeoutMs: 1000,
+      });
+      const api = new VoiceAPI({} as any);
+      vi.spyOn(api, 'connect').mockReturnValue(session);
+      let request: Record<string, unknown> | undefined;
+      let finish!: () => void;
+      let doneSent = false;
+      const encoded = mode === 'mp3' || mode === 'wav';
+      const format = encoded ? mode : 'pcm';
+      const unknownTotal = !encoded && mode !== 'legacy';
+      server.on('connection', ws => ws.on('message', raw => {
+        const message = JSON.parse(String(raw));
+        if (message.type !== 'speak') return;
+        request = message;
+        const request_id = message.request_id;
+        ws.send(JSON.stringify({ type: 'start', request_id, format,
+          ...(unknownTotal && mode !== 'unnegotiated' ? { stream_mode: 'incremental_pcm' } : {}) }));
+        ws.send(JSON.stringify({ type: 'audio', request_id, seq: 0, bytes: 2,
+          ...(unknownTotal ? { total: null } : { total: 1, final: true }) }));
+        ws.send(Buffer.from([1, 0]));
+        // DONE is withheld until the consumer has received the first audio.
+        finish = () => {
+          doneSent = true;
+          ws.send(JSON.stringify({ type: 'done', request_id,
+            ...(mode === 'missing-count' ? {} : { total_chunks: mode === 'bad-count' ? 2 : 1 }) }));
+        };
+      }));
+      try {
+        const options = { text: 'test', refAudio: new Uint8Array([1, 2]), description: 'narrator' };
+        const explicitFormat = mode === 'pcm' || encoded;
+        let stream;
+        if (method === 'cloneStream' || method === 'ttsStream' || method === 'designStream') {
+          stream = api[method]({ ...options, ...(explicitFormat ? { responseFormat: format } : {}) });
+        } else {
+          await session.open();
+          stream = session[method]({ ...options, ...(explicitFormat ? { format } : {}) });
+        }
+        if (mode === 'unnegotiated') {
+          await expect(stream.next()).rejects.toThrow('not negotiated');
+        } else {
+          const first = await stream.next();
+          expect(first.done).toBe(false);
+          expect(first.value?.total).toBe(unknownTotal ? null : 1);
+          expect(Array.from(first.value?.audio ?? [])).toEqual([1, 0]);
+          expect(doneSent).toBe(false);
+          finish();
+          if (mode === 'bad-count' || mode === 'missing-count') await expect(stream.next()).rejects.toThrow();
+          else expect((await stream.next()).done).toBe(true);
+        }
+        expect(request).toMatchObject({ type: 'speak', format, chunks: true,
+          op: method.toLowerCase().includes('clone') ? 'clone' : method.toLowerCase().includes('design') ? 'design' : 'tts' });
+        expect(request?.stream_mode).toBe(encoded ? undefined : 'incremental_pcm');
+      } finally {
+        session.close();
+        for (const ws of server.clients) ws.terminate();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    });
+  });
+
   it('posts TTS payload to agents voice route', async () => {
     const calls: Array<{ path: string; body: any }> = [];
     const http = {
