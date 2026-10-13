@@ -317,15 +317,7 @@ export class VoiceSession {
             if (seq !== expectedSeq) {
               throw new VoiceStreamError('protocol', `Unexpected audio sequence: expected ${expectedSeq}, got ${seq}`);
             }
-            const expected = Number(message.bytes ?? -1);
-            if (!Number.isSafeInteger(expected) || expected < 0) {
-              throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
-            }
-            const payloadRaw = await this.nextMessage(Math.max(0, deadline - Date.now()));
-            const audio = bytesFromRaw(payloadRaw);
-            if (audio.length !== expected) {
-              throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
-            }
+            const audio = await this.readAudioPayload(message, deadline);
             const total = incremental && message.total == null ? null : Number(message.total ?? 1);
             const final = Boolean(message.final);
             if (total !== null && (!Number.isSafeInteger(total) || total < 1 || seq >= total)) {
@@ -368,16 +360,64 @@ export class VoiceSession {
             break;
         }
       }
+    } catch (error) {
+      if (!finished && this.ws) {
+        // Protocol/transport failures may leave us between a header and payload.
+        // Preserve the original error, but never reuse an ambiguous stream.
+        try { await this.cancel(requestId); } catch { /* socket may be gone */ }
+        this.close();
+      }
+      throw error;
     } finally {
       if (!finished && this.ws) {
-        // Consumer bailed early (or timed out) — cancel server-side.
+        // Iterator return is at a yield boundary. Retain ownership until the
+        // server settles cancellation, including any already-sent audio pairs.
         try {
           await this.cancel(requestId);
-        } catch {
-          // socket may already be gone
+          await this.drainCancelledRequest(requestId, deadline);
+        } catch (error) {
+          this.close();
+          throw error;
+        } finally {
+          this.state = this.ws ? 'idle' : 'closed';
         }
       }
       this.state = this.ws ? 'idle' : 'closed';
+    }
+  }
+
+  private async readAudioPayload(message: Record<string, unknown>, deadline: number): Promise<Uint8Array> {
+    const expected = Number(message.bytes ?? -1);
+    if (!Number.isSafeInteger(expected) || expected < 0) {
+      throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
+    }
+    const audio = bytesFromRaw(await this.nextMessage(Math.max(0, deadline - Date.now())));
+    if (audio.length !== expected) {
+      throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
+    }
+    return audio;
+  }
+
+  private async drainCancelledRequest(requestId: string, deadline: number): Promise<void> {
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new VoiceStreamError('timeout', `voice stream timed out after ${this.timeoutMs}ms`);
+      }
+      const raw = await this.nextMessage(remaining);
+      let message: Record<string, unknown>;
+      try {
+        if (typeof raw !== 'string' && !isTextBuffer(raw)) throw new Error();
+        message = JSON.parse(textFromRaw(raw)) as Record<string, unknown>;
+      } catch {
+        throw new VoiceStreamError('protocol', 'Expected JSON control frame during cancellation');
+      }
+      if (message.type === 'audio') {
+        await this.readAudioPayload(message, deadline);
+      } else if ((!message.request_id || message.request_id === requestId)
+        && (message.type === 'error' || message.type === 'done')) {
+        return;
+      }
     }
   }
 

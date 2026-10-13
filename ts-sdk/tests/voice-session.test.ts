@@ -20,7 +20,7 @@ describe('VoiceSession', () => {
   let url: string;
   let received: Array<Record<string, unknown>>;
 
-  function startServer(onMessage: (ws: ServerSocket, message: Record<string, unknown>) => void): Promise<void> {
+  function startServer(onMessage: (ws: ServerSocket, message: Record<string, unknown>) => void, acknowledgeCancel = true): Promise<void> {
     return new Promise((resolve) => {
       server = new WebSocketServer({ port: 0 }, () => {
         const address = server.address();
@@ -33,6 +33,9 @@ describe('VoiceSession', () => {
           const message = JSON.parse(String(raw)) as Record<string, unknown>;
           received.push(message);
           onMessage(ws, message);
+          if (acknowledgeCancel && message.type === 'cancel') {
+            ws.send(JSON.stringify({ type: 'error', request_id: message.request_id, code: 'cancelled', detail: 'Request cancelled' }));
+          }
         });
       });
     });
@@ -79,6 +82,112 @@ describe('VoiceSession', () => {
 
   afterEach(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it.each([
+    ['incremental', 'error'], ['incremental', 'done'], ['legacy', 'error'], ['legacy', 'done'],
+  ] as const)('drains queued complete %s pairs through %s before cancellation reuse', async (mode, terminal) => {
+    let ready!: () => void;
+    const delivered = new Promise<void>(resolve => { ready = resolve; });
+    let cancelled!: () => void;
+    const cancelReceived = new Promise<void>(resolve => { cancelled = resolve; });
+    let settle!: () => void;
+    let cancelCount = 0;
+    await startServer((ws, message) => {
+      const request_id = String(message.request_id);
+      if (message.type === 'cancel') {
+        if (++cancelCount === 3) cancelled();
+        return;
+      }
+      if (message.type !== 'speak') return;
+      const count = request_id === 'old' ? 2 : 1;
+      ws.send(JSON.stringify({ type: 'start', request_id, format: 'pcm',
+        ...(mode === 'incremental' ? { stream_mode: 'incremental_pcm' } : {}) }));
+      for (let seq = 0; seq < count; seq++) {
+        ws.send(JSON.stringify({ type: 'audio', request_id, seq, bytes: 2,
+          ...(mode === 'incremental' ? { total: null } : { total: count, final: seq === count - 1 }) }));
+        ws.send(Buffer.from([seq + 1, 0]));
+      }
+      if (request_id === 'old') {
+        // Pong follows both complete pairs: the second is queued in the SDK.
+        ws.once('pong', ready);
+        ws.ping();
+        settle = () => ws.send(JSON.stringify(terminal === 'error'
+          ? { type: 'error', request_id, code: 'cancelled', detail: 'Request cancelled' }
+          : { type: 'done', request_id, total_chunks: count }));
+      } else ws.send(JSON.stringify({ type: 'done', request_id, total_chunks: count }));
+    }, false);
+    const session = await new VoiceSession({ wsUrl: url, credential: 'offline', timeoutMs: 2000 }).open();
+    const options = { text: 'test', refAudio: new Uint8Array([1]), format: 'pcm',
+      ...(mode === 'incremental' ? { streamMode: 'incremental_pcm' as const } : {}) };
+    try {
+      const old = session.speakClone({ ...options, requestId: 'old' });
+      expect((await old.next()).value?.index).toBe(0);
+      await delivered;
+      await session.cancel('old');
+      await session.cancel('old');
+      let returned = false;
+      const returning = old.return().then(value => { returned = true; return value; });
+      await cancelReceived;
+      expect(returned).toBe(false);
+      expect(session.state).toBe('receiving');
+      await expect(session.speakClone({ ...options, requestId: 'premature' }).next()).rejects.toThrow('one request at a time');
+      settle();
+      await returning;
+      expect(session.state).toBe('idle');
+      const chunks = [];
+      for await (const chunk of session.speakClone({ ...options, requestId: 'new' })) chunks.push(chunk);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].requestId).toBe('new');
+      expect([...chunks[0].audio]).toEqual([1, 0]);
+      expect(received.filter(message => message.type === 'speak').map(message => message.request_id)).toEqual(['old', 'new']);
+    } finally { session.close(); }
+  });
+
+  it.each(['incremental', 'legacy'] as const)('preserves a terminal error after partial %s audio and permits reuse', async mode => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      const request_id = String(message.request_id);
+      ws.send(JSON.stringify({ type: 'start', request_id, format: 'pcm',
+        ...(mode === 'incremental' ? { stream_mode: 'incremental_pcm' } : {}) }));
+      ws.send(JSON.stringify({ type: 'audio', request_id, seq: 0, bytes: 2,
+        ...(mode === 'incremental' ? { total: null } : { total: 1, final: true }) }));
+      ws.send(Buffer.from([1, 0]));
+      ws.send(JSON.stringify(request_id === 'old'
+        ? { type: 'error', request_id, code: '502', detail: 'provider failed after audio' }
+        : { type: 'done', request_id, total_chunks: 1 }));
+    });
+    const session = await new VoiceSession({ wsUrl: url, credential: 'offline' }).open();
+    const options = { text: 'test', format: 'pcm',
+      ...(mode === 'incremental' ? { streamMode: 'incremental_pcm' as const } : {}) };
+    try {
+      const old = session.speak({ ...options, requestId: 'old' });
+      expect((await old.next()).value?.audio.length).toBe(2);
+      await expect(old.next()).rejects.toMatchObject({ code: '502', detail: 'provider failed after audio' });
+      expect(session.state).toBe('idle');
+      const next = session.speak({ ...options, requestId: 'new' });
+      expect((await next.next()).value?.requestId).toBe('new');
+      expect((await next.next()).done).toBe(true);
+      expect(received.filter(message => message.type === 'cancel')).toHaveLength(0);
+    } finally { session.close(); }
+  });
+
+  it.each(['timeout', 'malformed'] as const)('retires the socket when cancellation cleanup encounters %s', async mode => {
+    await startServer((ws, message) => {
+      if (message.type === 'speak') sendAudio(ws, String(message.request_id), 0, 2, 'first');
+      if (message.type === 'cancel' && mode === 'malformed') {
+        ws.send(JSON.stringify({ type: 'audio', request_id: message.request_id, seq: 1, bytes: 2, total: 2 }));
+        ws.send(Buffer.from([1]));
+      }
+    }, false);
+    const session = await new VoiceSession({ wsUrl: url, credential: 'offline', timeoutMs: 100 }).open();
+    try {
+      const stream = session.speak({ text: 'test' });
+      await stream.next();
+      await expect(stream.return()).rejects.toMatchObject({ code: mode === 'timeout' ? 'timeout' : 'protocol' });
+      expect(session.state).toBe('closed');
+      await expect(session.speak({ text: 'next' }).next()).rejects.toThrow('not connected');
+    } finally { session.close(); }
   });
 
   it('yields ordered chunks then completes on done', async () => {
