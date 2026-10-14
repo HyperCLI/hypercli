@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -12,10 +11,10 @@ from testlib import (  # noqa: E402
     assert_auth_methods,
     assert_common_contract,
     assert_models,
-    assert_user_config_preserved,
     require_image_argument,
     run,
 )
+from config_contract import assert_config_preserved  # noqa: E402
 
 
 image = require_image_argument()
@@ -46,12 +45,7 @@ assert_models(
     agent_command="/opt/hypercli/bin/opencode",
     agent_args="acp",
 )
-assert_user_config_preserved(
-    image,
-    relative_path=".config/opencode/opencode.json",
-    generated_contains="https://docs.hypercli.com/mcp",
-    user_content=json.dumps({"userManaged": True}) + "\n",
-)
+assert_config_preserved(lambda home: run(image, ["true"], mounts=[(home, "/home/node")]))
 
 entrypoint_env = run(
     image,
