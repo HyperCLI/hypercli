@@ -185,10 +185,12 @@ validated at DONE. Older servers without the acknowledgement retain known totals
 and final markers. Use audio metadata to play PCM; it is not an MP3 file. Pass
 `response_format="mp3"` explicitly for encoded output. REST and CLI file defaults
 are unchanged. `chunks=False` requests assembled audio without automatic
-incremental negotiation. Preset/design streaming helpers remain legacy APIs.
+incremental negotiation. Preset TTS and VoiceDesign APIs have been removed;
+synthesis requires reference audio.
 
 The streaming request frame is a JSON message with `type="speak"`, an
-`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+`op="clone"`, required reference audio in `ref_audio_base64`, a `request_id`,
+`format`, and `chunks`.
 The server replies with `start`, then ordered `audio` JSON headers followed
 immediately by binary payload frames, then `done`; server errors raise
 `VoiceStreamError`. A session handles one request at a time, and breaking the

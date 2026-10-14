@@ -126,7 +126,8 @@ unchanged. `chunks: false` requests assembled audio without automatic incrementa
 negotiation. Preset TTS and VoiceDesign APIs have been removed; synthesis requires reference audio.
 
 The streaming request frame is a JSON message with `type: "speak"`, an
-`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+`op: "clone"`, required reference audio in `ref_audio_base64`, a `request_id`,
+`format`, and `chunks`.
 The server replies with `start`, then ordered `audio` JSON headers followed
 immediately by binary payload frames, then `done`; server errors throw
 `VoiceStreamError`. A session handles one request at a time, and breaking the

@@ -422,10 +422,13 @@ describe('hyper voice', () => {
     const ctx = makeCtx(client, 'json');
     const outFile = join(workDir, 'splice.mp3');
 
-    globalThis.fetch = vi.fn(async () => new Response('reference')) as typeof fetch;
-    await voice.run(ctx, ['--out', outFile, 'clone', 'clone', '--url', 'https://example.test/ref.wav', '--rest', '--json']);
+    await writeFile(join(workDir, 'clone'), 'reference fixture');
+    vi.spyOn(process, 'cwd').mockReturnValue(workDir);
+    // The first "clone" is a --file value, before the command token. Using
+    // args.indexOf(sub) would remove that value and leave --file without it.
+    await voice.run(ctx, ['--file', 'clone', '--out', outFile, 'clone', 'spoken text', '--rest', '--json']);
 
-    expect(clone).toHaveBeenCalledWith({ text: 'clone', refAudio: Buffer.from('reference') });
+    expect(clone).toHaveBeenCalledExactlyOnceWith({ text: 'spoken text', refAudio: Buffer.from('reference fixture') });
     expect(await readFile(outFile)).toEqual(Buffer.from([1]));
   });
 
