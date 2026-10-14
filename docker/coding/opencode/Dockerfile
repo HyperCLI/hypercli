@@ -9,6 +9,7 @@ ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
 USER root
 COPY --chown=node:node opencode/opencode.json /opt/hypercli/share/runtime/opencode.json
+COPY opencode/provision-unattended.py /opt/hypercli/share/runtime/provision-unattended.py
 COPY --chmod=0755 opencode/entrypoint.sh /opt/hypercli/bin/opencode-entrypoint
 RUN export HOME=/root && \
     npm install --global --no-audit --no-fund "opencode-ai@${OPENCODE_VERSION}" && \

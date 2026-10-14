@@ -357,10 +357,10 @@ _PERMISSION_PRESETS: dict[str, dict[str, Any]] = {
 
 
 def build_permissions_json(mode: PermissionMode, overrides: dict | None = None) -> str:
-    """Serialize the opencode ConfigPermissionV1 permission JSON for a preset
-    mode, optionally layered with caller overrides. The output is what
-    ``HYPER_ACP_PERMISSIONS`` carries in launch-config env; hyper-acp translates
-    it to ``OPENCODE_PERMISSION`` at child spawn."""
+    """Deprecated legacy preset serializer; hyper-acp no longer consumes this.
+
+    Select an advertised native session configuration instead.
+    """
     preset = _PERMISSION_PRESETS.get(str(mode)) or _PERMISSION_PRESETS["default"]
     merged = {**preset, **overrides} if overrides else preset
     return json.dumps(merged, separators=(",", ":"))
@@ -2783,8 +2783,7 @@ class Deployments:
 
     def _create_coding_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
         """Launch the shared ACP coding-agent contract: Workspaces boot sync
-        env defaults on, launch env always carries ``HYPER_ACP_PERMISSIONS``
-        (built from ``permission_mode``, caller ``env`` wins), and
+        env defaults on, native sessions own permission configuration, and
         ``BUZZ_PRIVATE_KEY`` / ``NOSTR_PRIVATE_KEY`` in ``env`` are promoted
         to launch secrets."""
         if runtime not in DEFAULT_CODING_AGENT_IMAGES:
@@ -2795,15 +2794,8 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
             **dict(launch["env"] or {}),
         }
-        effective_env.setdefault(
-            "HYPER_ACP_PERMISSIONS",
-            build_permissions_json(knobs["permission_mode"] or "default"),
-        )
         if knobs["permission_mode"] is not None:
-            # Transition: legacy hyper-acp builds only read the mode var, so keep
-            # emitting it alongside the JSON when the caller chose a mode. A
-            # caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
-            effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", knobs["permission_mode"])
+            raise ValueError("permission_mode launch presets are retired; select an advertised native session mode")
         effective_secrets = dict(launch["secrets"] or {})
         for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
             value = effective_env.pop(key, None)

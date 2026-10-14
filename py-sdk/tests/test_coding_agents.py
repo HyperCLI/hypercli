@@ -409,7 +409,7 @@ class TestCreateAgentCodingRuntimes:
         assert env["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert env["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
         assert env["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
-        assert env["HYPER_ACP_PERMISSIONS"] == '{"*":"allow"}'
+        assert "HYPER_ACP_PERMISSIONS" not in env
         assert "HYPER_ACP_PERMISSION_MODE" not in env
 
     @pytest.mark.parametrize(
@@ -497,22 +497,18 @@ class TestCreateAgentCodingRuntimes:
         assert "sync_include" not in body
         assert body["sync_exclude"] == [".cache/**"]
 
-    def test_permission_mode_serializes_preset_and_legacy_mode_var(self, monkeypatch):
+    def test_permission_mode_rejects_retired_launch_preset(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
-        deployments.create_agent("opencode", permission_mode="plan")
-
-        env = posts[0][1]["env"]
-        assert env["HYPER_ACP_PERMISSIONS"] == build_permissions_json("plan")
-        assert env["HYPER_ACP_PERMISSION_MODE"] == "plan"
-        assert json.loads(env["HYPER_ACP_PERMISSIONS"])["bash"] == "deny"
+        with pytest.raises(ValueError, match="retired"):
+            deployments.create_agent("opencode", permission_mode="plan")
+        assert posts == []
 
     def test_caller_permission_env_wins_over_preset(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
         deployments.create_agent(
             "opencode",
-            permission_mode="plan",
             env={"HYPER_ACP_PERMISSIONS": "custom", "HYPER_ACP_PERMISSION_MODE": "custom-mode"},
         )
 

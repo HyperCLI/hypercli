@@ -128,6 +128,10 @@ export class CodingAgentAcpClient {
   get negotiatedProtocolVersion(): CodingAgentAcpProtocolVersion | null { return this.initializeValue ? 1 : null; }
   get initializeResponse(): acp.InitializeResponse | null { return this.initializeValue; }
   get sessionIds(): string[] { return [...this.sessions.keys()]; }
+  /** Latest native configuration advertised for an attached session. */
+  sessionConfigOptions(sessionId: string): readonly acp.SessionConfigOption[] {
+    return this.sessionConfig.get(sessionId) ?? [];
+  }
   addUpdateListener(listener: (notification: acp.SessionNotification) => void): () => void {
     this.updateListeners.add(listener); return () => { this.updateListeners.delete(listener); };
   }

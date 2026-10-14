@@ -19,4 +19,6 @@ if [ ! -e "${config}" ] && [ ! -L "${config}" ]; then
   cp /opt/hypercli/share/runtime/opencode.json "${config}"
 fi
 
+python3 /opt/hypercli/share/runtime/provision-unattended.py "${config}"
+
 exec /opt/hypercli/bin/entrypoint "$@"

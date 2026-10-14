@@ -1147,9 +1147,8 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: WorkspacesSyncOptions | boolean | null;
   /**
-   * Permission preset for the launch-config env `HYPER_ACP_PERMISSIONS`
-   * JSON. Defaults to `'default'` (allow-all). Caller env wins; Buzz launches
-   * strip the key entirely (buzz-backend-provider owns that env surface).
+   * @deprecated Launch permission presets are rejected. Select an advertised
+   * native session configuration instead.
    */
   permissionMode?: PermissionMode;
   /** @deprecated Use the typed `buzz` launch contract. */
@@ -1234,10 +1233,8 @@ const PERMISSION_PRESETS: Record<PermissionMode, PermissionRules> = {
 };
 
 /**
- * Serialize the opencode ConfigPermissionV1 permission JSON for a preset
- * mode, optionally layered with caller overrides. The output is what
- * `HYPER_ACP_PERMISSIONS` carries in launch-config env; hyper-acp translates
- * it to `OPENCODE_PERMISSION` at child spawn.
+ * @deprecated Legacy preset serialization only. Hyper-acp no longer consumes
+ * this JSON; select an advertised native session mode instead.
  */
 export function buildPermissionsJson(mode: PermissionMode, overrides?: PermissionRules): string {
   const preset = PERMISSION_PRESETS[mode] ?? PERMISSION_PRESETS.default;
@@ -1295,6 +1292,41 @@ function buildBuzzLaunchSecrets(buzz: BuzzLaunchConfig): Record<string, string> 
   // secrets projection (unrolled to env at launch) rather than plaintext env.
   if (buzz.authTag) secrets.BUZZ_AUTH_TAG = buzz.authTag;
   return secrets;
+}
+
+/** Construct the Buzz-owned launch fields for create or a stopped deployment update.
+ * Callers retain all other stored launch fields. No network or identity generation.
+ */
+export function buildBuzzLaunchConfig(
+  runtime: CodingAgentRuntime,
+  buzz: BuzzLaunchConfig | null,
+  apiBase: string,
+  stored: Record<string, any> = {},
+): Record<string, any> {
+  if (!Object.prototype.hasOwnProperty.call(BUZZ_RUNTIME_COMMANDS, runtime)) {
+    throw new Error('Buzz requires a coding runtime');
+  }
+  const env = { ...(stored.env ?? {}) };
+  const secrets = { ...(stored.secrets ?? {}) };
+  if (buzz) {
+    for (const key of BUZZ_RESERVED_ENV_KEYS) { delete env[key]; delete secrets[key]; }
+    Object.assign(env, buildBuzzLaunchEnv(runtime, buzz));
+    Object.assign(secrets, buildBuzzLaunchSecrets(buzz));
+  }
+  env.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
+  for (const key of [
+    'HYPER_ACP_WS_LISTEN', 'HYPER_ACP_LOG', 'HYPER_ACP_WS_TOKEN',
+    'BUZZ_ACP_RELAY_OBSERVER', 'HYPER_ACP_AGENT_COMMAND', 'HYPER_ACP_AGENT_ARGS',
+    'HYPER_ACP_AUTO_APPROVE_PERMISSION', 'HYPER_ACP_PERMISSIONS', 'HYPER_ACP_PERMISSION_MODE',
+  ]) { delete env[key]; delete secrets[key]; }
+  env.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(apiBase);
+  return { ...stored, env, secrets, routes: {}, restart: false,
+    command: [stored.executor === 'process' ? 'hyper-acp' : '/usr/local/bin/hyper-acp', 'plugin', 'buzz'] };
+}
+
+/** Whether the runtime has a Buzz coding harness launch mapping. */
+export function supportsBuzzRuntime(runtime: string | null | undefined): runtime is CodingAgentRuntime {
+  return typeof runtime === 'string' && Object.prototype.hasOwnProperty.call(BUZZ_RUNTIME_COMMANDS, runtime);
 }
 
 export interface RuntimeAuthMethod {
@@ -3335,8 +3367,6 @@ interface AcpRuntimeRow {
   syncExclude?: readonly string[];
   /** HYPER_WORKSPACES_* env (paths are /home/node-shaped; never hermes). */
   workspacesSyncEnv?: boolean;
-  /** HYPER_ACP_PERMISSIONS/permission-mode env (coding harnesses). */
-  permissionEnv?: boolean;
   /** Coding-harness runtimes: BUZZ key promotion, buzz launch, default command. */
   codingHarness?: boolean;
   /** Strip the generic `config` bag from the create payload (openclaw family). */
@@ -3412,7 +3442,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     // Coding harnesses share their agent command with the runtime-auth table.
     agentCommand: RUNTIME_AUTH_CONFIG['buzz-agent'].agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   opencode: {
@@ -3422,7 +3451,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG.opencode.agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   codex: {
@@ -3432,7 +3460,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG.codex.agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   'claude-code': {
@@ -3442,7 +3469,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG['claude-code'].agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   goose: {
@@ -3452,7 +3478,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG.goose.agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   'kimi-code': {
@@ -3462,7 +3487,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG['kimi-code'].agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
   pi: {
@@ -3472,7 +3496,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     syncGid: 1000,
     agentCommand: RUNTIME_AUTH_CONFIG.pi.agentCommand,
     workspacesSyncEnv: true,
-    permissionEnv: true,
     codingHarness: true,
   },
 };
@@ -3804,14 +3827,8 @@ export class Deployments {
       effectiveEnv.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = '*';
       Object.assign(effectiveEnv, buildOpenClawTrustedProxiesEnv(options.trustedProxies));
     }
-    if (family.permissionEnv) {
-      effectiveEnv.HYPER_ACP_PERMISSIONS ??= buildPermissionsJson(options.permissionMode ?? 'default');
-      if (options.permissionMode !== undefined) {
-        // Transition: legacy hyper-acp builds only read the mode var, so keep
-        // emitting it alongside the JSON when the caller chose a mode. A
-        // caller-supplied HYPER_ACP_PERMISSION_MODE in env passes through.
-        effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= options.permissionMode;
-      }
+    if (options.permissionMode !== undefined) {
+      throw new Error('permissionMode launch presets are retired; select an advertised native session mode');
     }
     const effectiveSecrets: Record<string, string> = { ...(options.secrets ?? {}) };
     if (family.codingHarness) {
@@ -3825,42 +3842,14 @@ export class Deployments {
         effectiveSecrets[key] = value;
       }
     }
-    if (options.buzz) {
-      for (const key of BUZZ_RESERVED_ENV_KEYS) {
-        delete effectiveEnv[key];
-        delete effectiveSecrets[key];
-      }
-      Object.assign(
-        effectiveEnv,
-        buildBuzzLaunchEnv(runtime as CodingAgentRuntime, options.buzz),
-      );
-      Object.assign(effectiveSecrets, buildBuzzLaunchSecrets(options.buzz));
-    }
-    if (buzzLaunch) {
-      effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
-    }
     // The process executor has no image: the runner host runs `command`,
     // resolving the bare hyper-acp binary via the host's PATH. Hosted/docker
     // launches keep the container path.
     const resolvedImage = processExecutor ? undefined : options.image ?? family.image;
     const hyperAcpBinary = processExecutor ? 'hyper-acp' : '/usr/local/bin/hyper-acp';
-    if (buzzLaunch) {
-      for (const key of [
-        'HYPER_ACP_WS_LISTEN',
-        'HYPER_ACP_LOG',
-        'HYPER_ACP_WS_TOKEN',
-        'BUZZ_ACP_RELAY_OBSERVER',
-        'HYPER_ACP_AGENT_COMMAND',
-        'HYPER_ACP_AGENT_ARGS',
-        'HYPER_ACP_AUTO_APPROVE_PERMISSION',
-        'HYPER_ACP_PERMISSIONS',
-        'HYPER_ACP_PERMISSION_MODE',
-      ]) {
-        delete effectiveEnv[key];
-        delete effectiveSecrets[key];
-      }
-      effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
-    }
+    const buzzConfig = buzzLaunch ? buildBuzzLaunchConfig(runtime as CodingAgentRuntime,
+      options.buzz ?? null, this.apiBase, { env: effectiveEnv, secrets: effectiveSecrets,
+        executor: options.executor }) : null;
     let syncInclude: readonly string[] | undefined;
     let syncExclude: readonly string[] | undefined;
     if (options.syncInclude !== undefined && options.syncInclude !== null) {
@@ -3891,12 +3880,12 @@ export class Deployments {
       } : options.meta,
       runtime,
       size: buzzLaunch ? (options.size ?? 'large') : options.size,
-      env: effectiveEnv,
-      secrets: effectiveSecrets,
-      routes: buzzLaunch ? {} : options.routes ?? defaultRoutes,
+      env: buzzConfig?.env ?? effectiveEnv,
+      secrets: buzzConfig?.secrets ?? effectiveSecrets,
+      routes: buzzConfig?.routes ?? options.routes ?? defaultRoutes,
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? [hyperAcpBinary, 'plugin', 'buzz']
+        ? buzzConfig!.command
         // Runner-verbatim-spawn contract: the runner spawns
         // launch_config.command exactly as stored, so the SDK constructs the
         // full hyper-acp argv per runtime at create time — hyper-acp plus

@@ -145,11 +145,24 @@ Plain hosted ACP launches use:
 | Default image CMD | `["/usr/local/bin/hyper-acp"]` (no deployment command/args override required) |
 | ACP child | `HYPER_ACP_AGENT_COMMAND`, `HYPER_ACP_AGENT_ARGS` |
 | System instructions | native runtime configuration and instruction files; hyper-acp does not inject private prompt fields |
-| Permission mode | `HYPER_ACP_PERMISSION_MODE` defaults to `default`; supported values are `default`, `auto`, `bypass-permissions`/`bypassPermissions`, `accept-edits`/`acceptEdits`, `dont-ask`/`dontAsk`, and `plan` |
+| Permission mode | Native session configuration owns policy. Hyper-acp forwards permission callbacks and ignores retired `HYPER_ACP_PERMISSION*` launch overrides. |
 | Restart | runtime-specific caller choice |
 | Home and sync root | `/home/node` |
 | Working directory | `/home/node` |
 | Sync owner | UID/GID `1000` |
+
+Unattended Slack/routine callers select advertised native modes before prompting:
+Claude `bypassPermissions`, Codex `agent-full-access`, or OpenCode
+`hypercli-unattended`. Missing choices and setter refusals block submission;
+there is no host/client automatic permission-response fallback. These are session
+settings, not temporary turn overrides. Claude's classifier-based `auto` mode is
+distinct from bypass, and Codex full access also changes sandbox policy.
+
+The OpenCode image adds the native `hypercli-unattended` primary agent with
+`permission: {"*":"allow"}` at startup only when that profile is absent. Existing
+profile definitions (including disabled profiles), other config fields, symlinks,
+and non-JSON user configuration are preserved. A process-runner installation must
+provide the native profile itself; callers require its actual ACP advertisement.
 
 Buzz provider launches use:
 
@@ -158,13 +171,22 @@ Buzz provider launches use:
 | Size | largest currently available entitlement slot (`large` > `medium` > `small`) |
 | Entrypoint command | `/usr/local/bin/hyper-acp plugin buzz` |
 | ACP child | `BUZZ_ACP_AGENT_COMMAND`, `BUZZ_ACP_AGENT_ARGS` |
-| Permission mode | `HYPER_ACP_PERMISSION_MODE` is read by `hyper-acp`; the image entrypoint maps it for plain ACP and `hyper-acp plugin buzz` applies it as an ACP session mode when supported |
+| Permission mode | The Buzz caller selects advertised native configuration; it does not rely on host permission interception. |
 | Restart | `false` |
 | Routes | none |
 | Home and sync root | `/home/node` |
 | Working directory | `/home/node` |
 | Sync owner | UID/GID `1000` |
 | Runtime scopes | `agents:none`, `files:*`, `flows:*`, `models:*`, `voice:*`, `web:*`, `workspaces:*` |
+
+The Buzz provider's OpenCode lane is distinct from Slack/routine full access:
+it supplies a restrictive `hypercli-buzz` primary profile through native
+`OPENCODE_CONFIG_CONTENT`, plus matching `OPENCODE_PERMISSION` rules. Global
+defaults and per-command catch-alls come first (native last-match-wins order).
+The connector selects that exact advertised profile via `BUZZ_ACP_NATIVE_MODE`;
+it never substitutes `hypercli-unattended` or automatically approves callbacks.
+No image-side rewriting of user-owned config files is needed for this provider
+profile. Native mode absence or refusal blocks submission.
 
 The stable handle is derived from the Nostr public key. Provider `deploy` is
 idempotent:

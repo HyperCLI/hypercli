@@ -307,6 +307,9 @@ export {
   RuntimeLoginSession,
   OPENCLAW_TRUSTED_PROXIES_ENV,
   buildAgentConfig,
+  buildBuzzLaunchConfig,
+  supportsBuzzRuntime,
+  type BuzzLaunchConfig,
   buildBrowserDesktopUrl,
   buildOpenClawMemoryIndexEnv,
   buildOpenClawCronEnv,
@@ -559,3 +562,4 @@ export {
   GradioJob,
   type GradioJobOptions,
 } from './job/gradio.js';
+export { nativeUnattendedChoice } from './native-permissions.js';

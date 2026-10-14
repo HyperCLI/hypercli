@@ -137,6 +137,7 @@ class ACPClient:
         self._request_listeners = {}
         self._resolve_default_cwd = resolve_default_cwd
         self._session_setups: dict[str, dict[str, Any]] = {}
+        self._session_config_options: dict[str, list[dict[str, Any]]] = {}
         self._transport = _Transport(transport, self)
         self._connection = Connection(self._handle_message, self._transport)
 
@@ -263,6 +264,9 @@ class ACPClient:
         # Upstream owns RPC/callback correlation; updates are opaque peer data.
         if is_notification:
             if method == "session/update":
+                update = params.get("update", {})
+                if update.get("sessionUpdate") == "config_option_update":
+                    self._session_config_options[params["sessionId"]] = deepcopy(update["configOptions"])
                 for listener in list(self._update_listeners):
                     try:
                         result = listener(params)
@@ -288,7 +292,21 @@ class ACPClient:
         result = await self.request("session/new", setup)
         session_id = schema.NewSessionResponse.model_validate(result).session_id
         self._session_setups[session_id] = setup
+        if "configOptions" in result:
+            self._session_config_options[session_id] = deepcopy(result["configOptions"] or [])
         return session_id
+
+    def session_config_options(self, session_id):
+        """Latest native configuration; a copy so callers cannot mutate the cache."""
+        return deepcopy(self._session_config_options.get(session_id, []))
+
+    async def set_config_option(self, session_id, config_id, value):
+        result = await self.request("session/set_config_option", {
+            "sessionId": session_id, "configId": config_id, "value": value,
+            **({"type": "boolean"} if isinstance(value, bool) else {}),
+        })
+        self._session_config_options[session_id] = deepcopy(result["configOptions"])
+        return result
 
     async def _original_session_cwd(self, session_id):
         setup = self._session_setups.get(session_id)
@@ -317,6 +335,8 @@ class ACPClient:
         params = {"sessionId": session_id, **setup}
         result = await self.request("session/resume", params)
         self._session_setups[session_id] = setup
+        if "configOptions" in result:
+            self._session_config_options[session_id] = deepcopy(result["configOptions"] or [])
         return result
 
     async def load_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None):
@@ -326,6 +346,8 @@ class ACPClient:
         setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
         result = await self.request("session/load", {"sessionId": session_id, **setup})
         self._session_setups[session_id] = setup
+        if "configOptions" in result:
+            self._session_config_options[session_id] = deepcopy(result["configOptions"] or [])
         return result
 
     async def submit_prompt(self, session_id, prompt, *, timeout=None) -> schema.PromptResponse:

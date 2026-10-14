@@ -23,6 +23,7 @@ import {
   DEFAULT_PI_ENV,
   DEFAULT_BUZZ_RUST_LOG,
   buildPermissionsJson,
+  buildBuzzLaunchConfig,
   Deployments,
 } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
@@ -65,6 +66,30 @@ function response(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' |
 }
 
 describe('coding agents', () => {
+  it.each(['opencode', 'codex', 'claude-code'] as const)('native Buzz %s create/update never invokes a retired launch preset', async (runtime) => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const post = vi.fn().mockResolvedValue({ ...response(runtime), id });
+    const patch = vi.fn().mockResolvedValue({ ...response(runtime), id });
+    const deployments = new Deployments({ post, patch } as unknown as HTTPClient, 'synthetic', 'https://api.test.hypercli.com/agents');
+    const env = { OPENCODE_PERMISSION: '{"*":"deny","read":"allow"}', BUZZ_ACP_NATIVE_MODE: 'native-advertised-mode' };
+    const buzz = { privateKeyNsec: 'synthetic-agent-key', relayUrl: 'wss://relay.example.test' };
+    await deployments.createAgent(runtime, { buzz, env });
+    const create = post.mock.calls[0][1];
+    const launch = buildBuzzLaunchConfig(runtime, buzz, 'https://api.test.hypercli.com/agents', { env, secrets: {} });
+    await deployments.update(id, { launchConfig: launch, integrations: { buzz: { enabled: true } } });
+    expect(patch).toHaveBeenCalledWith(`/deployments/${id}`, { launch_config: launch, integrations: { buzz: { enabled: true } } });
+    for (const built of [create, launch]) {
+      expect(built.env.OPENCODE_PERMISSION).toBe(env.OPENCODE_PERMISSION);
+      expect(built.env.BUZZ_ACP_NATIVE_MODE).toBe(env.BUZZ_ACP_NATIVE_MODE);
+      expect(built.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
+      for (const key of ['HYPER_ACP_PERMISSIONS', 'HYPER_ACP_PERMISSION_MODE', 'HYPER_ACP_AUTO_APPROVE_PERMISSION']) {
+        expect(built.env).not.toHaveProperty(key);
+      }
+    }
+    await expect(deployments.createAgent(runtime, { buzz, permissionMode: 'buzz-hosted' })).rejects.toThrow('retired');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
   it('publishes explicit generic and Buzz image catalogs', () => {
     expect(DEFAULT_CODING_AGENT_IMAGES).toEqual({
       'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
@@ -126,8 +151,6 @@ describe('coding agents', () => {
       HYPER_WORKSPACES_BOOT_SYNC: '1',
       HYPER_WORKSPACES_DIR: '/home/node/shared',
       HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
-      // Allow-all default: buzz is wide open until users tighten it.
-      HYPER_ACP_PERMISSIONS: '{"*":"allow"}',
     };
     expect(post.mock.calls[0][1].env).toEqual(expectedEnv);
     expect(post.mock.calls[0][1].routes).toEqual({});
@@ -156,7 +179,7 @@ describe('coding agents', () => {
 
     // Legacy mode var passes through verbatim during the transition.
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('bypass-permissions');
-    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe('{"*":"allow"}');
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBeUndefined();
   });
 
   it.each([
@@ -183,7 +206,7 @@ describe('coding agents', () => {
     );
   });
 
-  it('seeds HYPER_ACP_PERMISSIONS from permissionMode and keeps the legacy var in transition', async () => {
+  it('rejects retired launch permission presets before creating a deployment', async () => {
     const post = vi.fn().mockResolvedValue(response('opencode'));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -191,10 +214,8 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createAgent('opencode', { permissionMode: 'plan' });
-
-    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe(buildPermissionsJson('plan'));
-    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('plan');
+    await expect(deployments.createAgent('opencode', { permissionMode: 'plan' })).rejects.toThrow('retired');
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('caller-supplied HYPER_ACP_PERMISSIONS env wins over the preset seed', async () => {
@@ -947,7 +968,7 @@ describe('runner process executor', () => {
     expect(body.runner).toEqual({ tags: ['linux', 'gpu'], runner_id: 'runner-1' });
     expect(body).not.toHaveProperty('image');
     // Env/default presets still flow: hyper-acp runs on the runner host.
-    expect(body.env.HYPER_ACP_PERMISSIONS).toBe('{"*":"allow"}');
+    expect(body.env.HYPER_ACP_PERMISSIONS).toBeUndefined();
     expect(body.env.HYPER_WORKSPACES_DIR).toBe('/home/node/shared');
   });
 
