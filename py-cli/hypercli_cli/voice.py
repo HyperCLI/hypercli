@@ -217,7 +217,7 @@ def _stream_voice(
                 handle.write(chunk.audio)
                 total_bytes += len(chunk.audio)
                 console.print(
-                    f"[dim]chunk {chunk.index + 1}/{chunk.total} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
+                    f"[dim]chunk {chunk.index + 1}/{chunk.total if chunk.total is not None else '?'} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
                 )
         console.print(f"[green]✅ Saved {output} ({total_bytes / 1024:.1f} KB)[/green]")
 
@@ -264,7 +264,7 @@ def _stream_clone_voice(
                 handle.write(chunk.audio)
                 total_bytes += len(chunk.audio)
                 console.print(
-                    f"[dim]chunk {chunk.index + 1}/{chunk.total} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
+                    f"[dim]chunk {chunk.index + 1}/{chunk.total if chunk.total is not None else '?'} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
                 )
         console.print(f"[green]✅ Saved {output} ({total_bytes / 1024:.1f} KB)[/green]")
 

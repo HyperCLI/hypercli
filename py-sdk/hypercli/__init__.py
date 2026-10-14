@@ -8,6 +8,8 @@ from .config import (
     DEFAULT_WS_URL,
     DEFAULT_AGENTS_API_BASE_URL,
     DEFAULT_AGENTS_WS_URL,
+    DEFAULT_RUNNER_CONTROL_URL,
+    default_runner_control_url,
     DEV_AGENTS_API_BASE_URL,
     DEV_AGENTS_WS_URL,
     get_api_key,
@@ -155,7 +157,7 @@ from .acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
-__version__ = "0.8.2"
+__version__ = "0.8.4"
 __all__ = [
     "HyperCLI",
     "SessionPage",
@@ -178,6 +180,8 @@ __all__ = [
     "DEFAULT_WS_URL",
     "DEFAULT_AGENTS_API_BASE_URL",
     "DEFAULT_AGENTS_WS_URL",
+    "DEFAULT_RUNNER_CONTROL_URL",
+    "default_runner_control_url",
     "DEV_AGENTS_API_BASE_URL",
     "DEV_AGENTS_WS_URL",
     # Instance types

@@ -18,6 +18,30 @@ PUBLIC = Path(__file__).resolve().parents[1]
 MANIFESTS = {"package.json", "Cargo.toml", "pyproject.toml"}
 
 
+def check_parent_checkout(parent: Path, public: Path) -> None:
+    """Use the indexed gitlink, including an intentionally staged SDK update."""
+    if public.resolve() != (parent / "hypercli").resolve():
+        raise ValueError("--parent must contain this SDK checkout at hypercli/")
+    entry = subprocess.check_output(
+        ["git", "ls-files", "--stage", "--", "hypercli"], cwd=parent, text=True,
+    ).strip().split()
+    if len(entry) != 4 or entry[0] != "160000" or entry[2] != "0":
+        raise ValueError("parent must record an unconflicted hypercli submodule gitlink")
+    expected = entry[1]
+    actual = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=public, text=True,
+    ).strip()
+    if actual != expected:
+        raise ValueError(
+            f"SDK checkout mismatch: parent records {expected}, hypercli HEAD is {actual}. "
+            "No version files were updated. Align hypercli with the recorded commit "
+            "before synchronizing; for a clean, behind SDK branch use "
+            f"`git -C hypercli fetch origin` then `git -C hypercli merge --ff-only {expected}`. "
+            "If this is an intentional SDK update, stage its parent gitlink with "
+            "`git add hypercli` first. Keep Cargo --locked."
+        )
+
+
 def app_version(root: Path) -> str:
     authority = json.loads((root / "versions.json").read_text())
     if set(authority) != {"appVersion"}:
@@ -163,6 +187,8 @@ def main() -> int:
     parser.add_argument("--parent", type=Path, help="also project a mono checkout using version-ownership.json")
     args = parser.parse_args()
     try:
+        if args.parent:
+            check_parent_checkout(args.parent.resolve(), PUBLIC)
         version = app_version(PUBLIC)
         scopes = [(PUBLIC, PUBLIC / "version-ownership.json")]
         if args.parent:

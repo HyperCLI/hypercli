@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import sync_versions as versions
 
@@ -116,6 +117,72 @@ class VersionContract(unittest.TestCase):
         before = self.snapshot()
         self.assertTrue(any("expected 1 matches" in e for e in self.sync(check=False)))
         self.assertEqual(before, self.snapshot())
+
+
+class ParentCheckoutContract(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.parent = Path(self.temp.name)
+        self.sdk = self.parent / "hypercli"
+        self.sdk.mkdir()
+        for root in (self.parent, self.sdk):
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (self.sdk / "versions.json").write_text('{"appVersion":"0.8.3"}\n')
+        (self.sdk / "package.json").write_text('{"version":"0.8.3"}\n')
+        (self.sdk / "version-ownership.json").write_text(json.dumps({
+            "manifests": {"package.json": "app"},
+            "projections": [{"path": "package.json", "kind": "json", "keys": [["version"]]}],
+        }))
+        (self.parent / "version-ownership.json").write_text('{"manifests":{},"projections":[]}')
+        subprocess.run(["git", "add", "."], cwd=self.sdk, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "fixture"], cwd=self.sdk, check=True)
+        self.sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.sdk, text=True).strip()
+        self.record(self.sha)
+
+    def record(self, sha):
+        subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"160000,{sha},hypercli"],
+                       cwd=self.parent, check=True)
+
+    def invoke(self, check=False):
+        argv = ["sync_versions.py", "--parent", str(self.parent)] + (["--check"] if check else [])
+        output = io.StringIO()
+        with patch.object(versions, "PUBLIC", self.sdk), patch("sys.argv", argv), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            return versions.main(), output.getvalue()
+
+    def test_stale_checkout_fails_before_reading_authority_or_writing(self):
+        expected = "1" * 40
+        self.record(expected)
+        # Even a broken authority must not obscure the checkout mismatch.
+        (self.sdk / "versions.json").write_text("not json")
+        before = {p: p.read_bytes() for p in self.parent.rglob("*")
+                  if p.is_file() and ".git" not in p.parts}
+        for check in (False, True):
+            with self.subTest(check=check):
+                code, message = self.invoke(check)
+                self.assertEqual(code, 1)
+                self.assertIn("SDK checkout mismatch", message)
+                self.assertIn(expected, message)
+                self.assertIn(self.sha, message)
+                for path, content in before.items():
+                    self.assertEqual(path.read_bytes(), content)
+
+    def test_aligned_checkout_allows_dirty_version_authority(self):
+        (self.sdk / "versions.json").write_text('{"appVersion":"0.8.4"}\n')
+        self.assertEqual(self.invoke()[0], 0)
+        self.assertEqual(json.loads((self.sdk / "package.json").read_text())["version"], "0.8.4")
+        self.assertEqual(self.invoke(check=True)[0], 0)
+
+    def test_intentional_sdk_commit_requires_staging_parent_gitlink(self):
+        (self.sdk / "versions.json").write_text('{"appVersion":"0.8.4"}\n')
+        subprocess.run(["git", "add", "versions.json"], cwd=self.sdk, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "next release"], cwd=self.sdk, check=True)
+        self.assertEqual(self.invoke()[0], 1)
+        subprocess.run(["git", "add", "hypercli"], cwd=self.parent, check=True)
+        self.assertEqual(self.invoke()[0], 0)
 
 
 if __name__ == "__main__":

@@ -309,9 +309,69 @@ pub fn discover_config_value(key: &str) -> Option<String> {
 }
 
 pub const DEFAULT_AGENTS_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
+pub const DEFAULT_RUNNER_CONTROL_URL: &str = "wss://api.agents.hypercli.com/ws/runners";
 const DEV_AGENTS_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
 pub const DEFAULT_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.hypercli.com";
 const DEV_AGENTS_ADMIN_API_BASE: &str = "https://api.agents.dev.hypercli.com";
+
+/// Derive runner control from an explicit agents API base using the shared
+/// agents WebSocket routing (including custom origins and path prefixes).
+pub fn default_runner_control_url(api_base: &str) -> Result<String, ConfigError> {
+    let base = normalize_explicit_agents_api_base(api_base)?;
+    Ok(format!("{}/runners", default_agents_ws_url(&base)?))
+}
+
+/// REST base on the same plane as an explicit runner control URL.
+/// Standard prod/dev control hosts use their gateways; custom origins keep
+/// their path prefix. Nonstandard control paths use the origin's /agents.
+pub fn runner_api_base_from_control_url(raw: &str) -> Result<Url, ConfigError> {
+    let mut url = Url::parse(raw).map_err(|_| ConfigError::InvalidApiBase)?;
+    let scheme = match url.scheme() {
+        "ws" => "http",
+        "wss" => "https",
+        _ => return Err(ConfigError::InvalidApiBase),
+    };
+    url.set_scheme(scheme)
+        .map_err(|_| ConfigError::InvalidApiBase)?;
+    let prefix = url
+        .path()
+        .trim_end_matches('/')
+        .strip_suffix("/ws/runners")
+        .unwrap_or("");
+    let path = format!("{prefix}/agents");
+    if path == "/agents" && url.port().is_none() {
+        let host = match url.host_str() {
+            Some("api.agents.hypercli.com") => Some("api.hypercli.com"),
+            Some("api.agents.dev.hypercli.com") => Some("api.dev.hypercli.com"),
+            _ => None,
+        };
+        if let Some(host) = host {
+            url.set_host(Some(host))
+                .map_err(|_| ConfigError::InvalidApiBase)?;
+        }
+    }
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+/// Registration credentials come from the already resolved control URL;
+/// explicit URL tokens therefore retain precedence over credential discovery.
+pub fn runner_client_config(control_url: &str, api_base: Url) -> Result<ClientConfig, ConfigError> {
+    let url = Url::parse(control_url).map_err(|_| ConfigError::InvalidApiBase)?;
+    let token = url
+        .query_pairs()
+        .find(|(key, _)| key == "token")
+        .map(|(_, value)| value.into_owned())
+        .ok_or(ConfigError::MissingCredential)?;
+    Ok(ClientConfig {
+        api_base,
+        api_key: token.into(),
+        trace_file: None,
+        timeout: None,
+    })
+}
 
 /// Lowercased host with the scheme-default port dropped and non-default
 /// ports kept; IPv6 literals are bracket-wrapped. Matches the py-sdk

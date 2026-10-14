@@ -16,12 +16,16 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from acp import schema
 from acp.connection import Connection
 from acp.exceptions import RequestError
-from acp.ws.client import create_websocket_stream
+from acp.ws.client import _WebSocketTransport
 from pydantic import ValidationError
+from websockets.asyncio.client import connect as websocket_connect
 from websockets.exceptions import WebSocketException
 
 logger = logging.getLogger("hypercli.acp")
 ACP_PROTOCOL_VERSION = 1
+# Transport capacity, not content admission: 25,000,000 decoded image bytes
+# become 33,333,336 base64 bytes, duplicated by native OpenCode tool output.
+ACP_MESSAGE_BYTES = 100_000_000
 DEFAULT_OPEN_TIMEOUT = 30.0
 DEFAULT_CLIENT_INFO = {"name": "hypercli-py-sdk", "version": ""}
 ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE = 4404
@@ -29,6 +33,15 @@ ACP_TERMINAL_CLOSE_CODES = frozenset({4401, 4403, 4404, 4408})
 UpdateListener = Callable[[dict[str, Any]], Any]
 RequestListener = Callable[..., Any]
 _UNSET_CWD = object()
+
+
+async def create_websocket_stream(url, *, headers=None):
+    # Pinned 9d07d787's helper accepts only url/headers/cookie_store, with no
+    # connection kwargs. Reuse its transport constructor over a bounded socket
+    # (as the backend does), preserving upstream framing and close semantics.
+    # Leave the existing websockets queue/backpressure and handshake defaults.
+    connection = await websocket_connect(url, additional_headers=headers, max_size=ACP_MESSAGE_BYTES)
+    return _WebSocketTransport(connection)
 
 
 class ACPError(RuntimeError):

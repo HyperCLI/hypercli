@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
+import { createHash } from 'node:crypto';
 import * as acp from '@agentclientprotocol/sdk';
 import { CodingAgentAcpClient } from '../src/acp.js';
 import { AcpTurnDriver } from '../src/acp-driver.js';
@@ -60,6 +61,43 @@ it('uses the real upstream v1 router and only the correlated terminal response c
   expect(p.frames.find(f => f.method === 'session/prompt').params).toEqual({ sessionId, prompt });
   expect(p.updates[3]).toMatchObject({ content: [{ type: 'diff', oldText: 'old', newText: 'new' }], rawOutput: { opaque: [1, null] } });
 });
+
+it('receives 25,000,000 decoded PNG bytes including the native duplicated tool attachment', async () => {
+  const small = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DA8J8BAAf/Af8Bf4mnAAAAAElFTkSuQmCC', 'base64');
+  const png = Buffer.alloc(25_000_000);
+  small.copy(png, 0, 0, small.length - 12);
+  png.writeUInt32BE(24_999_916, small.length - 12);
+  png.write('npAD', small.length - 8);
+  // CRC32 of npAD plus the zero-filled ancillary data; shared Python/Rust fixture.
+  png.writeUInt32BE(0xd63aed4d, png.length - 16);
+  small.subarray(-12).copy(png, png.length - 12);
+  const digest = 'c0e33652298ddd7f7a95429fd3b117bb9c45a45113bfecd965c611b206e58c26';
+  expect(createHash('sha256').update(png).digest('hex')).toBe(digest);
+  const image = { type: 'image' as const, mimeType: 'image/png', data: png.toString('base64') };
+  const p = await peer(), { sessionId } = await p.client.newSession();
+  const turn = p.client.prompt(sessionId, 'offline fixture');
+  await p.emit({ sessionUpdate: 'agent_message_chunk', content: image });
+  await p.emit({ sessionUpdate: 'tool_call_update', toolCallId: 'read-image', status: 'completed',
+    content: [{ type: 'content', content: image }, { type: 'diff', path: '/tmp/a', oldText: 'old', newText: 'new' }],
+    rawOutput: { output: 'native output', metadata: { data: 'opaque' }, attachments: [{ mime: 'image/png', filename: 'two.png', url: `data:image/png;base64,${image.data}` }] } });
+  await p.finish();
+  expect(await turn).toEqual({ stopReason: 'end_turn' });
+  await vi.waitFor(() => expect(p.updates).toHaveLength(2));
+  const first = p.updates[0] as Extract<acp.SessionUpdate, { sessionUpdate: 'agent_message_chunk' }>;
+  const tool = p.updates[1] as acp.ToolCallUpdate & { rawOutput: { output: string; metadata: { data: string }; attachments: Array<{ url: string }> } };
+  type Image = Extract<acp.ContentBlock, { type: 'image' }>;
+  const received = [first.content, (tool.content![0] as { type: 'content'; content: Image }).content];
+  for (const block of received) {
+    const bytes = Buffer.from((block as Image).data, 'base64');
+    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([2, 1]);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(digest);
+  }
+  expect(tool.status).toBe('completed');
+  expect(tool.content![1]).toEqual({ type: 'diff', path: '/tmp/a', oldText: 'old', newText: 'new' });
+  expect(tool.rawOutput.output).toBe('native output');
+  expect(tool.rawOutput.metadata).toEqual({ data: 'opaque' });
+  expect(createHash('sha256').update(Buffer.from(tool.rawOutput.attachments[0].url.split(',')[1], 'base64')).digest('hex')).toBe(digest);
+}, 30_000);
 
 it('does not confuse concurrent same-content prompt results', async () => {
   const p = await peer(), { sessionId } = await p.client.newSession();

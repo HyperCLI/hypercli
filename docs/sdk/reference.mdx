@@ -47,9 +47,17 @@ Major methods:
 - `clone(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3")`
 - `design(text, description=..., language="auto", response_format="mp3")`
 - `connect(timeout=None)`
-- `tts_stream(text, voice="serena", language="auto", response_format="mp3", timeout=None)`
-- `clone_stream(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3", timeout=None)`
-- `design_stream(text, description=..., language="auto", response_format="mp3", timeout=None)`
+- `tts_stream(text, voice="serena", language="auto", response_format="pcm", timeout=None)` (legacy)
+- `clone_stream(text, ref_audio=..., language="auto", x_vector_only=True, response_format="pcm", timeout=None)`
+- `design_stream(text, description=..., language="auto", response_format="pcm", timeout=None)` (legacy)
+
+Prefer reference-audio cloning for new speech integrations. WebSocket generation,
+including direct `VoiceSession` calls, now defaults to PCM instead of MP3.
+Chunked PCM automatically negotiates `incremental_pcm`; acknowledged streams can
+have `total=None` until the exact DONE count. A server without the acknowledgement
+retains known-total framing. Set `response_format="mp3"` explicitly for MP3 files;
+REST and CLI file defaults remain unchanged. `chunks=False` requests assembled
+audio without automatic incremental negotiation.
 
 REST voice methods use SDK-relative `/voice/*` paths on the agents HTTP client,
 which resolve to `/agents/voice/*` at the product API host. Streaming methods

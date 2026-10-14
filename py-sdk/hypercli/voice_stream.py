@@ -4,6 +4,8 @@ from __future__ import annotations
 
 The server owns text chunking; a session receives an ordered stream of
 audio chunks. One request at a time: idle → rendering → receiving → idle.
+Generation defaults to PCM with automatic incremental negotiation when chunked.
+Request an encoded response_format explicitly for file output.
 
 Usage:
     async with client.voice.connect() as session:
@@ -31,9 +33,10 @@ class VoiceChunk:
 
     request_id: str
     index: int
-    total: int
+    total: int | None
     audio: bytes
     final: bool
+    metadata: dict | None = None
 
 
 class VoiceStreamError(RuntimeError):
@@ -103,14 +106,15 @@ class VoiceSession:
         *,
         voice: str = "serena",
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
+        stream_mode: str | None = None,
         request_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> AsyncIterator[VoiceChunk]:
         """Speak text with a preset voice; yield ordered VoiceChunk items.
 
-        chunks=True streams each server-side split as its own chunk;
+        chunks=True streams audio frames;
         chunks=False yields a single chunk holding the assembled file.
         """
         stream = self._speak(
@@ -118,6 +122,7 @@ class VoiceSession:
             body={"text": text, "voice": voice, "language": language},
             response_format=response_format,
             chunks=chunks,
+            stream_mode=stream_mode,
             request_id=request_id,
             timeout=timeout,
         )
@@ -132,8 +137,9 @@ class VoiceSession:
         ref_audio,
         language: str = "auto",
         x_vector_only: bool = True,
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
+        stream_mode: str | None = None,
         request_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> AsyncIterator[VoiceChunk]:
@@ -150,6 +156,7 @@ class VoiceSession:
             },
             response_format=response_format,
             chunks=chunks,
+            stream_mode=stream_mode,
             request_id=request_id,
             timeout=timeout,
         )
@@ -163,8 +170,9 @@ class VoiceSession:
         *,
         description: str,
         language: str = "auto",
-        response_format: str = "mp3",
+        response_format: str = "pcm",
         chunks: bool = True,
+        stream_mode: str | None = None,
         request_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> AsyncIterator[VoiceChunk]:
@@ -174,6 +182,7 @@ class VoiceSession:
             body={"text": text, "instruct": description, "language": language},
             response_format=response_format,
             chunks=chunks,
+            stream_mode=stream_mode,
             request_id=request_id,
             timeout=timeout,
         )
@@ -190,12 +199,15 @@ class VoiceSession:
         chunks: bool,
         request_id: Optional[str],
         timeout: Optional[float],
+        stream_mode: str | None = None,
     ) -> AsyncIterator[VoiceChunk]:
         if self._ws is None or self.state == "closed":
             raise RuntimeError("Session is not connected; call open() or use 'async with'")
         if self.state != "idle":
             raise RuntimeError(f"Session is {self.state}; one request at a time")
 
+        if stream_mode is None and response_format == "pcm" and chunks:
+            stream_mode = "incremental_pcm"
         rid = request_id or uuid.uuid4().hex[:12]
         deadline = asyncio.get_running_loop().time() + (timeout or self._timeout)
         self.state = "rendering"
@@ -207,11 +219,15 @@ class VoiceSession:
                 "op": op,
                 "format": response_format,
                 "chunks": chunks,
+                **({"stream_mode": stream_mode} if stream_mode else {}),
                 **body,
             }))
             expected_seq = 0
             received_chunks = 0
             saw_final = False
+            incremental = False
+            unknown_total = False
+            metadata = None
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
@@ -223,11 +239,18 @@ class VoiceSession:
                     message = json.loads(raw)
                 except ValueError:
                     raise VoiceStreamError("protocol", "Expected JSON control frame")
-                if message.get("request_id") not in ("", rid):
+                if message.get("request_id") not in (None, "", rid):
                     continue
 
                 msg_type = message.get("type")
-                if msg_type == "audio":
+                if msg_type == "start":
+                    incremental = (stream_mode == "incremental_pcm" and message.get("stream_mode") == stream_mode
+                                   and response_format == "pcm" and message.get("format") == "pcm" and chunks)
+                    metadata = {key: message[key] for key in ("format", "content_type", "sample_rate", "channels",
+                                                             "sample_format", "bytes_per_sample") if key in message}
+                elif msg_type == "audio":
+                    if not incremental and "total" in message and message["total"] is None:
+                        raise VoiceStreamError("protocol", "Unknown audio total was not negotiated")
                     if saw_final:
                         raise VoiceStreamError("protocol", "Audio frame received after final chunk")
                     seq = int(message.get("seq", -1))
@@ -241,10 +264,11 @@ class VoiceSession:
                         raise VoiceStreamError("protocol", "Expected binary audio payload after audio header")
                     if expected != len(payload):
                         raise VoiceStreamError("protocol", f"Audio payload length mismatch: expected {expected}, got {len(payload)}")
-                    total = int(message.get("total", 1))
+                    total = None if incremental and message.get("total") is None else int(message.get("total", 1))
                     final = bool(message.get("final"))
-                    if total < 1 or seq >= total:
+                    if total is not None and (total < 1 or seq >= total):
                         raise VoiceStreamError("protocol", f"Invalid audio total {total} for sequence {seq}")
+                    unknown_total = unknown_total or total is None
                     expected_seq += 1
                     received_chunks += 1
                     saw_final = final
@@ -255,12 +279,15 @@ class VoiceSession:
                         total=total,
                         audio=payload,
                         final=final,
+                        metadata=metadata,
                     )
                 elif msg_type == "done":
+                    if incremental and type(message.get("total_chunks")) is not int:
+                        raise VoiceStreamError("protocol", "Unknown audio total requires exact DONE total_chunks")
                     total_done = message.get("total_chunks", message.get("chunks"))
                     if total_done is not None and int(total_done) != received_chunks:
                         raise VoiceStreamError("protocol", f"Done chunk count mismatch: expected {received_chunks}, got {total_done}")
-                    if received_chunks and not saw_final:
+                    if received_chunks and not saw_final and not unknown_total:
                         raise VoiceStreamError("protocol", "Done received before final audio chunk")
                     finished = True
                     return

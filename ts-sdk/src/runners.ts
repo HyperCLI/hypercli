@@ -45,6 +45,14 @@ export interface RunnerUpdateOptions {
   ui?: { displayName?: string | null };
 }
 
+export interface RunnerRegisterOptions {
+  runnerId?: string;
+  name: string;
+  tags?: string[];
+  version: string;
+  platform: { os: string; arch: string };
+}
+
 function runnerUiMetaFromDict(data: any): RunnerUiMeta | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const ui: RunnerUiMeta = {};
@@ -136,6 +144,14 @@ export class RunnersAPI {
       throw new Error('Runners response must be an array.');
     }
     return items.map(runnerFromDict);
+  }
+
+  /** Omit runnerId to allocate an identity. Sent once; a lost reply is uncertain. */
+  async register(body: RunnerRegisterOptions): Promise<Runner> {
+    return runnerFromDict(await this.request('POST', '', {
+      ...(body.runnerId !== undefined ? { runner_id: body.runnerId } : {}),
+      name: body.name, tags: body.tags ?? [], version: body.version, platform: body.platform,
+    }));
   }
 
   async get(runnerId: string): Promise<Runner> {

@@ -9,6 +9,7 @@ import { HyperAgent } from './agent.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';
 import { WorkspacesAPI } from './workspaces.js';
+export { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl } from './agent-urls.js';
 export { BrowserJobs } from './browser-jobs.js';
 export {
   API_KEY_BASELINE_FAMILIES,

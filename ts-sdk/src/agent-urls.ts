@@ -7,6 +7,7 @@
 export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.hypercli.com/agents';
 export const DEV_AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
 export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
+export const DEFAULT_RUNNER_CONTROL_URL = `${DEFAULT_AGENTS_WS_URL}/runners`;
 export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 const AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.hypercli.com/ws/acp';
 const DEV_AGENTS_ACP_PROXY_WS_URL = 'wss://api.agents.dev.hypercli.com/ws/acp';
@@ -30,7 +31,10 @@ function toWsBaseUrl(baseUrl: string): string {
 export function normalizeAgentsWsUrl(url: string): string {
   const base = toWsBaseUrl(url);
   if (!base) return '';
-  return base.endsWith('/ws') ? base : `${base}/ws`;
+  const parsed = new URL(base);
+  const path = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = path.endsWith('/ws') ? path : `${path}/ws`;
+  return parsed.toString();
 }
 
 /**
@@ -94,7 +98,9 @@ function classifyAgentsApiBase(apiBase: string): { tier: AgentsHostTier; resolve
 // The `/ws` tunnel lives next to (never on) the agents REST prefix: strip a
 // trailing `/agents` path suffix, then append the tunnel path.
 function agentsTunnelWsUrl(resolvedApiBase: string): string {
-  return normalizeAgentsWsUrl(resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, ''));
+  const parsed = new URL(resolvedApiBase);
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\/agents$/, '');
+  return normalizeAgentsWsUrl(parsed.toString());
 }
 
 export function defaultAgentsWsUrl(apiBase: string): string {
@@ -102,6 +108,11 @@ export function defaultAgentsWsUrl(apiBase: string): string {
   if (tier === 'prod') return DEFAULT_AGENTS_WS_URL;
   if (tier === 'dev') return DEV_AGENTS_WS_URL;
   return agentsTunnelWsUrl(resolvedApiBase);
+}
+
+/** Runner control uses the shared agents WebSocket route plus /runners. */
+export function defaultRunnerControlUrl(apiBase: string): string {
+  return `${defaultAgentsWsUrl(apiBase)}/runners`;
 }
 
 /**

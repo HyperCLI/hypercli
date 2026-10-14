@@ -30,6 +30,7 @@ DEFAULT_API_URL = "https://api.hypercli.com"
 DEFAULT_WS_URL = "wss://api.hypercli.com"
 DEFAULT_AGENTS_API_BASE_URL = "https://api.hypercli.com/agents"
 DEFAULT_AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
+DEFAULT_RUNNER_CONTROL_URL = f"{DEFAULT_AGENTS_WS_URL}/runners"
 DEV_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_AGENTS_ADMIN_API_BASE_URL = "https://api.agents.hypercli.com"
@@ -150,18 +151,22 @@ def _default_agents_ws_url(api_base: str) -> str:
         return DEFAULT_AGENTS_WS_URL
     if parsed.path == "/agents" and netloc in _AGENTS_DEV_HOSTS and netloc != "api.agents.dev.hypercli.com":
         return DEV_AGENTS_WS_URL
-    raw = raw.removesuffix("/agents")
-    if raw.startswith("https://"):
-        return f"wss://{raw[len('https://'):].rstrip('/')}/ws"
-    if raw.startswith("http://"):
-        return f"ws://{raw[len('http://'):].rstrip('/')}/ws"
-    return f"{raw.rstrip('/')}/ws"
+    path = parsed.path.removesuffix("/agents").rstrip("/")
+    if not path.endswith("/ws"):
+        path = f"{path}/ws"
+    scheme = {"https": "wss", "http": "ws"}.get(parsed.scheme, parsed.scheme)
+    return f"{scheme}://{netloc}{path}"
 
 
 def get_ws_url() -> str:
     """Get WebSocket URL, derived from the product API URL."""
     api = get_api_url()
     return api.replace("https://", "wss://").replace("http://", "ws://")
+
+
+def default_runner_control_url(api_base: str) -> str:
+    """Derive runner control using the shared agents WebSocket routing."""
+    return f"{_default_agents_ws_url(api_base)}/runners"
 
 
 def get_agents_api_base_url(dev: bool = False, product_base: str = None) -> str:

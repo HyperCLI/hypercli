@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveRunnersApiBase, RunnersAPI } from '../src/runners.js';
 import type { Runner } from '../src/index.js';
+import { readFileSync } from 'node:fs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -27,6 +28,24 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('Runners SDK', () => {
+  it('constructs fresh and known registration from the shared contract, without retrying lost replies', async () => {
+    const fixture = JSON.parse(readFileSync(new URL('../../rs-sdk/tests/fixtures/runner_registration.json', import.meta.url), 'utf8'));
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ ...runnerWire, runner_id: fixture.runner_id }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new RunnersAPI('key', { agentsApiBase: 'http://agents.test/prefix/agents' });
+    for (const runnerId of [undefined, fixture.runner_id]) {
+      const result = await api.register({ ...fixture.request, runnerId });
+      expect(result.runnerId).toBe(fixture.runner_id);
+      const [url, request] = fetchMock.mock.lastCall!;
+      expect(url).toBe('http://agents.test/prefix/agents/runners');
+      expect(request.headers.Authorization).toBe('Bearer key');
+      expect(JSON.parse(request.body)).toEqual({ ...fixture.request, ...(runnerId ? { runner_id: runnerId } : {}) });
+    }
+    fetchMock.mockReset().mockRejectedValue(new TypeError('lost reply'));
+    await expect(api.register(fixture.request)).rejects.toThrow('lost reply');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('derives the runners API base under the agents API base', () => {
     expect(deriveRunnersApiBase('https://api.hypercli.com/agents')).toBe('https://api.hypercli.com/agents/runners');
     expect(deriveRunnersApiBase('https://api.hypercli.com/agents/runners')).toBe('https://api.hypercli.com/agents/runners');

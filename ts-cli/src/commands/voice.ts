@@ -74,7 +74,7 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Consume the ttsStream chunk generator into one buffer, in order. */
+/** File/stdout generation requests MP3 explicitly; SDK WebSockets default to PCM. */
 async function collectStream(
   chunks: AsyncGenerator<VoiceChunkEvent, void, undefined>,
 ): Promise<Buffer> {
@@ -276,7 +276,7 @@ async function tts(ctx: CommandContext, args: string[]): Promise<void> {
   let bytes: Uint8Array;
   try {
     bytes = stream
-      ? await collectStream(client.voice.ttsStream({ text, voice }))
+      ? await collectStream(client.voice.ttsStream({ text, voice, responseFormat: 'mp3' }))
       : await client.voice.tts({ text, voice });
   } catch (err) {
     throw new CliError(`tts failed: ${describeError(err)}`);
@@ -322,7 +322,7 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   let bytes: Uint8Array;
   try {
     bytes = stream
-      ? await collectStream(client.voice.cloneStream({ text, refAudio }))
+      ? await collectStream(client.voice.cloneStream({ text, refAudio, responseFormat: 'mp3' }))
       : await client.voice.clone({ text, refAudio });
   } catch (err) {
     throw new CliError(`clone failed: ${describeError(err)}`);
@@ -371,7 +371,7 @@ async function design(ctx: CommandContext, args: string[]): Promise<void> {
   let bytes: Uint8Array;
   try {
     bytes = stream
-      ? await collectStream(client.voice.designStream({ text, description }))
+      ? await collectStream(client.voice.designStream({ text, description, responseFormat: 'mp3' }))
       : await client.voice.design({ text, description });
   } catch (err) {
     throw new CliError(`design failed: ${describeError(err)}`);

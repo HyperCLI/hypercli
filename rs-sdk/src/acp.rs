@@ -49,10 +49,19 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async_with_config,
+    tungstenite::{protocol::WebSocketConfig, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 
 use crate::{HyperCliClient, HyperCliError};
+
+// Host/backend envelope: 25,000,000 decoded image bytes need 33,333,336
+// base64 bytes, potentially duplicated in native tool rawOutput. This raises
+// transport capacity only; it does not inspect or filter live content.
+const ACP_MESSAGE_BYTES: usize = 100_000_000;
 
 /// Errors from platform default acquisition or the subsequent ACP operation.
 #[derive(Debug, Error)]
@@ -315,18 +324,23 @@ impl AcpClient {
         if !token.is_empty() {
             target.query_pairs_mut().append_pair("token", token);
         }
-        let (socket, _) =
-            tokio::time::timeout(DEFAULT_OPEN_TIMEOUT, connect_async(target.as_str()))
-                .await
-                .map_err(|_| {
-                    AcpError::Retryable(format!(
-                        "ACP WebSocket connect exceeded {}s",
-                        DEFAULT_OPEN_TIMEOUT.as_secs()
-                    ))
-                })?
-                .map_err(|error| {
-                    AcpError::Retryable(format!("ACP WebSocket connection failed: {error}"))
-                })?;
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(ACP_MESSAGE_BYTES))
+            .max_frame_size(Some(ACP_MESSAGE_BYTES));
+        let (socket, _) = tokio::time::timeout(
+            DEFAULT_OPEN_TIMEOUT,
+            connect_async_with_config(target.as_str(), Some(config), false),
+        )
+        .await
+        .map_err(|_| {
+            AcpError::Retryable(format!(
+                "ACP WebSocket connect exceeded {}s",
+                DEFAULT_OPEN_TIMEOUT.as_secs()
+            ))
+        })?
+        .map_err(|error| {
+            AcpError::Retryable(format!("ACP WebSocket connection failed: {error}"))
+        })?;
 
         let state = Arc::new(ConnState {
             pending: Mutex::new(HashMap::new()),

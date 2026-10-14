@@ -183,9 +183,12 @@ export class CodingAgentAcpClient {
     return this.observe('list', () => this.request('session/list', options));
   }
   private async originalSessionCwd(sessionId: string): Promise<string> {
+    return this.sessions.get(sessionId)?.cwd ?? this.options.cwd ?? this.sessionCwd(sessionId);
+  }
+  /** Exact tracked/catalog session cwd, without a launch/connection default fallback. */
+  async sessionCwd(sessionId: string): Promise<string> {
     const tracked = this.sessions.get(sessionId);
     if (tracked) return tracked.cwd;
-    if (this.options.cwd !== undefined) return this.options.cwd;
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
@@ -196,7 +199,7 @@ export class CodingAgentAcpClient {
       if (cursor && seen.has(cursor)) throw new Error('session/list repeated a cursor');
       if (cursor) seen.add(cursor);
     } while (cursor);
-    throw new CodingAgentAcpUnavailableError('session/resume', 'original session cwd is unavailable; supply it explicitly');
+    throw new CodingAgentAcpUnavailableError('session/list', 'original session cwd is unavailable');
   }
   async resumeSession(sessionId: string, options: { cwd?: string } = {}): Promise<acp.ResumeSessionResponse> {
     const previous = this.sessions.get(sessionId);

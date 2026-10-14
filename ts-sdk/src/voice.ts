@@ -159,7 +159,7 @@ export class VoiceAPI {
   }
 
   /**
-   * Create a streaming VoiceSession over /ws/voice (call open() or use ttsStream()).
+   * Create a streaming VoiceSession over /ws/voice (call open() or use cloneStream()).
    */
   connect(options?: { timeoutMs?: number }): VoiceSession {
     return new VoiceSession({
@@ -203,6 +203,8 @@ export class VoiceAPI {
 
   /**
    * One-shot streaming TTS: opens a session, speaks, closes.
+   * Defaults to PCM; request responseFormat: 'mp3' explicitly for MP3 files.
+   * @deprecated Legacy compatibility API. Use reference-audio cloneStream for new speech integrations.
    */
   async *ttsStream(options: TTSOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     const session = this.connect({ timeoutMs: options.timeoutMs });
@@ -222,6 +224,9 @@ export class VoiceAPI {
 
   /**
    * One-shot streaming voice clone: opens a session, speaks, closes.
+   * Defaults to PCM with automatic incremental negotiation. Older servers may
+   * return known-total chunks. Request an encoded responseFormat for file output;
+   * unlike REST clone(), omitting it no longer requests MP3.
    */
   async *cloneStream(options: CloneOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     const session = this.connect({ timeoutMs: options.timeoutMs });
@@ -242,6 +247,8 @@ export class VoiceAPI {
 
   /**
    * One-shot streaming voice design: opens a session, speaks, closes.
+   * Defaults to PCM; request responseFormat: 'mp3' explicitly for MP3 files.
+   * @deprecated Legacy compatibility API. Use reference-audio cloneStream for new speech integrations.
    */
   async *designStream(options: DesignOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     const session = this.connect({ timeoutMs: options.timeoutMs });

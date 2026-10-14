@@ -100,6 +100,14 @@ class RunnersAPI:
             raise ValueError("Runners response must be an array.")
         return [Runner.from_dict(item) for item in items]
 
+    def register(self, *, name: str, version: str, platform: dict,
+                 tags: list[str] | None = None, runner_id: str | None = None) -> Runner:
+        """Allocate an identity when omitted. Sent once; a lost reply is uncertain."""
+        body = {"name": name, "version": version, "platform": platform, "tags": tags or []}
+        if runner_id is not None:
+            body["runner_id"] = runner_id
+        return Runner.from_dict(_request("POST", self.api_base, api_key=self.api_key, json=body))
+
     def get(self, runner_id: str) -> Runner:
         data = _request("GET", f"{self.api_base}/{_encode_ref(runner_id)}", api_key=self.api_key)
         return Runner.from_dict(data)

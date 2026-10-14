@@ -81,11 +81,33 @@ describe('native assignment file transport', () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['/tmp/file', '../file', 'C:/file', 'a\0b', 'a.', 'a:stream'])('rejects native path %j without a file command', async (path) => {
+  it.each(['../file', 'a\0b', 'a.', 'a:stream'])('rejects native path %j without a file command', async (path) => {
     const { deployments, post } = setup();
     await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
     await expect(deployments.fileRead(id, path)).rejects.toThrow();
     expect(post.mock.calls.every(([url]) => url.endsWith('/token'))).toBe(true);
+  });
+
+  it.each(['/home/ubuntu/hcr_style/png/logo_vertical.png', '/root/link/../image #?%.png', 'C:\\images\\a.png'])('preserves absolute READ address %s in the existing wire shape', async path => {
+    const { deployments, post, files } = setup();
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwHwyBNBgAAEnICff5q7YNAAAAAElFTkSuQmCC';
+    files.set(path, png);
+    expect(Buffer.from(await deployments.fileReadBytes(id, path, { maxBytes: 25_000_000 })).toString('base64')).toBe(png);
+    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path, max_bytes: RUNNER_FILE_MAX_BYTES }, { signal: undefined, redirect: 'error' });
+    const reads = post.mock.calls.length;
+    await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
+    await expect(deployments.fileDelete(id, path)).rejects.toThrow();
+    await expect(deployments.filesList(id, path)).rejects.toThrow();
+    expect(post).toHaveBeenCalledTimes(reads);
+  });
+
+  it('does not reinterpret hosted absolute paths as sync-root-relative paths', async () => {
+    const { deployments, post } = setup();
+    post.mockResolvedValueOnce({ url: 'https://host.example.test/_reef', token: 'fixture', expires_at: '2099-01-01' } as any);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(deployments.fileRead(id, '/outside/image.png')).rejects.toThrow('relative to the sync root');
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('caps writes and read results, forwards abort signals, and round-trips listing and deletion', async () => {

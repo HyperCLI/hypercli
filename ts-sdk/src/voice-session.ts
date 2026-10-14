@@ -5,6 +5,8 @@
  * audio chunks. One request at a time: idle → rendering → receiving → idle.
  * Works in both Node (`ws` package, Authorization header) and the browser
  * (global WebSocket, `?token=` query — browsers cannot set WS headers).
+ * Generation defaults to PCM, automatically requesting incremental delivery
+ * when chunked. Request an encoded format explicitly for file output.
  */
 import type NodeWebSocket from 'ws';
 
@@ -22,7 +24,8 @@ export interface VoiceAudioMetadata {
 export interface VoiceChunkEvent {
   requestId: string;
   index: number;
-  total: number;
+  /** null only for explicitly negotiated incremental PCM; DONE carries the count. */
+  total: number | null;
   audio: Uint8Array;
   final: boolean;
   metadata?: VoiceAudioMetadata;
@@ -38,16 +41,18 @@ export interface VoiceSessionOptions {
 }
 
 export interface SpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   voice?: string;
   language?: string;
   format?: string;
-  /** true (default): receive each server-side split; false: one assembled file. */
+  /** true (default): stream audio frames; false: one assembled file. */
   chunks?: boolean;
   requestId?: string;
 }
 
 export interface CloneSpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   refAudio: Uint8Array | ArrayBuffer;
   language?: string;
@@ -58,6 +63,7 @@ export interface CloneSpeakOptions {
 }
 
 export interface DesignSpeakOptions {
+  streamMode?: 'incremental_pcm';
   text: string;
   description: string;
   language?: string;
@@ -247,7 +253,7 @@ export class VoiceSession {
   private async *runSpeak(
     op: string,
     body: Record<string, unknown>,
-    options: { format?: string; chunks?: boolean; requestId?: string },
+    options: { format?: string; chunks?: boolean; requestId?: string; streamMode?: 'incremental_pcm' },
   ): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     if (!this.ws || this.state === 'closed') {
       throw new Error("Session is not connected; call open() first");
@@ -256,6 +262,9 @@ export class VoiceSession {
       throw new Error(`Session is ${this.state}; one request at a time`);
     }
 
+    const format = options.format ?? 'pcm';
+    const streamMode = options.streamMode
+      ?? (format === 'pcm' && options.chunks !== false ? 'incremental_pcm' : undefined);
     const requestId = options.requestId ?? randomRequestId();
     const deadline = Date.now() + this.timeoutMs;
     this.state = 'rendering';
@@ -265,8 +274,9 @@ export class VoiceSession {
         type: 'speak',
         request_id: requestId,
         op,
-        format: options.format ?? 'mp3',
+        format,
         chunks: options.chunks ?? true,
+        ...(streamMode ? { stream_mode: streamMode } : {}),
         ...body,
       });
 
@@ -274,6 +284,8 @@ export class VoiceSession {
       let receivedChunks = 0;
       let sawFinal = false;
       let metadata: VoiceAudioMetadata | undefined;
+      let incremental = false;
+      let unknownTotal = false;
 
       while (true) {
         const remaining = deadline - Date.now();
@@ -296,8 +308,13 @@ export class VoiceSession {
         switch (message.type) {
           case 'start':
             metadata = metadataFromStartFrame(message);
+            incremental = streamMode === 'incremental_pcm' && message.stream_mode === 'incremental_pcm'
+              && format === 'pcm' && message.format === 'pcm' && options.chunks !== false;
             break;
           case 'audio': {
+            if (!incremental && message.total === null) {
+              throw new VoiceStreamError('protocol', 'Unknown audio total was not negotiated');
+            }
             if (sawFinal) {
               throw new VoiceStreamError('protocol', 'Audio frame received after final chunk');
             }
@@ -305,20 +322,13 @@ export class VoiceSession {
             if (seq !== expectedSeq) {
               throw new VoiceStreamError('protocol', `Unexpected audio sequence: expected ${expectedSeq}, got ${seq}`);
             }
-            const expected = Number(message.bytes ?? -1);
-            if (expected < 0) {
-              throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
-            }
-            const payloadRaw = await this.nextMessage(Math.max(0, deadline - Date.now()));
-            const audio = bytesFromRaw(payloadRaw);
-            if (audio.length !== expected) {
-              throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
-            }
-            const total = Number(message.total ?? 1);
+            const audio = await this.readAudioPayload(message, deadline);
+            const total = incremental && message.total == null ? null : Number(message.total ?? 1);
             const final = Boolean(message.final);
-            if (total < 1 || seq >= total) {
+            if (total !== null && (!Number.isSafeInteger(total) || total < 1 || seq >= total)) {
               throw new VoiceStreamError('protocol', `Invalid audio total ${total} for sequence ${seq}`);
             }
+            unknownTotal ||= total === null;
             expectedSeq += 1;
             receivedChunks += 1;
             sawFinal = final;
@@ -334,13 +344,16 @@ export class VoiceSession {
             break;
           }
           case 'done':
+            if (incremental && !Number.isSafeInteger(message.total_chunks)) {
+              throw new VoiceStreamError('protocol', 'Unknown audio total requires exact DONE total_chunks');
+            }
             if (message.total_chunks !== undefined && Number(message.total_chunks) !== receivedChunks) {
               throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.total_chunks)}`);
             }
             if (message.chunks !== undefined && Number(message.chunks) !== receivedChunks) {
               throw new VoiceStreamError('protocol', `Done chunk count mismatch: expected ${receivedChunks}, got ${String(message.chunks)}`);
             }
-            if (receivedChunks > 0 && !sawFinal) {
+            if (receivedChunks > 0 && !sawFinal && !unknownTotal) {
               throw new VoiceStreamError('protocol', 'Done received before final audio chunk');
             }
             finished = true;
@@ -352,16 +365,62 @@ export class VoiceSession {
             break;
         }
       }
+    } catch (error) {
+      if (!finished && this.ws) {
+        // Protocol/transport failures may leave us between a header and payload.
+        // Preserve the original error, but never reuse an ambiguous stream.
+        try { await this.cancel(requestId); } catch { /* socket may be gone */ }
+        this.close();
+      }
+      throw error;
     } finally {
       if (!finished && this.ws) {
-        // Consumer bailed early (or timed out) — cancel server-side.
+        // Iterator return is at a yield boundary. Retain ownership until the
+        // server settles cancellation, including any already-sent audio pairs.
         try {
           await this.cancel(requestId);
-        } catch {
-          // socket may already be gone
+          await this.drainCancelledRequest(requestId, deadline);
+        } catch (error) {
+          this.close();
+          throw error;
         }
       }
       this.state = this.ws ? 'idle' : 'closed';
+    }
+  }
+
+  private async readAudioPayload(message: Record<string, unknown>, deadline: number): Promise<Uint8Array> {
+    const expected = Number(message.bytes ?? -1);
+    if (!Number.isSafeInteger(expected) || expected < 0) {
+      throw new VoiceStreamError('protocol', 'Audio header has invalid byte length');
+    }
+    const audio = bytesFromRaw(await this.nextMessage(Math.max(0, deadline - Date.now())));
+    if (audio.length !== expected) {
+      throw new VoiceStreamError('protocol', `Audio payload length mismatch: expected ${expected}, got ${audio.length}`);
+    }
+    return audio;
+  }
+
+  private async drainCancelledRequest(requestId: string, deadline: number): Promise<void> {
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new VoiceStreamError('timeout', `voice stream timed out after ${this.timeoutMs}ms`);
+      }
+      const raw = await this.nextMessage(remaining);
+      let message: Record<string, unknown>;
+      try {
+        if (typeof raw !== 'string' && !isTextBuffer(raw)) throw new Error();
+        message = JSON.parse(textFromRaw(raw)) as Record<string, unknown>;
+      } catch {
+        throw new VoiceStreamError('protocol', 'Expected JSON control frame during cancellation');
+      }
+      if (message.type === 'audio') {
+        await this.readAudioPayload(message, deadline);
+      } else if ((!message.request_id || message.request_id === requestId)
+        && (message.type === 'error' || message.type === 'done')) {
+        return;
+      }
     }
   }
 

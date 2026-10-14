@@ -9,6 +9,7 @@ export { BrowserHyperCLI, type BrowserHyperCLIOptions } from './browser.js';
 export { BrowserJobs } from './browser-jobs.js';
 
 // Configuration
+export { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl } from './agent-urls.js';
 export {
   configure,
   getApiKey,
@@ -204,6 +205,7 @@ export {
   type RunnerMeta,
   type RunnerUiMeta,
   type RunnerUpdateOptions,
+  type RunnerRegisterOptions,
 } from './runners.js';
 
 // Logs
@@ -341,9 +343,6 @@ export {
   type AgentTokenResponse,
   type AgentEnvMutationResponse,
   type AgentSecretMutationResponse,
-  type BootstrapInferenceMessage,
-  type BootstrapInferenceResponseFormat,
-  type BootstrapInferenceResult,
   type BrowserDesktopUrlOptions,
   type SlackOAuthStartOptions,
   type SlackOAuthStartResult,

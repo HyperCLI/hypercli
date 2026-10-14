@@ -73,8 +73,17 @@ Major methods:
 - `cloneStream({ text, refAudio, language?, xVectorOnly?, responseFormat?, timeoutMs? })`
 - `designStream({ text, description, language?, responseFormat?, timeoutMs? })`
 
-Defaults are `voice: "serena"`, `language: "auto"`, and
-`responseFormat: "mp3"`. REST voice methods use SDK-relative `/voice/*` paths
+Defaults are `voice: "serena"` and `language: "auto"`. REST defaults to
+`responseFormat: "mp3"`; WebSocket generation now defaults to `"pcm"` (including
+`VoiceSession` methods, whose option is named `format`). Chunked PCM automatically
+negotiates `incremental_pcm`: totals may be `null` until the exact DONE count.
+Servers that do not echo the mode keep legacy known-total framing. Explicit
+encoded formats keep their existing behavior; file consumers must request their
+format explicitly. `chunks: false` does not automatically negotiate incremental
+delivery. Prefer `clone`/`cloneStream` for new integrations; `ttsStream` and
+`designStream` are deprecated compatibility APIs, not removed.
+
+REST voice methods use SDK-relative `/voice/*` paths
 on the agents HTTP client, which resolve to `/agents/voice/*` at the product
 API host. Streaming methods connect to `/ws/voice` on the derived agents
 WebSocket base. Streaming audio is delivered as ordered `audio` JSON headers,
