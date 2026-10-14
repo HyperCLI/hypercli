@@ -1,7 +1,7 @@
 /** Durable session memory, relative to the agents API base.
  * Wire contract: agents/backend/agents/memory_routes.py. Public fields use camelCase.
  */
-import type { HTTPClient } from './http.js';
+import type { HTTPClient, RequestOverrides } from './http.js';
 
 export interface MemorySummary {
   sessionId: string;
@@ -25,6 +25,7 @@ export interface MemoryChunk {
 }
 
 export interface MemorySearchResult extends MemoryChunk {
+  agentId: string | null;
   score: number;
   /** Joined from the owning session; null when unset or on pre-envelope deployments. */
   title: string | null;
@@ -123,6 +124,7 @@ function chunkFromWire(row: ChunkWire): MemoryChunk {
 }
 
 interface SearchHitWire extends ChunkWire {
+  agent_id?: string | null;
   score: number;
   title?: string | null;
   summary_text?: string | null;
@@ -132,6 +134,7 @@ interface SearchHitWire extends ChunkWire {
 function searchHitFromWire(row: SearchHitWire): MemorySearchResult {
   return {
     ...chunkFromWire(row), score: row.score,
+    agentId: row.agent_id ?? null,
     title: row.title ?? null,
     summaryText: row.summary_text ?? null,
     summaryKeywords: Array.isArray(row.summary_keywords) ? row.summary_keywords.map(String) : [],
@@ -155,14 +158,14 @@ export class MemoryAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get' | 'post'>) {}
 
   /** Best-first page over indexed chunks; feed nextCursor back via options.cursor. */
-  async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResponse> {
+  async search(query: string, options: MemorySearchOptions = {}, request: RequestOverrides = {}): Promise<MemorySearchResponse> {
     const payload = await this.http.get<unknown>('/memory/search', {
       q: query,
       ...(options.sessionId !== undefined ? { session_id: options.sessionId } : {}),
       ...(options.agentId !== undefined ? { agent_id: options.agentId } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
-    });
+    }, request);
     return searchPageFromWire(payload);
   }
 

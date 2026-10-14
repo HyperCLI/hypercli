@@ -209,7 +209,7 @@ describe('session detail HTTP contract', () => {
 describe('transcript search and window reads', () => {
   const hitRow = {
     session_id: SESSION_ID, seq: 42, role: 'assistant', message_id: 'agent-msg-7',
-    excerpt: 'the flaky vitest run', score: null,
+    excerpt: 'the flaky vitest run', score: null, agent_id: AGENT_ID, title: 'Stored label',
   };
 
   it('searches transcripts globally with the opaque page envelope', async () => {
@@ -223,6 +223,7 @@ describe('transcript search and window reads', () => {
       items: [{
         sessionId: SESSION_ID, seq: 42, role: 'assistant',
         messageId: 'agent-msg-7', excerpt: 'the flaky vitest run', score: null,
+        agentId: AGENT_ID, title: 'Stored label',
       }],
       nextCursor: 'k1',
       hasMore: true,
@@ -237,6 +238,14 @@ describe('transcript search and window reads', () => {
 
     expect(http.get).toHaveBeenCalledWith('/sessions/search', { q: 'needle', session_id: 'sess/1' });
     expect(page).toEqual({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it('tolerates pre-navigation-metadata transcript responses', async () => {
+    const { agent_id, title, ...legacy } = hitRow;
+    const http = fakeHttp({ items: [legacy], next_cursor: null, has_more: false });
+    const page = await new SessionsAPI(http as never).searchTranscript('flaky');
+    expect(page.items[0]).toMatchObject({ sessionId: SESSION_ID, agentId: null, title: null });
+    expect(http.get).toHaveBeenCalledTimes(1);
   });
 
   it('fetches an ascending window around a focus seq', async () => {

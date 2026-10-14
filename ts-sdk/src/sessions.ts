@@ -165,6 +165,9 @@ export interface AcpSessionMessagesOptions {
  */
 export interface AcpTranscriptSearchHit {
   sessionId: string;
+  /** Authorized platform navigation metadata; null on older servers. */
+  agentId: string | null;
+  title: string | null;
   seq: number;
   role: string;
   /** ACP message identity when the matched frame carries one; resolve via the session's rendered messages. */
@@ -358,6 +361,8 @@ export class SessionsAPI {
       const seq = row.seq;
       return {
         sessionId: String(row.session_id ?? ''),
+        agentId: pick<string>(row, 'agent_id', 'agentId') ?? null,
+        title: typeof row.title === 'string' ? row.title : null,
         seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
         role: typeof row.role === 'string' ? row.role : 'assistant',
         messageId: typeof row.message_id === 'string' ? row.message_id : null,

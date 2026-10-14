@@ -31,14 +31,14 @@ describe('MemoryAPI HTTP contract', () => {
     // Legacy `{ items }` shape decodes as a terminal page with no session join.
     expect(result).toEqual({ items: [{
       id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9,
-      text: chunk.text, score: 0.9, title: null, summaryText: null, summaryKeywords: [],
+      text: chunk.text, score: 0.9, agentId: null, title: null, summaryText: null, summaryKeywords: [],
     }], nextCursor: null, hasMore: false });
   });
 
   it('pages with the agent filter and cursor, decoding the enriched envelope', async () => {
     const { fetch, api } = setup({
       items: [
-        { ...chunk, score: 0.9, title: 'Release', summary_text: 'Decided to ship.', summary_keywords: ['release', 'ship'] },
+        { ...chunk, score: 0.9, agent_id: 'agent-1', title: 'Release', summary_text: 'Decided to ship.', summary_keywords: ['release', 'ship'] },
         { ...chunk, id: 'chunk-2', score: 0.5, title: null, summary_text: null, summary_keywords: null },
       ],
       next_cursor: 'opaque+/=', has_more: true,
@@ -47,8 +47,8 @@ describe('MemoryAPI HTTP contract', () => {
     expect(fetch.mock.calls[0][0]).toBe('https://product.example/agents/memory/search?q=launch+plan&agent_id=agent%2F1&cursor=prev%2B%2F%3D&limit=5');
     expect(page).toEqual({
       items: [
-        { id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.9, title: 'Release', summaryText: 'Decided to ship.', summaryKeywords: ['release', 'ship'] },
-        { id: 'chunk-2', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, title: null, summaryText: null, summaryKeywords: [] },
+        { id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.9, agentId: 'agent-1', title: 'Release', summaryText: 'Decided to ship.', summaryKeywords: ['release', 'ship'] },
+        { id: 'chunk-2', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, agentId: null, title: null, summaryText: null, summaryKeywords: [] },
       ],
       nextCursor: 'opaque+/=', hasMore: true,
     });
@@ -57,7 +57,7 @@ describe('MemoryAPI HTTP contract', () => {
   it('tolerates a bare-array legacy response as a terminal page', async () => {
     const { api } = setup([{ ...chunk, score: 0.5 }]);
     expect(await api.search('plan')).toEqual({
-      items: [{ id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, title: null, summaryText: null, summaryKeywords: [] }],
+      items: [{ id: 'chunk-1', sessionId: 'session-1', seqStart: 1, seqEnd: 9, text: chunk.text, score: 0.5, agentId: null, title: null, summaryText: null, summaryKeywords: [] }],
       nextCursor: null, hasMore: false,
     });
   });
