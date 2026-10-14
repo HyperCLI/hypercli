@@ -151,23 +151,23 @@ Plain hosted ACP launches use:
 | Working directory | `/home/node` |
 | Sync owner | UID/GID `1000` |
 
-Unattended Slack/routine callers select advertised native modes before prompting:
-Claude `bypassPermissions`, Codex `agent-full-access`, or OpenCode
-`hypercli-unattended`. Missing choices and setter refusals block submission;
-there is no host/client automatic permission-response fallback. These are session
-settings, not temporary turn overrides. Claude's classifier-based `auto` mode is
-distinct from bypass, and Codex full access also changes sandbox policy.
+Slack/routine callers keep native runtime modes and sandbox settings unchanged.
+For each standard permission request belonging to their active invocation they
+select the offered `allow_once` option by kind and return its opaque option ID.
+Missing `allow_once` is cancelled and reported as blocked; foreign, cancelled,
+or stale invocations are never approved. This caller response policy does not
+configure native permissions or require a runtime-specific mode advertisement.
 
 **Breaking SDK change:** the custom `buildPermissionsJson` / `build_permissions_json`
 serializers, preset tables and permission-preset types have been removed. Explicit
 retired `permissionMode` / `permission_mode` launch arguments still fail clearly;
-callers must select advertised native options or supply native runtime config.
+Runtime configuration uses advertised native options or native launch config;
+automatic approval of individual requests belongs in the caller's ACP handler.
 
-The OpenCode image adds the native `hypercli-unattended` primary agent with
-`permission: {"*":"allow"}` at startup only when that profile is absent. Existing
-profile definitions (including disabled profiles), other config fields, symlinks,
-and non-JSON user configuration are preserved. A process-runner installation must
-provide the native profile itself; callers require its actual ACP advertisement.
+OpenCode startup seeds configuration only when absent; existing files, profiles,
+symlinks and non-JSON configuration remain untouched. It does not provision an
+unattended agent profile. Previously persisted user-workspace profiles are not
+deleted or rewritten.
 
 Buzz provider launches use:
 
@@ -184,7 +184,7 @@ Buzz provider launches use:
 | Sync owner | UID/GID `1000` |
 | Runtime scopes | `agents:none`, `files:*`, `flows:*`, `models:*`, `voice:*`, `web:*`, `workspaces:*` |
 
-The Buzz provider's OpenCode lane is distinct from Slack/routine full access:
+The Buzz provider's OpenCode lane is distinct from Slack/routine caller-side approval:
 it supplies a restrictive `hypercli-buzz` primary profile through native
 `OPENCODE_CONFIG_CONTENT`, plus matching `OPENCODE_PERMISSION` rules. Global
 defaults and per-command catch-alls come first (native last-match-wins order).

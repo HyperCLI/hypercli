@@ -1,28 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
 import * as acp from '@agentclientprotocol/sdk';
 import { CodingAgentAcpClient } from '../src/acp.js';
-import { nativeUnattendedChoice } from '../src/native-permissions.js';
-
-const mode = (values: string[]): acp.SessionConfigOption => ({ id: 'mode', name: 'Native mode', category: 'mode',
-  type: 'select', currentValue: 'default', options: values.map(value => ({ value, name: value })) });
-
-describe('native unattended selection', () => {
-  it.each([['claude-code', 'bypassPermissions'], ['codex', 'agent-full-access'], ['opencode', 'hypercli-unattended']])(
-    'selects only the advertised %s full-access contract', (runtime, value) => {
-      expect(nativeUnattendedChoice(runtime, [mode(['plan', value])])).toEqual({ configId: 'mode', value });
-      expect(nativeUnattendedChoice(runtime, [mode(['auto', 'build', 'plan'])])).toBeNull();
-      expect(nativeUnattendedChoice(runtime, [])).toBeNull();
-    });
-  it('supports grouped choices without guessing from labels or categories', () => {
-    const option: acp.SessionConfigOption = { ...mode([]), type: 'select', options: [{ group: 'native', name: 'Modes',
-      options: [{ value: 'bypassPermissions', name: 'Bypass Permissions' }] }] };
-    expect(nativeUnattendedChoice('claude-code', [option])?.value).toBe('bypassPermissions');
-    expect(nativeUnattendedChoice('claude-code', [{ ...option, id: 'agent' }])).toBeNull();
-    expect(nativeUnattendedChoice('unknown', [option])).toBeNull();
-  });
-});
 
 it.each([
   ['session/list', true], ['session/resume', true], ['session/load', true],

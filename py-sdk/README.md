@@ -253,7 +253,9 @@ advertised as supported. See the
 
 All coding runtimes share one launch contract, `create_agent(runtime, ...)`;
 `runtime` selects the default image, sync includes, and harness env. Permission
-policy is native session configuration; no allow-all preset is injected.
+policy is native session configuration; no allow-all preset is injected. A
+caller's standard `session/request_permission` handler may present the offered
+choices or select `allow_once` per request without changing runtime modes.
 The accepted runtimes are `buzz-agent`, `opencode`,
 `codex`, `claude-code`, `goose`, `kimi-code`, and `pi`.
 `create_coding_agent` survives only as a deprecated alias that warns and
