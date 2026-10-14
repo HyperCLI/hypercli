@@ -84,9 +84,7 @@ export {
 // Voice API
 export {
   VoiceAPI,
-  type TTSOptions,
   type CloneOptions,
-  type DesignOptions,
   type TranscribeOptions,
   type TranscribeStreamOptions,
   type TranscriptionResult,
@@ -101,9 +99,7 @@ export {
   type VoiceAudioMetadata,
   type VoiceChunkEvent,
   type VoiceSessionOptions,
-  type SpeakOptions,
   type CloneSpeakOptions,
-  type DesignSpeakOptions,
 } from './voice-session.js';
 
 export {

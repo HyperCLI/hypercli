@@ -40,26 +40,6 @@ class VoiceAPI:
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
-    def tts(
-        self,
-        text: str,
-        *,
-        voice: str = "serena",
-        language: str = "auto",
-        response_format: str = "mp3",
-        timeout: float | None = None,
-    ) -> bytes:
-        return self._http.post_bytes(
-            "/voice/tts",
-            json={
-                "text": text,
-                "voice": voice,
-                "language": language,
-                "response_format": response_format,
-            },
-            timeout=_resolve_voice_timeout(timeout),
-        )
-
     def clone(
         self,
         text: str,
@@ -86,26 +66,6 @@ class VoiceAPI:
             timeout=_resolve_voice_timeout(timeout),
         )
 
-    def design(
-        self,
-        text: str,
-        *,
-        description: str,
-        language: str = "auto",
-        response_format: str = "mp3",
-        timeout: float | None = None,
-    ) -> bytes:
-        return self._http.post_bytes(
-            "/voice/design",
-            json={
-                "text": text,
-                "instruct": description,
-                "language": language,
-                "response_format": response_format,
-            },
-            timeout=_resolve_voice_timeout(timeout),
-        )
-
     def connect(self, *, timeout: float | None = None) -> "VoiceSession":
         """Create a streaming VoiceSession (open with 'async with' or open()).
 
@@ -121,29 +81,6 @@ class VoiceAPI:
             self._http.api_key,
             timeout=_resolve_voice_timeout(timeout),
         )
-
-    async def tts_stream(
-        self,
-        text: str,
-        *,
-        voice: str = "serena",
-        language: str = "auto",
-        response_format: str = "pcm",
-        timeout: float | None = None,
-    ) -> AsyncIterator["VoiceChunk"]:
-        """Legacy preset streaming API; prefer reference-audio clone_stream.
-
-        Defaults to PCM. Specify response_format="mp3" for MP3 file output.
-        """
-        async with self.connect(timeout=timeout) as session:
-            async for chunk in session.speak(
-                text,
-                voice=voice,
-                language=language,
-                response_format=response_format,
-                chunks=True,
-            ):
-                yield chunk
 
     async def clone_stream(
         self,
@@ -166,29 +103,6 @@ class VoiceAPI:
                 ref_audio=ref_audio,
                 language=language,
                 x_vector_only=x_vector_only,
-                response_format=response_format,
-                chunks=True,
-            ):
-                yield chunk
-
-    async def design_stream(
-        self,
-        text: str,
-        *,
-        description: str,
-        language: str = "auto",
-        response_format: str = "pcm",
-        timeout: float | None = None,
-    ) -> AsyncIterator["VoiceChunk"]:
-        """Legacy design streaming API; prefer reference-audio clone_stream.
-
-        Defaults to PCM. Specify response_format="mp3" for MP3 file output.
-        """
-        async with self.connect(timeout=timeout) as session:
-            async for chunk in session.speak_design(
-                text,
-                description=description,
-                language=language,
                 response_format=response_format,
                 chunks=True,
             ):

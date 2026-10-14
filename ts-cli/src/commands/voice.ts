@@ -1,10 +1,7 @@
 /**
  * `hyper voice` — voice capability API.
  *
- *   hyper voice tts "hello"                  one-shot TTS (POST /voice/tts)
- *   hyper voice design "hello" --description "warm narrator" design a voice over /ws/voice
  *   hyper voice clone "hello" --file ref.wav clone a voice from reference audio over /ws/voice
- *   hyper voice tts "hello" --stream         streaming TTS over /ws/voice
  *   hyper voice transcribe audio.wav         speech-to-text over /ws/voice/transcribe
  *   hyper voice transcribe audio.wav --rest  one-shot STT (POST /voice/transcribe)
  *
@@ -25,40 +22,23 @@ import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
 
 export const name = 'voice';
-export const summary = 'Text-to-speech and transcription via the voice capability API.';
+export const summary = 'Reference voice cloning and transcription via the voice capability API.';
 
 // Named so error messages cite the right subcommand; `usage` composes these
 // so a positional index can never drift away from the subcommand handler.
-const USAGE_TTS = 'hyper voice tts <text> [--out file.mp3] [--voice V] [--stream] [--json]';
-const USAGE_DESIGN =
-  'hyper voice design <text> --description DESCRIPTION [--out file.mp3] [--rest] [--json]';
 const USAGE_CLONE =
   'hyper voice clone <text> (--file audio | --url audio-url) [--out file.mp3] [--rest] [--json]';
 const USAGE_TRANSCRIBE =
   'hyper voice transcribe <audio-file> [--language en] [--out transcript.txt] [--rest] [--json]';
 
-export const usage = [USAGE_TTS, USAGE_DESIGN, USAGE_CLONE, USAGE_TRANSCRIBE];
+export const usage = [USAGE_CLONE, USAGE_TRANSCRIBE];
 
-const DEFAULT_VOICE = 'serena';
 const MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024;
 const REFERENCE_AUDIO_TIMEOUT_MS = 30_000;
-
-const TTS_OPTIONS = {
-  out: { type: 'string' },
-  voice: { type: 'string' },
-  stream: { type: 'boolean', default: false },
-} as const;
 
 const CLONE_OPTIONS = {
   file: { type: 'string' },
   url: { type: 'string' },
-  out: { type: 'string' },
-  rest: { type: 'boolean', default: false },
-} as const;
-
-const DESIGN_OPTIONS = {
-  description: { type: 'string' },
-  desc: { type: 'string', short: 'd' },
   out: { type: 'string' },
   rest: { type: 'boolean', default: false },
 } as const;
@@ -254,46 +234,6 @@ async function readReferenceFile(file: string): Promise<Buffer> {
   return bytes;
 }
 
-// ---------- tts (remote voice API) ----------
-
-async function tts(ctx: CommandContext, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args, TTS_OPTIONS);
-  if (parsed.help) {
-    process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
-    return;
-  }
-
-  const [text, ...rest] = parsed.positionals;
-  if (!text || rest.length > 0) {
-    throw new UsageError(`usage: ${USAGE_TTS}`);
-  }
-  const voice = typeof parsed.values.voice === 'string' ? parsed.values.voice : DEFAULT_VOICE;
-  const stream = parsed.values.stream === true;
-  const outArg = typeof parsed.values.out === 'string' ? parsed.values.out : undefined;
-  const file = resolve(outArg ?? `tts-${Date.now()}.mp3`);
-
-  const client = await ctx.client();
-  let bytes: Uint8Array;
-  try {
-    bytes = stream
-      ? await collectStream(client.voice.ttsStream({ text, voice, responseFormat: 'mp3' }))
-      : await client.voice.tts({ text, voice });
-  } catch (err) {
-    throw new CliError(`tts failed: ${describeError(err)}`);
-  }
-
-  await writeFile(file, bytes);
-  ctx.output.info(`saved ${file} (${bytes.byteLength} bytes)`);
-
-  const record: Record<string, unknown> = { out: file, voice, bytes: bytes.byteLength };
-  const data =
-    ctx.format === 'json' ? { ...record, text, stream, format: 'mp3' } : record;
-  ctx.output.result(data, {
-    columns: ['OUT', 'VOICE', 'BYTES'],
-    rows: [[file, voice, String(bytes.byteLength)]],
-  });
-}
-
 async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, CLONE_OPTIONS);
   if (parsed.help) {
@@ -340,55 +280,6 @@ async function clone(ctx: CommandContext, args: string[]): Promise<void> {
   ctx.output.result(ctx.format === 'json' ? { ...record, text, stream, format: 'mp3' } : record, {
     columns: ['OUT', 'SOURCE', 'BYTES'],
     rows: [[outFile, source, String(bytes.byteLength)]],
-  });
-}
-
-async function design(ctx: CommandContext, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args, DESIGN_OPTIONS);
-  if (parsed.help) {
-    process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
-    return;
-  }
-
-  const [text, ...rest] = parsed.positionals;
-  if (!text || rest.length > 0) {
-    throw new UsageError(`usage: ${USAGE_DESIGN}`);
-  }
-  const description = (
-    typeof parsed.values.description === 'string' ? parsed.values.description :
-      typeof parsed.values.desc === 'string' ? parsed.values.desc : ''
-  ).trim();
-  if (!description) {
-    throw new UsageError('voice design requires --description');
-  }
-  const outArg = typeof parsed.values.out === 'string' ? parsed.values.out : undefined;
-  if (!outArg && ctx.format === 'json') {
-    throw new UsageError('voice design --json requires --out');
-  }
-
-  const client = await ctx.client();
-  const stream = parsed.values.rest !== true;
-  let bytes: Uint8Array;
-  try {
-    bytes = stream
-      ? await collectStream(client.voice.designStream({ text, description, responseFormat: 'mp3' }))
-      : await client.voice.design({ text, description });
-  } catch (err) {
-    throw new CliError(`design failed: ${describeError(err)}`);
-  }
-
-  if (!outArg) {
-    process.stdout.write(Buffer.from(bytes));
-    return;
-  }
-
-  const outFile = resolve(outArg);
-  await writeFile(outFile, bytes);
-  ctx.output.info(`saved ${outFile} (${bytes.byteLength} bytes)`);
-  const record = { out: outFile, description, bytes: bytes.byteLength };
-  ctx.output.result(ctx.format === 'json' ? { ...record, text, stream, format: 'mp3' } : record, {
-    columns: ['OUT', 'DESCRIPTION', 'BYTES'],
-    rows: [[outFile, description, String(bytes.byteLength)]],
   });
 }
 
@@ -459,14 +350,10 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   // Hand the subcommand its own argv (original args minus the sub token)
   // so flags survive strict re-parsing inside the subcommand. Splice at the
   // index of the first positional TOKEN — never indexOf the word, which can
-  // hit an earlier flag value (e.g. `voice --voice tts tts "hello"`).
+  // hit an earlier flag value.
   const subArgs = [...args];
   subArgs.splice(pre.subIndex, 1);
   switch (sub) {
-    case 'tts':
-      return tts(ctx, subArgs);
-    case 'design':
-      return design(ctx, subArgs);
     case 'clone':
       return clone(ctx, subArgs);
     case 'transcribe':
@@ -492,12 +379,8 @@ function parseUniversalGroup(args: string[]): {
       out: { type: 'string' },
       file: { type: 'string' },
       url: { type: 'string' },
-      voice: { type: 'string' },
-      description: { type: 'string' },
-      desc: { type: 'string', short: 'd' },
       language: { type: 'string' },
       rest: { type: 'boolean' },
-      stream: { type: 'boolean' },
     },
     strict: false,
     allowPositionals: true,

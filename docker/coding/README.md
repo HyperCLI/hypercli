@@ -158,6 +158,11 @@ there is no host/client automatic permission-response fallback. These are sessio
 settings, not temporary turn overrides. Claude's classifier-based `auto` mode is
 distinct from bypass, and Codex full access also changes sandbox policy.
 
+**Breaking SDK change:** the custom `buildPermissionsJson` / `build_permissions_json`
+serializers, preset tables and permission-preset types have been removed. Explicit
+retired `permissionMode` / `permission_mode` launch arguments still fail clearly;
+callers must select advertised native options or supply native runtime config.
+
 The OpenCode image adds the native `hypercli-unattended` primary agent with
 `permission: {"*":"allow"}` at startup only when that profile is absent. Existing
 profile definitions (including disabled profiles), other config fields, symlinks,

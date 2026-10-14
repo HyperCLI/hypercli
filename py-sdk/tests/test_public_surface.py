@@ -167,7 +167,6 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "build_openclaw_desktop_route",
         "build_openclaw_trusted_proxies_env",
         "build_openclaw_workspaces_sync_env",
-        "build_permissions_json",
         "configure",
         "expand_subgraphs",
         "fetch_logs",

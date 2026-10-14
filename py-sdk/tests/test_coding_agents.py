@@ -30,7 +30,6 @@ from hypercli.agents import (
     ExecResult,
     RuntimeAuthClient,
     RuntimeAuthMethod,
-    build_permissions_json,
 )
 
 
@@ -504,17 +503,17 @@ class TestCreateAgentCodingRuntimes:
             deployments.create_agent("opencode", permission_mode="plan")
         assert posts == []
 
-    def test_caller_permission_env_wins_over_preset(self, monkeypatch):
+    def test_caller_native_permission_env_is_preserved(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "opencode")
 
         deployments.create_agent(
             "opencode",
-            env={"HYPER_ACP_PERMISSIONS": "custom", "HYPER_ACP_PERMISSION_MODE": "custom-mode"},
+            env={"OPENCODE_PERMISSION": '{"bash":"ask"}'},
         )
 
         env = posts[0][1]["env"]
-        assert env["HYPER_ACP_PERMISSIONS"] == "custom"
-        assert env["HYPER_ACP_PERMISSION_MODE"] == "custom-mode"
+        assert env["OPENCODE_PERMISSION"] == '{"bash":"ask"}'
+        assert "HYPER_ACP_PERMISSIONS" not in env
 
     @pytest.mark.parametrize("key", ["BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"])
     def test_private_key_env_is_promoted_to_secrets(self, monkeypatch, key):
@@ -818,31 +817,3 @@ class TestFlatAgentSurface:
         with pytest.raises(TypeError, match="unexpected keyword argument 'slack'"):
             deployments.create_agent("openclaw_acp", slack=True)
         assert posts == []
-
-
-class TestBuildPermissionsJson:
-    def test_serialized_bytes_match_ts_preset_order(self):
-        assert build_permissions_json("default") == '{"*":"allow"}'
-        assert build_permissions_json("accept-edits") == (
-            '{"read":"allow","glob":"allow","grep":"allow","list":"allow",'
-            '"edit":"allow","todowrite":"allow","*":"ask"}'
-        )
-
-    def test_buzz_hosted_preset_is_byte_pinned(self):
-        assert build_permissions_json("buzz-hosted") == (
-            '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",'
-            '"todowrite":"allow","question":"allow","edit":"allow","doom_loop":"deny",'
-            '"external_directory":"allow","bash":{"hyper *":"allow","git *":"allow","*":"deny"},'
-            '"webfetch":"allow","websearch":"allow","skill":"allow","task":"allow","*":"deny"}'
-        )
-
-    def test_unknown_mode_falls_back_to_default(self):
-        assert build_permissions_json("unknown") == '{"*":"allow"}'
-
-    def test_overrides_layer_on_preset(self):
-        assert build_permissions_json("plan", {"webfetch": "allow"}) == (
-            '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",'
-            '"question":"allow","edit":"deny","bash":"deny","task":"deny",'
-            '"external_directory":"deny","skill":"deny","webfetch":"allow","websearch":"deny",'
-            '"*":"deny"}'
-        )

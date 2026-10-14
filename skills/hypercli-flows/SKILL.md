@@ -38,7 +38,7 @@ hyper flow create <type> --help
 
 Legacy types `speaking-video`, `audio-to-text`, and `text-to-speech` remain
 accepted for existing workflows. For speech generation prefer
-`hyper voice tts` from the `hypercli-voice` skill over the legacy
+`hyper voice clone` with reference audio from the `hypercli-voice` skill over the legacy
 `text-to-speech` flow type.
 
 ## Submit with parameters

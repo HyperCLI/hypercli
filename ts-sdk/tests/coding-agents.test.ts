@@ -22,7 +22,6 @@ import {
   DEFAULT_PI_IMAGE,
   DEFAULT_PI_ENV,
   DEFAULT_BUZZ_RUST_LOG,
-  buildPermissionsJson,
   buildBuzzLaunchConfig,
   Deployments,
 } from '../src/agents.js';
@@ -167,7 +166,7 @@ describe('coding agents', () => {
     }
   });
 
-  it('allows callers to choose the hosted coding permission mode', async () => {
+  it('preserves explicit native OpenCode permission configuration', async () => {
     const post = vi.fn().mockResolvedValue(response('opencode'));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -175,35 +174,10 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createAgent('opencode', { env: { HYPER_ACP_PERMISSION_MODE: 'bypass-permissions' } });
+    await deployments.createAgent('opencode', { env: { OPENCODE_PERMISSION: '{"bash":"ask"}' } });
 
-    // Legacy mode var passes through verbatim during the transition.
-    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('bypass-permissions');
+    expect(post.mock.calls[0][1].env.OPENCODE_PERMISSION).toBe('{"bash":"ask"}');
     expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBeUndefined();
-  });
-
-  it.each([
-    'default',
-    'auto',
-    'bypass-permissions',
-  ] as const)('buildPermissionsJson(%s) is allow-all', (mode) => {
-    expect(buildPermissionsJson(mode)).toBe('{"*":"allow"}');
-  });
-
-  it('buildPermissionsJson(plan) emits the read-only preset with denies', () => {
-    expect(buildPermissionsJson('plan')).toBe(
-      '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",' +
-      '"question":"allow","edit":"deny","bash":"deny","task":"deny",' +
-      '"external_directory":"deny","skill":"deny","webfetch":"deny","websearch":"deny","*":"deny"}',
-    );
-  });
-
-  it('buildPermissionsJson merges caller overrides over the preset', () => {
-    expect(buildPermissionsJson('plan', { bash: 'allow' })).toBe(
-      '{"read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow",' +
-      '"question":"allow","edit":"deny","bash":"allow","task":"deny",' +
-      '"external_directory":"deny","skill":"deny","webfetch":"deny","websearch":"deny","*":"deny"}',
-    );
   });
 
   it('rejects retired launch permission presets before creating a deployment', async () => {
@@ -218,7 +192,7 @@ describe('coding agents', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('caller-supplied HYPER_ACP_PERMISSIONS env wins over the preset seed', async () => {
+  it('preserves explicit native Codex initial mode configuration', async () => {
     const post = vi.fn().mockResolvedValue(response('codex'));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -226,9 +200,9 @@ describe('coding agents', () => {
       'https://api.test.hypercli.com/agents',
     );
 
-    await deployments.createAgent('codex', { env: { HYPER_ACP_PERMISSIONS: '{"*":"ask"}' } });
+    await deployments.createAgent('codex', { env: { INITIAL_AGENT_MODE: 'read-only' } });
 
-    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSIONS).toBe('{"*":"ask"}');
+    expect(post.mock.calls[0][1].env.INITIAL_AGENT_MODE).toBe('read-only');
   });
 
   it('strips caller-supplied permission env keys from Buzz launches', async () => {

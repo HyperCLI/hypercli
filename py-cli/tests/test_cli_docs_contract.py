@@ -75,9 +75,7 @@ EXACT_SKILL_OWNERS = {
     ("agent", "shell"): "hypercli-agents",
     ("agent", "config"): "hypercli-auth",
     ("agent", "voice", "transcribe"): "hypercli-voice",
-    ("agent", "voice", "tts"): "hypercli-voice",
     ("agent", "voice", "clone"): "hypercli-voice",
-    ("agent", "voice", "design"): "hypercli-voice",
     ("agent", "embed", "text"): "hypercli",
     ("agent", "embed", "test"): "hypercli",
 }
@@ -103,7 +101,7 @@ EXPECTED_SKILL_LEAF_COUNTS = {
     "hypercli-compute": 14,
     "hypercli-flows": 14,
     "hypercli-knowledge": 23,
-    "hypercli-voice": 8,
+    "hypercli-voice": 4,
 }
 
 
@@ -199,7 +197,7 @@ def test_every_cli_leaf_has_exactly_one_skill_owner_or_policy_exclusion():
             continue
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
     assert owner_counts == EXPECTED_SKILL_LEAF_COUNTS
-    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 124
+    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 120
 
     skill_names = {
         path.parent.name for path in (REPO_ROOT / "skills").glob("*/SKILL.md")

@@ -14,8 +14,6 @@ export {
   VoiceSession,
   VoiceStreamError,
   type CloneSpeakOptions,
-  type DesignSpeakOptions,
-  type SpeakOptions,
   type VoiceAudioMetadata,
   type VoiceChunkEvent,
   type VoiceSessionOptions,
@@ -33,27 +31,13 @@ export {
   type VoiceTranscriptionSessionState,
 } from './voice-transcription-session.js';
 
-export interface TTSOptions {
-  text: string;
-  voice?: string;
-  language?: string;
-  responseFormat?: string;
-  signal?: AbortSignal;
-}
-
 export interface CloneOptions {
   text: string;
   refAudio: Uint8Array | ArrayBuffer;
   language?: string;
   xVectorOnly?: boolean;
   responseFormat?: string;
-}
-
-export interface DesignOptions {
-  text: string;
-  description: string;
-  language?: string;
-  responseFormat?: string;
+  signal?: AbortSignal;
 }
 
 export interface TranscribeOptions {
@@ -99,15 +83,6 @@ function encodeBase64(bytes: Uint8Array | ArrayBuffer): string {
 export class VoiceAPI {
   constructor(private http: HTTPClient) {}
 
-  async tts(options: TTSOptions): Promise<Uint8Array> {
-    return this.http.postBytes('/voice/tts', {
-      text: options.text,
-      voice: options.voice ?? 'serena',
-      language: options.language ?? 'auto',
-      response_format: options.responseFormat ?? 'mp3',
-    }, options.signal ? { signal: options.signal } : {});
-  }
-
   async clone(options: CloneOptions): Promise<Uint8Array> {
     return this.http.postBytes('/voice/clone', {
       text: options.text,
@@ -115,16 +90,7 @@ export class VoiceAPI {
       language: options.language ?? 'auto',
       x_vector_only: options.xVectorOnly ?? true,
       response_format: options.responseFormat ?? 'mp3',
-    });
-  }
-
-  async design(options: DesignOptions): Promise<Uint8Array> {
-    return this.http.postBytes('/voice/design', {
-      text: options.text,
-      instruct: options.description,
-      language: options.language ?? 'auto',
-      response_format: options.responseFormat ?? 'mp3',
-    });
+    }, options.signal ? { signal: options.signal } : {});
   }
 
   async transcribe(options: TranscribeOptions): Promise<TranscriptionResult> {
@@ -202,27 +168,6 @@ export class VoiceAPI {
   }
 
   /**
-   * One-shot streaming TTS: opens a session, speaks, closes.
-   * Defaults to PCM; request responseFormat: 'mp3' explicitly for MP3 files.
-   * @deprecated Legacy compatibility API. Use reference-audio cloneStream for new speech integrations.
-   */
-  async *ttsStream(options: TTSOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
-    const session = this.connect({ timeoutMs: options.timeoutMs });
-    await session.open();
-    try {
-      yield* session.speak({
-        text: options.text,
-        voice: options.voice,
-        language: options.language,
-        format: options.responseFormat,
-        chunks: true,
-      });
-    } finally {
-      session.close();
-    }
-  }
-
-  /**
    * One-shot streaming voice clone: opens a session, speaks, closes.
    * Defaults to PCM with automatic incremental negotiation. Older servers may
    * return known-total chunks. Request an encoded responseFormat for file output;
@@ -245,24 +190,4 @@ export class VoiceAPI {
     }
   }
 
-  /**
-   * One-shot streaming voice design: opens a session, speaks, closes.
-   * Defaults to PCM; request responseFormat: 'mp3' explicitly for MP3 files.
-   * @deprecated Legacy compatibility API. Use reference-audio cloneStream for new speech integrations.
-   */
-  async *designStream(options: DesignOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
-    const session = this.connect({ timeoutMs: options.timeoutMs });
-    await session.open();
-    try {
-      yield* session.speakDesign({
-        text: options.text,
-        description: options.description,
-        language: options.language,
-        format: options.responseFormat,
-        chunks: true,
-      });
-    } finally {
-      session.close();
-    }
-  }
 }

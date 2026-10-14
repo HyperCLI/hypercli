@@ -45,7 +45,7 @@ describe('VoiceSession', () => {
     received = [];
   });
 
-  it.each(['speak', 'speakClone', 'speakDesign'] as const)('%s assembles default PCM without incremental mode when chunks=false', async method => {
+  it('speakClone assembles default PCM without incremental mode when chunks=false', async () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;
       sendAudio(ws, String(message.request_id), 0, 1, 'assembled');
@@ -54,7 +54,7 @@ describe('VoiceSession', () => {
     const session = await new VoiceSession({ wsUrl: url, credential: 'offline' }).open();
     try {
       const chunks = [];
-      for await (const chunk of session[method]({ text: 'test', refAudio: new Uint8Array([1]), description: 'narrator', chunks: false })) chunks.push(chunk);
+      for await (const chunk of session.speakClone({ text: 'test', refAudio: new Uint8Array([1]), chunks: false })) chunks.push(chunk);
       expect(received[0]).toMatchObject({ format: 'pcm', chunks: false });
       expect(received[0].stream_mode).toBeUndefined();
       expect(chunks).toHaveLength(1);
@@ -78,7 +78,7 @@ describe('VoiceSession', () => {
     });
     const session = await new VoiceSession({ wsUrl: url, credential: 'offline' }).open();
     try {
-      const stream = session.speak({ text: 'test', format: 'pcm', streamMode: 'incremental_pcm' });
+      const stream = session.speakClone({ text: 'test', refAudio: new Uint8Array([1]), format: 'pcm', streamMode: 'incremental_pcm' });
       if (mode === 'unnegotiated') {
         await expect(stream.next()).rejects.toThrow('not negotiated');
         return;
@@ -178,11 +178,11 @@ describe('VoiceSession', () => {
     const options = { text: 'test', format: 'pcm',
       ...(mode === 'incremental' ? { streamMode: 'incremental_pcm' as const } : {}) };
     try {
-      const old = session.speak({ ...options, requestId: 'old' });
+      const old = session.speakClone({ ...options, refAudio: new Uint8Array([1]), requestId: 'old' });
       expect((await old.next()).value?.audio.length).toBe(2);
       await expect(old.next()).rejects.toMatchObject({ code: '502', detail: 'provider failed after audio' });
       expect(session.state).toBe('idle');
-      const next = session.speak({ ...options, requestId: 'new' });
+      const next = session.speakClone({ ...options, refAudio: new Uint8Array([1]), requestId: 'new' });
       expect((await next.next()).value?.requestId).toBe('new');
       expect((await next.next()).done).toBe(true);
       expect(received.filter(message => message.type === 'cancel')).toHaveLength(0);
@@ -199,11 +199,11 @@ describe('VoiceSession', () => {
     }, false);
     const session = await new VoiceSession({ wsUrl: url, credential: 'offline', timeoutMs: 100 }).open();
     try {
-      const stream = session.speak({ text: 'test' });
+      const stream = session.speakClone({ text: 'test', refAudio: new Uint8Array([1]) });
       await stream.next();
       await expect(stream.return()).rejects.toMatchObject({ code: mode === 'timeout' ? 'timeout' : 'protocol' });
       expect(session.state).toBe('closed');
-      await expect(session.speak({ text: 'next' }).next()).rejects.toThrow('not connected');
+      await expect(session.speakClone({ text: 'next', refAudio: new Uint8Array([1]) }).next()).rejects.toThrow('not connected');
     } finally { session.close(); }
   });
 
@@ -222,7 +222,7 @@ describe('VoiceSession', () => {
     expect(session.state).toBe('idle');
 
     const chunks = [];
-    for await (const chunk of session.speak({ text: 'Hello. World.', voice: 'serena' })) {
+    for await (const chunk of session.speakClone({ text: 'Hello. World.', refAudio: new Uint8Array([1]) })) {
       expect(session.state).toBe('receiving');
       chunks.push(chunk);
     }
@@ -232,7 +232,7 @@ describe('VoiceSession', () => {
     expect(chunks.map((c) => Buffer.from(c.audio).toString())).toEqual(['first', 'second']);
     expect(chunks.map((c) => c.index)).toEqual([0, 1]);
     expect(chunks[1].final).toBe(true);
-    expect(received[0]).toMatchObject({ type: 'speak', text: 'Hello. World.', voice: 'serena', chunks: true });
+    expect(received[0]).toMatchObject({ type: 'speak', op: 'clone', text: 'Hello. World.', ref_audio_base64: 'AQ==', chunks: true });
   });
 
   it('sends the credential as both ?token= and an Authorization header in Node', async () => {
@@ -270,7 +270,7 @@ describe('VoiceSession', () => {
     await session.open();
 
     const iterate = async () => {
-      for await (const _chunk of session.speak({ text: 'hello', voice: 'nope' })) {
+      for await (const _chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })) {
         // no-op
       }
     };
@@ -291,7 +291,7 @@ describe('VoiceSession', () => {
 
     try {
       const iterate = async () => {
-        for await (const _chunk of session.speak({ text: 'hello' })) {
+        for await (const _chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })) {
           // no-op
         }
       };
@@ -314,7 +314,7 @@ describe('VoiceSession', () => {
     await session.open();
 
     const iterate = async () => {
-      for await (const _chunk of session.speak({ text: 'hello' })) {
+      for await (const _chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })) {
         // no-op
       }
     };
@@ -334,7 +334,7 @@ describe('VoiceSession', () => {
     await session.open();
 
     const iterate = async () => {
-      for await (const _chunk of session.speak({ text: 'hello' })) {
+      for await (const _chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })) {
         // no-op
       }
     };
@@ -353,11 +353,11 @@ describe('VoiceSession', () => {
     const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
     await session.open();
 
-    const iterator = session.speak({ text: 'hello' })[Symbol.asyncIterator]();
+    const iterator = session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })[Symbol.asyncIterator]();
     await iterator.next();
     expect(session.state).toBe('receiving');
 
-    const second = session.speak({ text: 'again' })[Symbol.asyncIterator]();
+    const second = session.speakClone({ text: 'again', refAudio: new Uint8Array([1]) })[Symbol.asyncIterator]();
     await expect(second.next()).rejects.toThrow(/one request at a time/);
 
     await iterator.return?.();
@@ -382,7 +382,7 @@ describe('VoiceSession', () => {
     const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
     await session.open();
 
-    for await (const _chunk of session.speak({ text: 'hello' })) {
+    for await (const _chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })) {
       break;
     }
     await cancelled;
@@ -394,7 +394,7 @@ describe('VoiceSession', () => {
 
   it('requires open() before speak', async () => {
     const session = new VoiceSession({ wsUrl: 'ws://127.0.0.1:1', credential: 'hyper_api_test' });
-    const iterator = session.speak({ text: 'hello' })[Symbol.asyncIterator]();
+    const iterator = session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]) })[Symbol.asyncIterator]();
     await expect(iterator.next()).rejects.toThrow(/not connected/);
   });
 
@@ -412,7 +412,7 @@ describe('VoiceSession', () => {
     await session.open();
 
     const chunks = [];
-    for await (const chunk of session.speak({ text: 'hello', chunks: false })) {
+    for await (const chunk of session.speakClone({ text: 'hello', refAudio: new Uint8Array([1]), chunks: false })) {
       chunks.push(chunk);
     }
     session.close();
@@ -451,42 +451,4 @@ describe('VoiceSession', () => {
     expect(received[0]).not.toHaveProperty('voice');
   });
 
-  it('speakDesign sends op=design with instruct', async () => {
-    await startServer((ws, message) => {
-      if (message.type !== 'speak') return;
-      const rid = String(message.request_id);
-      sendAudio(ws, rid, 0, 1, 'designed-audio');
-      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
-    });
-
-    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
-    await session.open();
-
-    const chunks = [];
-    for await (const chunk of session.speakDesign({ text: 'design me', description: 'a warm narrator' })) {
-      chunks.push(chunk);
-    }
-    session.close();
-
-    expect(Buffer.from(chunks[0].audio).toString()).toBe('designed-audio');
-    expect(received[0]).toMatchObject({ type: 'speak', op: 'design', instruct: 'a warm narrator' });
-  });
-
-  it('speak sends op=tts', async () => {
-    await startServer((ws, message) => {
-      if (message.type !== 'speak') return;
-      const rid = String(message.request_id);
-      sendAudio(ws, rid, 0, 1, 'tts-audio');
-      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
-    });
-
-    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
-    await session.open();
-    for await (const _chunk of session.speak({ text: 'hi', voice: 'serena' })) {
-      // consume
-    }
-    session.close();
-
-    expect(received[0]).toMatchObject({ type: 'speak', op: 'tts', voice: 'serena' });
-  });
 });

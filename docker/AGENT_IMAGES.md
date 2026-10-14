@@ -228,9 +228,9 @@ config.
 ## Security boundary
 
 Coding images intentionally grant passwordless sudo to the `node` user. Hosted
-ACP permission behavior is controlled by `HYPER_ACP_PERMISSION_MODE`;
-`default` preserves runtime permission handling, while `auto` or
-`bypass-permissions` approves inside the pod. The effective boundary is
+ACP permission behavior is controlled by native runtime configuration and
+advertised session choices. Hyper-acp forwards permission callbacks unchanged;
+it does not auto-approve. The effective boundary is
 therefore the per-agent namespace, filesystem/persistence scope, resource
 limits, and scoped runtime credentials. The current per-agent NetworkPolicy
 restricts ingress but does not restrict egress.

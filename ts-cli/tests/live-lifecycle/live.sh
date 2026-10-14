@@ -609,38 +609,34 @@ case "${GROUP}/${SUB}" in
     assert_fail 1 "refusing to delete" -- files delete "${NOID}"
     ;;
 
-  voice/tts)
-    step "voice tts (usage negatives only; real synth bills TTS)"
-    assert_fail 2 "usage: hyper voice tts" -- voice tts
-    assert_fail 2 "usage: hyper voice tts" -- voice tts one two
+  voice/clone|voice/transcribe)
+    step "voice clone -> transcribe (checked reference, required live round trip)"
+    assert_fail 2 "usage: hyper voice clone" -- voice clone
+    assert_fail 2 "usage: hyper voice clone" -- voice clone one two
     assert_fail 2 "unknown voice command 'bogus'" -- voice bogus
-    ;;
-
-  voice/transcribe)
-    step "voice transcribe (live TTS audio -> REST STT)"
+    : "${HYPERCLI_VOICE_REFERENCE_PATH:?Set the checked reference speech fixture path}"
+    test -s "${HYPERCLI_VOICE_REFERENCE_PATH}"
+    VOICE_SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/hypercli-voice-XXXXXXXX")"
+    trap 'rm -rf -- "${VOICE_SCRATCH}"' EXIT
     VOICE_TEXT="Hey this is hyper voice"
-    VOICE_AUDIO="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-XXXXXX.mp3")"
-    VOICE_TTS_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-tts-XXXXXX.json")"
-    VOICE_TRANSCRIBE_JSON="$(mktemp "${TMPDIR:-/tmp}/hypercli-voice-transcribe-XXXXXX.json")"
-    "${CLI[@]}" voice tts "${VOICE_TEXT}" --out "${VOICE_AUDIO}" --json > "${VOICE_TTS_JSON}"
+    VOICE_AUDIO="${VOICE_SCRATCH}/clone.mp3"
+    VOICE_CLONE_JSON="${VOICE_SCRATCH}/clone.json"
+    VOICE_TRANSCRIBE_JSON="${VOICE_SCRATCH}/transcribe.json"
+    clone_args=(voice clone "${VOICE_TEXT}" --file "${HYPERCLI_VOICE_REFERENCE_PATH}" --out "${VOICE_AUDIO}" --json)
+    transcribe_args=(voice transcribe "${VOICE_AUDIO}" --language en --json)
+    if [[ "${SUB}" == "transcribe" ]]; then clone_args+=(--rest); else transcribe_args+=(--rest); fi
+    "${CLI[@]}" "${clone_args[@]}" > "${VOICE_CLONE_JSON}"
     node -e '
       const fs = require("fs");
       const record = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
       const audio = process.argv[2];
-      if (record.out !== audio) throw new Error(`tts out mismatch: ${record.out} !== ${audio}`);
-      if (!Number.isInteger(record.bytes) || record.bytes <= 0) throw new Error(`tts bytes invalid: ${record.bytes}`);
-      if (fs.statSync(audio).size <= 0) throw new Error("tts audio file is empty");
-      console.log(`tts json ok: ${record.bytes} bytes`);
-    ' "${VOICE_TTS_JSON}" "${VOICE_AUDIO}"
+      if (record.out !== audio) throw new Error(`clone out mismatch: ${record.out} !== ${audio}`);
+      if (!Number.isInteger(record.bytes) || record.bytes <= 0) throw new Error(`clone bytes invalid: ${record.bytes}`);
+      if (fs.statSync(audio).size !== record.bytes) throw new Error("clone audio byte count mismatch");
+      console.log(`clone json ok: ${record.bytes} bytes`);
+    ' "${VOICE_CLONE_JSON}" "${VOICE_AUDIO}"
 
-    if ! "${CLI[@]}" voice transcribe "${VOICE_AUDIO}" --rest --language en --json > "${VOICE_TRANSCRIBE_JSON}" 2>/tmp/hypercli-voice-transcribe.err; then
-      if grep -qF "STT worker is not configured" /tmp/hypercli-voice-transcribe.err; then
-        echo "SKIP voice/transcribe: dev STT worker is not configured" >&2
-        exit 0
-      fi
-      cat /tmp/hypercli-voice-transcribe.err >&2
-      exit 1
-    fi
+    "${CLI[@]}" "${transcribe_args[@]}" > "${VOICE_TRANSCRIBE_JSON}"
     node -e '
       const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       if (!j || typeof j.text !== "string" || j.text.length === 0) throw new Error("transcript text missing");

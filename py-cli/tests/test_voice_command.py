@@ -82,7 +82,7 @@ def test_agent_voice_transcribe_command_is_registered():
     assert "transcribe" in result.stdout
 
 
-def test_voice_tts_forwards_timeout(monkeypatch, tmp_path):
+def test_voice_clone_forwards_timeout(monkeypatch, tmp_path):
     import hypercli_cli.voice as voice
 
     monkeypatch.setenv("HYPER_API_KEY", "hyper_api_test")
@@ -97,13 +97,18 @@ def test_voice_tts_forwards_timeout(monkeypatch, tmp_path):
 
     monkeypatch.setattr(voice, "_post_voice", _fake_post_voice)
 
-    output = tmp_path / "tts.wav"
+    output = tmp_path / "clone.wav"
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"reference")
     result = runner.invoke(
         app,
         [
             "voice",
-            "tts",
+            "clone",
             "hello",
+            "--file",
+            str(reference),
+            "--rest",
             "--format",
             "wav",
             "--output",
@@ -114,8 +119,15 @@ def test_voice_tts_forwards_timeout(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0, result.stdout
-    assert captured["endpoint"] == "tts"
+    assert captured["endpoint"] == "clone"
     assert captured["kwargs"]["timeout"] == 720.0
+
+
+def test_only_clone_and_transcription_commands_remain():
+    for command in ("tts", "design"):
+        result = runner.invoke(app, ["voice", command, "hello"])
+        assert result.exit_code != 0
+        assert f"No such command '{command}'" in result.output
 
 
 def test_voice_clone_accepts_file_alias(monkeypatch, tmp_path):

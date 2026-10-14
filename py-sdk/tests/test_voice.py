@@ -15,19 +15,20 @@ class DummyVoiceHTTP:
         return b"audio-bytes"
 
 
-def test_voice_tts_posts_to_agents_voice_prefix():
+def test_voice_clone_posts_to_agents_voice_prefix():
     http = DummyVoiceHTTP()
     voice = VoiceAPI(http)
 
-    audio = voice.tts("hello", voice="serena", language="english", response_format="wav")
+    audio = voice.clone("hello", ref_audio=b"ref", language="english", response_format="wav")
 
     assert audio == b"audio-bytes"
     assert http.calls == [
         (
-            "/voice/tts",
+            "/voice/clone",
             {
                 "text": "hello",
-                "voice": "serena",
+                "ref_audio_base64": "cmVm",
+                "x_vector_only": True,
                 "language": "english",
                 "response_format": "wav",
             },
@@ -50,16 +51,17 @@ def test_hypercli_voice_uses_derived_agents_base(monkeypatch):
     monkeypatch.setattr("hypercli.http.request_with_retry", fake_request)
 
     client = HyperCLI(api_key="hyper_api_test", api_url="https://api.dev.hypercli.com")
-    audio = client.voice.tts("hello")
+    audio = client.voice.clone("hello", ref_audio=b"ref")
 
     assert audio == b"audio-bytes"
     assert calls == [
         (
             "post",
-            "https://api.dev.hypercli.com/agents/voice/tts",
+            "https://api.dev.hypercli.com/agents/voice/clone",
             {
                 "text": "hello",
-                "voice": "serena",
+                "ref_audio_base64": "cmVm",
+                "x_vector_only": True,
                 "language": "auto",
                 "response_format": "mp3",
             },
@@ -85,25 +87,8 @@ def test_voice_clone_base64_encodes_reference(tmp_path: Path):
     assert timeout == VoiceAPI.DEFAULT_TIMEOUT
 
 
-def test_voice_design_posts_description():
-    http = DummyVoiceHTTP()
-    voice = VoiceAPI(http)
-
-    audio = voice.design("hello", description="warm narrator", response_format="wav")
-
-    assert audio == b"audio-bytes"
-    assert http.calls == [
-        (
-            "/voice/design",
-            {
-                "text": "hello",
-                "instruct": "warm narrator",
-                "language": "auto",
-                "response_format": "wav",
-            },
-            VoiceAPI.DEFAULT_TIMEOUT,
-        )
-    ]
+def test_voice_has_only_clone_synthesis_methods():
+    assert all(not hasattr(VoiceAPI, name) for name in ("tts", "design", "tts_stream", "design_stream"))
 
 
 def test_voice_timeout_uses_env_default(monkeypatch):
@@ -112,6 +97,6 @@ def test_voice_timeout_uses_env_default(monkeypatch):
     http = DummyVoiceHTTP()
     voice = VoiceAPI(http)
 
-    voice.tts("hello")
+    voice.clone("hello", ref_audio=b"ref")
 
     assert http.calls[0][2] == 720.0

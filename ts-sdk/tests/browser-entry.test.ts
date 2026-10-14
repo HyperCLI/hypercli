@@ -125,12 +125,12 @@ describe('browser entry', () => {
       await client.user.get();
       await client.agent.plans();
       await client.workspaces.list();
-      await client.voice.tts({ text: 'offline' });
+      await client.voice.clone({ text: 'offline', refAudio: new Uint8Array([1]) });
       expect(fetchMock.mock.calls.map((call: any) => String(call[0]))).toEqual([
         'https://inference.example/prefix/api/user',
         'https://control.example/tenant/agents/plans',
         'https://control.example/tenant/workspaces',
-        'https://control.example/tenant/agents/voice/tts',
+        'https://control.example/tenant/agents/voice/clone',
       ]);
     } finally {
       globalThis.process = savedProcess;

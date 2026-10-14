@@ -25,3 +25,13 @@ def test_agents_openapi_uses_bodyless_restore():
     restore = schema["paths"]["/agents/deployments/{agent_id}/restore"]["post"]
 
     assert "requestBody" not in restore
+
+
+def test_agents_openapi_voice_surface_is_clone_and_transcribe():
+    repo_root = Path(__file__).resolve().parents[2]
+    schema = json.loads((repo_root / "docs/agents-openapi.json").read_text())
+    assert {path for path in schema["paths"] if path.startswith("/agents/voice/")} == {
+        "/agents/voice/clone", "/agents/voice/transcribe",
+    }
+    assert "post" in schema["paths"]["/agents/voice/clone"]
+    assert "post" in schema["paths"]["/agents/voice/transcribe"]

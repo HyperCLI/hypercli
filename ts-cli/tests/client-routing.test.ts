@@ -51,7 +51,7 @@ describe('CLI single-base request routing', () => {
     await client.agent.plans();
     await client.workspaces.list();
     await client.integrations.listProviders();
-    await client.voice.tts({ text: 'offline' });
+    await client.voice.clone({ text: 'offline', refAudio: new Uint8Array([1]) });
     expect(client.agent.baseUrl).toBe('https://inference.example/prefix/v1');
     expect((client.deployments as any).agentsWsUrl).toBe('wss://api.agents.dev.hypercli.com/ws');
     expect(requests).toEqual([
@@ -59,7 +59,7 @@ describe('CLI single-base request routing', () => {
       'https://api.agents.dev.hypercli.com/agents/plans',
       'https://api.agents.dev.hypercli.com/workspaces',
       'https://api.agents.dev.hypercli.com/integrations/providers',
-      'https://api.agents.dev.hypercli.com/agents/voice/tts',
+      'https://api.agents.dev.hypercli.com/agents/voice/clone',
     ]);
   });
 
@@ -99,7 +99,7 @@ describe('CLI single-base request routing', () => {
       expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${testCase.key}`);
       const path = url.slice(testCase.base.length);
       expect(url.startsWith(testCase.base)).toBe(true);
-      if (path === '/agents/voice/tts') {
+      if (path === '/agents/voice/clone') {
         return new Response(new Uint8Array([1, 2]), { headers: { 'Content-Type': 'audio/mpeg' } });
       }
       if (!(path in responses)) throw new Error(`unexpected request: ${url}`);
@@ -118,17 +118,17 @@ describe('CLI single-base request routing', () => {
     await client.routines.list();
     await client.runners.list();
     await client.integrations.listProviders();
-    await client.voice.tts({ text: 'offline routing test' });
+    await client.voice.clone({ text: 'offline routing test', refAudio: new Uint8Array([1]) });
 
     expect(requests).toEqual([
-      ...Object.keys(responses), '/agents/voice/tts',
+      ...Object.keys(responses), '/agents/voice/clone',
     ].map((path) => `${testCase.base}${path}`));
   });
 
   it.each([
     ['--dev', 'me'], ['me', '--dev'], ['me', '--prod'],
     ['agents', 'ls', '--dev'], ['flow', 'create', 'text-to-image', '--prod'],
-    ['voice', 'tts', 'hello', '--dev'], ['--prod'], ['--help', '--dev'],
+    ['voice', 'clone', 'hello', '--dev'], ['--prod'], ['--help', '--dev'],
     ['--version', '--prod'],
   ])('rejects public environment flags before any request: %j', (...args) => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../dist/index.js', import.meta.url)), ...args], {

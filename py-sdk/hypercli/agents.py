@@ -283,89 +283,6 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "pi": DEFAULT_BUZZ_PI_IMAGE,
 }
 
-PermissionMode = Literal[
-    "default",
-    "auto",
-    "bypass-permissions",
-    "accept-edits",
-    "plan",
-    "dont-ask",
-    "buzz-hosted",
-]
-
-# Canonical key order; the harness compares the serialized bytes
-# (buzz-backend-provider pins the buzz-hosted preset byte-for-byte).
-_PERMISSION_PRESETS: dict[str, dict[str, Any]] = {
-    "default": {"*": "allow"},
-    "auto": {"*": "allow"},
-    "bypass-permissions": {"*": "allow"},
-    "accept-edits": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "edit": "allow",
-        "todowrite": "allow",
-        "*": "ask",
-    },
-    "plan": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "lsp": "allow",
-        "question": "allow",
-        "edit": "deny",
-        "bash": "deny",
-        "task": "deny",
-        "external_directory": "deny",
-        "skill": "deny",
-        "webfetch": "deny",
-        "websearch": "deny",
-        "*": "deny",
-    },
-    "dont-ask": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "*": "deny",
-    },
-    "buzz-hosted": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "lsp": "allow",
-        "todowrite": "allow",
-        "question": "allow",
-        "edit": "allow",
-        "doom_loop": "deny",
-        "external_directory": "allow",
-        "bash": {
-            "hyper *": "allow",
-            "git *": "allow",
-            "*": "deny",
-        },
-        "webfetch": "allow",
-        "websearch": "allow",
-        "skill": "allow",
-        "task": "allow",
-        "*": "deny",
-    },
-}
-
-
-def build_permissions_json(mode: PermissionMode, overrides: dict | None = None) -> str:
-    """Deprecated legacy preset serializer; hyper-acp no longer consumes this.
-
-    Select an advertised native session configuration instead.
-    """
-    preset = _PERMISSION_PRESETS.get(str(mode)) or _PERMISSION_PRESETS["default"]
-    merged = {**preset, **overrides} if overrides else preset
-    return json.dumps(merged, separators=(",", ":"))
-
-
 # Public file access uses backend discovery for Reef or native runner transport. S3 is reserved
 # for archive/restore internals.
 # Retained for callers that want to address the conventional OpenClaw workspace;
@@ -2645,7 +2562,7 @@ class Deployments:
         runner: dict = None,
         dry_run: bool = False,
         workspaces_sync: dict | bool | None = None,
-        permission_mode: PermissionMode | None = None,
+        permission_mode: str | None = None,
         cron_enabled: bool | None = None,
         memory_index: dict | None = None,
         trusted_proxies: list[str] | tuple[str, ...] | None = None,

@@ -43,15 +43,13 @@ Major methods:
 
 Major methods:
 
-- `tts(text, voice="serena", language="auto", response_format="mp3", timeout=None)`
 - `clone(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3")`
-- `design(text, description=..., language="auto", response_format="mp3")`
 - `connect(timeout=None)`
-- `tts_stream(text, voice="serena", language="auto", response_format="pcm", timeout=None)` (legacy)
 - `clone_stream(text, ref_audio=..., language="auto", x_vector_only=True, response_format="pcm", timeout=None)`
-- `design_stream(text, description=..., language="auto", response_format="pcm", timeout=None)` (legacy)
 
-Prefer reference-audio cloning for new speech integrations. WebSocket generation,
+Synthesis requires reference audio. Preset/design methods and their streaming
+variants have been removed (breaking change). `VoiceSession.speak_clone` remains.
+WebSocket generation,
 including direct `VoiceSession` calls, now defaults to PCM instead of MP3.
 Chunked PCM automatically negotiates `incremental_pcm`; acknowledged streams can
 have `total=None` until the exact DONE count. A server without the acknowledgement

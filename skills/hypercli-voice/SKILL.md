@@ -1,7 +1,7 @@
 ---
 name: hypercli-voice
 description: >
-  Generate speech with HyperCLI text-to-speech or voice clone commands,
+  Generate speech with HyperCLI reference voice cloning,
   save audio with --out, and handle voice API errors and identity checks.
   Use for CLI speech generation, clone reference handling, and
   voice-capability validation.
@@ -12,20 +12,11 @@ description: >
 Load the `hypercli-auth` skill before making a remote request. It defines
 the canonical authentication and credential-safety rules. Read
 `/opt/hypercli/docs/cli/commands/voice.mdx` when exact flags matter, and
-run `hyper voice tts --help` or `hyper voice clone --help` against the installed
+run `hyper voice clone --help` against the installed
 CLI before relying on remembered options.
 
-## Text-to-speech
-
-```bash
-hyper voice tts "Hello world"
-hyper voice tts "The deployment is complete." --out deployment.mp3
-```
-
-Without `--out`, the CLI writes a default output file in the current
-directory; always pass an explicit destination path in automated work. The
-spoken text is sent to the remote service — do not submit private material
-without the user's intent.
+Synthesis requires real reference audio. Preset TTS and VoiceDesign commands
+have been removed; do not fabricate a reference or substitute a named preset.
 
 ## Voice Clone
 

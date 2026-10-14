@@ -252,12 +252,17 @@ advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
 All coding runtimes share one launch contract, `create_agent(runtime, ...)`;
-`runtime` selects the default image, sync includes, and harness env, and the
-launch env always carries `HYPER_ACP_PERMISSIONS` (built from
-`permission_mode`). The accepted runtimes are `buzz-agent`, `opencode`,
+`runtime` selects the default image, sync includes, and harness env. Permission
+policy is native session configuration; no allow-all preset is injected.
+The accepted runtimes are `buzz-agent`, `opencode`,
 `codex`, `claude-code`, `goose`, `kimi-code`, and `pi`.
 `create_coding_agent` survives only as a deprecated alias that warns and
 forwards to `create_agent`.
+
+**Breaking API change:** `build_permissions_json` and the custom permission
+preset catalog have been removed. Explicit legacy `permission_mode` launch
+arguments fail with a retirement error; use advertised ACP session config options
+or explicit native runtime launch configuration instead.
 
 ```python
 buzz_agent = client.deployments.create_agent("buzz-agent", name="buzz-agent")

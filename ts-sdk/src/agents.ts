@@ -1150,95 +1150,11 @@ export interface ManagedAgentCreateOptions extends CreateAgentOptions {
    * @deprecated Launch permission presets are rejected. Select an advertised
    * native session configuration instead.
    */
-  permissionMode?: PermissionMode;
+  permissionMode?: string;
   /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
   buzz?: BuzzLaunchConfig | null;
-}
-
-/** Permission preset names for coding-agent launch env `HYPER_ACP_PERMISSIONS`. */
-export type PermissionMode =
-  | 'default'
-  | 'auto'
-  | 'bypass-permissions'
-  | 'accept-edits'
-  | 'plan'
-  | 'dont-ask'
-  | 'buzz-hosted';
-
-export type PermissionAction = 'allow' | 'ask' | 'deny';
-export type PermissionRules = Record<string, PermissionAction | Record<string, PermissionAction>>;
-
-// Canonical key order; the harness compares the serialized bytes
-// (buzz-backend-provider pins the buzz-hosted preset byte-for-byte).
-const PERMISSION_PRESETS: Record<PermissionMode, PermissionRules> = {
-  default: { '*': 'allow' },
-  auto: { '*': 'allow' },
-  'bypass-permissions': { '*': 'allow' },
-  'accept-edits': {
-    read: 'allow',
-    glob: 'allow',
-    grep: 'allow',
-    list: 'allow',
-    edit: 'allow',
-    todowrite: 'allow',
-    '*': 'ask',
-  },
-  plan: {
-    read: 'allow',
-    glob: 'allow',
-    grep: 'allow',
-    list: 'allow',
-    lsp: 'allow',
-    question: 'allow',
-    edit: 'deny',
-    bash: 'deny',
-    task: 'deny',
-    external_directory: 'deny',
-    skill: 'deny',
-    webfetch: 'deny',
-    websearch: 'deny',
-    '*': 'deny',
-  },
-  'dont-ask': {
-    read: 'allow',
-    glob: 'allow',
-    grep: 'allow',
-    list: 'allow',
-    '*': 'deny',
-  },
-  'buzz-hosted': {
-    read: 'allow',
-    glob: 'allow',
-    grep: 'allow',
-    list: 'allow',
-    lsp: 'allow',
-    todowrite: 'allow',
-    question: 'allow',
-    edit: 'allow',
-    doom_loop: 'deny',
-    external_directory: 'allow',
-    bash: {
-      'hyper *': 'allow',
-      'git *': 'allow',
-      '*': 'deny',
-    },
-    webfetch: 'allow',
-    websearch: 'allow',
-    skill: 'allow',
-    task: 'allow',
-    '*': 'deny',
-  },
-};
-
-/**
- * @deprecated Legacy preset serialization only. Hyper-acp no longer consumes
- * this JSON; select an advertised native session mode instead.
- */
-export function buildPermissionsJson(mode: PermissionMode, overrides?: PermissionRules): string {
-  const preset = PERMISSION_PRESETS[mode] ?? PERMISSION_PRESETS.default;
-  return JSON.stringify(overrides ? { ...preset, ...overrides } : preset);
 }
 
 /** @deprecated Use `ManagedAgentCreateOptions` with `Deployments.createAgent(runtime, options)`. */

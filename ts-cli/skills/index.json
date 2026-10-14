@@ -95,7 +95,7 @@
       "commands": [
         "hyper flow --help",
         "hyper flow create <type> --help",
-        "hyper voice tts",
+        "hyper voice clone",
         "hyper flow list --json"
       ]
     },
@@ -113,9 +113,8 @@
     },
     {
       "name": "hypercli-voice",
-      "description": "Generate speech with HyperCLI text-to-speech or voice clone commands, save audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation, clone reference handling, and voice-capability validation.",
+      "description": "Generate speech with HyperCLI reference voice cloning, save audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation, clone reference handling, and voice-capability validation.",
       "commands": [
-        "hyper voice tts --help",
         "hyper voice clone --help",
         "hyper me",
         "hyper configure"

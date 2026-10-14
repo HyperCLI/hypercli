@@ -1,4 +1,4 @@
-"""HyperCLI Voice API commands — TTS, clone, design"""
+"""HyperCLI Voice API commands — reference cloning and transcription."""
 import json
 from ipaddress import ip_address
 from socket import getaddrinfo, gaierror
@@ -13,7 +13,7 @@ from hypercli.config import get_agent_api_key, get_agents_api_base_url, get_api_
 from .paths import hyper_home
 from .stt import transcribe as _stt_transcribe
 
-app = typer.Typer(help="Voice commands — text-to-speech, voice cloning, voice design, and local transcription")
+app = typer.Typer(help="Voice commands — reference voice cloning and local transcription")
 console = Console()
 
 HYPERCLI_DIR = hyper_home()
@@ -186,51 +186,6 @@ def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None 
         raise typer.Exit(1)
 
 
-def _stream_voice(
-    api_key: str,
-    output: Path,
-    base_url: str | None,
-    *,
-    text: str,
-    voice: str,
-    language: str,
-    response_format: str,
-    timeout: float | None,
-) -> None:
-    """Stream TTS chunks over /ws/voice through the SDK and save audio output."""
-    import asyncio
-
-    from hypercli import VoiceStreamError
-
-    async def run() -> None:
-        client = _voice_client(api_key, base_url)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        total_bytes = 0
-        with output.open("wb") as handle:
-            async for chunk in client.voice.tts_stream(
-                text,
-                voice=voice,
-                language=language,
-                response_format=response_format,
-                timeout=timeout,
-            ):
-                handle.write(chunk.audio)
-                total_bytes += len(chunk.audio)
-                console.print(
-                    f"[dim]chunk {chunk.index + 1}/{chunk.total if chunk.total is not None else '?'} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
-                )
-        console.print(f"[green]✅ Saved {output} ({total_bytes / 1024:.1f} KB)[/green]")
-
-    try:
-        asyncio.run(run())
-    except VoiceStreamError as error:
-        console.print(f"[red]❌ {error.code}: {error.detail[:500]}[/red]")
-        raise typer.Exit(1)
-    except OSError as e:
-        console.print(f"[red]❌ File error: {e}[/red]")
-        raise typer.Exit(1)
-
-
 def _stream_clone_voice(
     api_key: str,
     output: Path,
@@ -298,53 +253,6 @@ def transcribe(
     _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
 
 
-@app.command("tts")
-def tts(
-    text: str = typer.Argument(..., help="Text to synthesize"),
-    voice: str = typer.Option("serena", "--voice", "-v", help="Voice name (CustomVoice preset)"),
-    language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
-    format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
-    output: Path = typer.Option(None, "--out", "--output", "-o", help="Output audio file (default: output.<format>)"),
-    stream: bool = typer.Option(False, "--stream", help="Stream audio chunks over /ws/voice as they render"),
-    timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-):
-    """Generate speech from text using a preset voice.
-
-    Examples:
-      hyper voice tts "Hello world"
-      hyper voice tts "Bonjour" -v eric -l french -f opus -o hello.opus
-      hyper voice tts "Long text..." --stream
-    """
-    base_url = get_api_url()
-    api_key = _get_api_key(key)
-    if output is None:
-        output = Path(f"output.{format}")
-    if stream:
-        _stream_voice(
-            api_key,
-            output,
-            base_url,
-            text=text,
-            voice=voice,
-            language=language,
-            response_format=format,
-            timeout=timeout,
-        )
-        return
-    _post_voice(
-        "tts",
-        api_key,
-        output,
-        base_url,
-        text=text,
-        voice=voice,
-        language=language,
-        response_format=format,
-        timeout=timeout,
-    )
-
-
 @app.command("clone")
 def clone(
     text: str = typer.Argument(..., help="Text to synthesize"),
@@ -410,39 +318,6 @@ def clone(
         ref_audio=source,
         language=language,
         x_vector_only=x_vector_only,
-        response_format=format,
-        timeout=timeout,
-    )
-
-
-@app.command("design")
-def design(
-    text: str = typer.Argument(..., help="Text to synthesize"),
-    description: str = typer.Option(..., "--desc", "-d", help="Voice description (e.g. 'young female, warm, American accent')"),
-    language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
-    format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
-    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
-    timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
-):
-    """Design a voice from a text description.
-
-    Examples:
-      hyper voice design "Hello" --desc "deep male voice, British accent"
-      hyper voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
-    """
-    base_url = get_api_url()
-    api_key = _get_api_key(key)
-    if output is None:
-        output = Path(f"output.{format}")
-    _post_voice(
-        "design",
-        api_key,
-        output,
-        base_url,
-        text=text,
-        description=description,
-        language=language,
         response_format=format,
         timeout=timeout,
     )

@@ -1,4 +1,5 @@
 import { expect } from "vitest";
+import { readFile } from "node:fs/promises";
 
 import { createIntegrationClient, integrationDescribe, integrationIt } from "./helpers.js";
 import type { VoiceAudioMetadata } from "../../src/voice-session.js";
@@ -40,14 +41,16 @@ function wavFromPcm(pcm: Uint8Array, metadata: VoiceAudioMetadata): Uint8Array {
 }
 
 integrationDescribe("TS SDK integration: voice", () => {
-  integrationIt("streams PCM TTS with metadata and transcribes the generated audio", async () => {
+  integrationIt("streams cloned PCM with metadata and transcribes the generated audio", async () => {
     const client = createIntegrationClient();
     const text = "The quick brown fox jumps over the lazy dog.";
     const chunks = [];
 
-    for await (const chunk of client.voice.ttsStream({
+    const referencePath = process.env.HYPERCLI_VOICE_REFERENCE_PATH;
+    if (!referencePath) throw new Error("Voice integration requires HYPERCLI_VOICE_REFERENCE_PATH containing real reference speech");
+    for await (const chunk of client.voice.cloneStream({
       text,
-      voice: "serena",
+      refAudio: await readFile(referencePath),
       responseFormat: "pcm",
       timeoutMs: 120_000,
     })) {

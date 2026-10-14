@@ -100,7 +100,6 @@ from .agents import (
     build_openclaw_desktop_route,
     build_openclaw_trusted_proxies_env,
     build_openclaw_workspaces_sync_env,
-    build_permissions_json,
     is_agent_runtime_inactive_state,
     is_agent_transitional_state,
 )
@@ -301,7 +300,6 @@ __all__ = [
     "build_openclaw_memory_index_env",
     "build_openclaw_trusted_proxies_env",
     "build_openclaw_workspaces_sync_env",
-    "build_permissions_json",
     "OPENCLAW_TRUSTED_PROXIES_ENV",
     # Shell
     "ShellSession",

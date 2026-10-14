@@ -28,7 +28,7 @@ async def _start_server(handler):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["clone_stream", "tts_stream", "design_stream", "speak_clone", "speak", "speak_design"])
+@pytest.mark.parametrize("method", ["clone_stream", "speak_clone"])
 @pytest.mark.parametrize("mode", ["default", "pcm", "mp3", "wav", "legacy", "unnegotiated", "bad-count", "missing-count"])
 async def test_websocket_defaults_and_negotiation(method, mode, monkeypatch):
     release = asyncio.Event()
@@ -60,11 +60,7 @@ async def test_websocket_defaults_and_negotiation(method, mode, monkeypatch):
     api = VoiceAPI(None)
     monkeypatch.setattr(api, "connect", lambda **kwargs: session)
     try:
-        options = {}
-        if "clone" in method:
-            options["ref_audio"] = b"reference"
-        if "design" in method:
-            options["description"] = "narrator"
+        options = {"ref_audio": b"reference"}
         if mode == "pcm" or encoded:
             options["response_format"] = fmt
         if method.endswith("_stream"):
@@ -89,7 +85,7 @@ async def test_websocket_defaults_and_negotiation(method, mode, monkeypatch):
                     await anext(stream)
         assert received[0]["format"] == fmt
         assert received[0]["chunks"] is True
-        assert received[0]["op"] == ("clone" if "clone" in method else "design" if "design" in method else "tts")
+        assert received[0]["op"] == "clone"
         assert received[0].get("stream_mode") == (None if encoded else "incremental_pcm")
     finally:
         await session.close()
@@ -125,7 +121,7 @@ async def test_incremental_pcm_negotiation(mode):
     server, url = await _start_server(handler)
     try:
         async with VoiceSession(url, "offline") as session:
-            stream = session.speak("test", response_format="pcm", stream_mode="incremental_pcm")
+            stream = session.speak_clone("test", ref_audio=b"ref", response_format="pcm", stream_mode="incremental_pcm")
             if mode == "unnegotiated":
                 with pytest.raises(VoiceStreamError, match="not negotiated"):
                     await anext(stream)
@@ -151,8 +147,7 @@ async def test_incremental_pcm_negotiation(mode):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["speak", "speak_clone", "speak_design"])
-async def test_assembled_pcm_does_not_request_incremental_mode(method):
+async def test_assembled_pcm_does_not_request_incremental_mode():
     received = []
 
     async def handler(ws):
@@ -166,12 +161,7 @@ async def test_assembled_pcm_does_not_request_incremental_mode(method):
     server, url = await _start_server(handler)
     try:
         async with VoiceSession(url, "offline") as session:
-            options = {"chunks": False}
-            if method == "speak_clone":
-                options["ref_audio"] = b"reference"
-            if method == "speak_design":
-                options["description"] = "narrator"
-            chunks = [chunk async for chunk in getattr(session, method)("test", **options)]
+            chunks = [chunk async for chunk in session.speak_clone("test", ref_audio=b"reference", chunks=False)]
         assert received[0]["format"] == "pcm"
         assert received[0]["chunks"] is False
         assert "stream_mode" not in received[0]
@@ -203,7 +193,7 @@ async def test_speak_yields_ordered_chunks_then_done():
         async with session:
             assert session.state == "idle"
             chunks = []
-            async for chunk in session.speak("Hello. World.", voice="serena"):
+            async for chunk in session.speak_clone("Hello. World.", ref_audio=b"ref"):
                 assert isinstance(chunk, VoiceChunk)
                 assert session.state == "receiving"
                 chunks.append(chunk)
@@ -214,7 +204,8 @@ async def test_speak_yields_ordered_chunks_then_done():
         assert chunks[-1].final is True
         assert received[0]["type"] == "speak"
         assert received[0]["text"] == "Hello. World."
-        assert received[0]["voice"] == "serena"
+        assert received[0]["op"] == "clone"
+        assert received[0]["ref_audio_base64"] == "cmVm"
         assert received[0]["chunks"] is True
     finally:
         server.close()
@@ -239,7 +230,7 @@ async def test_speak_raises_on_server_error():
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
             with pytest.raises(VoiceStreamError) as excinfo:
-                async for _ in session.speak("hello", voice="not-a-voice"):
+                async for _ in session.speak_clone("hello", ref_audio=b"bad-ref"):
                     pass
             assert excinfo.value.code == "400"
             assert session.state == "idle"
@@ -259,7 +250,7 @@ async def test_speak_rejects_binary_without_audio_header():
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
             with pytest.raises(VoiceStreamError, match="binary frame without audio header"):
-                async for _ in session.speak("hello"):
+                async for _ in session.speak_clone("hello", ref_audio=b"ref"):
                     pass
     finally:
         server.close()
@@ -278,7 +269,7 @@ async def test_speak_rejects_non_monotonic_sequence():
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
             with pytest.raises(VoiceStreamError, match="Unexpected audio sequence"):
-                async for _ in session.speak("hello"):
+                async for _ in session.speak_clone("hello", ref_audio=b"ref"):
                     pass
     finally:
         server.close()
@@ -298,7 +289,7 @@ async def test_speak_rejects_done_count_mismatch():
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
             with pytest.raises(VoiceStreamError, match="Done chunk count mismatch"):
-                async for _ in session.speak("hello"):
+                async for _ in session.speak_clone("hello", ref_audio=b"ref"):
                     pass
     finally:
         server.close()
@@ -317,12 +308,12 @@ async def test_speak_requires_idle_state():
     server, url = await _start_server(handler)
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
-            iterator = session.speak("hello").__aiter__()
+            iterator = session.speak_clone("hello", ref_audio=b"ref").__aiter__()
             await iterator.__anext__()
             assert session.state == "receiving"
 
             with pytest.raises(RuntimeError, match="one request at a time"):
-                await session.speak("again").__aiter__().__anext__()
+                await session.speak_clone("again", ref_audio=b"ref").__aiter__().__anext__()
 
             await iterator.aclose()
             assert session.state == "idle"
@@ -349,7 +340,7 @@ async def test_early_break_sends_cancel():
     server, url = await _start_server(handler)
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
-            async for _chunk in session.speak("hello"):
+            async for _chunk in session.speak_clone("hello", ref_audio=b"ref"):
                 break
             await asyncio.wait_for(cancel_seen.wait(), timeout=2)
         cancels = [m for m in received if m["type"] == "cancel"]
@@ -364,7 +355,7 @@ async def test_early_break_sends_cancel():
 async def test_speak_requires_connection():
     session = VoiceSession("ws://127.0.0.1:1", "hyper_api_test")
     with pytest.raises(RuntimeError, match="not connected"):
-        await session.speak("hello").__aiter__().__anext__()
+        await session.speak_clone("hello", ref_audio=b"ref").__aiter__().__anext__()
 
 
 @pytest.mark.asyncio
@@ -381,7 +372,7 @@ async def test_chunks_false_single_assembled_chunk():
     server, url = await _start_server(handler)
     try:
         async with VoiceSession(url, "hyper_api_test") as session:
-            chunks = [c async for c in session.speak("hello", chunks=False)]
+            chunks = [c async for c in session.speak_clone("hello", ref_audio=b"ref", chunks=False)]
         assert len(chunks) == 1
         assert chunks[0].audio == b"assembled-file"
         assert chunks[0].final is True
@@ -421,57 +412,7 @@ async def test_speak_clone_sends_op_and_reference_audio():
 
 
 @pytest.mark.asyncio
-async def test_speak_design_sends_op_and_instruct():
-    received = []
-
-    async def handler(ws):
-        message = json.loads(await ws.recv())
-        received.append(message)
-        rid = message["request_id"]
-        await _send_audio(ws, rid, 0, 1, b"designed-audio")
-        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
-        await ws.wait_closed()
-
-    server, url = await _start_server(handler)
-    try:
-        async with VoiceSession(url, "hyper_api_test") as session:
-            chunks = [
-                c async for c in session.speak_design("design me", description="a warm narrator")
-            ]
-        assert chunks[0].audio == b"designed-audio"
-        speak = received[0]
-        assert speak["op"] == "design"
-        assert speak["instruct"] == "a warm narrator"
-    finally:
-        server.close()
-        await server.wait_closed()
-
-
-@pytest.mark.asyncio
-async def test_speak_tts_sends_op_tts():
-    received = []
-
-    async def handler(ws):
-        message = json.loads(await ws.recv())
-        received.append(message)
-        rid = message["request_id"]
-        await _send_audio(ws, rid, 0, 1, b"tts-audio")
-        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
-        await ws.wait_closed()
-
-    server, url = await _start_server(handler)
-    try:
-        async with VoiceSession(url, "hyper_api_test") as session:
-            [c async for c in session.speak("hi", voice="serena")]
-        assert received[0]["op"] == "tts"
-        assert received[0]["voice"] == "serena"
-    finally:
-        server.close()
-        await server.wait_closed()
-
-
-@pytest.mark.asyncio
-async def test_clone_and_design_stream_conveniences(monkeypatch):
+async def test_clone_stream_convenience(monkeypatch):
     from types import SimpleNamespace
 
     from hypercli.voice import VoiceAPI
@@ -496,11 +437,8 @@ async def test_clone_and_design_stream_conveniences(monkeypatch):
         clone_chunks = [c async for c in api.clone_stream("clone me", ref_audio=b"ref")]
         assert clone_chunks[0].audio == b"audio-clone"
 
-        design_chunks = [c async for c in api.design_stream("design me", description="a narrator")]
-        assert design_chunks[0].audio == b"audio-design"
-
         ops = [m["op"] for m in received if m["type"] == "speak"]
-        assert ops == ["clone", "design"]
+        assert ops == ["clone"]
         assert all(m["chunks"] is True for m in received if m["type"] == "speak")
     finally:
         server.close()

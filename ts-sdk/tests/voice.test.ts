@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe('Voice API', () => {
-  describe.each(['cloneStream', 'ttsStream', 'designStream', 'speakClone', 'speak', 'speakDesign'] as const)('%s wire contract', method => {
+  describe.each(['cloneStream', 'speakClone'] as const)('%s wire contract', method => {
     it.each(['default', 'pcm', 'mp3', 'wav', 'legacy', 'unnegotiated', 'bad-count', 'missing-count'] as const)('%s', async mode => {
       const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
       await new Promise<void>(resolve => server.once('listening', resolve));
@@ -46,10 +46,10 @@ describe('Voice API', () => {
         };
       }));
       try {
-        const options = { text: 'test', refAudio: new Uint8Array([1, 2]), description: 'narrator' };
+        const options = { text: 'test', refAudio: new Uint8Array([1, 2]) };
         const explicitFormat = mode === 'pcm' || encoded;
         let stream;
-        if (method === 'cloneStream' || method === 'ttsStream' || method === 'designStream') {
+        if (method === 'cloneStream') {
           stream = api[method]({ ...options, ...(explicitFormat ? { responseFormat: format } : {}) });
         } else {
           await session.open();
@@ -68,7 +68,7 @@ describe('Voice API', () => {
           else expect((await stream.next()).done).toBe(true);
         }
         expect(request).toMatchObject({ type: 'speak', format, chunks: true,
-          op: method.toLowerCase().includes('clone') ? 'clone' : method.toLowerCase().includes('design') ? 'design' : 'tts' });
+          op: 'clone' });
         expect(request?.stream_mode).toBe(encoded ? undefined : 'incremental_pcm');
       } finally {
         session.close();
@@ -78,7 +78,7 @@ describe('Voice API', () => {
     });
   });
 
-  it('posts TTS payload to agents voice route', async () => {
+  it('posts clone payload to agents voice route', async () => {
     const calls: Array<{ path: string; body: any }> = [];
     const http = {
       postBytes: async (path: string, body: any) => {
@@ -87,9 +87,9 @@ describe('Voice API', () => {
       },
     };
 
-    const audio = await new VoiceAPI(http as any).tts({
+    const audio = await new VoiceAPI(http as any).clone({
       text: 'hello',
-      voice: 'serena',
+      refAudio: new Uint8Array([1]),
       language: 'english',
       responseFormat: 'wav',
     });
@@ -97,10 +97,11 @@ describe('Voice API', () => {
     expect(audio).toEqual(new Uint8Array([1, 2, 3]));
     expect(calls).toEqual([
       {
-        path: '/voice/tts',
+        path: '/voice/clone',
         body: {
           text: 'hello',
-          voice: 'serena',
+          ref_audio_base64: 'AQ==',
+          x_vector_only: true,
           language: 'english',
           response_format: 'wav',
         },
@@ -108,7 +109,7 @@ describe('Voice API', () => {
     ]);
   });
 
-  it('forwards TTS cancellation to the HTTP request', async () => {
+  it('forwards clone cancellation to the HTTP request', async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | undefined;
     const http = {
@@ -118,7 +119,7 @@ describe('Voice API', () => {
       },
     };
 
-    await new VoiceAPI(http as any).tts({ text: 'hello', signal: controller.signal });
+    await new VoiceAPI(http as any).clone({ text: 'hello', refAudio: new Uint8Array([1]), signal: controller.signal });
 
     expect(receivedSignal).toBe(controller.signal);
   });
@@ -151,31 +152,12 @@ describe('Voice API', () => {
     });
   });
 
-  it('posts design payload to agents voice route', async () => {
-    const calls: Array<{ path: string; body: any }> = [];
-    const http = {
-      postBytes: async (path: string, body: any) => {
-        calls.push({ path, body });
-        return new Uint8Array([7, 8, 9]);
-      },
-    };
-
-    const audio = await new VoiceAPI(http as any).design({
-      text: 'hello',
-      description: 'warm narrator',
-      responseFormat: 'wav',
-    });
-
-    expect(audio).toEqual(new Uint8Array([7, 8, 9]));
-    expect(calls[0]).toEqual({
-      path: '/voice/design',
-      body: {
-        text: 'hello',
-        instruct: 'warm narrator',
-        language: 'auto',
-        response_format: 'wav',
-      },
-    });
+  it('exposes only reference cloning for synthesis', () => {
+    for (const method of ['tts', 'design', 'ttsStream', 'designStream']) {
+      expect(VoiceAPI.prototype).not.toHaveProperty(method);
+    }
+    expect(VoiceSession.prototype).not.toHaveProperty('speak');
+    expect(VoiceSession.prototype).not.toHaveProperty('speakDesign');
   });
 
   it('posts transcription audio as multipart form data', async () => {
@@ -222,7 +204,7 @@ describe('Voice API', () => {
       .resolves.toEqual({ text: 'plain transcript' });
   });
 
-  it('cloneStream and designStream ride a session with the right ops', async () => {
+  it('cloneStream rides a session with the right op', async () => {
     const { WebSocketServer } = await import('ws');
     const { VoiceAPI } = await import('../src/voice.js');
     const { VoiceSession } = await import('../src/voice-session.js');
@@ -262,14 +244,8 @@ describe('Voice API', () => {
       }
       expect(Buffer.from(cloneChunks[0].audio).toString()).toBe('audio-clone');
 
-      const designChunks = [];
-      for await (const chunk of api.designStream({ text: 'design me', description: 'a narrator' })) {
-        designChunks.push(chunk);
-      }
-      expect(Buffer.from(designChunks[0].audio).toString()).toBe('audio-design');
-
       const ops = received.filter((m) => m.type === 'speak').map((m) => m.op);
-      expect(ops).toEqual(['clone', 'design']);
+      expect(ops).toEqual(['clone']);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -317,12 +293,12 @@ describe('Voice API', () => {
     try {
       const session = await new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' }).open();
       const chunks = [];
-      for await (const chunk of session.speak({ text: 'pcm please', format: 'pcm' })) {
+      for await (const chunk of session.speakClone({ text: 'pcm please', refAudio: new Uint8Array([1]), format: 'pcm' })) {
         chunks.push(chunk);
       }
       expect(received[0]).toMatchObject({
         type: 'speak',
-        op: 'tts',
+        op: 'clone',
         text: 'pcm please',
         format: 'pcm',
         chunks: true,

@@ -49,7 +49,7 @@ def test_no_public_command_registers_endpoint_options():
 
 @pytest.mark.parametrize("command", [
     [], ["agents"], ["agent", "plans"], ["agent", "onboard"],
-    ["agent", "embed", "test"], ["voice", "tts"], ["llm", "chat"],
+    ["agent", "embed", "test"], ["voice", "clone"], ["llm", "chat"],
     ["wallet", "topup"], ["wallet", "login"],
 ])
 def test_help_documents_config_without_removed_flags(command):
@@ -87,9 +87,7 @@ def test_environment_flags_rejected_before_command_execution(command, flag):
     (["wallet", "topup"], "--api-url"),
     (["llm", "chat"], "--base-url"),
     (["llm", "image"], "--base-url"),
-    (["voice", "tts"], "--base-url"),
     (["voice", "clone"], "--base-url"),
-    (["voice", "design"], "--base-url"),
     (["memory", "import"], "--base-url"),
 ])
 def test_endpoint_override_flags_rejected(command, flag):

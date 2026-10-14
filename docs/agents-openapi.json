@@ -4296,46 +4296,6 @@
         }
       }
     },
-    "/agents/voice/tts": {
-      "post": {
-        "tags": [
-          "capabilities"
-        ],
-        "summary": "Agents Voice Tts",
-        "operationId": "agents_voice_tts_agents_voice_tts_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/agents/voice/clone": {
       "post": {
         "tags": [
@@ -4343,46 +4303,6 @@
         ],
         "summary": "Agents Voice Clone",
         "operationId": "agents_voice_clone_agents_voice_clone_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/voice/design": {
-      "post": {
-        "tags": [
-          "capabilities"
-        ],
-        "summary": "Agents Voice Design",
-        "operationId": "agents_voice_design_agents_voice_design_post",
         "parameters": [
           {
             "name": "authorization",

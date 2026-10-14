@@ -123,7 +123,7 @@ and final markers. Use the returned audio metadata to play PCM; it is not an MP3
 For encoded output, pass `responseFormat: "mp3"` to `cloneStream`, or
 `format: "mp3"` to `speakClone`. REST defaults and CLI MP3 file/stdout output are
 unchanged. `chunks: false` requests assembled audio without automatic incremental
-negotiation. `ttsStream` and `designStream` are deprecated but remain callable.
+negotiation. Preset TTS and VoiceDesign APIs have been removed; synthesis requires reference audio.
 
 The streaming request frame is a JSON message with `type: "speak"`, an
 `op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.

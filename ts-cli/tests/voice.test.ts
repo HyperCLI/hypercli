@@ -53,11 +53,6 @@ function chunkEvent(index: number, total: number, audio: Uint8Array): VoiceChunk
 }
 
 interface FakeHandlers {
-  tts?: (options: { text: string; voice?: string }) => Promise<Uint8Array>;
-  ttsStream?: (options: {
-    text: string;
-    voice?: string;
-  }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
   transcribe?: (options: { audio: Uint8Array; filename?: string; language?: string }) => Promise<{ text: string }>;
   transcribeStream?: (options: {
     audio: Uint8Array;
@@ -69,22 +64,11 @@ interface FakeHandlers {
     text: string;
     refAudio: Uint8Array | ArrayBuffer;
   }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
-  design?: (options: { text: string; description: string }) => Promise<Uint8Array>;
-  designStream?: (options: {
-    text: string;
-    description: string;
-  }) => AsyncGenerator<VoiceChunkEvent, void, undefined>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
   return {
     voice: {
-      tts: handlers.tts ?? (async () => new Uint8Array([1, 2, 3, 4, 5])),
-      ttsStream:
-        handlers.ttsStream ??
-        (async function* () {
-          yield chunkEvent(0, 1, new Uint8Array([1, 2, 3]));
-        }),
       transcribe: handlers.transcribe ?? (async () => ({ text: 'hello transcript' })),
       transcribeStream:
         handlers.transcribeStream ??
@@ -96,12 +80,6 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
         handlers.cloneStream ??
         (async function* () {
           yield chunkEvent(0, 1, new Uint8Array([8, 9]));
-        }),
-      design: handlers.design ?? (async () => new Uint8Array([6, 7])),
-      designStream:
-        handlers.designStream ??
-        (async function* () {
-          yield chunkEvent(0, 1, new Uint8Array([6, 7]));
         }),
     },
   } as unknown as HyperCLI;
@@ -128,76 +106,17 @@ afterEach(async () => {
 // ---------- tests ----------
 
 describe('hyper voice', () => {
-  it('tts: writes the audio file to --out and reports path + bytes', async () => {
-    const audio = new Uint8Array([0xff, 0xfb, 0x90, 0x44, 0x00, 0x11, 0x22]);
-    const tts = vi.fn(async () => audio);
-    const ttsStream = vi.fn(fakeClient().voice.ttsStream as never);
-    const client = fakeClient({ tts });
-    const ctx = makeCtx(client, 'json');
-    const outFile = join(workDir, 'hello.mp3');
-
-    await voice.run(ctx, ['tts', 'hello world', '--out', outFile, '--json']);
-
-    expect(tts).toHaveBeenCalledWith({ text: 'hello world', voice: 'serena' });
-    expect(ttsStream).not.toHaveBeenCalled();
-    const onDisk = await readFile(outFile);
-    expect(onDisk).toEqual(Buffer.from(audio));
-    const payload = JSON.parse(stdout());
-    expect(payload.out).toBe(outFile);
-    expect(payload.voice).toBe('serena');
-    expect(payload.bytes).toBe(audio.byteLength);
-    expect(payload.text).toBe('hello world');
-    expect(payload.stream).toBe(false);
-    expect(stderr()).toContain(outFile);
-    expect(stderr()).toContain(String(audio.byteLength));
-  });
-
-  it('tts: table mode stdout gets the {out, voice, bytes} record', async () => {
-    const client = fakeClient({ tts: async () => new Uint8Array(10) });
-    const ctx = makeCtx(client, 'table');
-    const outFile = join(workDir, 'a.mp3');
-
-    await voice.run(ctx, ['tts', 'hi', '--out', outFile, '--voice', 'ivy']);
-
-    const out = stdout();
-    expect(out).toContain(outFile);
-    expect(out).toContain('ivy');
-    expect(out).toContain('10');
-    expect(out).not.toContain('hi\n');
-  });
-
-  it('tts --stream: consumes the chunk generator and concatenates audio', async () => {
-    const tts = vi.fn(async () => new Uint8Array([9]));
-    const ttsStream = vi.fn(async function* () {
-      yield chunkEvent(0, 3, new Uint8Array([1, 2]));
-      yield chunkEvent(1, 3, new Uint8Array([]));
-      yield chunkEvent(2, 3, new Uint8Array([3, 4, 5]));
-    });
-    const client = fakeClient({ tts, ttsStream: ttsStream as never });
-    const ctx = makeCtx(client, 'json');
-    const outFile = join(workDir, 'stream.mp3');
-
-    await voice.run(ctx, ['tts', 'stream me', '--out', outFile, '--stream', '--json']);
-
-    expect(ttsStream).toHaveBeenCalledWith({ text: 'stream me', voice: 'serena', responseFormat: 'mp3' });
-    expect(tts).not.toHaveBeenCalled();
-    const onDisk = await readFile(outFile);
-    expect(onDisk).toEqual(Buffer.from([1, 2, 3, 4, 5]));
-    const payload = JSON.parse(stdout());
-    expect(payload.bytes).toBe(5);
-    expect(payload.stream).toBe(true);
-  });
-
-  it('tts: missing text -> UsageError (exit 2)', async () => {
+  it.each(['tts', 'design'])('%s is not a voice command', async sub => {
     const client = fakeClient();
     const ctx = makeCtx(client, 'table');
 
-    const err: unknown = await voice.run(ctx, ['tts']).then(
+    const err: unknown = await voice.run(ctx, [sub, 'hello']).then(
       () => null,
       (e: unknown) => e,
     );
 
     expect(err).toBeTruthy();
+    expect(String(err)).toContain('unknown voice command');
     expect(exitCodeFor(err)).toBe(2);
     expect(ctx.client).not.toHaveBeenCalled();
   });
@@ -341,89 +260,6 @@ describe('hyper voice', () => {
     expect(ctx.client).not.toHaveBeenCalled();
   });
 
-  it('design --description --out: streams designed audio and reports metadata', async () => {
-    const outFile = join(workDir, 'design.mp3');
-    const design = vi.fn(async () => new Uint8Array([9]));
-    const designStream = vi.fn(async function* () {
-      yield chunkEvent(0, 2, new Uint8Array([1, 2]));
-      yield chunkEvent(1, 2, new Uint8Array([3]));
-    });
-    const client = fakeClient({ design, designStream: designStream as never });
-    const ctx = makeCtx(client, 'json');
-
-    await voice.run(ctx, [
-      'design',
-      'designed voice text',
-      '--description',
-      'warm upbeat narrator',
-      '--out',
-      outFile,
-      '--json',
-    ]);
-
-    expect(designStream).toHaveBeenCalledWith({
-      text: 'designed voice text',
-      description: 'warm upbeat narrator',
-      responseFormat: 'mp3',
-    });
-    expect(design).not.toHaveBeenCalled();
-    expect(await readFile(outFile)).toEqual(Buffer.from([1, 2, 3]));
-    const payload = JSON.parse(stdout());
-    expect(payload.out).toBe(outFile);
-    expect(payload.description).toBe('warm upbeat narrator');
-    expect(payload.bytes).toBe(3);
-    expect(payload.text).toBe('designed voice text');
-    expect(payload.stream).toBe(true);
-  });
-
-  it('design --desc --rest: uses REST assembled audio', async () => {
-    const outFile = join(workDir, 'design-rest.mp3');
-    const design = vi.fn(async () => new Uint8Array([4, 5]));
-    const designStream = vi.fn(fakeClient().voice.designStream as never);
-    const client = fakeClient({ design, designStream: designStream as never });
-    const ctx = makeCtx(client, 'json');
-
-    await voice.run(ctx, ['design', 'hello design', '--desc', 'calm voice', '--out', outFile, '--json', '--rest']);
-
-    expect(design).toHaveBeenCalledWith({
-      text: 'hello design',
-      description: 'calm voice',
-    });
-    expect(designStream).not.toHaveBeenCalled();
-    expect(await readFile(outFile)).toEqual(Buffer.from([4, 5]));
-    expect(JSON.parse(stdout()).stream).toBe(false);
-  });
-
-  it('design without --out writes audio bytes to stdout', async () => {
-    const designStream = vi.fn(async function* () {
-      yield chunkEvent(0, 1, Buffer.from('designed-audio'));
-    });
-    const client = fakeClient({ designStream: designStream as never });
-    const ctx = makeCtx(client, 'table');
-
-    await voice.run(ctx, ['design', 'hello', '--description', 'bright voice']);
-
-    expect(designStream).toHaveBeenCalledWith({
-      text: 'hello',
-      description: 'bright voice',
-      responseFormat: 'mp3',
-    });
-    expect(stdout()).toBe('designed-audio');
-  });
-
-  it('design: requires a description', async () => {
-    const ctx = makeCtx(fakeClient(), 'table');
-
-    const err: unknown = await voice.run(ctx, ['design', 'hello']).then(
-      () => null,
-      (e: unknown) => e,
-    );
-
-    expect(err).toBeTruthy();
-    expect(exitCodeFor(err)).toBe(2);
-    expect(ctx.client).not.toHaveBeenCalled();
-  });
-
   it('transcribe --rest: uses REST, prints text, and passes file metadata', async () => {
     const audio = Buffer.from([1, 2, 3]);
     const audioFile = join(workDir, 'speech.wav');
@@ -556,16 +392,18 @@ describe('hyper voice', () => {
     expect(stdout()).toBe('ws routed transcript\n');
   });
 
-  it('tts: SDK failure -> CliError (exit 1), no file written', async () => {
+  it('clone: SDK failure -> CliError (exit 1), no file written', async () => {
+    const ref = join(workDir, 'ref.wav');
+    await writeFile(ref, 'reference');
     const client = fakeClient({
-      tts: async () => {
+      clone: async () => {
         throw new Error('voice backend exploded');
       },
     });
     const ctx = makeCtx(client, 'json');
 
     const err: unknown = await voice
-      .run(ctx, ['tts', 'boom', '--out', join(workDir, 'x.mp3'), '--json'])
+      .run(ctx, ['clone', 'boom', '--file', ref, '--rest', '--out', join(workDir, 'x.mp3'), '--json'])
       .then(
         () => null,
         (e: unknown) => e,
@@ -579,17 +417,15 @@ describe('hyper voice', () => {
   });
 
   it('dispatch splices the subcommand TOKEN, not a same-named flag value', async () => {
-    const tts = vi.fn(async () => new Uint8Array([1]));
-    const client = fakeClient({ tts });
+    const clone = vi.fn(async () => new Uint8Array([1]));
+    const client = fakeClient({ clone });
     const ctx = makeCtx(client, 'json');
     const outFile = join(workDir, 'splice.mp3');
 
-    // `tts` appears first as the --voice VALUE, then as the real subcommand,
-    // with other tokens in between — indexOf would remove the flag value,
-    // leaving `--voice` to consume `--out` and failing the strict re-parse.
-    await voice.run(ctx, ['--voice', 'tts', '--out', outFile, 'tts', 'hello world', '--json']);
+    globalThis.fetch = vi.fn(async () => new Response('reference')) as typeof fetch;
+    await voice.run(ctx, ['--out', outFile, 'clone', 'clone', '--url', 'https://example.test/ref.wav', '--rest', '--json']);
 
-    expect(tts).toHaveBeenCalledWith({ text: 'hello world', voice: 'tts' });
+    expect(clone).toHaveBeenCalledWith({ text: 'clone', refAudio: Buffer.from('reference') });
     expect(await readFile(outFile)).toEqual(Buffer.from([1]));
   });
 
@@ -606,8 +442,6 @@ describe('hyper voice', () => {
     expect(String((await capture(['transcribe'])) as Error)).toContain(
       'hyper voice transcribe <audio-file>',
     );
-    expect(String((await capture(['design'])) as Error)).toContain('hyper voice design <text>');
-    expect(String((await capture(['tts'])) as Error)).toContain('hyper voice tts <text>');
   });
 
   it('--help prints help without touching the API', async () => {
@@ -618,7 +452,9 @@ describe('hyper voice', () => {
 
     expect(ctx.client).not.toHaveBeenCalled();
     expect(stdout()).toContain('hyper voice');
-    expect(stdout()).toContain('tts');
+    expect(stdout()).toContain('clone');
+    expect(stdout()).not.toContain('hyper voice tts');
+    expect(stdout()).not.toContain('hyper voice design');
   });
 
   it('unknown subcommand -> UsageError (exit 2)', async () => {

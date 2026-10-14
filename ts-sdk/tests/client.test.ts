@@ -100,8 +100,8 @@ describe('HyperCLI Client', () => {
       apiUrl: 'https://api.dev.hypercli.com',
     });
 
-    await expect(client.voice.tts({ text: 'hello' })).resolves.toEqual(new Uint8Array([1, 2, 3]));
-    expect(calls).toEqual(['https://api.dev.hypercli.com/agents/voice/tts']);
+    await expect(client.voice.clone({ text: 'hello', refAudio: new Uint8Array([1]) })).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    expect(calls).toEqual(['https://api.dev.hypercli.com/agents/voice/clone']);
   });
 
   it('should expose HyperAgent from the browser-safe client', () => {

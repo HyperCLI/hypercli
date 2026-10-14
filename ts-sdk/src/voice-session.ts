@@ -40,33 +40,12 @@ export interface VoiceSessionOptions {
   timeoutMs?: number;
 }
 
-export interface SpeakOptions {
-  streamMode?: 'incremental_pcm';
-  text: string;
-  voice?: string;
-  language?: string;
-  format?: string;
-  /** true (default): stream audio frames; false: one assembled file. */
-  chunks?: boolean;
-  requestId?: string;
-}
-
 export interface CloneSpeakOptions {
   streamMode?: 'incremental_pcm';
   text: string;
   refAudio: Uint8Array | ArrayBuffer;
   language?: string;
   xVectorOnly?: boolean;
-  format?: string;
-  chunks?: boolean;
-  requestId?: string;
-}
-
-export interface DesignSpeakOptions {
-  streamMode?: 'incremental_pcm';
-  text: string;
-  description: string;
-  language?: string;
   format?: string;
   chunks?: boolean;
   requestId?: string;
@@ -210,19 +189,6 @@ export class VoiceSession {
     this.send({ type: 'cancel', request_id: requestId });
   }
 
-  /** Speak text with a preset voice. */
-  async *speak(options: SpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
-    yield* this.runSpeak(
-      'tts',
-      {
-        text: options.text,
-        voice: options.voice ?? 'serena',
-        language: options.language ?? 'auto',
-      },
-      options,
-    );
-  }
-
   /** Speak text in a voice cloned from reference audio. */
   async *speakClone(options: CloneSpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     yield* this.runSpeak(
@@ -232,19 +198,6 @@ export class VoiceSession {
         ref_audio_base64: encodeBase64(options.refAudio),
         language: options.language ?? 'auto',
         x_vector_only: options.xVectorOnly ?? true,
-      },
-      options,
-    );
-  }
-
-  /** Speak text in a voice designed from a natural-language description. */
-  async *speakDesign(options: DesignSpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
-    yield* this.runSpeak(
-      'design',
-      {
-        text: options.text,
-        instruct: options.description,
-        language: options.language ?? 'auto',
       },
       options,
     );
