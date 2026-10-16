@@ -17,6 +17,7 @@
  * `(updated_at, id)`.
  */
 import type { HTTPClient } from './http.js';
+import { SessionPolicyClient, type SessionPolicyConnectOptions, type SessionPolicyConnectionOverrides } from './session-policy.js';
 
 /** Native catalog discovery, independent of active conversation/turn state. */
 export interface SessionDiscoveryStatus {
@@ -289,7 +290,15 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>,
+    private readonly policyOptions?: SessionPolicyConnectOptions) {}
+
+  /** Shared product policy control, keyed by public session and agent participant. Not ACP. */
+  connectPolicy(options: SessionPolicyConnectionOverrides = {}): Promise<SessionPolicyClient> {
+    const merged = { ...this.policyOptions, ...options };
+    if (!merged.url) return Promise.reject(new Error('Session policy requires a product WebSocket URL'));
+    return SessionPolicyClient.connect({ ...merged, url: merged.url });
+  }
 
   /** Read discovery evidence; an empty stored catalog alone is not discovery success. */
   async getDiscoveryStatus(agentId: string): Promise<SessionDiscoveryStatus> {

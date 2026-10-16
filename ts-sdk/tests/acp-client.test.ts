@@ -3,7 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
-import { CodingAgentAcpClient, CodingAgentAcpConnectionError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
+import { CodingAgentAcpConnectionError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
 
 type Frame = { jsonrpc: string; id?: number | string; method?: string; params?: any; result?: any; error?: any };
@@ -188,6 +188,45 @@ it('reports reconnect resume refusal without creating a replacement session', as
   f.peers[0].terminate();
   await vi.waitFor(() => expect(errors.some(e => e.message.includes('gone'))).toBe(true), { timeout: 3000 });
   expect(f.calls('session/new')).toHaveLength(1); expect(f.calls('session/prompt')).toHaveLength(0);
+});
+
+it.each(['refresh', 'resume'])('isolates throwing error observers during reconnect %s settlement', async stage => {
+  const f = await fixture(), errors: Error[] = [];
+  const client = await f.connect({
+    onReconnect: stage === 'refresh' ? () => { throw new globalThis.Event('error'); } : undefined,
+    onError: () => { throw new Error('consumer observer'); },
+  });
+  client.addErrorListener(async () => { throw new Error('async consumer observer'); });
+  client.addErrorListener(error => errors.push(error));
+  await client.newSession();
+  if (stage === 'resume') f.hooks.set('session/resume', (frame, socket) => f.send(socket, {
+    id: frame.id, error: { code: -32000, message: 'gone' },
+  }));
+  f.peers[0].terminate();
+  await vi.waitFor(() => expect(client.connected).toBe(false));
+  const waiting = client.waitConnected();
+  if (stage === 'resume') await expect(waiting).rejects.toThrow('gone');
+  else await waiting;
+  await vi.waitFor(() => expect(client.connected).toBe(true), { timeout: 3000 });
+  expect(errors).toHaveLength(1);
+  expect(errors[0].message).not.toContain('[object Event]');
+  if (stage === 'refresh') expect(errors[0]).toMatchObject({
+    message: 'ACP reconnect callback failed', cause: { type: 'error' },
+  });
+});
+
+it('settles pending calls and notifies all close observers despite observer failures', async () => {
+  const f = await fixture(), closed = vi.fn();
+  const client = await f.connect({ onClose: () => { throw new Error('consumer observer'); } });
+  client.addCloseListener(async () => { throw new Error('async consumer observer'); });
+  client.addCloseListener(closed);
+  f.hooks.set('session/prompt', () => {});
+  const pending = expect(client.prompt('s', 'pending')).rejects.toThrow();
+  await vi.waitFor(() => expect(f.calls('session/prompt')).toHaveLength(1));
+  f.peers[0].close(4403, 'forbidden');
+  await pending;
+  await vi.waitFor(() => expect(closed).toHaveBeenCalledWith({ code: 4403, reason: 'forbidden' }));
+  expect(client.closed).toBe(true);
 });
 
 it.each(['queued', 'uncertain', 'cancelled'])('fresh-client crash recovery never resubmits %s input', async state => {

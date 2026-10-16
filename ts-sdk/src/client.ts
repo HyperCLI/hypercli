@@ -23,6 +23,9 @@ import { WorkspacesAPI } from './workspaces.js';
 import { RoutinesAPI } from './routines.js';
 import { RunnersAPI } from './runners.js';
 import { SessionsAPI } from './sessions.js';
+import NodeWebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
+import { defaultSessionPolicyWsUrl } from './agent-urls.js';
 import { MemoryAPI } from './memory.js';
 import { IntegrationsAPI } from './integrations.js';
 import { defaultAgentsWsUrl, resolveAgentsApiBase } from './agent-urls.js';
@@ -153,7 +156,10 @@ export class HyperCLI {
       agentsApiBase: resolvedAgentsApiBase,
       timeout: options.timeout,
     });
-    this.sessions = new SessionsAPI(this._agentsHttp);
+    this.sessions = new SessionsAPI(this._agentsHttp, {
+      url: defaultSessionPolicyWsUrl(resolvedAgentsApiBase), token: this._apiKey,
+      createWebSocket: url => new NodeWebSocket(url), createRequestId: randomUUID,
+    });
     this.memory = new MemoryAPI(this._agentsHttp);
     this.integrations = new IntegrationsAPI(this._apiKey, {
       agentsApiBase: resolvedAgentsApiBase,

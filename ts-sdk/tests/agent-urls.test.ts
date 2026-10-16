@@ -4,10 +4,22 @@ import {
   defaultAcpProxyWsUrl,
   defaultAgentsWsUrl,
   defaultHyperAcpWsUrl,
+  defaultSessionPolicyWsUrl,
   DEFAULT_AGENTS_API_BASE_URL,
   normalizeAgentsWsUrl,
   resolveAgentsApiBase,
 } from '../src/agent-urls.js';
+
+describe('product session-policy URL', () => {
+  it.each([
+    ['https://api.hypercli.com', 'wss://api.agents.hypercli.com/ws/session-policy'],
+    ['https://api.dev.hypercli.com', 'wss://api.agents.dev.hypercli.com/ws/session-policy'],
+    ['https://api.agents.dev.hypercli.com', 'wss://api.agents.dev.hypercli.com/ws/session-policy'],
+    ['http://127.0.0.1:8787/tenant/agents', 'ws://127.0.0.1:8787/tenant/ws/session-policy'],
+  ])('derives the product route for %s', (base, expected) => {
+    expect(defaultSessionPolicyWsUrl(base)).toBe(expected);
+  });
+});
 
 describe('explicit transport URLs', () => {
   it.each([

@@ -61,6 +61,10 @@ function diagnosticError(error: unknown, depth = 0): CodingAgentAcpDiagnosticErr
   };
 }
 type PermissionHandler = (params: acp.RequestPermissionRequest, signal?: AbortSignal) => acp.MaybePromise<acp.RequestPermissionResponse>;
+/** Observers never own protocol settlement, including accidentally async observers. */
+function callObserver<T>(observer: ((value: T) => void) | undefined, value: T): void {
+  try { void Promise.resolve(observer?.(value)).catch(() => {}); } catch { /* Isolate consumer observers. */ }
+}
 export interface CodingAgentAcpConnectOptions {
   onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void;
   resolveDefaultCwd?: () => Promise<string>;
@@ -108,7 +112,7 @@ export class CodingAgentAcpClient {
 
   private constructor(target: CodingAgentAcpTarget, private readonly options: CodingAgentAcpConnectOptions) {
     const url = new URL(target.url);
-    if (options.source != null) {
+    if (options.source !== undefined && options.source !== null) {
       if (options.transport === 'direct') throw new Error('source requires the ACP proxy transport');
       url.searchParams.set('source', options.source);
     }
@@ -155,18 +159,18 @@ export class CodingAgentAcpClient {
     });
   }
   private diagnostic(event: CodingAgentAcpDiagnostic): void {
-    try { this.options.onDiagnostic?.(event); } catch { /* Observer failures do not change outcomes. */ }
+    callObserver(this.options.onDiagnostic, event);
   }
   private async observe<T>(stage: CodingAgentAcpStage, run: () => Promise<T>): Promise<T> {
     const operationId = ++this.nextDiagnosticOperation;
-    const started = performance.now();
+    const started = globalThis.performance.now();
     this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: 0, phase: 'started' });
     try {
       const result = await run();
-      this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: Math.round(performance.now() - started), phase: 'succeeded' });
+      this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: Math.round(globalThis.performance.now() - started), phase: 'succeeded' });
       return result;
     } catch (error) {
-      this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: Math.round(performance.now() - started), phase: 'failed', error: diagnosticError(error) });
+      this.diagnostic({ stage, operationId, timestamp: Date.now(), elapsedMs: Math.round(globalThis.performance.now() - started), phase: 'failed', error: diagnosticError(error) });
       throw error;
     }
   }
@@ -319,6 +323,7 @@ export class CodingAgentAcpClient {
           ws.on('close', (...args: unknown[]) => closed(typeof args[0] === 'number' ? args[0] : undefined, String(args[1] ?? '')));
         } else {
           ws.addEventListener?.('open', socketOpened);
+          ws.addEventListener?.('error', (error: unknown) => socketFailed(new CodingAgentAcpConnectionError('ACP socket failed before opening', { cause: error })));
           ws.addEventListener?.('close', (event: unknown) => { const e = event as { code: number; reason: string }; closed(e.code, e.reason); });
         }
         return ws;
@@ -335,7 +340,7 @@ export class CodingAgentAcpClient {
         this.sessionConfig.set(notification.sessionId, notification.update.configOptions);
       }
       for (const listener of [this.options.onUpdate, ...this.updateListeners]) {
-        try { listener?.(notification); } catch (error) { console.error('ACP update listener threw', error); }
+        callObserver(listener, notification);
       }
     };
     const connection = await this.observe('connect', async () => {
@@ -346,7 +351,7 @@ export class CodingAgentAcpClient {
       const pending = app.connect({ ...stream,
         // Upstream's active-session router validates an exhaustive update union.
         // Forward notifications untouched; RPCs/callbacks remain SDK-owned.
-        readable: stream.readable.pipeThrough(new TransformStream({ transform(frame, controller) {
+        readable: stream.readable.pipeThrough(new globalThis.TransformStream({ transform(frame, controller) {
           if (frame && typeof frame === 'object' && 'method' in frame && frame.method === 'session/update' && !('id' in frame)) {
             sessionUpdate(frame.params as acp.SessionNotification);
           } else controller.enqueue(frame);
@@ -388,7 +393,7 @@ export class CodingAgentAcpClient {
       this.terminalError = new CodingAgentAcpConnectionError('ACP connection closed', { code });
       const listeners = [...this.closeListeners];
       this.close();
-      for (const listener of [this.options.onClose, ...listeners]) listener?.({ code, reason });
+      for (const listener of [this.options.onClose, ...listeners]) callObserver(listener, { code, reason });
       return;
     }
     this.reconnectTimer = setTimeout(() => {
@@ -399,7 +404,8 @@ export class CodingAgentAcpClient {
         this.failures = 0;
         try { await this.options.onReconnect?.(); }
         catch (error) {
-          if (ownsConnection()) for (const listener of [this.options.onError, ...this.errorListeners]) listener?.(error instanceof Error ? error : new Error(String(error)));
+          const failure = error instanceof Error ? error : new CodingAgentAcpConnectionError('ACP reconnect callback failed', { cause: error });
+          if (ownsConnection()) for (const listener of [this.options.onError, ...this.errorListeners]) callObserver(listener, failure);
         }
         for (const [sid, setup] of this.sessions) {
           if (!ownsConnection()) return;
@@ -411,10 +417,10 @@ export class CodingAgentAcpClient {
               return;
             }
             this.sessions.delete(sid);
-            const gap = new CodingAgentAcpAttachmentError(sid, String(error), { cause: error });
+            const gap = new CodingAgentAcpAttachmentError(sid, error.message, { cause: error });
             for (const waiter of this.connectedWaiters) waiter.reject(gap);
             this.connectedWaiters.clear();
-            for (const listener of [this.options.onError, ...this.errorListeners]) listener?.(gap);
+            for (const listener of [this.options.onError, ...this.errorListeners]) callObserver(listener, gap);
           }
         }
         if (ownsConnection()) this.markReady();

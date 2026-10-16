@@ -28,6 +28,57 @@ Concurrent `prompt` calls each own their correlated native terminal result.
 They do not require REST receipts, and uncertain input is never resent.
 Use `AcpTurnDriver` when the consumer wants serialized turns.
 
+### Shared session policy (product control)
+
+`HyperCLI` and the browser-safe `BrowserHyperCLI` expose
+`sessions.connectPolicy()`. This opens `/ws/session-policy` using the existing
+agents base and credential. Reuse one policy client across consumers and key
+subscriptions by **public session ID plus agent participant ID**:
+
+```typescript
+const policy = await client.sessions.connectPolicy();
+const subscription = await policy.subscribe({ sessionId, agentId }, {
+  onSnapshot: snapshot => renderPolicy(snapshot.desired, snapshot.applied),
+  onError: error => showError(error.code),
+});
+const snapshot = await subscription.set('auto', {
+  expectedRevision: subscription.snapshot!.desired.revision,
+});
+// Acceptance persists desired policy; it is not a host application acknowledgement.
+// A concurrent writer may already be reflected in this current snapshot.
+if (snapshot.applied.runtime_generation && snapshot.applied.binding_id) {
+  await subscription.waitApplied({
+    revision: snapshot.desired.revision,
+    runtimeGeneration: snapshot.applied.runtime_generation,
+    bindingId: snapshot.applied.binding_id,
+  });
+}
+subscription.close(); // removes this caller's observers/waiters
+policy.close();       // owner closes the shared socket and server subscriptions
+```
+
+Wire DTOs match `agents/shared/protocol/session_policy.py`: `desired` and
+`applied` remain distinct; application requires the matching revision, runtime
+generation and binding ID. `SessionPolicyError.code` exposes `conflict`,
+`superseded`, `unsupported`, `unavailable`, `failed`, timeout and cancellation
+outcomes. Reconnect requests new subscription snapshots; `subscription.fresh`
+is false until reconciled. Uncertain mutations are rejected, never replayed.
+Observer exceptions do not affect request settlement. The current product
+protocol has no unsubscribe frame; local subscription close does not remove a
+server subscription until its shared socket closes.
+
+The standalone `@hypercli.com/sdk/session-policy` entry is browser-safe.
+`connectPolicy({ url, token, createWebSocket, signal })` supports app-owned
+bridges/custom transports. Apps own CSP/CORS and endpoint/auth selection;
+the SDK never opens the host-only `/ws/runtime-policy` channel. Browser failures
+report sanitized transport categories and close codes, not credentials or raw
+`Event` strings. Node 18 callers should use `HyperCLI.sessions.connectPolicy()`
+or supply WebSocket and UUID factories to the standalone client.
+
+Modes are persisted and enforced by the backend/host, including reevaluation of
+pending asks. This API never installs an ACP permission handler or autoapproves
+locally. A temporary caller-owned permission probe is not canonical enforcement.
+
 ## Quick Start
 
 ```typescript

@@ -179,3 +179,8 @@ export function defaultAcpProxyWsUrl(apiBase: string): string {
   const tunnel = agentsTunnelWsUrl(resolvedApiBase);
   return `${tunnel.slice(0, -'/ws'.length)}/ws/acp`;
 }
+
+/** Product session-policy control; separate from both ACP and runtime policy control. */
+export function defaultSessionPolicyWsUrl(apiBase: string): string {
+  return `${defaultAgentsWsUrl(apiBase)}/session-policy`;
+}
