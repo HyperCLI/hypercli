@@ -29,6 +29,8 @@ function buildContext(format: 'table' | 'json'): CommandContext {
 
 async function main(): Promise<number> {
   process.on('SIGINT', () => {
+    // Active commands own bounded cancellation before returning exit 130.
+    if (process.listenerCount('SIGINT') > 1) return;
     process.stderr.write('\n');
     process.exit(130);
   });

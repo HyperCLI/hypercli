@@ -54,7 +54,7 @@ export const usage = [
   'hyper agents create <name> --runtime openclaw|hermes|generic|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--env K=V ...] [--param k=v ...] [--secret K=V ...] [--image IMG] [--sh SCRIPT] [--sync-root P] [--sync-include P ... | --sync-exclude G ...] [--registry-url U --registry-username U --registry-password P] [--restart | --no-restart] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--dry-run] [-- CMD [ARGS...]]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
-  'hyper agents chat <id> <prompt...> [-s|--session NAME] [--timeout S] [--stream]',
+  'hyper agents chat <id> <prompt...> [-s|--session NAME] [--permissions auto|none] [--timeout S] [--stream]',
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
   'hyper agents exec <id> [--] CMD [ARGS...]',
@@ -1608,8 +1608,19 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     session: { type: 'string', short: 's' },
     timeout: { type: 'string' },
     stream: { type: 'boolean', default: false },
+    permissions: { type: 'string' },
   });
   if (parsed.help) return printHelp();
+  const permissions = str(parsed, 'permissions');
+  if (permissions === 'ask') {
+    throw new UsageError('--permissions ask requires an interactive permission UI, which agents chat does not support');
+  }
+  if (permissions !== undefined && permissions !== 'auto' && permissions !== 'none') {
+    throw new UsageError('--permissions must be auto or none');
+  }
+  if (permissions !== undefined) {
+    throw new CliError('--permissions requires SDK product session-policy support, which is not available in this build; no policy was changed');
+  }
   const [ref, ...promptParts] = parsed.positionals;
   if (!ref) throw new UsageError('missing agent id');
   const promptText = promptParts.join(' ').trim();
@@ -1628,9 +1639,12 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   let stageError: CodingAgentAcpDiagnosticError | undefined;
   const activeOperations = new Map<number, CodingAgentAcpStage>();
   let timedOut = false;
-  // The SDK's prompt path takes no AbortSignal; on timeout we close the live
-  // connection instead, which rejects the in-flight turn.
+  // The SDK's prompt path takes no AbortSignal; cancel the turn before
+  // closing the connection, with a bounded cleanup deadline.
   let closeActive: (() => void) | undefined;
+  let cancelActive: (() => Promise<void>) | undefined;
+  let terminalError: CliError | undefined;
+  let terminalPermissionError: CliError | undefined;
   const controller = new AbortController();
   const startedAt = Date.now();
   const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
@@ -1656,22 +1670,47 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     }
     ctx.output.info(`chat diagnostic: ${JSON.stringify({ ...event, chat: evidence() })}`);
   };
+  let rejectGuard!: (error: Error) => void;
+  const stop = (error: CliError) => {
+    if (terminalError) return;
+    terminalError = error;
+    void (async () => {
+      // Cancellation is a standard ACP notification. Bound cleanup even if
+      // delivery stalls; a socket close alone does not cancel the native turn.
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.resolve().then(() => cancelActive?.()).catch(() => {}),
+          new Promise<void>((resolve) => { cleanupTimer = setTimeout(resolve, 250); }),
+        ]);
+      } finally {
+        clearTimeout(cleanupTimer);
+        controller.abort();
+        closeActive?.();
+        rejectGuard(error);
+      }
+    })();
+  };
+  const onSigint = () => stop(new CliError('chat interrupted', 130));
   let timer: ReturnType<typeof setTimeout>;
   const guard = new Promise<never>((_, reject) => {
+    rejectGuard = reject;
     timer = setTimeout(() => {
       timedOut = true;
       ctx.output.info(`chat diagnostic: ${JSON.stringify({ stage, phase: 'timeout', ...evidence() })}`);
-      controller.abort();
-      closeActive?.();
-      reject(new Error('chat timeout'));
+      stop(new CliError(`chat: ${stage} stage failed: timed out after ${timeoutMs / 1000}s (${JSON.stringify(evidence())})`));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
   });
+  process.on('SIGINT', onSigint);
 
   const atStage = async <T>(name: ChatStage, fn: () => Promise<T>): Promise<T> => {
     stage = name;
     try {
-      return await fn();
+      if (terminalError) throw terminalError;
+      const result = await fn();
+      if (terminalError) throw terminalError;
+      return result;
     } catch (err) {
       // Pairing callbacks retag the stage while a connect awaits approval.
       const failure = new CliError(`chat: ${stage} stage failed: ${describeFailure(err)} (${JSON.stringify(evidence())})`);
@@ -1715,8 +1754,18 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
         signal: controller.signal,
         onDiagnostic,
         clientInfo: { name: 'hypercli-cli' },
+        onPermissionRequest: () => {
+          ctx.output.info('chat diagnostic: {"stage":"permission","phase":"pending","resolution":"cancelled","reason":"interactive UI unavailable"}');
+          const error = new CliError('chat: permission required, but agents chat has no interactive permission UI; the request was cancelled');
+          // Give the SDK the standard callback response before cancelling the
+          // turn. Never choose an approval option or implement host policy.
+          setImmediate(() => stop(error));
+          terminalPermissionError = error;
+          return { outcome: { outcome: 'cancelled' } };
+        },
         ...(sessionName !== undefined ? { sessionId: sessionName } : {}),
         onUpdate: (notification) => {
+          if (terminalError || terminalPermissionError) return;
           const update = notification.update as unknown as {
             sessionUpdate?: string;
             content?: unknown;
@@ -1730,12 +1779,27 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       }));
     try {
       closeActive = () => acp.close();
+      if (terminalError) throw terminalError;
       sessionId = sessionName ?? (await atStage('connect', () => acp.newSession())).sessionId;
+      cancelActive = () => acp.cancel(sessionId);
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
-      await atStage('prompt', () => acp.prompt(sessionId, promptText));
+      try {
+        await atStage('prompt', () => acp.prompt(sessionId, promptText));
+      } catch (error) {
+        if (terminalPermissionError) {
+          stop(terminalPermissionError);
+          await guard;
+        }
+        throw error;
+      }
+      if (terminalPermissionError) {
+        stop(terminalPermissionError);
+        await guard;
+      }
       if (!reply) throw new Error('the turn ended without an assistant reply');
     } finally {
+      cancelActive = undefined;
       closeActive = undefined;
       acp.close();
     }
@@ -1768,13 +1832,12 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   try {
     await Promise.race([work, guard]);
   } catch (err) {
-    if (timedOut) {
-      throw new CliError(`chat: ${stage} stage failed: timed out after ${timeoutMs / 1000}s (${JSON.stringify(evidence())})`);
-    }
+    if (terminalError) throw terminalError;
     if (err instanceof CliError) throw err;
     throw new CliError(`chat: ${stage} stage failed: ${describeFailure(err)} (${JSON.stringify(evidence())})`);
   } finally {
     clearTimeout(timer!);
+    process.removeListener('SIGINT', onSigint);
   }
 }
 
@@ -1886,6 +1949,9 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
 
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
+  process.stdout.write('Chat permissions: omission preserves the participant policy for an existing public session; new sessions default to ask.\n'
+    + 'Explicit auto/none will persist until changed and require host application before prompting.\n'
+    + 'This build requires SDK session-policy support for explicit selection; ask needs an interactive UI and is unsupported.\n');
 }
 
 export async function run(ctx: CommandContext, args: string[]): Promise<number | void> {
