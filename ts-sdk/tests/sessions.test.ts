@@ -27,6 +27,28 @@ describe('durable session import evidence', () => {
   });
 });
 
+describe('product session mode over HTTP', () => {
+  it.each(['ask', 'auto', 'none'] as const)('posts and reads persisted %s', async mode => {
+    const row = { id: 'session/id', summary_text: 'Title', mode };
+    const post = vi.fn().mockResolvedValue(row);
+    const get = vi.fn().mockResolvedValue(row);
+    const api = new SessionsAPI({ get, post });
+    expect(await api.setMode(row.id, mode)).toMatchObject({ id: row.id, summaryText: 'Title', mode });
+    expect(post).toHaveBeenCalledExactlyOnceWith('/sessions/session%2Fid', { mode });
+    expect((await api.getSession(row.id)).mode).toBe(mode);
+    expect(get).toHaveBeenCalledExactlyOnceWith('/sessions/session%2Fid');
+  });
+
+  it('propagates offline errors while allowing persisted mode readback', async () => {
+    const error = new Error('503 runtime offline');
+    const post = vi.fn().mockRejectedValue(error);
+    const api = new SessionsAPI({ post, get: vi.fn().mockResolvedValue({ id: 's', mode: 'auto' }) });
+    await expect(api.setMode('s', 'auto')).rejects.toBe(error);
+    expect((await api.getSession('s')).mode).toBe('auto');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('native session discovery REST', () => {
   it.each(['pending', 'running', 'complete', 'error', 'unsupported'] as const)('preserves %s independently of catalog rows', async (status) => {
     const payload: SessionDiscoveryStatus = {

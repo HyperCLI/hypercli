@@ -1,7 +1,7 @@
 import { Billing } from './billing.js';
 import { BrowserJobs } from './browser-jobs.js';
 import { getAgentsApiBaseUrl } from './config.js';
-import { resolveAgentsApiBase, defaultSessionPolicyWsUrl } from './agent-urls.js';
+import { resolveAgentsApiBase } from './agent-urls.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
 import { KeysAPI } from './keys.js';
@@ -11,8 +11,6 @@ import { VoiceAPI } from './voice.js';
 import { WorkspacesAPI } from './workspaces.js';
 import { SessionsAPI } from './sessions.js';
 export * from './sessions.js';
-export * from './session-policy.js';
-export { defaultSessionPolicyWsUrl } from './agent-urls.js';
 export { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl } from './agent-urls.js';
 export { BrowserJobs } from './browser-jobs.js';
 export {
@@ -71,9 +69,7 @@ export class BrowserHyperCLI {
       options.agentsApiBaseUrl ||
       getAgentsApiBaseUrl(Boolean(options.agentDev), apiUrl), true);
     const agentsHttp = new HTTPClient(agentsApiBaseUrl, options.agentApiKey ?? options.token, options.timeout);
-    this.sessions = new SessionsAPI(agentsHttp, {
-      url: defaultSessionPolicyWsUrl(agentsApiBaseUrl), token: options.agentApiKey ?? options.token,
-    });
+    this.sessions = new SessionsAPI(agentsHttp);
     this.agent = new HyperAgent(
       this.http,
       options.agentApiKey ?? options.token,

@@ -17,7 +17,6 @@
  * `(updated_at, id)`.
  */
 import type { HTTPClient } from './http.js';
-import { SessionPolicyClient, type SessionPolicyConnectOptions, type SessionPolicyConnectionOverrides } from './session-policy.js';
 
 /** Native catalog discovery, independent of active conversation/turn state. */
 export interface SessionDiscoveryStatus {
@@ -63,6 +62,8 @@ export interface AcpSessionParticipant {
 /** One `agent_sessions` row as the catalog sees it (backend `SessionListItem`). summaryText doubles as the display title. */
 export interface AcpSessionRecord {
   id: string;
+  /** Persisted product permission mode; distinct from native ACP session modes. */
+  mode?: 'ask' | 'auto' | 'none' | null;
   /** Descriptive creation provenance; unknown values are preserved. */
   source: string | null;
   createdAt: string | null;
@@ -213,6 +214,7 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   const participants = row.participants;
   return {
     id: String(row.id ?? ''),
+    ...(row.mode !== undefined ? { mode: row.mode as AcpSessionRecord['mode'] } : {}),
     source: typeof row.source === 'string' ? row.source : null,
     importOutcome: pick<SessionImportOutcome>(row, 'import_outcome', 'importOutcome') ?? null,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
@@ -290,15 +292,7 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>,
-    private readonly policyOptions?: SessionPolicyConnectOptions) {}
-
-  /** Shared product policy control, keyed by public session and agent participant. Not ACP. */
-  connectPolicy(options: SessionPolicyConnectionOverrides = {}): Promise<SessionPolicyClient> {
-    const merged = { ...this.policyOptions, ...options };
-    if (!merged.url) return Promise.reject(new Error('Session policy requires a product WebSocket URL'));
-    return SessionPolicyClient.connect({ ...merged, url: merged.url });
-  }
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>) {}
 
   /** Read discovery evidence; an empty stored catalog alone is not discovery success. */
   async getDiscoveryStatus(agentId: string): Promise<SessionDiscoveryStatus> {
@@ -321,6 +315,15 @@ export class SessionsAPI {
       `/sessions/${encodeURIComponent(platformSessionId)}`,
     );
     return sessionStateFromWire(payload);
+  }
+
+  /** Persist product permission mode. A 503 can follow persistence; GET reads it back. */
+  async setMode(platformSessionId: string, mode: 'ask' | 'auto' | 'none'): Promise<AcpSessionRecord> {
+    if (!this.http.post) throw new Error('Session mode updates require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(platformSessionId)}`, { mode },
+    );
+    return sessionFromWire(payload);
   }
 
   /** Session catalog page, newest activity first (`(updated_at, id)` keyset). */

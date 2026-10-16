@@ -448,8 +448,7 @@ export {
   type CodingAgentAcpTarget,
 } from './acp.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
-export { defaultAcpProxyWsUrl, defaultSessionPolicyWsUrl } from './agent-urls.js';
-export * from './session-policy.js';
+export { defaultAcpProxyWsUrl } from './agent-urls.js';
 export {
   SessionsAPI,
   type AcpSessionListOptions,
