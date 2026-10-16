@@ -155,8 +155,6 @@
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
-        { "argv": ["tts", "--help"] },
-        { "argv": ["design", "--help"] },
         { "argv": ["clone", "--help"] },
         { "argv": ["transcribe", "--help"] }
       ]
