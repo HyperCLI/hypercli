@@ -14,9 +14,10 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 async function exercise(args: string[], mode = 'reply') {
   const home = await mkdtemp(join(tmpdir(), 'hyper-chat-'));
   const frames: any[] = [];
-  const policyFrames: any[] = [];
+  const modeWrites: unknown[] = [];
   const sequence: string[] = [];
-  let policyClosed = false;
+  const connectionPaths: string[] = [];
+  let acpClosed = false;
   const nativeAnswers: unknown[] = [];
   let appPeer: WebSocket | undefined;
   let app: WebSocket | undefined;
@@ -26,12 +27,29 @@ async function exercise(args: string[], mode = 'reply') {
   const server = createServer((req, res) => {
     requests.push(req.url!);
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'POST' && req.url === '/agents/sessions/public-session') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        const update = JSON.parse(body);
+        modeWrites.push(update);
+        sequence.push('set-mode');
+        if (mode === 'policy-interrupt') child!.kill('SIGINT');
+        setTimeout(() => {
+          sequence.push('mode-response');
+          res.statusCode = mode === 'policy-error' ? 503 : 200;
+          res.end(JSON.stringify(mode === 'policy-error' ? { detail: 'mode unavailable' } : { mode: update.mode }));
+        }, mode === 'policy-stall' || mode === 'policy-interrupt' ? 1500 : 100);
+      });
+      return;
+    }
     res.end(JSON.stringify(req.url?.endsWith('/runtime-paths') ? { cwd: '/workspace' }
       : { id, name: 'test', runtime: 'opencode', state: 'RUNNING' }));
   });
   const ws = new WebSocketServer({ server });
   let child: ReturnType<typeof spawn> | undefined;
   ws.on('connection', (socket, request) => {
+    connectionPaths.push(new URL(request.url!, 'http://localhost').pathname);
     if (request.url === '/app') {
       appPeer = socket;
       socket.on('message', data => {
@@ -40,43 +58,10 @@ async function exercise(args: string[], mode = 'reply') {
       });
       return;
     }
-    const isPolicy = request.url?.startsWith('/ws/session-policy');
-    if (isPolicy) socket.on('close', () => { policyClosed = true; });
+    socket.on('close', () => { acpClosed = true; });
     socket.on('message', data => {
     const frame = JSON.parse(String(data));
     const send = (value: unknown) => socket.send(JSON.stringify(value));
-    if (isPolicy) {
-      policyFrames.push(frame);
-      sequence.push(frame.type);
-      const snapshot = (revision: number, selected: string, status = 'pending') => ({
-        type: 'session.policy.snapshot', request_id: frame.request_id, session_id: frame.session_id, agent_id: frame.agent_id,
-        desired: { revision, mode: selected }, applied: { status, revision: status === 'applied' ? revision : 0,
-          mode: status === 'applied' ? selected : 'ask', runtime_generation: 'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb',
-          binding_id: 'cccccccc-1111-4111-8111-cccccccccccc' },
-      });
-      if (frame.type === 'session.policy.subscribe') send(snapshot(0, mode === 'same' ? 'auto' : 'ask'));
-      if (frame.type === 'session.policy.set') {
-        if (mode === 'conflict') {
-          send({ type: 'session.policy.result', request_id: frame.request_id, origin: id, outcome: 'conflict' });
-          return;
-        }
-        const revision = mode === 'same' ? 0 : 1;
-        send(snapshot(mode === 'superseded' ? 2 : revision, mode === 'superseded-mode' ? 'none' : frame.mode));
-        if (mode === 'policy-interrupt') { child!.kill('SIGINT'); return; }
-        if (mode === 'policy-disconnect') { socket.close(); return; }
-        if (mode === 'policy-stall') return;
-        if (mode === 'stale') send({ ...snapshot(0, 'ask', 'applied'), type: 'session.policy.applied' });
-        setTimeout(() => {
-          if (socket.readyState !== 1) return;
-          const applied = snapshot(revision, frame.mode, mode === 'unsupported' ? 'unsupported' : 'applied');
-          if (mode === 'wrong-binding') applied.applied.binding_id = 'dddddddd-1111-4111-8111-dddddddddddd';
-          if (mode === 'wrong-generation') applied.applied.runtime_generation = 'dddddddd-1111-4111-8111-dddddddddddd';
-          sequence.push('host-applied');
-          send({ ...applied, type: 'session.policy.applied' });
-        }, 100);
-      }
-      return;
-    }
     frames.push(frame);
     sequence.push(frame.method);
     const result = (value: unknown) => send({ jsonrpc: '2.0', id: frame.id, result: value });
@@ -132,7 +117,7 @@ async function exercise(args: string[], mode = 'reply') {
     const [code, signal] = await once(child, 'close');
     clearTimeout(deadline);
     if (mode === 'permission-app') await appCompletion;
-    return { code, signal, stdout, stderr, frames, requests, policyFrames, sequence, policyClosed, nativeAnswers };
+    return { code, signal, stdout, stderr, frames, requests, modeWrites, sequence, acpClosed, nativeAnswers, connectionPaths };
   } finally {
     app?.close();
     for (const client of ws.clients) client.terminate();
@@ -159,32 +144,29 @@ describe('chat actual argv and SDK wire', () => {
   it.each(['auto', 'none'])('applies persisted %s before prompting', async value => {
     const run = await exercise(['--permissions', value]);
     expect(run.code, run.stderr).toBe(0);
-    expect(run.policyFrames.map(f => f.type)).toEqual(['session.policy.subscribe', 'session.policy.set']);
-    expect(run.policyFrames[1]).toMatchObject({ mode: value, expected_revision: 0, session_id: 'public-session', agent_id: id });
-    expect(run.sequence.indexOf('session/prompt')).toBeGreaterThan(run.sequence.indexOf('host-applied'));
-    expect(run.policyClosed).toBe(true);
+    expect(run.modeWrites, JSON.stringify(run.requests)).toEqual([{ mode: value }]);
+    expect(run.sequence.indexOf('set-mode')).toBeGreaterThan(run.sequence.indexOf('session/new'));
+    expect(run.sequence.indexOf('session/prompt')).toBeGreaterThan(run.sequence.indexOf('mode-response'));
+    expect(run.connectionPaths).toEqual(['/ws/acp']);
+    expect(run.acpClosed).toBe(true);
     expect(JSON.parse(run.stdout).reply).toBe('Hello');
   });
-  it.each(['same', 'stale'])('waits for application with %s revision evidence', async mode => {
-    const run = await exercise(['--permissions', 'auto'], mode);
-    expect(run.code, run.stderr).toBe(0);
-    expect(run.sequence.indexOf('session/prompt')).toBeGreaterThan(run.sequence.indexOf('host-applied'));
-  });
-  it.each(['conflict', 'superseded', 'superseded-mode', 'wrong-binding', 'wrong-generation', 'unsupported', 'policy-disconnect', 'policy-stall'])(
-    'fails %s without prompting and closes policy transport', async mode => {
+  it.each(['policy-error', 'policy-stall'])(
+    'fails %s without prompting and closes the chat transport', async mode => {
       const run = await exercise(['--permissions', 'auto', '--timeout', '1'], mode);
       expect(run.code, run.stderr).toBe(1);
       expect(run.stdout).toBe('');
       expect(run.stderr).toContain('policy');
       expect(run.frames.some(f => f.method === 'session/prompt')).toBe(false);
-      expect(run.policyFrames.filter(f => f.type === 'session.policy.set')).toHaveLength(1);
-      expect(run.policyClosed).toBe(true);
+      expect(run.modeWrites).toEqual([{ mode: 'auto' }]);
+      expect(run.connectionPaths).toEqual(['/ws/acp']);
+      expect(run.acpClosed).toBe(true);
     });
-  it('closes both transports on SIGINT during policy application without prompting', async () => {
+  it('closes chat on SIGINT during the HTTP mode update without prompting', async () => {
     const run = await exercise(['--permissions', 'auto'], 'policy-interrupt');
     expect(run.code, run.stderr).toBe(130);
     expect(run.stdout).toBe('');
-    expect(run.policyClosed).toBe(true);
+    expect(run.acpClosed).toBe(true);
     expect(run.frames.some(f => f.method === 'session/prompt')).toBe(false);
     expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
   });
@@ -193,7 +175,8 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.code, run.stderr).toBe(0);
     expect(JSON.parse(run.stdout).reply).toBe('Hello');
     expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/new', 'session/prompt']);
-    expect(run.requests.some(path => path.includes('policy'))).toBe(false);
+    expect(run.modeWrites).toEqual([]);
+    expect(run.connectionPaths).toEqual(['/ws/acp']);
   });
   it('abstains from an opaque permission callback without cancelling the shared turn', async () => {
     const run = await exercise([], 'permission');
@@ -205,7 +188,7 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.frames.find(f => f.id === 'callback-opaque')).toEqual({ jsonrpc: '2.0', id: 'callback-opaque', result: { outcome: { outcome: 'cancelled' } } });
     expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
   });
-  it('never cancels a preexisting turn while resumed policy application stalls', async () => {
+  it('never cancels a preexisting turn or prompts after a timed-out mode update responds late', async () => {
     const run = await exercise(['--session', 'public-session', '--permissions', 'auto', '--timeout', '1'], 'policy-stall');
     expect(run.code, run.stderr).toBe(1);
     expect(run.frames.some(f => f.method === 'session/resume')).toBe(true);
@@ -227,7 +210,8 @@ describe('chat actual argv and SDK wire', () => {
     expect(JSON.parse(run.stdout).session).toEqual({ id: 'public-session', resumed: true });
     expect(run.stderr).toContain('Hello');
     expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/list', 'session/resume', 'session/prompt']);
-    expect(run.requests.some(path => path.includes('policy'))).toBe(false);
+    expect(run.modeWrites).toEqual([]);
+    expect(run.connectionPaths).toEqual(['/ws/acp']);
   });
   it.each(['stall', 'interrupt'])('bounded cancellation on %s', async mode => {
     const run = await exercise(['--timeout', '1'], mode);

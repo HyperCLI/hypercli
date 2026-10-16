@@ -1825,30 +1825,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
       if (permissions !== undefined) {
-        await atStage('policy', async () => {
-          const policy = await client.sessions.connectPolicy({ signal: controller.signal, timeoutMs: remainingMs(), reconnectDelaysMs: [] });
-          try {
-            const subscription = await policy.subscribe({ sessionId, agentId: agent.id });
-            try {
-              const before = subscription.snapshot;
-              if (!subscription.fresh || !before) throw new Error('session policy snapshot unavailable');
-              const runtimeGeneration = before.applied.runtime_generation;
-              const bindingId = before.applied.binding_id;
-              if (!runtimeGeneration || !bindingId) throw new Error('session policy runtime binding unavailable');
-              const revision = before.desired.revision + (before.desired.mode === permissions ? 0 : 1);
-              const current = await subscription.set(permissions, { expectedRevision: before.desired.revision, signal: controller.signal });
-              if (current.desired.revision !== revision || current.desired.mode !== permissions) {
-                throw new Error('session policy selection superseded');
-              }
-              const applied = await subscription.waitApplied({ revision, runtimeGeneration, bindingId,
-                signal: controller.signal, timeoutMs: remainingMs() });
-              if (!subscription.fresh || applied.desired.mode !== permissions || applied.applied.mode !== permissions) {
-                throw new Error('session policy selection superseded');
-              }
-              ctx.output.info(`session permissions ${permissions} applied at revision ${revision}; persists until changed`);
-            } finally { subscription.close(); }
-          } finally { policy.close(); }
-        });
+        await atStage('policy', () => client.sessions.setMode(sessionId, permissions));
       }
       try {
         // Only this command's submitted prompt makes it eligible to cancel.
@@ -2020,7 +1997,7 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
   process.stdout.write('Chat permissions: omission preserves the participant policy for an existing public session; new sessions default to ask.\n'
-    + 'Explicit auto/none persists for this session and agent participant until changed; host application is awaited before prompting.\n'
+    + 'Explicit auto/none updates the session mode over HTTP before prompting and persists until changed.\n'
     + 'ask needs an interactive permission UI and is unsupported; unanswered requests are cancelled.\n');
   process.stdout.write('Runner logs are bounded replacement snapshots, not a continuous stream. JSON follow emits one snapshot per line with capture metadata.\n'
     + 'Human follow prints verified append suffixes; ambiguous truncation reports lost continuity. Bounds are per source: max-bytes 1..65536, max-lines 1..1000.\n');
