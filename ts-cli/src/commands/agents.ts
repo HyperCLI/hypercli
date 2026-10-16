@@ -1996,7 +1996,7 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
 
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
-  process.stdout.write('Chat permissions: omission preserves the participant policy for an existing public session; new sessions default to ask.\n'
+  process.stdout.write('Chat permissions: omission preserves the mode of an existing session; new sessions default to ask.\n'
     + 'Explicit auto/none updates the session mode over HTTP before prompting and persists until changed.\n'
     + 'ask needs an interactive permission UI and is unsupported; unanswered requests are cancelled.\n');
   process.stdout.write('Runner logs are bounded replacement snapshots, not a continuous stream. JSON follow emits one snapshot per line with capture metadata.\n'
