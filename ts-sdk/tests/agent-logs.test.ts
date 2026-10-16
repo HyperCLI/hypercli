@@ -1,11 +1,34 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Deployments, parseAgentLogFrame } from '../src/agents.js';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import NodeWebSocket, { WebSocketServer } from 'ws';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Deployments, parseAgentLogFrame, AgentCapturedLogsError, type AgentCapturedLogsEvent } from '../src/agents.js';
+import { HTTPClient } from '../src/http.js';
+
+afterEach(() => vi.unstubAllGlobals());
+
+function captured(logs = 'first\nsecond\n'): AgentCapturedLogsEvent {
+  return {
+    event: 'captured_logs', agent_id: '00000000-0000-4000-8000-000000000001',
+    transport: 'runner', logs, unavailable: null,
+    captures: [{
+      assignment_id: '00000000-0000-4000-8000-000000000002', source: 'stdout', generation: 'current',
+      file_generation: 'inode-1', launch_epoch: 7, content_base64: Buffer.from(logs).toString('base64'),
+      truncated: true, unavailable: null, capture: { state: 'capturing', dropped_bytes: 3 },
+      diagnostics_dropped: 2, runner_version: '0.8.5', runner_revision: 'abc123', executable_sha256: 'a'.repeat(64),
+    }, {
+      assignment_id: '00000000-0000-4000-8000-000000000002', source: 'stderr', generation: 'current',
+      file_generation: null, launch_epoch: null, content_base64: null, truncated: false,
+      unavailable: 'io_error', capture: { state: 'unavailable', dropped_bytes: 0 },
+      diagnostics_dropped: 0, runner_version: '0.8.5', runner_revision: null, executable_sha256: null,
+    }],
+  };
+}
 
 /**
- * A socket the test drives by hand. The shared one-shot harness delivers every
- * frame in the microtask that fires `onopen`, which lands before `subscribeLogs`
- * has attached its handlers -- `logsConnect` resolves on open, so attachment is
- * one await later. Driving delivery explicitly keeps the ordering under test.
+ * A socket the test drives by hand for callback/lifecycle ordering. The real
+ * loopback test below also sends frames immediately on connection, guarding
+ * the initial-snapshot race between socket opening and subscriber attachment.
  */
 class ControllableWebSocket {
   public static instances: ControllableWebSocket[] = [];
@@ -45,6 +68,14 @@ function deploymentsWithLogsToken() {
 }
 
 describe('parseAgentLogFrame', () => {
+  it('preserves exact capture bytes, partial availability, health and provenance as a replacement event', () => {
+    const snapshot = captured();
+    expect(parseAgentLogFrame(JSON.stringify(snapshot))).toEqual({ kind: 'capturedLogs', snapshot });
+    const empty = captured('');
+    expect(empty.captures[0].content_base64).toBe('');
+    expect(parseAgentLogFrame(JSON.stringify(empty))).toEqual({ kind: 'capturedLogs', snapshot: empty });
+    expect(parseAgentLogFrame(JSON.stringify({ event: 'captured_logs' }))).toEqual({ kind: 'error', detail: 'Invalid captured logs snapshot' });
+  });
   it('decodes the envelope the backend actually sends', () => {
     expect(parseAgentLogFrame(JSON.stringify({ event: 'log', log: 'hello' })))
       .toEqual({ kind: 'log', line: 'hello' });
@@ -77,6 +108,61 @@ describe('Deployments.subscribeLogs', () => {
     vi.restoreAllMocks();
     ControllableWebSocket.instances = [];
     vi.stubGlobal('WebSocket', ControllableWebSocket as any);
+  });
+
+  it('delivers overlapping tails only as replacements and forwards runner read selectors', async () => {
+    const { agents } = deploymentsWithLogsToken();
+    const lines = vi.fn(), snapshots: AgentCapturedLogsEvent[] = [];
+    let displayed = '';
+    const done = agents.subscribeLogs('agent-1', lines, {
+      source: 'stderr', generation: 'previous', maxBytes: 1234, maxLines: 17,
+      onCapturedLogs: async snapshot => { snapshots.push(snapshot); displayed = snapshot.logs ?? ''; },
+    });
+    await vi.waitFor(() => expect(ControllableWebSocket.instances[0]?.onmessage).toBeTypeOf('function'));
+    const socket = ControllableWebSocket.instances[0], url = new URL(socket.url);
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ source: 'stderr', generation: 'previous', max_bytes: '1234', max_lines: '17' });
+    socket.emit(captured('first\nsecond\n'));
+    socket.emit(captured('second\nthird\n'));
+    const healthOnly = captured('second\nthird\n');
+    healthOnly.captures[0].diagnostics_dropped = 9;
+    socket.emit(healthOnly);
+    socket.end(); await done;
+    expect(lines).not.toHaveBeenCalled();
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots[2].captures[0].diagnostics_dropped).toBe(9);
+    expect(displayed).toBe('second\nthird\n');
+  });
+
+  it.each([null, 'offline'])('settles non-following captured reads after the awaited snapshot callback (%s)', async unavailable => {
+    const { agents } = deploymentsWithLogsToken();
+    const received = vi.fn();
+    const done = agents.subscribeLogs('agent-1', vi.fn(), { follow: false, onCapturedLogs: received });
+    await vi.waitFor(() => expect(ControllableWebSocket.instances[0]?.onmessage).toBeTypeOf('function'));
+    const socket = ControllableWebSocket.instances[0];
+    const snapshot = unavailable ? { ...captured(), unavailable, logs: null, captures: [] } : captured('');
+    socket.emit(snapshot); await done;
+    expect(received).toHaveBeenCalledExactlyOnceWith(snapshot);
+    expect(socket.close).toHaveBeenCalled();
+  });
+
+  it('fails explicitly for a legacy append-only consumer instead of silently dropping runner logs', async () => {
+    const { agents } = deploymentsWithLogsToken(), lines = vi.fn();
+    const done = agents.subscribeLogs('agent-1', lines);
+    await vi.waitFor(() => expect(ControllableWebSocket.instances[0]?.onmessage).toBeTypeOf('function'));
+    ControllableWebSocket.instances[0].emit(captured());
+    await expect(done).rejects.toThrow('onCapturedLogs');
+    expect(lines).not.toHaveBeenCalled();
+  });
+
+  it('settles and detaches when a replacement renderer rejects', async () => {
+    const { agents } = deploymentsWithLogsToken();
+    const done = agents.subscribeLogs('agent-1', vi.fn(), {
+      onCapturedLogs: async () => { throw new Error('render failed'); },
+    });
+    await vi.waitFor(() => expect(ControllableWebSocket.instances[0]?.onmessage).toBeTypeOf('function'));
+    const socket = ControllableWebSocket.instances[0]; socket.emit(captured());
+    await expect(done).rejects.toThrow('render failed');
+    expect(socket.onmessage).toBeNull(); expect(socket.close).toHaveBeenCalled();
   });
 
   it('delivers replayed history, reports the boundary, then streams live lines', async () => {
@@ -218,4 +304,48 @@ describe('Deployments.subscribeLogs', () => {
     );
     expect(ControllableWebSocket.instances).toHaveLength(0);
   });
+});
+
+it('reads real HTTP captured metadata/errors and consumes immediate real WebSocket replacement frames', async () => {
+  vi.stubGlobal('WebSocket', NodeWebSocket);
+  let unavailable = false;
+  const requests: URL[] = [];
+  const snapshot = captured();
+  const { event: _event, ...rest } = snapshot;
+  const failed = { ...rest, logs: null, unavailable: 'io_error', captures: [rest.captures[1]] };
+  const server = createServer((request, response) => {
+    const url = new URL(request.url!, 'http://localhost'); requests.push(url);
+    response.setHeader('Content-Type', 'application/json');
+    if (url.pathname.endsWith('/logs/token')) response.end(JSON.stringify({
+      token: 'synthetic-token', agent_id: snapshot.agent_id, expires_at: '2026-12-01T00:00:00Z',
+      ws_url: `ws://${request.headers.host}/ws/logs/${snapshot.agent_id}`,
+    }));
+    else { response.statusCode = unavailable ? 502 : 200; response.end(JSON.stringify(unavailable ? { detail: failed } : rest)); }
+  });
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (socket, request) => {
+    requests.push(new URL(request.url!, 'http://localhost'));
+    socket.send(JSON.stringify(snapshot));
+    socket.send(JSON.stringify({ ...captured('rotated\n'), captures: [{ ...captured('rotated\n').captures[0], file_generation: 'inode-2' }] }));
+    socket.close();
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const agents = new Deployments(new HTTPClient(base, 'synthetic-key'), 'synthetic-key', base, base.replace('http:', 'ws:') + '/ws');
+  try {
+    expect(await agents.getLogs(snapshot.agent_id, { source: 'both', generation: 'previous', maxBytes: 45, maxLines: 2 })).toEqual(rest);
+    expect(Object.fromEntries(requests[0].searchParams)).toEqual({ source: 'both', generation: 'previous', max_bytes: '45', max_lines: '2' });
+    unavailable = true;
+    await expect(agents.getLogs(snapshot.agent_id)).rejects.toMatchObject({ name: 'AgentCapturedLogsError', statusCode: 502, snapshot: failed });
+    await expect(agents.getLogs(snapshot.agent_id)).rejects.toBeInstanceOf(AgentCapturedLogsError);
+    const lines = vi.fn(), snapshots: AgentCapturedLogsEvent[] = [];
+    await agents.subscribeLogs(snapshot.agent_id, lines, { onCapturedLogs: value => { snapshots.push(value); } });
+    expect(lines).not.toHaveBeenCalled();
+    expect(snapshots.map(value => value.logs)).toEqual([snapshot.logs, 'rotated\n']);
+    expect(snapshots[1].captures[0].file_generation).toBe('inode-2');
+  } finally {
+    for (const socket of wss.clients) socket.terminate();
+    await new Promise<void>(resolve => wss.close(() => resolve()));
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
 });

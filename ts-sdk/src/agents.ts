@@ -467,6 +467,69 @@ export interface AgentLogsTokenResponse {
   ws_url?: string;
 }
 
+/** Captured runner-file provenance, matching AssignmentLogResult's product projection. */
+export interface AgentLogCapture {
+  assignment_id: string;
+  source: 'stdout' | 'stderr';
+  generation: 'current' | 'previous';
+  file_generation: string | null;
+  launch_epoch: number | null;
+  /** Exact bytes. Empty string is an available empty file; null is unavailable. */
+  content_base64: string | null;
+  truncated: boolean;
+  unavailable: 'unavailable' | 'not_supported' | 'invalid_limit' | 'io_error' | null;
+  capture: { state: 'unknown' | 'capturing' | 'complete' | 'unavailable'; dropped_bytes: number } | null;
+  diagnostics_dropped: number;
+  runner_version: string;
+  runner_revision: string | null;
+  executable_sha256: string | null;
+}
+
+export interface AgentCapturedLogsSnapshot {
+  agent_id: string;
+  transport: 'runner';
+  /** Lossy UTF-8 display projection, stdout then stderr; not chronological merging. */
+  logs: string | null;
+  unavailable: AgentLogCapture['unavailable'] | 'unsupported' | 'offline' | 'timeout' | 'busy';
+  captures: AgentLogCapture[];
+}
+export interface AgentCapturedLogsEvent extends AgentCapturedLogsSnapshot { event: 'captured_logs' }
+export type AgentLogsResponse = { agent_id: string; logs: string; transport?: undefined } | AgentCapturedLogsSnapshot;
+export interface AgentLogsReadOptions {
+  source?: 'both' | 'stdout' | 'stderr';
+  generation?: 'current' | 'previous';
+  /** Per-source bound, 1..65536. Omitted uses the backend default. */
+  maxBytes?: number;
+  /** Per-source bound, 1..1000. Omitted uses the backend default. */
+  maxLines?: number;
+}
+export class AgentCapturedLogsError extends APIError {
+  constructor(error: APIError, public readonly snapshot: AgentCapturedLogsSnapshot) {
+    super(error.statusCode, error.detail, error.method, error.url, error.responseText, error.retryAfterSeconds);
+    Object.setPrototypeOf(this, new.target.prototype);
+    this.name = 'AgentCapturedLogsError';
+    this.cause = error;
+  }
+}
+
+function isCapturedLogsSnapshot(value: unknown): value is AgentCapturedLogsSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as AgentCapturedLogsSnapshot;
+  return snapshot.transport === 'runner' && typeof snapshot.agent_id === 'string'
+    && (typeof snapshot.logs === 'string' || snapshot.logs === null)
+    && (snapshot.unavailable === null || typeof snapshot.unavailable === 'string')
+    && Array.isArray(snapshot.captures);
+}
+
+function agentLogQuery(options: AgentLogsReadOptions): Record<string, string | number> {
+  return {
+    ...(options.source !== undefined ? { source: options.source } : {}),
+    ...(options.generation !== undefined ? { generation: options.generation } : {}),
+    ...(options.maxBytes !== undefined ? { max_bytes: options.maxBytes } : {}),
+    ...(options.maxLines !== undefined ? { max_lines: options.maxLines } : {}),
+  };
+}
+
 /**
  * One decoded frame from the agent logs WebSocket.
  *
@@ -478,6 +541,7 @@ export interface AgentLogsTokenResponse {
  */
 export type AgentLogFrame =
   | { kind: 'log'; line: string }
+  | { kind: 'capturedLogs'; snapshot: AgentCapturedLogsEvent }
   | { kind: 'historyEnd' }
   | { kind: 'error'; detail: string }
   | { kind: 'ignore' };
@@ -495,6 +559,10 @@ export function parseAgentLogFrame(raw: string): AgentLogFrame {
   const frame = payload as { event?: unknown; log?: unknown; detail?: unknown };
   if (typeof frame.event !== 'string') return { kind: 'log', line: raw };
   switch (frame.event) {
+    case 'captured_logs':
+      return isCapturedLogsSnapshot(payload)
+        ? { kind: 'capturedLogs', snapshot: payload as AgentCapturedLogsEvent }
+        : { kind: 'error', detail: 'Invalid captured logs snapshot' };
     case 'log':
       return {
         kind: 'log',
@@ -515,15 +583,19 @@ export function parseAgentLogFrame(raw: string): AgentLogFrame {
   }
 }
 
-export interface AgentLogsSubscribeOptions {
+export interface AgentLogsConnectOptions extends AgentLogsReadOptions {
   /** Historical lines to replay before live frames. 0 replays the whole buffer. */
   tailLines?: number;
   container?: string;
   signal?: AbortSignal;
+}
+export interface AgentLogsSubscribeOptions extends AgentLogsConnectOptions {
   /** Runs after socket authentication and before any frame is read. */
   onReady?: () => void | Promise<void>;
   /** Runs once replay is complete, before any live frame is delivered. */
   onHistoryEnd?: () => void | Promise<void>;
+  /** Replace the captured-tail view. Never append these overlapping snapshots as lines. */
+  onCapturedLogs?: (snapshot: AgentCapturedLogsEvent) => void | Promise<void>;
   /**
    * Runs when the peer closes the socket, carrying the close code. Reconnect
    * policy lives with the caller, so the caller needs the code that decides it:
@@ -532,7 +604,7 @@ export interface AgentLogsSubscribeOptions {
   onClose?: (event: { code: number; reason: string }) => void;
   /**
    * Keep the socket open after replay. With `follow: false` the returned
-   * promise resolves at `history_end`, which is what a stopped agent needs:
+   * promise resolves at `history_end` or after the first captured snapshot:
    * its socket is snapshot-then-silence and would otherwise hang.
    */
   follow?: boolean;
@@ -5112,12 +5184,37 @@ export class Deployments {
     return destination;
   }
 
+  /** One bounded display/capture read. All-unavailable capture errors retain their metadata. */
+  async getLogs(agentIdOrName: string, options: AgentLogsReadOptions = {}): Promise<AgentLogsResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    try {
+      return await this.agentHttp.get<AgentLogsResponse>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs`, agentLogQuery(options));
+    } catch (error) {
+      if (error instanceof APIError) {
+        let snapshot: unknown;
+        try { snapshot = JSON.parse(error.detail); } catch { /* Ordinary HTTP error. */ }
+        if (isCapturedLogsSnapshot(snapshot)) throw new AgentCapturedLogsError(error, snapshot);
+      }
+      throw error;
+    }
+  }
+
   async logsConnect(
     agentIdOrName: string,
-    options: { tailLines?: number; container?: string } = {},
+    options: AgentLogsConnectOptions = {},
   ): Promise<WebSocket> {
+    return this.connectLogs(agentIdOrName, options);
+  }
+
+  private async connectLogs(
+    agentIdOrName: string,
+    options: AgentLogsConnectOptions,
+    onConnected?: (socket: WebSocket) => void,
+  ): Promise<WebSocket> {
+    options.signal?.throwIfAborted();
     const agentId = await this.resolveAgentId(agentIdOrName);
     const tokenData = await this.logsToken(agentId);
+    options.signal?.throwIfAborted();
     const container = options.container ?? 'reef';
     const tailLines = options.tailLines ?? 100;
     const wsUrl =
@@ -5125,24 +5222,49 @@ export class Deployments {
       `?token=${encodeURIComponent(tokenData.token)}` +
       `&container=${encodeURIComponent(container)}` +
       `&tail_lines=${encodeURIComponent(String(tailLines))}`;
-    const ws = new WebSocket(wsUrl);
+    const url = new URL(wsUrl);
+    for (const [name, value] of Object.entries(agentLogQuery(options))) url.searchParams.set(name, String(value));
+    const Socket = preferredWebSocket();
+    const ws = new Socket(url.toString());
     return await new Promise<WebSocket>((resolve, reject) => {
       let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', onAbort);
+        ws.onopen = null; ws.onerror = null; ws.onclose = null;
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true; cleanup();
+        // Node ws emits an error when close aborts an unfinished handshake.
+        // Keep that owned teardown error handled until the socket closes.
+        ws.onerror = () => {};
+        ws.onclose = () => { ws.onerror = null; ws.onclose = null; };
+        try { ws.close(); } catch { /* Already closed. */ }
+        reject(error);
+      };
+      const onAbort = () => fail(new Error('Agent logs connection aborted'));
+      const timer = setTimeout(() => fail(new Error('Agent logs connection timed out')), 30_000);
+      options.signal?.addEventListener('abort', onAbort, { once: true });
       ws.onopen = () => {
-        settled = true;
-        resolve(ws);
+        if (settled) return;
+        cleanup();
+        try {
+          // Install subscription handlers in the open callback, before the first
+          // backend snapshot can arrive (not after an await in subscribeLogs).
+          onConnected?.(ws);
+          settled = true; resolve(ws);
+        } catch (error) { fail(error instanceof Error ? error : new Error('Agent logs setup failed')); }
       };
-      ws.onerror = () => {
-        if (!settled) {
-          reject(new Error('WebSocket connection failed'));
-        }
-      };
+      ws.onerror = () => fail(new Error('WebSocket connection failed'));
+      ws.onclose = (event: { code?: number }) => fail(new Error(`Agent logs connection closed (${event.code ?? 1006})`));
+      if (options.signal?.aborted) onAbort();
     });
   }
 
   /**
-   * Snapshot-then-updates over one socket: the connection opens with the
-   * replayed history, reports `history_end`, then streams live lines.
+   * Cluster logs replay history then stream lines. Runner logs instead deliver
+   * bounded replacement snapshots to onCapturedLogs, without history_end.
    *
    * One mechanism rather than a REST read plus a separate subscribe. The two-step
    * form leaves a seam between the two calls that no server change can close,
@@ -5161,64 +5283,66 @@ export class Deployments {
     options: AgentLogsSubscribeOptions = {},
   ): Promise<void> {
     const follow = options.follow ?? true;
-    const ws = await this.logsConnect(agentIdOrName, {
-      tailLines: options.tailLines,
-      container: options.container,
-    });
-
-    void options.onReady?.();
-
     return await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        options.signal?.removeEventListener('abort', onAbort);
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        try {
-          ws.close();
-        } catch {
-          // A socket already closed by the peer needs no local close.
-        }
-        if (error) reject(error);
-        else resolve();
-      };
-      function onAbort() {
-        finish();
-      }
+      void this.connectLogs(agentIdOrName, options, (ws) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          options.signal?.removeEventListener('abort', onAbort);
+          ws.onmessage = null;
+          ws.onclose = null;
+          ws.onerror = null;
+          try { ws.close(); } catch { /* Already closed by the peer. */ }
+          if (error) reject(error);
+          else resolve();
+        };
+        function onAbort() { finish(); }
+        if (options.signal?.aborted) { finish(); return; }
+        options.signal?.addEventListener('abort', onAbort, { once: true });
 
-      if (options.signal?.aborted) {
-        finish();
-        return;
-      }
-      options.signal?.addEventListener('abort', onAbort, { once: true });
+        let queue = Promise.resolve();
+        const enqueue = (callback: () => void | Promise<void>) => {
+          queue = queue.then(() => { if (!settled) return callback(); }).catch(error => {
+            finish(error instanceof Error ? error : new Error('Agent logs callback failed'));
+          });
+        };
+        enqueue(() => options.onReady?.());
 
-      ws.onmessage = (event: MessageEvent) => {
-        const raw = typeof event.data === 'string' ? event.data : '';
-        if (!raw) return;
-        const frame = parseAgentLogFrame(raw);
-        switch (frame.kind) {
-          case 'log':
-            void handler(frame.line);
-            return;
-          case 'historyEnd':
-            void options.onHistoryEnd?.();
-            if (!follow) finish();
-            return;
-          case 'error':
-            finish(new Error(frame.detail));
-            return;
-          default:
-            return;
-        }
-      };
-      ws.onclose = (event: { code?: number; reason?: string }) => {
-        options.onClose?.({ code: event?.code ?? 1006, reason: event?.reason ?? '' });
-        finish();
-      };
-      ws.onerror = () => finish(new Error('WebSocket connection failed'));
+        ws.onmessage = (event: { data: unknown }) => {
+          const raw = typeof event.data === 'string' ? event.data : Buffer.isBuffer(event.data) ? event.data.toString() : '';
+          if (!raw) return;
+          const frame = parseAgentLogFrame(raw);
+          enqueue(async () => {
+            switch (frame.kind) {
+              case 'log':
+                await handler(frame.line);
+                return;
+              case 'capturedLogs':
+                if (!options.onCapturedLogs) throw new Error('Runner log snapshots require an onCapturedLogs replacement handler');
+                await options.onCapturedLogs(frame.snapshot);
+                if (!follow) finish();
+                return;
+              case 'historyEnd':
+                await options.onHistoryEnd?.();
+                if (!follow) finish();
+                return;
+              case 'error':
+                finish(new Error(frame.detail));
+                return;
+              default:
+                return;
+            }
+          });
+        };
+        ws.onclose = (event: { code?: number; reason?: string }) => {
+          enqueue(async () => {
+            await options.onClose?.({ code: event?.code ?? 1006, reason: event?.reason ?? '' });
+            finish();
+          });
+        };
+        ws.onerror = () => finish(new Error('WebSocket connection failed'));
+      }).catch(reject);
     });
   }
 

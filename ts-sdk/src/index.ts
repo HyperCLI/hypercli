@@ -391,6 +391,13 @@ export {
   type RunnerPresenceEvent,
   type AgentLogFrame,
   type AgentLogsSubscribeOptions,
+  type AgentLogsConnectOptions,
+  type AgentLogsReadOptions,
+  type AgentLogsResponse,
+  type AgentLogCapture,
+  type AgentCapturedLogsSnapshot,
+  type AgentCapturedLogsEvent,
+  AgentCapturedLogsError,
   parseAgentLogFrame,
 } from './agents.js';
 

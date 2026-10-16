@@ -593,6 +593,36 @@ await streamLogs(client, jobId, (line) => {
 });
 ```
 
+### Captured Agent Logs
+
+`client.deployments.getLogs(agentId, { source, generation, maxBytes, maxLines })`
+returns the backend REST response. Runner responses preserve `captures`: exact
+base64 bytes, source/storage generation, file generation, assignment, launch
+epoch, truncation, capture health/drop counts, and runner/build/executable
+provenance. `logs` is display text (stdout then stderr), not a chronological
+merge. Empty captured bytes are distinct from unavailable files. If every
+source is unavailable, `AgentCapturedLogsError.snapshot` retains the metadata
+and `statusCode` retains the HTTP failure.
+
+```typescript
+await client.deployments.subscribeLogs(agentId, appendClusterLine, {
+  source: 'both', generation: 'current', maxBytes: 65536, maxLines: 1000,
+  onCapturedLogs: snapshot => replaceRunnerLogView(snapshot),
+  follow: true,
+  signal: abortController.signal,
+});
+```
+
+`onCapturedLogs` receives `AgentCapturedLogsEvent` (`event: 'captured_logs'`).
+These are overlapping **replacement snapshots**, never append-line callbacks.
+Replace the view and display per-source truncation/unavailability even when
+another source succeeded. SDK callbacks preserve metadata-only updates too;
+they do not deduplicate by text or invent byte offsets. A runner subscription
+requires this replacement handler. `follow: false` resolves after its first
+snapshot callback completes; cluster logs still resolve at `history_end`.
+Callback failures reject and clean up the subscription. Reconnect remains
+caller-owned; no runner capability probing or runtime protocol is added here.
+
 ### ComfyUI Workflows
 
 ```typescript
