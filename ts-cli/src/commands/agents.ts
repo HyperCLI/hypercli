@@ -1581,7 +1581,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 // session/resume without history (the NAME is the ACP session id).
 // ---------------------------------------------------------------------------
 
-type ChatStage = 'start' | 'wait' | CodingAgentAcpStage;
+type ChatStage = 'start' | 'wait' | 'policy' | CodingAgentAcpStage;
 
 function requireChatRuntime(runtime: string): string {
   const normalized = canonicalRuntimeName(runtime);
@@ -1618,9 +1618,6 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   if (permissions !== undefined && permissions !== 'auto' && permissions !== 'none') {
     throw new UsageError('--permissions must be auto or none');
   }
-  if (permissions !== undefined) {
-    throw new CliError('--permissions requires SDK product session-policy support, which is not available in this build; no policy was changed');
-  }
   const [ref, ...promptParts] = parsed.positionals;
   if (!ref) throw new UsageError('missing agent id');
   const promptText = promptParts.join(' ').trim();
@@ -1630,7 +1627,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   const stream = parsed.values.stream === true;
   const timeoutMs = secondsFlag(parsed, 'timeout', 120);
 
-  const { d } = await adopt(ctx);
+  const { client, d } = await adopt(ctx);
   const resolved = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
   requireChatRuntime(resolved.runtime ?? '');
 
@@ -1784,6 +1781,32 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       cancelActive = () => acp.cancel(sessionId);
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
+      if (permissions !== undefined) {
+        await atStage('policy', async () => {
+          const policy = await client.sessions.connectPolicy({ signal: controller.signal, timeoutMs: remainingMs(), reconnectDelaysMs: [] });
+          try {
+            const subscription = await policy.subscribe({ sessionId, agentId: agent.id });
+            try {
+              const before = subscription.snapshot;
+              if (!subscription.fresh || !before) throw new Error('session policy snapshot unavailable');
+              const runtimeGeneration = before.applied.runtime_generation;
+              const bindingId = before.applied.binding_id;
+              if (!runtimeGeneration || !bindingId) throw new Error('session policy runtime binding unavailable');
+              const revision = before.desired.revision + (before.desired.mode === permissions ? 0 : 1);
+              const current = await subscription.set(permissions, { expectedRevision: before.desired.revision, signal: controller.signal });
+              if (current.desired.revision !== revision || current.desired.mode !== permissions) {
+                throw new Error('session policy selection superseded');
+              }
+              const applied = await subscription.waitApplied({ revision, runtimeGeneration, bindingId,
+                signal: controller.signal, timeoutMs: remainingMs() });
+              if (!subscription.fresh || applied.desired.mode !== permissions || applied.applied.mode !== permissions) {
+                throw new Error('session policy selection superseded');
+              }
+              ctx.output.info(`session permissions ${permissions} applied at revision ${revision}; persists until changed`);
+            } finally { subscription.close(); }
+          } finally { policy.close(); }
+        });
+      }
       try {
         await atStage('prompt', () => acp.prompt(sessionId, promptText));
       } catch (error) {
@@ -1950,8 +1973,8 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
   process.stdout.write('Chat permissions: omission preserves the participant policy for an existing public session; new sessions default to ask.\n'
-    + 'Explicit auto/none will persist until changed and require host application before prompting.\n'
-    + 'This build requires SDK session-policy support for explicit selection; ask needs an interactive UI and is unsupported.\n');
+    + 'Explicit auto/none persists for this session and agent participant until changed; host application is awaited before prompting.\n'
+    + 'ask needs an interactive permission UI and is unsupported; unanswered requests are cancelled.\n');
 }
 
 export async function run(ctx: CommandContext, args: string[]): Promise<number | void> {
