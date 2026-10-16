@@ -25,6 +25,7 @@ import {
   APIError,
   getAgentsApiBaseUrl,
   type Agent,
+  type AgentCapturedLogsEvent,
   type AgentLaunchConfig,
   type AgentRouteConfig,
   type AgentState,
@@ -41,6 +42,7 @@ import {
 } from '@hypercli.com/sdk';
 import { parseCommandArgs, type ParsedCommand } from '../core/argv.js';
 import { cmdAgentsLogin } from './agent-login.js';
+import { capturedLogRenderer } from '../core/captured-logs.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
@@ -60,7 +62,7 @@ export const usage = [
   'hyper agents exec <id> [--] CMD [ARGS...]',
   'hyper agents login <id> [--flow F] [--provider X] [--session SECS] [--key-stdin] [--from-host-creds]',
   'hyper agents shell <id>',
-  'hyper agents logs <id> [-f|--follow] [-n LINES]',
+  'hyper agents logs <id> [-f|--follow] [-n LINES] [--source both|stdout|stderr] [--generation current|previous] [--max-bytes N] [--max-lines N]',
   'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>; remote path may be sync-root-relative, /absolute, or ~/…)',
   'hyper agents activate <code> [--extend-existing]',
   'hyper agents routines list [--agent ID]',
@@ -1004,6 +1006,10 @@ async function cmdLogs(ctx: CommandContext, args: string[]): Promise<number | vo
     follow: { type: 'boolean', short: 'f', default: false },
     lines: { type: 'string', short: 'n' },
     container: { type: 'string' },
+    source: { type: 'string' },
+    generation: { type: 'string' },
+    'max-bytes': { type: 'string' },
+    'max-lines': { type: 'string' },
   });
   if (parsed.help) {
     printHelp();
@@ -1020,20 +1026,43 @@ async function cmdLogs(ctx: CommandContext, args: string[]): Promise<number | vo
     }
   }
 
+  const source = str(parsed, 'source');
+  const generation = str(parsed, 'generation');
+  if (source !== undefined && source !== 'both' && source !== 'stdout' && source !== 'stderr') throw new UsageError('--source must be both, stdout or stderr');
+  if (generation !== undefined && generation !== 'current' && generation !== 'previous') throw new UsageError('--generation must be current or previous');
+  const bound = (key: string, max: number) => {
+    const raw = str(parsed, key);
+    if (raw === undefined) return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > max) throw new UsageError(`--${key} must be an integer from 1 through ${max}`);
+    return value;
+  };
+  const maxBytes = bound('max-bytes', 65536);
+  const maxLines = bound('max-lines', 1000);
   const { d } = await adopt(ctx);
   const id = await resolveAgentRef(d, ref);
   const container = str(parsed, 'container');
+  const captureOptions = { source, generation, maxBytes, maxLines } as const;
+  const unavailable = (snapshot: AgentCapturedLogsEvent) => snapshot.unavailable ?? snapshot.captures.find(c => c.unavailable)?.unavailable;
 
   if (!follow) {
     // One-shot: history only, promise resolves at history_end.
     const lines: string[] = [];
+    let captured: AgentCapturedLogsEvent | undefined;
     await api('read logs', () =>
       d.subscribeLogs(id, (line) => { lines.push(line); }, {
         follow: false,
         tailLines,
+        ...captureOptions,
+        onCapturedLogs: (snapshot) => { captured = snapshot; },
         ...(container ? { container } : {}),
       }));
-    ctx.output.result(lines, lines.length ? lines.join('\n') : '(no logs)');
+    if (captured) {
+      if (ctx.format === 'json') ctx.output.result(captured);
+      else capturedLogRenderer(text => process.stdout.write(text), text => ctx.output.info(text))(captured);
+      const reason = unavailable(captured);
+      if (reason) { ctx.output.info(`runner logs unavailable: ${reason}`); return 1; }
+    } else ctx.output.result(lines, lines.length ? lines.join('\n') : '(no logs)');
     return 0;
   }
 
@@ -1046,17 +1075,30 @@ async function cmdLogs(ctx: CommandContext, args: string[]): Promise<number | vo
     controller.abort();
   };
   process.once('SIGINT', onSigint);
+  const renderCaptured = capturedLogRenderer(text => process.stdout.write(text), text => ctx.output.info(text));
+  let previousSnapshot: string | undefined;
   try {
     await api('stream logs', () =>
       d.subscribeLogs(
         id,
         (line) => {
-          process.stdout.write(`${line}\n`);
+          process.stdout.write(`${ctx.format === 'json' ? JSON.stringify(line) : line}\n`);
         },
         {
           follow: true,
           tailLines,
           signal: controller.signal,
+          ...captureOptions,
+          onCapturedLogs: (snapshot) => {
+            const serialized = JSON.stringify(snapshot);
+            if (serialized === previousSnapshot) return;
+            previousSnapshot = serialized;
+            if (ctx.format === 'json') {
+              ctx.output.result(snapshot);
+              const reason = unavailable(snapshot);
+              if (reason) ctx.output.info(`runner logs unavailable: ${reason}`);
+            } else renderCaptured(snapshot);
+          },
           ...(container ? { container } : {}),
         },
       ));
@@ -1980,6 +2022,8 @@ function printHelp(): void {
   process.stdout.write('Chat permissions: omission preserves the participant policy for an existing public session; new sessions default to ask.\n'
     + 'Explicit auto/none persists for this session and agent participant until changed; host application is awaited before prompting.\n'
     + 'ask needs an interactive permission UI and is unsupported; unanswered requests are cancelled.\n');
+  process.stdout.write('Runner logs are bounded replacement snapshots, not a continuous stream. JSON follow emits one snapshot per line with capture metadata.\n'
+    + 'Human follow prints verified append suffixes; ambiguous truncation reports lost continuity. Bounds are per source: max-bytes 1..65536, max-lines 1..1000.\n');
 }
 
 export async function run(ctx: CommandContext, args: string[]): Promise<number | void> {

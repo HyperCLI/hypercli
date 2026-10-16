@@ -45,7 +45,7 @@
       ]
     },
     "agents": {
-      "tests": ["agents", "agents.chat", "agents.chat.acp", "agent-login"],
+      "tests": ["agents", "agents.chat", "agents.chat.acp", "agents.logs", "captured-logs", "agent-login"],
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
