@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 
 const id = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -17,6 +17,11 @@ async function exercise(args: string[], mode = 'reply') {
   const policyFrames: any[] = [];
   const sequence: string[] = [];
   let policyClosed = false;
+  const nativeAnswers: unknown[] = [];
+  let appPeer: WebSocket | undefined;
+  let app: WebSocket | undefined;
+  let appFinished!: () => void;
+  const appCompletion = new Promise<void>(resolve => { appFinished = resolve; });
   const requests: string[] = [];
   const server = createServer((req, res) => {
     requests.push(req.url!);
@@ -27,6 +32,14 @@ async function exercise(args: string[], mode = 'reply') {
   const ws = new WebSocketServer({ server });
   let child: ReturnType<typeof spawn> | undefined;
   ws.on('connection', (socket, request) => {
+    if (request.url === '/app') {
+      appPeer = socket;
+      socket.on('message', data => {
+        nativeAnswers.push(JSON.parse(String(data)));
+        appFinished();
+      });
+      return;
+    }
     const isPolicy = request.url?.startsWith('/ws/session-policy');
     if (isPolicy) socket.on('close', () => { policyClosed = true; });
     socket.on('message', data => {
@@ -75,7 +88,7 @@ async function exercise(args: string[], mode = 'reply') {
       if (mode === 'disconnect') { socket.close(); return; }
       if (mode === 'interrupt') { child!.kill('SIGINT'); return; }
       if (mode === 'stall') return;
-      if (mode === 'permission') {
+      if (mode === 'permission' || mode === 'permission-app') {
         send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'public-session',
           update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Partial reply' } } } });
         send({ jsonrpc: '2.0', id: 'callback-opaque', method: 'session/request_permission', params: {
@@ -83,6 +96,9 @@ async function exercise(args: string[], mode = 'reply') {
           options: [{ optionId: 'opaque-X9', name: 'Permit', kind: 'allow_once' },
             { optionId: 'opaque-Y8', name: 'Reject', kind: 'reject_once' }],
         } });
+        appPeer?.send(JSON.stringify({ jsonrpc: '2.0', id: 'app-callback', method: 'session/request_permission', params: {
+          sessionId: 'public-session', options: [{ optionId: 'opaque-X9', kind: 'allow_once', name: 'Permit' }],
+        } }));
         return;
       }
       send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'public-session',
@@ -96,6 +112,15 @@ async function exercise(args: string[], mode = 'reply') {
   const address = server.address() as { port: number };
   const base = `http://127.0.0.1:${address.port}`;
   try {
+    if (mode === 'permission-app') {
+      app = new WebSocket(base.replace('http:', 'ws:') + '/app');
+      app.on('message', data => {
+        const request = JSON.parse(String(data));
+        setTimeout(() => app!.send(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+          result: { outcome: { outcome: 'selected', optionId: request.params.options[0].optionId } } })), 50);
+      });
+      await once(app, 'open');
+    }
     child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts', 'agents', 'chat', id, 'hello', '--json', ...args], {
       cwd: root, env: { ...process.env, HYPER_HOME: home, HYPER_API_KEY: 'test-only',
         HYPER_API_BASE: base, HYPER_AGENTS_API_BASE: base }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -106,8 +131,10 @@ async function exercise(args: string[], mode = 'reply') {
     const deadline = setTimeout(() => child!.kill('SIGKILL'), 8000);
     const [code, signal] = await once(child, 'close');
     clearTimeout(deadline);
-    return { code, signal, stdout, stderr, frames, requests, policyFrames, sequence, policyClosed };
+    if (mode === 'permission-app') await appCompletion;
+    return { code, signal, stdout, stderr, frames, requests, policyFrames, sequence, policyClosed, nativeAnswers };
   } finally {
+    app?.close();
     for (const client of ws.clients) client.terminate();
     await new Promise<void>(resolve => ws.close(() => resolve()));
     await new Promise<void>(resolve => server.close(() => resolve()));
@@ -159,7 +186,7 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.stdout).toBe('');
     expect(run.policyClosed).toBe(true);
     expect(run.frames.some(f => f.method === 'session/prompt')).toBe(false);
-    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(true);
+    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
   });
   it('omission prompts over ACP and emits one JSON result', async () => {
     const run = await exercise([]);
@@ -168,7 +195,7 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/new', 'session/prompt']);
     expect(run.requests.some(path => path.includes('policy'))).toBe(false);
   });
-  it('cancels an opaque permission callback and the turn with a clear failure', async () => {
+  it('abstains from an opaque permission callback without cancelling the shared turn', async () => {
     const run = await exercise([], 'permission');
     expect(run.code, run.stderr).toBe(1);
     expect(run.stdout).toBe('');
@@ -176,7 +203,23 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.stderr).toContain('permission required');
     expect(run.stderr).not.toContain('secret-tool-title');
     expect(run.frames.find(f => f.id === 'callback-opaque')).toEqual({ jsonrpc: '2.0', id: 'callback-opaque', result: { outcome: { outcome: 'cancelled' } } });
-    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(true);
+    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
+  });
+  it('never cancels a preexisting turn while resumed policy application stalls', async () => {
+    const run = await exercise(['--session', 'public-session', '--permissions', 'auto', '--timeout', '1'], 'policy-stall');
+    expect(run.code, run.stderr).toBe(1);
+    expect(run.frames.some(f => f.method === 'session/resume')).toBe(true);
+    expect(run.frames.some(f => f.method === 'session/prompt')).toBe(false);
+    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
+  });
+  it('allows an app observer to select after CLI abstention, with one native answer and no cancellation', async () => {
+    const run = await exercise([], 'permission-app');
+    expect(run.code, run.stderr).toBe(1);
+    expect(run.frames.filter(f => f.id === 'callback-opaque')).toHaveLength(1);
+    expect(run.frames.find(f => f.id === 'callback-opaque').result.outcome.outcome).toBe('cancelled');
+    expect(run.frames.some(f => f.method === 'session/cancel')).toBe(false);
+    expect(run.nativeAnswers).toEqual([{ jsonrpc: '2.0', id: 'app-callback',
+      result: { outcome: { outcome: 'selected', optionId: 'opaque-X9' } } }]);
   });
   it('resumes without policy mutation and keeps JSON streaming on stderr', async () => {
     const run = await exercise(['--session', 'public-session', '--stream']);

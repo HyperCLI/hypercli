@@ -1668,7 +1668,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     ctx.output.info(`chat diagnostic: ${JSON.stringify({ ...event, chat: evidence() })}`);
   };
   let rejectGuard!: (error: Error) => void;
-  const stop = (error: CliError) => {
+  const stop = (error: CliError, cancelOwnedPrompt = true) => {
     if (terminalError) return;
     terminalError = error;
     void (async () => {
@@ -1677,7 +1677,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          Promise.resolve().then(() => cancelActive?.()).catch(() => {}),
+          Promise.resolve().then(() => {
+            if (cancelOwnedPrompt && !terminalPermissionError) return cancelActive?.();
+          }).catch(() => {}),
           new Promise<void>((resolve) => { cleanupTimer = setTimeout(resolve, 250); }),
         ]);
       } finally {
@@ -1754,9 +1756,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
         onPermissionRequest: () => {
           ctx.output.info('chat diagnostic: {"stage":"permission","phase":"pending","resolution":"cancelled","reason":"interactive UI unavailable"}');
           const error = new CliError('chat: permission required, but agents chat has no interactive permission UI; the request was cancelled');
-          // Give the SDK the standard callback response before cancelling the
-          // turn. Never choose an approval option or implement host policy.
-          setImmediate(() => stop(error));
+          // Abstain locally. Another observer may answer this shared request;
+          // inability to answer must never cancel the shared native turn.
+          setImmediate(() => stop(error, false));
           terminalPermissionError = error;
           return { outcome: { outcome: 'cancelled' } };
         },
@@ -1778,7 +1780,6 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       closeActive = () => acp.close();
       if (terminalError) throw terminalError;
       sessionId = sessionName ?? (await atStage('connect', () => acp.newSession())).sessionId;
-      cancelActive = () => acp.cancel(sessionId);
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
       if (permissions !== undefined) {
@@ -1808,16 +1809,20 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
         });
       }
       try {
+        // Only this command's submitted prompt makes it eligible to cancel.
+        // Attaching or waiting for policy does not confer turn ownership.
+        cancelActive = () => acp.cancel(sessionId);
         await atStage('prompt', () => acp.prompt(sessionId, promptText));
+        cancelActive = undefined;
       } catch (error) {
         if (terminalPermissionError) {
-          stop(terminalPermissionError);
+          stop(terminalPermissionError, false);
           await guard;
         }
         throw error;
       }
       if (terminalPermissionError) {
-        stop(terminalPermissionError);
+        stop(terminalPermissionError, false);
         await guard;
       }
       if (!reply) throw new Error('the turn ended without an assistant reply');
