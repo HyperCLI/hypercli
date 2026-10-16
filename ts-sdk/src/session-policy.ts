@@ -24,26 +24,13 @@ export interface SessionPolicyResult {
   origin: string;
   outcome: 'accepted' | 'conflict' | 'forbidden' | 'storage_unavailable' | 'invalid' | 'unavailable';
 }
-/** Content-free host observation forwarded by the product channel; never actionable. */
-export interface SessionPolicyResolution {
-  type: 'session.policy.result';
-  session_id: string;
-  agent_id: string;
-  resolution_id: string;
-  revision: number;
-  runtime_generation: string;
-  binding_id: string;
-  origin: string;
-  outcome: 'allowed' | 'rejected' | 'cancelled' | 'retired';
-  actionable: false;
-}
 export type SessionPolicyRequest = {
   type: 'session.policy.subscribe'; request_id: string; session_id: string; agent_id: string;
 } | {
   type: 'session.policy.set'; request_id: string; session_id: string; agent_id: string;
   mode: SessionPolicyMode; expected_revision: number;
 };
-export type SessionPolicyEvent = SessionPolicySnapshot | SessionPolicyResult | SessionPolicyResolution;
+export type SessionPolicyEvent = SessionPolicySnapshot | SessionPolicyResult;
 
 type SessionPolicyRequestPayload = {
   [Kind in SessionPolicyRequest['type']]: Omit<
@@ -66,7 +53,6 @@ export interface SessionPolicySocket {
 }
 export interface SessionPolicyObservers {
   onSnapshot?: (snapshot: SessionPolicySnapshot) => void;
-  onResolution?: (event: SessionPolicyResolution) => void;
   onError?: (error: SessionPolicyError) => void;
 }
 export interface SessionPolicyConnectOptions {
@@ -176,8 +162,6 @@ export class SessionPolicySubscription {
     observe(this.observers.onSnapshot, snapshot);
   }
   /** @internal */
-  resolution(event: SessionPolicyResolution): void { if (!this.closed) observe(this.observers.onResolution, event); }
-  /** @internal */
   error(error: SessionPolicyError): void { if (!this.closed) observe(this.observers.onError, error); }
   /** @internal */
   fail(error: SessionPolicyError): void { for (const waiter of this.waiters) waiter.reject(error); }
@@ -269,13 +253,8 @@ export class SessionPolicyClient {
       event = JSON.parse(String(data)) as SessionPolicyEvent;
       if (!event || typeof event !== 'object' || typeof event.type !== 'string') throw failure('invalid_frame');
       if (event.type === 'session.policy.result') {
-        if ('request_id' in event) {
-          if (!['accepted', 'conflict', 'forbidden', 'storage_unavailable', 'invalid', 'unavailable'].includes(event.outcome)) throw failure('invalid_frame');
-          if (event.outcome !== 'accepted') this.pending.get(event.request_id)?.reject(failure(event.outcome));
-        } else {
-          const entry = this.entries.get(key({ sessionId: event.session_id, agentId: event.agent_id }));
-          if (event.actionable === false) for (const subscriber of entry?.subscribers ?? []) subscriber.resolution(event);
-        }
+        if (typeof event.request_id !== 'string' || !['accepted', 'conflict', 'forbidden', 'storage_unavailable', 'invalid', 'unavailable'].includes(event.outcome)) throw failure('invalid_frame');
+        if (event.outcome !== 'accepted') this.pending.get(event.request_id)?.reject(failure(event.outcome));
         return;
       }
       if (!['session.policy.snapshot', 'session.policy.changed', 'session.policy.applied'].includes(event.type)) return;

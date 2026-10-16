@@ -139,17 +139,6 @@ it('ignores frames for other participants and stale revisions, and isolates sync
   expect(observations.mock.calls.length).toBeGreaterThan(calls);
 });
 
-it('forwards nonactionable host resolution observations without answering ACP', async () => {
-  const p = await platform(), client = await p.connect(), observed = vi.fn();
-  await client.subscribe(target, { onResolution: observed });
-  const event = { type: 'session.policy.result', session_id: target.sessionId, agent_id: target.agentId,
-    resolution_id: randomUUID(), revision: 0, runtime_generation: generation, binding_id: binding,
-    origin: randomUUID(), outcome: 'retired', actionable: false };
-  p.send(p.peers[0], event);
-  await vi.waitFor(() => expect(observed).toHaveBeenCalledWith(event));
-  expect(p.frames).toHaveLength(1);
-});
-
 it('settles request/wait ownership on abort, timeout, subscription close, and client close', async () => {
   const p = await platform(), client = await p.connect(), a = await client.subscribe(target), b = await client.subscribe(target);
   const controller = new AbortController();
