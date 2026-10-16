@@ -45,6 +45,12 @@ export type SessionPolicyRequest = {
 };
 export type SessionPolicyEvent = SessionPolicySnapshot | SessionPolicyResult | SessionPolicyResolution;
 
+type SessionPolicyRequestPayload = {
+  [Kind in SessionPolicyRequest['type']]: Omit<
+    Extract<SessionPolicyRequest, { type: Kind }>, 'request_id' | 'session_id' | 'agent_id'
+  >;
+}[SessionPolicyRequest['type']];
+
 export class SessionPolicyError extends Error {
   constructor(public readonly code: string, message: string, public readonly snapshot?: SessionPolicySnapshot,
     public readonly closeCode?: number) {
@@ -237,7 +243,7 @@ export class SessionPolicyClient {
     for (const entry of this.entries.values()) for (const subscriber of entry.subscribers) subscriber.error(error);
   }
   private request(target: SessionPolicyTarget,
-    body: { type: 'session.policy.subscribe' } | { type: 'session.policy.set'; mode: SessionPolicyMode; expected_revision: number },
+    body: SessionPolicyRequestPayload,
     signal?: AbortSignal): Promise<SessionPolicySnapshot> {
     if (this.closed || !this.connected || !this.socket) return Promise.reject(failure(this.closed ? 'closed' : 'disconnected'));
     if (signal?.aborted) return Promise.reject(failure('aborted'));

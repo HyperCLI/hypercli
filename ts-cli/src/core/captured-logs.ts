@@ -2,7 +2,7 @@ import type { AgentLogCapture } from '@hypercli.com/sdk';
 
 /** The original SDK snapshot stays intact for JSON. */
 type Capture = Pick<AgentLogCapture, 'source' | 'generation' | 'file_generation' | 'launch_epoch'
-  | 'content_base64' | 'truncated' | 'unavailable'> & Partial<Pick<AgentLogCapture, 'assignment_id' | 'capture' | 'diagnostics_dropped'>>;
+  | 'content_base64' | 'truncated' | 'unavailable' | 'assignment_id' | 'capture' | 'diagnostics_dropped'>;
 
 /** No offsets are provided by the capture protocol: overlapping tails are not deltas. */
 export function capturedLogRenderer(write: (text: string) => void, info: (text: string) => void) {
