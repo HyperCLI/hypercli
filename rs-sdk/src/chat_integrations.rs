@@ -184,7 +184,7 @@ pub fn build_chat_integration_config(
     Ok(result)
 }
 
-fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String> {
+fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<(), String> {
     if !value.contains("://")
         || value.chars().any(|c| {
             c.is_whitespace() || c.is_control() || matches!(c, '\\' | '?' | '#' | '\u{feff}')
@@ -240,5 +240,5 @@ fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String>
     {
         return Err(format!("{key} has an invalid URL"));
     }
-    Ok(parsed)
+    Ok(())
 }

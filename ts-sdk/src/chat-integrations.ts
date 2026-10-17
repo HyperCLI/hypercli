@@ -57,7 +57,7 @@ export function buildChatIntegrationConfig(
   function require(...keys: string[]) {
     for (const key of keys) if (!normalized[key]) throw new Error(`${key} is required`);
   }
-  function url(key: string, protocols: string[], value = normalized[key]): URL {
+  function url(key: string, protocols: string[], value = normalized[key]): void {
     if (!/^[a-z]+:\/\//i.test(value) || /[\s\\?#\x00-\x1f\x7f-\x9f\ufeff]/.test(value)) throw new Error(`${key} has an invalid URL`);
     const authority = /^[a-z]+:\/\/([^/]+)/i.exec(value)?.[1] ?? '';
     if (/[^\x00-\x7f]/.test(authority)) throw new Error(`${key} has an invalid URL`);
@@ -77,7 +77,6 @@ export function buildChatIntegrationConfig(
     if (!protocols.includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.hash || parsed.search) {
       throw new Error(`${key} has an invalid URL`);
     }
-    return parsed;
   }
   function absent(...keys: string[]) {
     for (const key of keys) if (normalized[key]) throw new Error(`${key} does not apply to the selected mode`);

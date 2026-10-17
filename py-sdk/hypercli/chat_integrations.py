@@ -82,7 +82,6 @@ def build_chat_integration_config(integration: str, values: dict[str, str]) -> d
             _ = parsed.port
         except ValueError:
             raise ValueError(f"{key} has an invalid URL") from None
-        return parsed
 
     if integration == "slack":
         require("SLACK_BOT_TOKEN")
