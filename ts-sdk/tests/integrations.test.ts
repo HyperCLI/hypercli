@@ -80,6 +80,22 @@ describe('IntegrationsAPI', () => {
     expect(await api.proxy('fourth', 'text')).toBe('plain text');
   });
 
+  it('setConnectionLabel PATCHes the pencil name; null clears it', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ provider: 'notion', label: 'work' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new IntegrationsAPI('key', { apiBase: 'http://integrations.test/integrations' });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ provider: 'notion', label: 'work' }));
+    await api.setConnectionLabel('notion', 'work', 'c1');
+    expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');
+    expect(fetchMock.mock.calls[0][0]).toContain('/connections/notion?connection_id=c1');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ label: 'work' });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ provider: 'notion', label: null }));
+    await api.setConnectionLabel('notion', null, 'c1');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ label: null });
+  });
+
   it('requires an API key', () => {
     expect(() => new IntegrationsAPI('', { apiBase: 'http://x' })).toThrow('API key required');
   });

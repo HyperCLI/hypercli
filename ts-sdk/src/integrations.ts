@@ -36,6 +36,8 @@ export interface ConnectionInfo {
   id: string;
   errors: string[];
   hyperEnabled: boolean | null;
+  /** User-pencilled display name, or provider-derived label. */
+  label: string | null;
   createdAt: string | null;
 }
 
@@ -100,6 +102,7 @@ function connectionInfoFromDict(data: any): ConnectionInfo {
     id: String(data?.id ?? data?.connection_id ?? ''),
     errors: Array.isArray(data?.errors) ? data.errors.map(String) : [],
     hyperEnabled: data?.hyper_enabled ?? data?.hyperEnabled ?? (typeof data?.enabled === 'boolean' ? data.enabled : null),
+    label: typeof data?.label === 'string' && data.label ? data.label : null,
     createdAt: stringOrNull(data?.created_at ?? data?.createdAt),
   };
 }
@@ -239,6 +242,11 @@ export class IntegrationsAPI {
   /** PATCH /connections/{provider} — enable/disable without disconnecting. */
   async setConnectionEnabled(provider: string, enabled: boolean, connectionId?: string): Promise<{ provider: string; enabled: boolean }> {
     return this.request('PATCH', `/connections/${encodeRef(provider)}`, { enabled }, connectionId ? { connection_id: connectionId } : undefined);
+  }
+
+  /** PATCH /connections/{provider} — set the user's display name; null clears it. */
+  async setConnectionLabel(provider: string, label: string | null, connectionId?: string): Promise<{ provider: string; label: string | null }> {
+    return this.request('PATCH', `/connections/${encodeRef(provider)}`, { label }, connectionId ? { connection_id: connectionId } : undefined);
   }
 
   /** DELETE /connections/{provider}. */
