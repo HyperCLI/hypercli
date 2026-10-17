@@ -2050,8 +2050,6 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
           if (items !== page.items) { page = { ...page, items }; render(event.type); }
         }
       }
-      if (event.type === 'message.reactions_changed' && agents.has(event.agent_id) &&
-          (event.session_id === undefined || event.session_id === sessionId)) await read();
     }, { signal: controller.signal, onReady: read });
   } finally { process.removeListener('SIGINT', onSigint); }
   return controller.signal.aborted ? 130 : 0;

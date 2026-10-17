@@ -128,18 +128,64 @@ export interface SessionReactionGroup {
 }
 
 /** Rollout read compatibility only; new operations already carry dictionary metadata. */
-export function sessionMessageMetaFromWire(value: unknown): SessionMessageMeta | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const meta = value as SessionMessageMeta;
-  if (!Array.isArray(meta.reactions)) return { ...meta, reactionUpdatedAt: meta.reactionUpdatedAt ?? null };
+export function sessionMessageMetaFromWire(value: unknown, legacyRead = true): SessionMessageMeta | undefined {
+  if (value === undefined) return undefined;
+  const fail = (): never => { throw new TypeError('Invalid session reaction metadata'); };
+  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  const closed = (v: unknown, keys: string[], optional: string[] = []): v is Record<string, unknown> =>
+    record(v) && keys.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => keys.includes(k) || optional.includes(k));
+  const reference = (v: string) => /^[a-z0-9-]+:.+$/u.test(v) && new TextEncoder().encode(v).length <= 1024 &&
+    !/[\s\x00-\x20\x7f\u0085\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(v);
+  if (!closed(value, ['reactions', 'reactionSupport', 'reactionsComplete'], ['reactionUpdatedAt'])) return fail();
+  const meta = value as unknown as SessionMessageMeta;
+  if (!Array.isArray(meta.reactions)) {
+    if (!record(meta.reactions) || !['supported', 'unsupported', 'unknown'].includes(meta.reactionSupport) ||
+        typeof meta.reactionsComplete !== 'boolean' || (meta.reactionSupport !== 'supported' && meta.reactionsComplete)) return fail();
+    const stamp = meta.reactionUpdatedAt;
+    if (stamp !== undefined && stamp !== null) {
+      if (typeof stamp !== 'string' || !/^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(stamp)) return fail();
+      const millis = stamp.slice(0, 23) + 'Z';
+      const date = new Date(millis);
+      if (!Number.isFinite(date.getTime()) || date.toISOString() !== millis) return fail();
+    }
+    for (const [key, group] of Object.entries(meta.reactions)) {
+      const colon = key.indexOf(':');
+      const kind = key.slice(0, colon), reaction = key.slice(colon + 1);
+      if (!reaction || [...reaction].length > 1024 || !(kind === 'custom' ? reference(reaction) :
+          kind === 'unicode' && !/[\s\x00-\x20\x7f\u0085]/u.test(reaction))) return fail();
+      if (!closed(group, ['count', 'actors', 'actorsComplete']) || !record(group.actors) || typeof group.actorsComplete !== 'boolean') return fail();
+      const count = group.count, size = Object.keys(group.actors).length;
+      if (count !== null && (typeof count !== 'number' || !Number.isInteger(count) || count < size || count > 2 ** 64 - 1)) return fail();
+      if (group.actorsComplete && count !== size) return fail();
+      for (const [id, member] of Object.entries(group.actors)) {
+        if (!reference(id) || !closed(member, ['isBot', 'receipt']) || typeof member.isBot !== 'boolean' ||
+            !(member.receipt === null || typeof member.receipt === 'string' && [...member.receipt].length > 0 && [...member.receipt].length <= 4096)) return fail();
+      }
+    }
+    return { ...meta, reactionUpdatedAt: stamp ?? null };
+  }
+  if (!legacyRead) return fail();
   const legacy = meta.reactions as { reaction: { kind: string; value: string }; count: number | null;
     actors: { actor: { id: string; isBot: boolean }; receipt: string | null }[]; actorsComplete: boolean }[];
-  return { ...meta, reactionUpdatedAt: meta.reactionUpdatedAt ?? null,
+  const keys = new Set<string>();
+  for (const group of legacy) {
+    if (!closed(group, ['reaction', 'count', 'actors', 'actorsComplete']) ||
+        !closed(group.reaction, ['kind', 'value']) || typeof group.reaction.value !== 'string' || !Array.isArray(group.actors)) return fail();
+    const key = `${group.reaction.kind}:${group.reaction.value}`;
+    if (keys.has(key)) return fail();
+    keys.add(key);
+    const actors = new Set<string>();
+    for (const member of group.actors) {
+      if (!closed(member, ['actor', 'receipt']) || !closed(member.actor, ['id', 'isBot']) || typeof member.actor.id !== 'string' || actors.has(member.actor.id)) return fail();
+      actors.add(member.actor.id);
+    }
+  }
+  return sessionMessageMetaFromWire({ ...meta, reactionUpdatedAt: meta.reactionUpdatedAt ?? null,
     reactions: Object.fromEntries(legacy.map(group => [`${group.reaction.kind}:${group.reaction.value}`, {
       count: group.count, actorsComplete: group.actorsComplete,
       actors: Object.fromEntries(group.actors.map(member => [member.actor.id, { isBot: member.actor.isBot, receipt: member.receipt }])),
     }])),
-  };
+  });
 }
 
 /** Retain the freshest current projection; equal timestamps preserve object identity. */

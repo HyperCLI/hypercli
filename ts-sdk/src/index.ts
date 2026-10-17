@@ -387,7 +387,6 @@ export {
   isAgentRuntimeInactiveState,
   isAgentTransitionalState,
   type DeploymentEvent,
-  type MessageReactionsChangedEvent,
   type DeploymentSubscribeOptions,
   type RunnerPresenceEvent,
   type AgentLogFrame,

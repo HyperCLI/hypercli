@@ -5,6 +5,7 @@
  */
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
+import { sessionMessageMetaFromWire } from './sessions.js';
 import {
   DEFAULT_PERSONA_SOUL_PATH,
   DEFAULT_PERSONA_USER_PATH,
@@ -1613,18 +1614,7 @@ export interface RunnerPresenceEvent {
   at: string;
 }
 
-/** Authorized product read-invalidation hint; reread session message metadata. */
-export interface MessageReactionsChangedEvent {
-  type: 'message.reactions_changed';
-  agent_id: string;
-  message_id: string;
-  /** Additive exact target; absent together on older servers. */
-  session_id?: string;
-  /** Canonical first retained row of the logical message. */
-  seq?: number;
-}
-
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | MessageReactionsChangedEvent | import('./sessions.js').SessionReactionOperation;
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | import('./sessions.js').SessionReactionOperation;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -4197,18 +4187,16 @@ export class Deployments {
                   && typeof frame.runner_id === 'string'
                   && frame.runner_id.length > 0
                 ) || (
-                  frame.type === 'message.reactions_changed'
-                  && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
-                  && typeof frame.message_id === 'string' && frame.message_id.length > 0
-                ) || (
                   (frame.type === 'addReaction' || frame.type === 'removeReaction')
                   && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
                   && typeof frame.session_id === 'string' && frame.session_id.length > 0
                   && Number.isSafeInteger(frame.seq) && (frame.seq as number) > 0
                   && typeof frame.message_id === 'string' && frame.message_id.length > 0
-                  && isPlainRecord(frame.meta)
                 )
               ) {
+                if (frame.type === 'addReaction' || frame.type === 'removeReaction') {
+                  frame.meta = sessionMessageMetaFromWire(frame.meta ?? null, false);
+                }
                 await handler(frame as unknown as DeploymentEvent);
               }
             }).catch((error) => {
@@ -4241,6 +4229,7 @@ export class Deployments {
         }
       } catch (error) {
         if (options.signal?.aborted) break;
+        if (error instanceof TypeError && error.message === 'Invalid session reaction metadata') throw error;
         if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
         if (error instanceof Error && error.message === 'Backend returned an invalid deployment event token response') {
           throw error;
