@@ -1,5 +1,5 @@
 {
-  "event": { "type": "message.reactions_changed", "agent_id": "agent-1", "message_id": "message-1" },
+  "event": { "type": "message.reactions_changed", "agent_id": "agent-1", "message_id": "message-1", "session_id": "session-1", "seq": 1 },
   "row": {
     "session_id": "session-1", "seq": 1, "message_id": "message-1", "role": "user",
     "participant_kind": "user", "participant_id": "user-1",

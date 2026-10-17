@@ -2004,6 +2004,7 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   const client = await ctx.client();
   const state = await client.sessions.getSession(sessionId);
   const agents = new Set(state.participants.filter(p => p.kind === 'agent').map(p => p.participantId));
+  let previousSnapshot: string | undefined;
   const read = async () => {
     const page = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
     // Receipts are native removal evidence, not display data. Retain counts,
@@ -2013,7 +2014,10 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
         actors: group.actors.map(({ actor }) => ({ actor })),
       })) } } : {}),
     })) };
-    if (ctx.format === 'json' && parsed.values.follow) process.stdout.write(`${JSON.stringify(result)}\n`);
+    const snapshot = JSON.stringify(result);
+    if (parsed.values.follow && snapshot === previousSnapshot) return;
+    previousSnapshot = snapshot;
+    if (ctx.format === 'json' && parsed.values.follow) process.stdout.write(`${snapshot}\n`);
     else ctx.output.result(result, { columns: ['SEQ', 'MESSAGE', 'ROLE', 'REACTIONS'], rows: result.items.map(row => [row.seq, row.messageId ?? '', row.role,
       row.meta?.reactions.map(group => `${group.reaction.value}: ${group.count ?? '?'} (${group.actors.map(m => m.actor.id).join(', ')}${group.actorsComplete ? '' : '; actors incomplete'})`).join(' · ') ?? 'unknown',
     ]) });
@@ -2024,7 +2028,8 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   process.once('SIGINT', onSigint);
   try {
     await client.deployments.subscribe(async event => {
-      if (event.type === 'message.reactions_changed' && agents.has(event.agent_id)) await read();
+      if (event.type === 'message.reactions_changed' && agents.has(event.agent_id) &&
+          (event.session_id === undefined || event.session_id === sessionId)) await read();
     }, { signal: controller.signal, onReady: read });
   } finally { process.removeListener('SIGINT', onSigint); }
   return controller.signal.aborted ? 130 : 0;

@@ -245,19 +245,20 @@ it('reads session message metadata and follows product hints as replacement snap
   const subscribe = vi.fn(async (handler, options) => {
     await options.onReady();
     await handler({ ...reactionFixture.event, agent_id: 'foreign-agent' });
+    await handler({ ...reactionFixture.event, session_id: 'other-session' });
     await handler(reactionFixture.event);
     await handler(reactionFixture.event);
   });
   const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages }, deployments: { subscribe } } as unknown as HyperCLI;
   const { ctx } = makeCtx(client, 'json');
-  await agents.run(ctx, ['messages', 'session-1', '--follow']);
+  await agents.run(ctx, ['messages', 'session-1', '--follow', '--cursor', 'older-page', '--limit', '25']);
   const snapshots = stdout().trim().split('\n').map(line => JSON.parse(line));
-  expect(snapshots).toHaveLength(3);
-  expect(snapshots[0]).toEqual(snapshots[2]);
+  expect(snapshots).toHaveLength(1);
   expect(snapshots[0].items[0].meta.reactions[0].count).toBe(2);
   expect(snapshots[0].items[0].meta.reactions[1].count).toBeNull();
   expect(stdout()).not.toContain('private-native-receipt');
   expect(getMessages).toHaveBeenCalledTimes(3);
+  expect(getMessages.mock.calls.every(call => call[0] === 'session-1' && call[1].cursor === 'older-page' && call[1].limit === 25)).toBe(true);
 });
 
 async function runErr(ctx: CommandContext, args: string[]): Promise<unknown> {

@@ -1618,6 +1618,10 @@ export interface MessageReactionsChangedEvent {
   type: 'message.reactions_changed';
   agent_id: string;
   message_id: string;
+  /** Additive exact target; absent together on older servers. */
+  session_id?: string;
+  /** Canonical first retained row of the logical message. */
+  seq?: number;
 }
 
 export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | MessageReactionsChangedEvent;
