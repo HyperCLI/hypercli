@@ -14,6 +14,7 @@ mod files;
 mod instances;
 mod jobs;
 mod keys;
+mod mcp;
 mod memory;
 mod models;
 mod openclaw;
@@ -60,6 +61,7 @@ pub use keys::{
     issue_api_key_from_jwt, issue_api_key_from_jwt_with_http_clients, IssueApiKeyError,
     IssueApiKeyFromJwtOptions, KeysClient,
 };
+pub use mcp::build_additional_mcp_env;
 pub use memory::{
     MemoryApiClient, MemoryApiError, MemorySearchHit, MemorySearchOptions, MemorySearchPage,
 };

@@ -58,6 +58,7 @@ class Peer:
         self.tasks = set()
         self.cancelled = False
         self.reject_prompt = False
+        self.reject_load = False
         self.hold_initialize = False
         self.hold_close = False
         self.early_close = None
@@ -81,6 +82,8 @@ class Peer:
 
     async def load_session(self, session_id, **kwargs):
         assert session_id == "opaque/runtime:id"
+        if self.reject_load:
+            raise RequestError(-32602, "unsupported setup")
         return schema.LoadSessionResponse()
 
     async def list_sessions(self, **kwargs):
@@ -162,6 +165,34 @@ async def test_v2_initialize_answer_is_not_a_supported_execution_profile():
         with pytest.raises(ACPError, match="requires ACP v1"):
             await ACPClient.connect(url)
         assert peer.prompts == []
+
+
+async def test_mcp_setup_explicit_empty_and_omitted_preserve_standard_entries():
+    from copy import deepcopy
+    entries = [
+        {"name": "stdio", "command": "/bin/tool", "args": ["a:b"], "env": [{"name": "KEY", "value": "value"}]},
+        {"name": "http", "type": "http", "url": "https://example.test/mcp", "headers": [{"name": "Authorization", "value": "Bearer explicit"}]},
+        {"name": "sse", "type": "sse", "url": "https://example.test/events", "headers": []},
+    ]
+    original = deepcopy(entries)
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        sid = await client.new_session(cwd="/workspace", mcp_servers=entries)
+        entries[0]["name"] = "caller-mutated"
+        await client.resume_session(sid)
+        await client.load_session(sid, mcp_servers=[])
+        await client.resume_session(sid)
+        await client.load_session(sid, mcp_servers=original)
+        peer.reject_load = True
+        with pytest.raises(ACPRequestError) as refusal:
+            await client.load_session(sid, mcp_servers=[])
+        assert refusal.value.code == -32602
+        await client.resume_session(sid)
+        frames = [f for direction, f in peer.frames if direction == "in" and f["method"] in ("session/new", "session/load", "session/resume")]
+        assert [f["params"]["mcpServers"] for f in frames] == [original, original, [], [], original, [], original]
+        for frame in frames:
+            model = {"session/new": schema.NewSessionRequest, "session/load": schema.LoadSessionRequest, "session/resume": schema.ResumeSessionRequest}[frame["method"]]
+            model.model_validate(frame["params"])
+            assert "HYPER_ADDITIONAL_MCP_SERVERS" not in frame["params"]
 
 
 async def test_opaque_update_bypasses_typed_union_with_upstream_callback_correlation():

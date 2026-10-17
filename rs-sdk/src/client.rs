@@ -4292,6 +4292,36 @@ mod tests {
     }
 
     #[test]
+    fn additional_mcp_selections_use_existing_launch_env() {
+        let stdio = json!({"name":"stdio", "command":"/bin/tool", "args":["a:b"], "env":[]});
+        let http = json!({"name":"http", "type":"http", "url":"https://example.test/mcp", "headers":[{"name":"Authorization", "value":"Bearer explicit"}]});
+        let env = crate::build_additional_mcp_env(&[
+            std::slice::from_ref(&stdio),
+            std::slice::from_ref(&http),
+        ]);
+        assert_eq!(
+            serde_json::from_str::<Value>(&env["HYPER_ADDITIONAL_MCP_SERVERS"]).unwrap(),
+            json!([stdio, http])
+        );
+        let mut server = Server::new();
+        let create = server
+            .mock("POST", "/agents/deployments")
+            .match_body(Matcher::PartialJson(json!({"env":env})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"creating"}"#)
+            .create();
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.env.extend(env);
+        client(&server).create_deployment(&request).unwrap();
+        create.assert();
+        assert_eq!(
+            crate::build_additional_mcp_env(&[])["HYPER_ADDITIONAL_MCP_SERVERS"],
+            "[]"
+        );
+    }
+
+    #[test]
     fn bridge_env_mints_only_for_buzz_tagged_requests() {
         let api_base = Url::parse("https://api.dev.hypercli.com/agents").unwrap();
 

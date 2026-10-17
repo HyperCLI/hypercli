@@ -299,7 +299,7 @@ pub struct AcpClient {
     closed: AtomicBool,
     initialize_response: Mutex<Value>,
     initialize_started: AtomicBool,
-    session_cwds: Mutex<HashMap<String, String>>,
+    session_setups: Mutex<HashMap<String, (String, Vec<Value>)>>,
     updates: Mutex<Option<AcpUpdateReceiver>>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -363,7 +363,7 @@ impl AcpClient {
             closed: AtomicBool::new(false),
             initialize_response: Mutex::new(Value::Null),
             initialize_started: AtomicBool::new(false),
-            session_cwds: Mutex::new(HashMap::new()),
+            session_setups: Mutex::new(HashMap::new()),
             updates: Mutex::new(Some(updates_rx)),
             reader: Mutex::new(Some(reader)),
         })
@@ -453,9 +453,21 @@ impl AcpClient {
     /// runtime `~/.hypercli` paths) must be resolved on the runtime host first.
     /// Overrides are sent verbatim; the peer determines path validity.
     pub async fn new_session(&self, cwd: &str) -> Result<String, AcpError> {
+        self.new_session_with_mcp_servers(cwd, &[]).await
+    }
+
+    /// Explicit standard MCP entries, sent verbatim for the peer to accept/refuse.
+    pub async fn new_session_with_mcp_servers(
+        &self,
+        cwd: &str,
+        mcp_servers: &[Value],
+    ) -> Result<String, AcpError> {
         self.require_connection()?;
         let result = self
-            .request("session/new", json!({"cwd": cwd, "mcpServers": []}))
+            .request(
+                "session/new",
+                json!({"cwd": cwd, "mcpServers": mcp_servers}),
+            )
             .await?;
         let session_id = result
             .get("sessionId")
@@ -465,10 +477,10 @@ impl AcpClient {
             .ok_or_else(|| {
                 AcpError::Protocol("ACP session/new did not return sessionId".to_owned())
             })?;
-        self.session_cwds
+        self.session_setups
             .lock()
             .unwrap()
-            .insert(session_id.clone(), cwd.to_owned());
+            .insert(session_id.clone(), (cwd.to_owned(), mcp_servers.to_vec()));
         Ok(session_id)
     }
 
@@ -486,25 +498,66 @@ impl AcpClient {
 
     /// Explicit full history load; never used as an attachment fallback.
     pub async fn load_session(&self, cwd: &str, session_id: &str) -> Result<Value, AcpError> {
-        self.request(
-            "session/load",
-            json!({"sessionId":session_id, "cwd":cwd, "mcpServers":[]}),
-        )
-        .await
+        self.load_session_with_mcp_servers(cwd, session_id, None)
+            .await
+    }
+
+    /// None retains successful setup; Some(&[]) explicitly clears MCP entries.
+    pub async fn load_session_with_mcp_servers(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        mcp_servers: Option<&[Value]>,
+    ) -> Result<Value, AcpError> {
+        let servers = self.session_mcp_servers(session_id, mcp_servers);
+        let result = self
+            .request(
+                "session/load",
+                json!({"sessionId":session_id, "cwd":cwd, "mcpServers":servers}),
+            )
+            .await?;
+        self.session_setups
+            .lock()
+            .unwrap()
+            .insert(session_id.to_owned(), (cwd.to_owned(), servers));
+        Ok(result)
     }
 
     /// Supported v1 resume; never substitutes a new session on failure.
     /// `cwd` must be the original session setup obtained from discovery or
     /// stored native setup, not a guessed cwd or a new launch default.
     pub async fn resume_session(&self, cwd: &str, session_id: &str) -> Result<Value, AcpError> {
+        self.resume_session_with_mcp_servers(cwd, session_id, None)
+            .await
+    }
+
+    /// None retains successful setup; Some(&[]) explicitly clears MCP entries.
+    pub async fn resume_session_with_mcp_servers(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        mcp_servers: Option<&[Value]>,
+    ) -> Result<Value, AcpError> {
         self.require_connection()?;
-        let params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":[]});
+        let servers = self.session_mcp_servers(session_id, mcp_servers);
+        let params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":servers});
         let response = self.request("session/resume", params).await?;
-        self.session_cwds
+        self.session_setups
             .lock()
             .unwrap()
-            .insert(session_id.to_owned(), cwd.to_owned());
+            .insert(session_id.to_owned(), (cwd.to_owned(), servers));
         Ok(response)
+    }
+
+    fn session_mcp_servers(&self, session_id: &str, explicit: Option<&[Value]>) -> Vec<Value> {
+        explicit.map(<[Value]>::to_vec).unwrap_or_else(|| {
+            self.session_setups
+                .lock()
+                .unwrap()
+                .get(session_id)
+                .map(|(_, servers)| servers.clone())
+                .unwrap_or_default()
+        })
     }
 
     /// Resume the exact session using setup retained by successful typed helpers,
@@ -512,9 +565,9 @@ impl AcpClient {
     /// default or substitutes a new session when catalog lookup/resume fails.
     /// Sessions created through raw requests are resolved through the catalog.
     pub async fn resume_session_stored(&self, session_id: &str) -> Result<Value, AcpError> {
-        let stored = self.session_cwds.lock().unwrap().get(session_id).cloned();
+        let stored = self.session_setups.lock().unwrap().get(session_id).cloned();
         let cwd = match stored {
-            Some(cwd) => cwd,
+            Some((cwd, _)) => cwd,
             None => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase")]
@@ -578,7 +631,7 @@ impl AcpClient {
         let response = self
             .request("session/close", json!({"sessionId": session_id}))
             .await?;
-        self.session_cwds.lock().unwrap().remove(session_id);
+        self.session_setups.lock().unwrap().remove(session_id);
         Ok(response)
     }
 
@@ -896,6 +949,68 @@ mod tests {
     use tokio_tungstenite::accept_async;
 
     type TestSocket = WebSocketStream<TcpStream>;
+
+    #[tokio::test]
+    async fn mcp_setup_preserves_standard_entries_empty_overrides_and_refusals() {
+        let entries = vec![
+            json!({"name":"stdio", "command":"/bin/tool", "args":["a:b"], "env":[{"name":"KEY", "value":"value"}]}),
+            json!({"name":"http", "type":"http", "url":"https://example.test/mcp", "headers":[{"name":"Authorization", "value":"Bearer explicit"}]}),
+            json!({"name":"sse", "type":"sse", "url":"https://example.test/events", "headers":[]}),
+        ];
+        let expected = entries.clone();
+        let (url, server) = start_server(move |mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(&mut socket, respond(init["id"].as_u64().unwrap(), initialize_result(false))).await;
+            for (index, (method, servers)) in [
+                ("session/new", expected.clone()),
+                ("session/resume", expected.clone()),
+                ("session/load", vec![]),
+                ("session/resume", vec![]),
+                ("session/load", expected.clone()),
+                ("session/resume", vec![]),
+                ("session/resume", expected),
+            ].into_iter().enumerate() {
+                let frame = read_frame(&mut socket).await;
+                assert_eq!(frame["method"], method);
+                let mut params = json!({"cwd":"/workspace", "mcpServers":servers});
+                if index != 0 { params["sessionId"] = json!("opaque"); }
+                assert_eq!(frame["params"], params);
+                let id = frame["id"].as_u64().unwrap();
+                let response = if index == 5 {
+                    json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32602, "message":"unsupported setup"}})
+                } else { respond(id, if index == 0 {json!({"sessionId":"opaque"})} else {json!({})}) };
+                send_frame(&mut socket, response).await;
+            }
+        }).await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        let sid = client
+            .new_session_with_mcp_servers("/workspace", &entries)
+            .await
+            .unwrap();
+        client.resume_session_stored(&sid).await.unwrap();
+        client
+            .load_session_with_mcp_servers("/workspace", &sid, Some(&[]))
+            .await
+            .unwrap();
+        client.resume_session_stored(&sid).await.unwrap();
+        client
+            .load_session_with_mcp_servers("/workspace", &sid, Some(&entries))
+            .await
+            .unwrap();
+        assert!(matches!(
+            client
+                .resume_session_with_mcp_servers("/workspace", &sid, Some(&[]))
+                .await,
+            Err(AcpError::Request {
+                code: Some(-32602),
+                ..
+            })
+        ));
+        client.resume_session_stored(&sid).await.unwrap();
+        server.await.unwrap();
+        client.close();
+    }
 
     #[test]
     fn platform_cwd_is_lazy_and_explicit_and_retained_setup_skip_http() {

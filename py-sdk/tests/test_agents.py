@@ -43,6 +43,19 @@ from hypercli.agents import (
     is_agent_transitional_state,
 )
 from hypercli.http import APIError, HTTPClient
+from hypercli.mcp import build_additional_mcp_env
+
+
+def test_mcp_launch_selections_use_existing_create_environment():
+    stdio = {"name": "stdio", "command": "/bin/tool", "args": ["a:b"], "env": []}
+    remote = {"name": "http", "type": "http", "url": "https://example.test/mcp", "headers": [{"name": "Authorization", "value": "Bearer explicit"}]}
+    env = build_additional_mcp_env([stdio], [remote])
+    deployments = Deployments(MagicMock())
+    with patch.object(deployments, "_post", return_value={"id": "agent", "state": "CREATING"}) as post:
+        deployments.create(env=env)
+    body = post.call_args.kwargs["json"]
+    assert json.loads(body["env"]["HYPER_ADDITIONAL_MCP_SERVERS"]) == [stdio, remote]
+    assert build_additional_mcp_env([]) == {"HYPER_ADDITIONAL_MCP_SERVERS": "[]"}
 
 
 def test_vendored_agents_openapi_matches_canonical_data_plane_routes():

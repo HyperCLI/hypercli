@@ -181,7 +181,7 @@ export class CodingAgentAcpClient {
       if (!this.options.resolveDefaultCwd) throw new CodingAgentAcpUnavailableError('session/new', 'supply cwd or a runtime path resolver');
       return this.options.resolveDefaultCwd();
     });
-    const mcpServers = options.mcpServers ?? this.options.mcpServers ?? [];
+    const mcpServers = structuredClone(options.mcpServers ?? this.options.mcpServers ?? []);
     const result = await this.observe('new', () => this.request<acp.NewSessionResponse>('session/new', { cwd, mcpServers }));
     this.sessions.set(result.sessionId, { cwd, mcpServers });
     if (result.configOptions) this.sessionConfig.set(result.sessionId, result.configOptions);
@@ -209,10 +209,10 @@ export class CodingAgentAcpClient {
     } while (cursor);
     throw new CodingAgentAcpUnavailableError('session/list', 'original session cwd is unavailable');
   }
-  async resumeSession(sessionId: string, options: { cwd?: string } = {}): Promise<acp.ResumeSessionResponse> {
+  async resumeSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.ResumeSessionResponse> {
     const previous = this.sessions.get(sessionId);
     const cwd = await this.observe('cwd', () => options.cwd !== undefined ? Promise.resolve(options.cwd) : this.originalSessionCwd(sessionId));
-    const mcpServers = previous?.mcpServers ?? this.options.mcpServers ?? [];
+    const mcpServers = structuredClone(options.mcpServers ?? previous?.mcpServers ?? this.options.mcpServers ?? []);
     const connection = this.connection, generation = this.generation;
     const result = await this.observe('resume', () => this.request<acp.ResumeSessionResponse>('session/resume', { sessionId, cwd, mcpServers }));
     if (connection !== this.connection || generation !== this.generation || this.closedFlag) throw new CodingAgentAcpConnectionError('ACP attachment interrupted');
@@ -221,9 +221,9 @@ export class CodingAgentAcpClient {
     return result;
   }
   /** Explicit full history load. Reconnect/attachment never invokes it. */
-  async loadSession(sessionId: string): Promise<acp.LoadSessionResponse> {
-    const cwd = await this.originalSessionCwd(sessionId);
-    const mcpServers = this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? [];
+  async loadSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.LoadSessionResponse> {
+    const cwd = options.cwd ?? await this.originalSessionCwd(sessionId);
+    const mcpServers = structuredClone(options.mcpServers ?? this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? []);
     const connection = this.connection, generation = this.generation;
     const result = await this.request<acp.LoadSessionResponse>('session/load', { sessionId, cwd, mcpServers });
     if (connection !== this.connection || generation !== this.generation || this.closedFlag) throw new CodingAgentAcpConnectionError('ACP load interrupted');
@@ -249,8 +249,12 @@ export class CodingAgentAcpClient {
   }
   async closeSession(sessionId: string): Promise<void> { await this.request('session/close', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
   async deleteSession(sessionId: string): Promise<void> { await this.request('session/delete', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
-  async unstableForkSession(sessionId: string): Promise<acp.ForkSessionResponse> {
-    return this.request('session/fork', { sessionId, cwd: await this.originalSessionCwd(sessionId), mcpServers: this.options.mcpServers ?? [] });
+  async unstableForkSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.ForkSessionResponse> {
+    const cwd = options.cwd ?? await this.originalSessionCwd(sessionId);
+    const mcpServers = structuredClone(options.mcpServers ?? this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? []);
+    const result = await this.request<acp.ForkSessionResponse>('session/fork', { sessionId, cwd, mcpServers });
+    this.sessions.set(result.sessionId, { cwd, mcpServers });
+    return result;
   }
   async setMode(sessionId: string, modeId: string): Promise<void> { await this.request('session/set_mode', { sessionId, modeId }); }
   async setConfigOption(params: acp.SetSessionConfigOptionRequest): Promise<acp.SetSessionConfigOptionResponse>;

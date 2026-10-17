@@ -5,6 +5,8 @@ import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import { CodingAgentAcpConnectionError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
+import { buildAdditionalMcpEnv } from '../src/mcp.js';
+import type { McpServer } from '@agentclientprotocol/sdk';
 
 type Frame = { jsonrpc: string; id?: number | string; method?: string; params?: any; result?: any; error?: any };
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -73,6 +75,43 @@ it('keeps source in the platform query only', async () => {
   await client.newSession();
   expect(f.urls[0].searchParams.get('source')).toBe('future client/slack');
   for (const frame of f.frames) { expect(frame.params).not.toHaveProperty('_meta'); expect(frame.params).not.toHaveProperty('source'); }
+});
+
+it('sends explicit standard MCP setup, retains omitted values, and preserves peer refusal', async () => {
+  const entries: McpServer[] = [
+    { name: 'stdio', command: '/bin/tool', args: ['a:b'], env: [{ name: 'KEY', value: 'value' }] },
+    { name: 'http', type: 'http', url: 'https://example.test/mcp', headers: [{ name: 'Authorization', value: 'Bearer explicit' }] },
+    { name: 'sse', type: 'sse', url: 'https://example.test/events', headers: [] },
+  ];
+  const f = await fixture(), client = await f.connect();
+  const { sessionId } = await client.newSession({ mcpServers: entries });
+  const original = structuredClone(entries);
+  entries[0].name = 'caller-mutated';
+  await client.resumeSession(sessionId);
+  expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual(original);
+  await client.loadSession(sessionId, { mcpServers: [] });
+  await client.resumeSession(sessionId);
+  expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual([]);
+  await client.resumeSession(sessionId, { mcpServers: original });
+  f.hooks.set('session/load', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32602, message: 'HTTP unsupported' } }));
+  await expect(client.loadSession(sessionId, { mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+  await client.resumeSession(sessionId);
+  expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual(original);
+  f.hooks.set('session/fork', (frame, socket) => f.result(socket, frame, { sessionId: 'fork' }));
+  await client.unstableForkSession(sessionId, { mcpServers: [] });
+  await client.resumeSession('fork');
+  expect(f.calls('session/fork')[0].params.mcpServers).toEqual([]);
+  expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual([]);
+  for (const frame of f.frames) expect(frame.params).not.toHaveProperty('HYPER_ADDITIONAL_MCP_SERVERS');
+
+  const post = vi.fn(async () => ({ id: 'agent', state: 'CREATING' }));
+  const deployments = new Deployments({ post } as unknown as HTTPClient, 'account-token', 'https://api.example.test');
+  const env = buildAdditionalMcpEnv(original.slice(0, 1), original.slice(1));
+  await deployments.create({ env });
+  const body = (post.mock.calls[0] as unknown as [string, any])[1];
+  expect(JSON.parse(body.env.HYPER_ADDITIONAL_MCP_SERVERS)).toEqual(original);
+  expect(JSON.stringify(body)).not.toContain('account-token');
+  expect(buildAdditionalMcpEnv([])).toEqual({ HYPER_ADDITIONAL_MCP_SERVERS: '[]' });
 });
 
 it('uses per-call > connection > lazy platform cwd, preserving native refusal', async () => {
