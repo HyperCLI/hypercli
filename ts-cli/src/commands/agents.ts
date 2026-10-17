@@ -25,7 +25,6 @@ import {
   APIError,
   applySessionReactionOperation,
   newerSessionMessageMeta,
-  mergeSessionReactionProjections,
   sessionReactionDisplay,
   type AcpSessionMessagePage,
   getAgentsApiBaseUrl,
@@ -2030,13 +2029,12 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   };
   const read = async () => {
     const fresh = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
-    const projections = parsed.values.follow ? await client.sessions.getMessageReactionProjections(sessionId) : [];
     const items = fresh.items.map(row => {
       const prior = page?.items.find(prior => prior.sessionId === row.sessionId && prior.seq === row.seq && prior.messageId === row.messageId);
       const meta = newerSessionMessageMeta(prior?.meta, row.meta);
       return meta === row.meta ? row : { ...row, meta };
     });
-    page = { ...fresh, items: mergeSessionReactionProjections(items, projections) };
+    page = { ...fresh, items };
     render();
   };
   if (!parsed.values.follow) return read();

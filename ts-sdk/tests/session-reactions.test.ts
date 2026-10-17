@@ -4,44 +4,8 @@ import { WebSocketServer } from 'ws';
 import { expect, it } from 'vitest';
 import { HTTPClient } from '../src/http.js';
 import { Deployments } from '../src/agents.js';
-import { SessionsAPI, applySessionReactionOperation, sessionMessageMetaFromWire, newerSessionMessageMeta, mergeSessionReactionProjections, type SessionReactionOperation } from '../src/sessions.js';
+import { SessionsAPI, applySessionReactionOperation, sessionMessageMetaFromWire, newerSessionMessageMeta, type SessionReactionOperation } from '../src/sessions.js';
 import fixture from './fixtures/session-reactions.json';
-
-it('scans every session page, deduplicates projections and rejects incomplete recovery', async () => {
-  let mode = 'success';
-  const requests: string[] = [];
-  const server = createServer((req, res) => {
-    requests.push(req.url!);
-    const url = new URL(req.url!, 'http://localhost');
-    expect(url.pathname).toBe('/sessions/session-1/messages');
-    expect(url.searchParams.get('limit')).toBe('200');
-    res.setHeader('content-type', 'application/json');
-    if (!url.searchParams.has('cursor')) {
-      res.end(JSON.stringify({ items: [{ ...fixture.row, meta: fixture.event.meta }], has_more: true, next_cursor: 'older' }));
-    } else if (mode === 'error') {
-      res.statusCode = 403; res.end(JSON.stringify({ detail: 'fixture failure' }));
-    } else {
-      res.end(JSON.stringify({ items: [fixture.row, { ...fixture.row, seq: 2, message_id: 'message-2', meta: fixture.event.meta }],
-        has_more: mode !== 'success', next_cursor: mode === 'missing' ? null : 'older' }));
-    }
-  });
-  server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const sessions = new SessionsAPI(new HTTPClient(base, 'fixture-key'));
-  try {
-    const projections = await sessions.getMessageReactionProjections('session-1');
-    expect(requests).toHaveLength(2);
-    expect(projections).toHaveLength(2);
-    expect(projections[0].meta).toEqual(fixture.event.meta); // duplicate older page cannot roll back
-    expect(projections.every(row => !('acp' in row))).toBe(true);
-    const rows = (await sessions.getMessages('session-1', { limit: 200 })).items;
-    const live = applySessionReactionOperation(rows, { ...fixture.event, meta: { ...fixture.event.meta, reactions: {}, reactionUpdatedAt: '2026-10-17T12:00:00.000003Z' } } as SessionReactionOperation);
-    expect(mergeSessionReactionProjections(live, projections)).toEqual(live);
-    for (mode of ['error', 'cycle', 'missing']) {
-      await expect(sessions.getMessageReactionProjections('session-1')).rejects.toThrow();
-    }
-  } finally { server.close(); }
-});
 
 it('rejects malformed metadata at both REST and live boundaries before delivering state', async () => {
   const group = fixture.event.meta.reactions['unicode:👍'];

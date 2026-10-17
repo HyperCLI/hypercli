@@ -249,25 +249,18 @@ it('applies confirmed operations without refetching, preserves the page and hide
     await handler(reactionFixture.event);
     await handler(reactionFixture.event);
     await options.onReady(); // An older reconnect read cannot roll back the operation.
-    getMessageReactionProjections.mockResolvedValue([{ sessionId: 'session-1', seq: 1, messageId: 'message-1',
-      meta: { ...reactionFixture.event.meta, reactions: {}, reactionUpdatedAt: '2026-10-17T12:00:00.000003Z' } }]);
-    await options.onReady(); // Recover a missed removal without a live operation.
   });
-  const getMessageReactionProjections = vi.fn().mockResolvedValue([]);
-  const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages, getMessageReactionProjections }, deployments: { subscribe } } as unknown as HyperCLI;
+  const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages }, deployments: { subscribe } } as unknown as HyperCLI;
   const { ctx } = makeCtx(client, 'json');
   await agents.run(ctx, ['messages', 'session-1', '--follow', '--cursor', 'older-page', '--limit', '25']);
   const snapshots = stdout().trim().split('\n').map(line => JSON.parse(line));
-  expect(snapshots).toHaveLength(3);
+  expect(snapshots).toHaveLength(2);
   expect(snapshots[1].type).toBe('addReaction');
   expect(snapshots[1].items[0].meta.reactions['unicode:👍'].count).toBe(2);
   expect(snapshots[1].items[0].meta.reactions['custom:teams:reaction:heart'].count).toBeNull();
   expect(snapshots[1].nextCursor).toBe('still-older');
-  expect(snapshots[2].items[0].meta.reactions).toEqual({});
   expect(stdout()).not.toContain('private-native-receipt');
-  expect(getMessages).toHaveBeenCalledTimes(3); // initial + reconnects only
-  expect(getMessageReactionProjections).toHaveBeenCalledTimes(3);
-  expect(getMessageReactionProjections).toHaveBeenCalledWith('session-1');
+  expect(getMessages).toHaveBeenCalledTimes(2); // initial + reconnect only
   expect(getMessages.mock.calls.every(call => call[0] === 'session-1' && call[1].cursor === 'older-page' && call[1].limit === 25)).toBe(true);
 });
 

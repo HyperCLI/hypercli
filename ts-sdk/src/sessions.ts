@@ -226,18 +226,6 @@ export function sessionReactionDisplay(key: string): string {
   return key.startsWith('unicode:') ? key.slice('unicode:'.length) : `Custom reaction ${key.slice('custom:'.length)}`;
 }
 
-export type SessionReactionProjection = Pick<AcpSessionMessage, 'sessionId' | 'seq' | 'messageId' | 'meta'>;
-
-/** Reconcile metadata only; do not append history or replace concurrent newer operations. */
-export function mergeSessionReactionProjections<T extends AcpSessionMessage>(rows: T[], projections: SessionReactionProjection[]): T[] {
-  const key = (row: SessionReactionProjection) => JSON.stringify([row.sessionId, row.seq, row.messageId]);
-  const byTarget = new Map(projections.map(row => [key(row), row.meta]));
-  return rows.map(row => {
-    const meta = newerSessionMessageMeta(row.meta, byTarget.get(key(row)));
-    return meta === row.meta ? row : { ...row, meta };
-  });
-}
-
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
 export interface AcpSessionMessage {
   /** Stable platform history identity; never an ACP wire field. */
@@ -486,31 +474,6 @@ export class SessionsAPI {
     return { ...pageFromWire(payload ?? {}, messageFromWire),
       headSeq: pick<number>(payload ?? {}, 'head_seq', 'headSeq') ?? null,
       importOutcome: pick<SessionImportOutcome>(payload ?? {}, 'import_outcome', 'importOutcome') ?? null };
-  }
-
-  /** Pull all retained messages for one session, retaining only current reaction
-   * projections. A failed or non-advancing page rejects the entire scan. This is
-   * product REST recovery, independent of native ACP session/load and turns. */
-  async getMessageReactionProjections(sessionId: string, signal?: AbortSignal): Promise<SessionReactionProjection[]> {
-    const projections = new Map<string, SessionReactionProjection>();
-    const cursors = new Set<string>();
-    let cursor: string | undefined;
-    do {
-      signal?.throwIfAborted();
-      const page = await this.getMessages(sessionId, { cursor, limit: 200 });
-      signal?.throwIfAborted();
-      for (const row of page.items) {
-        if (row.sessionId !== sessionId) throw new Error('Reaction reconciliation returned a different session');
-        if (!row.messageId || !row.meta) continue;
-        const key = JSON.stringify([row.seq, row.messageId]);
-        const meta = newerSessionMessageMeta(projections.get(key)?.meta, row.meta);
-        projections.set(key, { sessionId, seq: row.seq, messageId: row.messageId, meta });
-      }
-      if (!page.hasMore) return [...projections.values()];
-      if (!page.nextCursor || cursors.has(page.nextCursor)) throw new Error('Reaction reconciliation pagination did not advance');
-      cursor = page.nextCursor;
-      cursors.add(cursor);
-    } while (true);
   }
 
   /**
