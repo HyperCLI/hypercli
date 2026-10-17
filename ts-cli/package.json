@@ -1,6 +1,6 @@
 {
   "name": "@hypercli.com/cli",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "HyperCLI command line — product APIs, managed agents, compute, flows, knowledge, voice.",
   "type": "module",
   "bin": {
