@@ -59,6 +59,18 @@ export function buildChatIntegrationConfig(
   }
   function url(key: string, protocols: string[], value = normalized[key]): URL {
     if (!/^[a-z]+:\/\//i.test(value) || /[\s\\?#\x00-\x1f\x7f]/.test(value)) throw new Error(`${key} has an invalid URL`);
+    const authority = /^[a-z]+:\/\/([^/]+)/i.exec(value)?.[1] ?? '';
+    const match = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]+))?$/i.exec(authority);
+    if (!match || (match[2] !== undefined && Number(match[2]) > 65535)) throw new Error(`${key} has an invalid URL`);
+    const host = match[1];
+    if (!host.startsWith('[')) {
+      const labels = host.replace(/\.$/, '').split('.');
+      const numeric = /^(?:[0-9]+|0x[0-9a-f]+)$/i.test(labels.at(-1)!);
+      if (host.length > 253 || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
+        || (numeric && (labels.length !== 4 || labels.some(label => !/^(?:0|[1-9][0-9]{0,2})$/.test(label) || Number(label) > 255)))) {
+        throw new Error(`${key} has an invalid URL`);
+      }
+    }
     let parsed: URL;
     try { parsed = new URL(value); } catch { throw new Error(`${key} must be an absolute URL`); }
     if (!protocols.includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.hash || parsed.search) {

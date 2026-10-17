@@ -24,4 +24,52 @@ fn shared_launch_contract() {
             .unwrap_or_else(|| panic!("invalid fixture accepted: {}", case["name"]));
         assert!(!error.contains("synthetic-private"));
     }
+    for integration in ["buzz", "teams", "telegram"] {
+        for valid in [true, false] {
+            for authority in fixtures["urlAuthorities"][if valid { "valid" } else { "invalid" }]
+                .as_array()
+                .unwrap()
+            {
+                let template = fixtures["valid"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|case| {
+                        case["integration"] == integration
+                            && (integration != "telegram"
+                                || case["values"]["TELEGRAM_MODE"] == "webhook")
+                    })
+                    .unwrap();
+                let mut values: std::collections::BTreeMap<String, String> =
+                    serde_json::from_value(template["values"].clone()).unwrap();
+                let url = format!(
+                    "{}://{}/",
+                    if integration == "buzz" {
+                        "wss"
+                    } else {
+                        "https"
+                    },
+                    authority.as_str().unwrap()
+                );
+                let key = match integration {
+                    "buzz" => "BUZZ_RELAY_URL",
+                    "teams" => "TEAMS_TRUSTED_SERVICE_BASES",
+                    _ => "TELEGRAM_WEBHOOK_URL",
+                };
+                values.insert(
+                    key.into(),
+                    if integration == "teams" {
+                        json!([url]).to_string()
+                    } else {
+                        url
+                    },
+                );
+                assert_eq!(
+                    build_chat_integration_config(integration, &values).is_ok(),
+                    valid,
+                    "{integration}: {authority}"
+                );
+            }
+        }
+    }
 }

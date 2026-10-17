@@ -1,4 +1,8 @@
 {
+  "urlAuthorities": {
+    "valid": ["example.com", "example.com:443", "localhost", "127.0.0.1", "255.255.255.255:8443", "[::1]:443", "[2001:db8::1]", "EXAMPLE.com."],
+    "invalid": ["/example.com", "999.999.999.999", "256.0.0.1", "127.1", "2130706433", "0177.0.0.1", "0x7f.0.0.1", "example.123", "example.com:", "example.com:65536", "@example.com", "example..com", "-example.com", "[:::1]", "[::1]extra", "%65xample.com"]
+  },
   "valid": [
     {"name":"slack default socket","integration":"slack","values":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_APP_TOKEN":"synthetic-app"},"expected":{"env":{"SLACK_MODE":"socket"},"secrets":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_APP_TOKEN":"synthetic-app"}}},
     {"name":"slack http","integration":"slack","values":{"SLACK_MODE":"http","SLACK_BOT_TOKEN":"synthetic-bot","SLACK_SIGNING_SECRET":"synthetic-sign"},"expected":{"env":{"SLACK_MODE":"http"},"secrets":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_SIGNING_SECRET":"synthetic-sign"}}},

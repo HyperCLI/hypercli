@@ -1,4 +1,5 @@
 """Pure chat-connector configuration for deployment env/secrets maps."""
+import ipaddress
 import json
 import re
 from urllib.parse import urlsplit
@@ -58,6 +59,20 @@ def build_chat_integration_config(integration: str, values: dict[str, str]) -> d
             value = normalized[key] if value is None else value
             if not re.match(r"^[a-z]+://", value, re.IGNORECASE) or re.search(r"[\s\\?#\x00-\x1f\x7f]", value):
                 raise ValueError()
+            authority = re.match(r"^[a-z]+://([^/]+)", value, re.IGNORECASE)
+            match = re.fullmatch(r"(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]+))?", authority[1] if authority else "", re.IGNORECASE)
+            if not match or (match[2] is not None and int(match[2]) > 65535):
+                raise ValueError()
+            host = match[1]
+            if host.startswith("["):
+                ipaddress.IPv6Address(host[1:-1])
+            else:
+                labels = host.removesuffix(".").split(".")
+                numeric = re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)", labels[-1], re.IGNORECASE)
+                if len(host) > 253 or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label, re.IGNORECASE) for label in labels):
+                    raise ValueError()
+                if numeric and (len(labels) != 4 or any(not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", label) or int(label) > 255 for label in labels)):
+                    raise ValueError()
             parsed = urlsplit(value)
             if parsed.scheme not in protocols or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
                 raise ValueError()

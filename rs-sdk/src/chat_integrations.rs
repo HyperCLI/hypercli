@@ -194,6 +194,39 @@ fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String>
     {
         return Err(format!("{key} has an invalid URL"));
     }
+    let authority = value
+        .split_once("://")
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
+        .unwrap_or("");
+    let pattern = regex::Regex::new(r"(?i)^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]+))?$").unwrap();
+    let parts = pattern
+        .captures(authority)
+        .ok_or_else(|| format!("{key} has an invalid URL"))?;
+    if parts
+        .get(2)
+        .is_some_and(|port| port.as_str().parse::<u16>().is_err())
+    {
+        return Err(format!("{key} has an invalid URL"));
+    }
+    let host = &parts[1];
+    if !host.starts_with('[') {
+        let labels: Vec<_> = host.strip_suffix('.').unwrap_or(host).split('.').collect();
+        let label = regex::Regex::new(r"(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$").unwrap();
+        let numeric = regex::Regex::new(r"(?i)^(?:[0-9]+|0x[0-9a-f]+)$")
+            .unwrap()
+            .is_match(labels.last().unwrap());
+        let octet = regex::Regex::new(r"^(?:0|[1-9][0-9]{0,2})$").unwrap();
+        if host.len() > 253
+            || labels.iter().any(|part| !label.is_match(part))
+            || (numeric
+                && (labels.len() != 4
+                    || labels
+                        .iter()
+                        .any(|part| !octet.is_match(part) || part.parse::<u8>().is_err())))
+        {
+            return Err(format!("{key} has an invalid URL"));
+        }
+    }
     let parsed = Url::parse(value).map_err(|_| format!("{key} must be an absolute URL"))?;
     if !schemes.contains(&parsed.scheme())
         || parsed.host_str().is_none()
