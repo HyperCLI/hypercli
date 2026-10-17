@@ -8,6 +8,7 @@ pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 mod acp;
 mod billing;
+mod chat_integrations;
 mod client;
 mod config;
 mod files;
@@ -32,6 +33,7 @@ pub use acp::{
     DEFAULT_OPEN_TIMEOUT,
 };
 pub use billing::{Balance, BillingClient, Transaction};
+pub use chat_integrations::{build_chat_integration_config, ChatIntegrationLaunchConfig};
 pub use client::{
     DeploymentLogsSubscribeOptions, FileApiReadyOptions, HyperCliClient, HyperCliError,
     AGENT_FILE_READ_MAX_BYTES, AGENT_FILE_WRITE_MAX_BYTES, DEFAULT_HOSTNAME_SETTLE_DELAY,

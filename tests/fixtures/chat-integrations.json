@@ -1,0 +1,28 @@
+{
+  "valid": [
+    {"name":"slack default socket","integration":"slack","values":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_APP_TOKEN":"synthetic-app"},"expected":{"env":{"SLACK_MODE":"socket"},"secrets":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_APP_TOKEN":"synthetic-app"}}},
+    {"name":"slack http","integration":"slack","values":{"SLACK_MODE":"http","SLACK_BOT_TOKEN":"synthetic-bot","SLACK_SIGNING_SECRET":"synthetic-sign"},"expected":{"env":{"SLACK_MODE":"http"},"secrets":{"SLACK_BOT_TOKEN":"synthetic-bot","SLACK_SIGNING_SECRET":"synthetic-sign"}}},
+    {"name":"telegram default polling","integration":"telegram","values":{"TELEGRAM_BOT_TOKEN":"synthetic-bot"},"expected":{"env":{"TELEGRAM_MODE":"polling"},"secrets":{"TELEGRAM_BOT_TOKEN":"synthetic-bot"}}},
+    {"name":"telegram webhook","integration":"telegram","values":{"TELEGRAM_MODE":"webhook","TELEGRAM_BOT_TOKEN":"synthetic-bot","TELEGRAM_WEBHOOK_URL":"https://example.com/events","TELEGRAM_WEBHOOK_SECRET":"synthetic-secret"},"expected":{"env":{"TELEGRAM_MODE":"webhook","TELEGRAM_WEBHOOK_URL":"https://example.com/events"},"secrets":{"TELEGRAM_BOT_TOKEN":"synthetic-bot","TELEGRAM_WEBHOOK_SECRET":"synthetic-secret"}}},
+    {"name":"buzz standalone","integration":"buzz","values":{"BUZZ_RELAY_URL":"wss://example.com","BUZZ_PRIVATE_KEY":"synthetic-key","BUZZ_AUTH_TAG":""},"expected":{"env":{"BUZZ_RELAY_URL":"wss://example.com"},"secrets":{"BUZZ_PRIVATE_KEY":"synthetic-key"}}},
+    {"name":"teams runtime names","integration":"teams","values":{"TEAMS_APP_ID":"11111111-1111-4111-8111-111111111111","TEAMS_APP_SECRET":"synthetic-secret","TEAMS_TENANT_ID":"22222222-2222-4222-8222-222222222222","TEAMS_TRUSTED_SERVICE_BASES":"[ \"https://example.com/region/\" ]"},"expected":{"env":{"TEAMS_APP_ID":"11111111-1111-4111-8111-111111111111","TEAMS_TENANT_ID":"22222222-2222-4222-8222-222222222222","TEAMS_TRUSTED_SERVICE_BASES":"[\"https://example.com/region/\"]"},"secrets":{"TEAMS_APP_SECRET":"synthetic-secret"}}}
+  ],
+  "invalid": [
+    {"name":"unknown connector","integration":"unknown","values":{}},
+    {"name":"unknown field","integration":"slack","values":{"OWNER_KEY":"synthetic-private"}},
+    {"name":"missing socket app token","integration":"slack","values":{"SLACK_BOT_TOKEN":"synthetic-private"}},
+    {"name":"stale http field","integration":"slack","values":{"SLACK_BOT_TOKEN":"synthetic-private","SLACK_APP_TOKEN":"synthetic-private","SLACK_SIGNING_SECRET":"synthetic-private"}},
+    {"name":"unknown mode","integration":"telegram","values":{"TELEGRAM_MODE":"synthetic-private","TELEGRAM_BOT_TOKEN":"synthetic-private"}},
+    {"name":"polling webhook conflict","integration":"telegram","values":{"TELEGRAM_BOT_TOKEN":"synthetic-private","TELEGRAM_WEBHOOK_URL":"https://example.com/"}},
+    {"name":"webhook unauthenticated","integration":"telegram","values":{"TELEGRAM_MODE":"webhook","TELEGRAM_BOT_TOKEN":"synthetic-private","TELEGRAM_WEBHOOK_URL":"https://example.com/"}},
+    {"name":"credential injection","integration":"telegram","values":{"TELEGRAM_BOT_TOKEN":"synthetic-private\nINJECT=yes"}},
+    {"name":"invalid relay protocol","integration":"buzz","values":{"BUZZ_RELAY_URL":"https://example.com/","BUZZ_PRIVATE_KEY":"synthetic-private"}},
+    {"name":"relay credentials","integration":"buzz","values":{"BUZZ_RELAY_URL":"wss://user:synthetic-private@example.com/","BUZZ_PRIVATE_KEY":"synthetic-private"}},
+    {"name":"ambiguous relay","integration":"buzz","values":{"BUZZ_RELAY_URL":"wss:example.com","BUZZ_PRIVATE_KEY":"synthetic-private"}},
+    {"name":"relay query","integration":"buzz","values":{"BUZZ_RELAY_URL":"wss://example.com/?","BUZZ_PRIVATE_KEY":"synthetic-private"}},
+    {"name":"old teams names","integration":"teams","values":{"MSTEAMS_APP_PASSWORD":"synthetic-private"}},
+    {"name":"untrusted teams base","integration":"teams","values":{"TEAMS_APP_ID":"11111111-1111-4111-8111-111111111111","TEAMS_APP_SECRET":"synthetic-private","TEAMS_TENANT_ID":"22222222-2222-4222-8222-222222222222","TEAMS_TRUSTED_SERVICE_BASES":"[\"http://example.com/\"]"}},
+    {"name":"teams base missing slash","integration":"teams","values":{"TEAMS_APP_ID":"11111111-1111-4111-8111-111111111111","TEAMS_APP_SECRET":"synthetic-private","TEAMS_TENANT_ID":"22222222-2222-4222-8222-222222222222","TEAMS_TRUSTED_SERVICE_BASES":"[\"https://example.com/region\"]"}},
+    {"name":"teams malformed array","integration":"teams","values":{"TEAMS_APP_ID":"11111111-1111-4111-8111-111111111111","TEAMS_APP_SECRET":"synthetic-private","TEAMS_TENANT_ID":"22222222-2222-4222-8222-222222222222","TEAMS_TRUSTED_SERVICE_BASES":"[]"}}
+  ]
+}

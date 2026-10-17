@@ -10,6 +10,8 @@ import hypercli
 
 EXPECTED_PUBLIC_SURFACE = frozenset(
     {
+        "CHAT_INTEGRATIONS",
+        "build_chat_integration_config",
         "AGENT_RUNTIME_INACTIVE_STATES",
         "AGENT_TRANSITIONAL_STATES",
         "AGENT_WAIT_RUNNING_FAILURE_STATES",

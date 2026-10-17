@@ -1,5 +1,6 @@
 """HyperCLI SDK - Python client for HyperCLI API"""
 from .client import HyperCLI
+from .chat_integrations import CHAT_INTEGRATIONS, build_chat_integration_config
 from .config import (
     configure,
     GHCR_IMAGES,
@@ -158,6 +159,8 @@ from .acp import (
 )
 __version__ = "0.9.0"
 __all__ = [
+    "CHAT_INTEGRATIONS",
+    "build_chat_integration_config",
     "HyperCLI",
     "SessionPage",
     "SessionRecord",

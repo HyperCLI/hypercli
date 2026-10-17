@@ -1,3 +1,5 @@
+export * from './chat-integrations.js';
+
 export type AgentConnectorSetupMode = 'managed-auth' | 'config';
 export type AgentConnectorAuthorizationProtocol = 'short-code';
 
