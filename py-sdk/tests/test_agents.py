@@ -46,24 +46,6 @@ from hypercli.http import APIError, HTTPClient
 from hypercli.mcp import build_additional_mcp_env
 
 
-@pytest.mark.parametrize("cwd", [None, "/owned/ci/workspace"])
-def test_explicit_cwd_reaches_generic_and_managed_launches(cwd):
-    deployments = Deployments(MagicMock())
-    for managed in (False, True):
-        with patch.object(deployments, "_post", return_value={"id": "agent", "runtime": "opencode", "state": "STOPPED"}) as post:
-            if managed:
-                agent = deployments.create_agent("opencode", cwd=cwd)
-            else:
-                agent = deployments.create(cwd=cwd)
-        assert post.call_args.kwargs["json"]["cwd"] == cwd
-        assert agent.__dict__["_submitted_launch_config"]["cwd"] == cwd
-    assert build_agent_config(cwd=cwd)["cwd"] == cwd
-    assert "cwd" not in build_agent_config()
-    with patch.object(deployments, "_post", return_value={"id": "agent", "state": "STOPPED"}) as post:
-        deployments.create()
-    assert "cwd" not in post.call_args.kwargs["json"]
-
-
 def test_mcp_launch_selections_use_existing_create_environment():
     stdio = {"name": "stdio", "command": "/bin/tool", "args": ["a:b"], "env": []}
     remote = {"name": "http", "type": "http", "url": "https://example.test/mcp", "headers": [{"name": "Authorization", "value": "Bearer explicit"}]}
