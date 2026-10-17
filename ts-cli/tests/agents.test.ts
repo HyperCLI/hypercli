@@ -240,24 +240,27 @@ function asDeployments(client: HyperCLI): MockDeployments {
   return client.deployments as unknown as MockDeployments;
 }
 
-it('reads session message metadata and follows product hints as replacement snapshots without exposing native receipts', async () => {
-  const getMessages = vi.fn().mockResolvedValue({ items: [{ ...reactionFixture.row, messageId: 'message-1' }], hasMore: false, nextCursor: null });
+it('applies confirmed operations without refetching, preserves the page and hides receipts', async () => {
+  const getMessages = vi.fn().mockResolvedValue({ items: [{ ...reactionFixture.row, sessionId: 'session-1', messageId: 'message-1' }], hasMore: true, nextCursor: 'still-older' });
   const subscribe = vi.fn(async (handler, options) => {
     await options.onReady();
     await handler({ ...reactionFixture.event, agent_id: 'foreign-agent' });
     await handler({ ...reactionFixture.event, session_id: 'other-session' });
     await handler(reactionFixture.event);
     await handler(reactionFixture.event);
+    await options.onReady(); // An older reconnect read cannot roll back the operation.
   });
   const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages }, deployments: { subscribe } } as unknown as HyperCLI;
   const { ctx } = makeCtx(client, 'json');
   await agents.run(ctx, ['messages', 'session-1', '--follow', '--cursor', 'older-page', '--limit', '25']);
   const snapshots = stdout().trim().split('\n').map(line => JSON.parse(line));
-  expect(snapshots).toHaveLength(1);
-  expect(snapshots[0].items[0].meta.reactions[0].count).toBe(2);
-  expect(snapshots[0].items[0].meta.reactions[1].count).toBeNull();
+  expect(snapshots).toHaveLength(2);
+  expect(snapshots[1].type).toBe('addReaction');
+  expect(snapshots[1].items[0].meta.reactions['unicode:👍'].count).toBe(2);
+  expect(snapshots[1].items[0].meta.reactions['custom:teams:reaction:heart'].count).toBeNull();
+  expect(snapshots[1].nextCursor).toBe('still-older');
   expect(stdout()).not.toContain('private-native-receipt');
-  expect(getMessages).toHaveBeenCalledTimes(3);
+  expect(getMessages).toHaveBeenCalledTimes(2); // initial + reconnect only
   expect(getMessages.mock.calls.every(call => call[0] === 'session-1' && call[1].cursor === 'older-page' && call[1].limit === 25)).toBe(true);
 });
 

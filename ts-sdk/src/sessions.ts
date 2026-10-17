@@ -112,17 +112,72 @@ export interface AcpSessionState extends AcpSessionRecord {
 
 /** Current product metadata on an existing session message, never ACP metadata. */
 export interface SessionMessageMeta {
-  reactions: SessionReactionGroup[];
+  /** Keys are exact `unicode:${value}` or `custom:${scopedReference}`. */
+  reactions: Record<string, SessionReactionGroup>;
   reactionSupport: 'supported' | 'unsupported' | 'unknown';
   reactionsComplete: boolean;
+  /** Canonical UTC, six fractional digits. Compare strings, not JS milliseconds. */
+  reactionUpdatedAt: string | null;
 }
 
 export interface SessionReactionGroup {
-  reaction: { kind: 'unicode' | 'custom'; value: string };
   /** Null means unknown, not zero or the number of known actors. */
   count: number | null;
-  actors: { actor: { id: string; isBot: boolean }; receipt: string | null }[];
+  actors: Record<string, { isBot: boolean; receipt: string | null }>;
   actorsComplete: boolean;
+}
+
+/** Rollout read compatibility only; new operations already carry dictionary metadata. */
+export function sessionMessageMetaFromWire(value: unknown): SessionMessageMeta | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const meta = value as SessionMessageMeta;
+  if (!Array.isArray(meta.reactions)) return { ...meta, reactionUpdatedAt: meta.reactionUpdatedAt ?? null };
+  const legacy = meta.reactions as { reaction: { kind: string; value: string }; count: number | null;
+    actors: { actor: { id: string; isBot: boolean }; receipt: string | null }[]; actorsComplete: boolean }[];
+  return { ...meta, reactionUpdatedAt: meta.reactionUpdatedAt ?? null,
+    reactions: Object.fromEntries(legacy.map(group => [`${group.reaction.kind}:${group.reaction.value}`, {
+      count: group.count, actorsComplete: group.actorsComplete,
+      actors: Object.fromEntries(group.actors.map(member => [member.actor.id, { isBot: member.actor.isBot, receipt: member.receipt }])),
+    }])),
+  };
+}
+
+/** Retain the freshest current projection; equal timestamps preserve object identity. */
+export function newerSessionMessageMeta(current: SessionMessageMeta | undefined, incoming: SessionMessageMeta | undefined): SessionMessageMeta | undefined {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  if (current.reactionUpdatedAt !== null && (incoming.reactionUpdatedAt === null || incoming.reactionUpdatedAt <= current.reactionUpdatedAt)) return current;
+  return incoming;
+}
+
+/** Read-only subscriber operation, separate from ACP and from native write requests. */
+export interface SessionReactionOperation {
+  type: 'addReaction' | 'removeReaction';
+  agent_id: string;
+  session_id: string;
+  seq: number;
+  message_id: string;
+  target: { source: string; account: string; workspace: string | null; channel: string | null; thread: string | null; message: string };
+  actor: { id: string; isBot: boolean };
+  reaction: { kind: 'unicode' | 'custom'; value: string };
+  receipt: string | null;
+  meta: SessionMessageMeta;
+}
+
+/** Apply the resulting snapshot, never increment counts or replay actor deltas. */
+export function applySessionReactionOperation<T extends AcpSessionMessage>(rows: T[], event: SessionReactionOperation): T[] {
+  const index = rows.findIndex(row => row.sessionId === event.session_id && row.seq === event.seq && row.messageId === event.message_id);
+  if (index < 0) return rows;
+  const row = rows[index];
+  const meta = newerSessionMessageMeta(row.meta, event.meta);
+  if (meta === row.meta) return rows;
+  const next = rows.slice();
+  next[index] = { ...row, meta };
+  return next;
+}
+
+export function sessionReactionDisplay(key: string): string {
+  return key.startsWith('unicode:') ? key.slice('unicode:'.length) : `Custom reaction ${key.slice('custom:'.length)}`;
 }
 
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
@@ -283,7 +338,7 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
     seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
     acp: (row.acp && typeof row.acp === 'object' ? row.acp : {}) as Record<string, unknown>,
-    ...(row.meta !== undefined ? { meta: row.meta as SessionMessageMeta } : {}),
+    ...(row.meta !== undefined ? { meta: sessionMessageMetaFromWire(row.meta) } : {}),
     stopReason: pick<string>(row, 'stop_reason', 'stopReason') ?? null,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
     deliveredAt: pick<string>(row, 'delivered_at', 'deliveredAt') ?? null,

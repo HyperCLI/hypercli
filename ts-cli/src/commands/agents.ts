@@ -23,6 +23,10 @@ import { createInterface } from 'node:readline/promises';
 import {
   AGENT_EXEC_STDIN_MAX_BYTES,
   APIError,
+  applySessionReactionOperation,
+  newerSessionMessageMeta,
+  sessionReactionDisplay,
+  type AcpSessionMessagePage,
   getAgentsApiBaseUrl,
   type Agent,
   type AgentCapturedLogsEvent,
@@ -2005,22 +2009,33 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   const state = await client.sessions.getSession(sessionId);
   const agents = new Set(state.participants.filter(p => p.kind === 'agent').map(p => p.participantId));
   let previousSnapshot: string | undefined;
-  const read = async () => {
-    const page = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
+  let page: AcpSessionMessagePage | undefined;
+  const render = (type?: 'addReaction' | 'removeReaction') => {
+    if (!page) return;
     // Receipts are native removal evidence, not display data. Retain counts,
     // completeness and scoped actors in both JSON and human snapshots.
     const result = { ...page, items: page.items.map(row => ({ ...row,
-      ...(row.meta ? { meta: { ...row.meta, reactions: row.meta.reactions.map(group => ({ ...group,
-        actors: group.actors.map(({ actor }) => ({ actor })),
-      })) } } : {}),
+      ...(row.meta ? { meta: { ...row.meta, reactions: Object.fromEntries(Object.entries(row.meta.reactions).map(([key, group]) => [key, { ...group,
+        actors: Object.fromEntries(Object.entries(group.actors).map(([id, actor]) => [id, { isBot: actor.isBot }])),
+      }])) } } : {}),
     })) };
     const snapshot = JSON.stringify(result);
     if (parsed.values.follow && snapshot === previousSnapshot) return;
     previousSnapshot = snapshot;
-    if (ctx.format === 'json' && parsed.values.follow) process.stdout.write(`${snapshot}\n`);
+    if (ctx.format === 'json' && parsed.values.follow) process.stdout.write(`${JSON.stringify({ ...result, ...(type ? { type } : {}) })}\n`);
     else ctx.output.result(result, { columns: ['SEQ', 'MESSAGE', 'ROLE', 'REACTIONS'], rows: result.items.map(row => [row.seq, row.messageId ?? '', row.role,
-      row.meta?.reactions.map(group => `${group.reaction.value}: ${group.count ?? '?'} (${group.actors.map(m => m.actor.id).join(', ')}${group.actorsComplete ? '' : '; actors incomplete'})`).join(' · ') ?? 'unknown',
+      row.meta ? Object.entries(row.meta.reactions).map(([key, group]) => `${sessionReactionDisplay(key)}: ${group.count ?? '?'} (${Object.keys(group.actors).join(', ')}${group.actorsComplete ? '' : '; actors incomplete'})`).join(' · ') : 'unknown',
     ]) });
+  };
+  const read = async () => {
+    const fresh = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
+    const items = fresh.items.map(row => {
+      const prior = page?.items.find(prior => prior.sessionId === row.sessionId && prior.seq === row.seq && prior.messageId === row.messageId);
+      const meta = newerSessionMessageMeta(prior?.meta, row.meta);
+      return meta === row.meta ? row : { ...row, meta };
+    });
+    page = { ...fresh, items };
+    render();
   };
   if (!parsed.values.follow) return read();
   const controller = new AbortController();
@@ -2028,6 +2043,13 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   process.once('SIGINT', onSigint);
   try {
     await client.deployments.subscribe(async event => {
+      if ((event.type === 'addReaction' || event.type === 'removeReaction') && agents.has(event.agent_id) && event.session_id === sessionId) {
+        if (!page?.items.some(row => row.sessionId === event.session_id && row.seq === event.seq && row.messageId === event.message_id)) await read();
+        if (page) {
+          const items = applySessionReactionOperation(page.items, event);
+          if (items !== page.items) { page = { ...page, items }; render(event.type); }
+        }
+      }
       if (event.type === 'message.reactions_changed' && agents.has(event.agent_id) &&
           (event.session_id === undefined || event.session_id === sessionId)) await read();
     }, { signal: controller.signal, onReady: read });

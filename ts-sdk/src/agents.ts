@@ -1624,7 +1624,7 @@ export interface MessageReactionsChangedEvent {
   seq?: number;
 }
 
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | MessageReactionsChangedEvent;
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | MessageReactionsChangedEvent | import('./sessions.js').SessionReactionOperation;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -4200,6 +4200,13 @@ export class Deployments {
                   frame.type === 'message.reactions_changed'
                   && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
                   && typeof frame.message_id === 'string' && frame.message_id.length > 0
+                ) || (
+                  (frame.type === 'addReaction' || frame.type === 'removeReaction')
+                  && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
+                  && typeof frame.session_id === 'string' && frame.session_id.length > 0
+                  && Number.isSafeInteger(frame.seq) && (frame.seq as number) > 0
+                  && typeof frame.message_id === 'string' && frame.message_id.length > 0
+                  && isPlainRecord(frame.meta)
                 )
               ) {
                 await handler(frame as unknown as DeploymentEvent);

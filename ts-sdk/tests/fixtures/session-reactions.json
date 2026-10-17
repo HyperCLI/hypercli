@@ -1,20 +1,29 @@
 {
-  "event": { "type": "message.reactions_changed", "agent_id": "agent-1", "message_id": "message-1", "session_id": "session-1", "seq": 1 },
+  "event": {
+    "type": "addReaction", "agent_id": "agent-1", "message_id": "message-1", "session_id": "session-1", "seq": 1,
+    "target": { "source": "telegram:chat", "account": "telegram:bot", "workspace": null, "channel": "telegram:chat", "thread": null, "message": "telegram:chat:message-1" },
+    "actor": { "id": "telegram:bot:chat:bot2", "isBot": true },
+    "reaction": { "kind": "unicode", "value": "👍" }, "receipt": null,
+    "meta": {
+      "reactionSupport": "supported", "reactionsComplete": false, "reactionUpdatedAt": "2026-10-17T12:00:00.000002Z",
+      "reactions": {
+        "unicode:👍": { "count": 2, "actorsComplete": true, "actors": {
+          "telegram:bot:chat:user1": { "isBot": false, "receipt": "private-native-receipt" },
+          "telegram:bot:chat:bot2": { "isBot": true, "receipt": null }
+        } },
+        "custom:teams:reaction:heart": { "count": null, "actorsComplete": false, "actors": {
+          "teams:tenant:user1": { "isBot": false, "receipt": null }
+        } }
+      }
+    }
+  },
   "row": {
     "session_id": "session-1", "seq": 1, "message_id": "message-1", "role": "user",
     "participant_kind": "user", "participant_id": "user-1",
     "acp": { "type": "user_message", "text": "Existing external message" },
     "meta": {
-      "reactionSupport": "supported", "reactionsComplete": false,
-      "reactions": [
-        { "reaction": { "kind": "unicode", "value": "👍" }, "count": 2, "actorsComplete": true,
-          "actors": [
-            { "actor": { "id": "telegram:bot:chat:user1", "isBot": false }, "receipt": "private-native-receipt" },
-            { "actor": { "id": "telegram:bot:chat:bot2", "isBot": true }, "receipt": null }
-          ] },
-        { "reaction": { "kind": "custom", "value": "teams:reaction:heart" }, "count": null, "actorsComplete": false,
-          "actors": [{ "actor": { "id": "teams:tenant:user1", "isBot": false }, "receipt": null }] }
-      ]
+      "reactionSupport": "supported", "reactionsComplete": false, "reactionUpdatedAt": "2026-10-17T12:00:00.000001Z",
+      "reactions": {}
     }
   }
 }
