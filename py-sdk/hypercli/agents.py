@@ -121,6 +121,7 @@ DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
 DEFAULT_HERMES_AGENT_SYNC_EXCLUDE = ("shared/**",)
 LAUNCH_CONFIG_KEYS = frozenset(
     {
+        "cwd",
         "image",
         "env",
         "secrets",
@@ -669,6 +670,7 @@ def _resolve_coding_agent_sync_policy(
 def _build_agent_launch(
     config: dict | None = None,
     *,
+    cwd: str | None | object = _UNSET,
     env: dict | None = None,
     secrets: dict | None = None,
     routes: dict | None = None,
@@ -722,6 +724,8 @@ def _build_agent_launch(
             DEFAULT_AGENT_RUNTIME_SCOPES if runtime_scopes is None else runtime_scopes
         ),
     }
+    if cwd is not _UNSET:
+        complete_launch["cwd"] = cwd
     if sync_include is not _UNSET:
         if sync_include == []:
             raise ValueError("sync_include must contain at least one path; omit it to sync all")
@@ -758,6 +762,7 @@ def _build_agent_launch(
     if cors is not _UNSET and cors is not None:
         launch["cors"] = copy.deepcopy(dict(cors))
     for key, value, provided in (
+        ("cwd", cwd, cwd is not _UNSET),
         ("routes", complete_launch["routes"], routes is not None),
         ("command", command, command is not None),
         ("entrypoint", entrypoint, entrypoint is not None),
@@ -786,6 +791,7 @@ def _build_agent_launch(
 def build_agent_config(
     config: dict | None = None,
     *,
+    cwd: str | None | object = _UNSET,
     env: dict | None = None,
     secrets: dict | None = None,
     routes: dict | None = None,
@@ -821,6 +827,7 @@ def build_agent_config(
     """
     return _build_agent_launch(
         config,
+        cwd=cwd,
         env=env,
         secrets=secrets,
         routes=routes,
@@ -2463,6 +2470,7 @@ class Deployments:
         meta_ui: dict = None,
         runner: dict = None,
         dry_run: bool = False,
+        cwd: str | None | object = _UNSET,
     ) -> Agent:
         """Submit provisioning for a new agent and return its admission snapshot.
 
@@ -2470,6 +2478,7 @@ class Deployments:
             name: Agent name.
             size: Size preset (small/medium/large). When omitted, the backend defaults to small.
             config: Optional config overrides.
+            cwd: Absolute Runner-host working directory; omission uses the OS owner's home.
             env: Optional environment variables to pass through to the pod.
             secrets: Optional secret environment variables to pass through to the pod.
             sync_root: Absolute runtime mount path for retained PVC storage.
@@ -2487,6 +2496,7 @@ class Deployments:
         during explicit cold restore.
         """
         launch_options: dict[str, Any] = {
+            "cwd": cwd,
             "env": env,
             "secrets": secrets,
             "routes": routes,
@@ -2566,6 +2576,7 @@ class Deployments:
         cron_enabled: bool | None = None,
         memory_index: dict | None = None,
         trusted_proxies: list[str] | tuple[str, ...] | None = None,
+        cwd: str | None | object = _UNSET,
     ) -> Agent:
         """Create a managed agent for a runtime in one call.
 
@@ -2590,6 +2601,7 @@ class Deployments:
         attaches and routes outside the pod.
         """
         launch = {
+            "cwd": cwd,
             "name": name,
             "handle": handle,
             "size": size,
