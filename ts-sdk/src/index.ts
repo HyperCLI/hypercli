@@ -457,6 +457,8 @@ export {
   type SessionMessageMeta,
   type SessionReactionGroup,
   type SessionReactionOperation,
+  type SessionReactionProjection,
+  mergeSessionReactionProjections,
   applySessionReactionOperation,
   newerSessionMessageMeta,
   sessionMessageMetaFromWire,

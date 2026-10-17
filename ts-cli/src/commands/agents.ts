@@ -25,6 +25,7 @@ import {
   APIError,
   applySessionReactionOperation,
   newerSessionMessageMeta,
+  mergeSessionReactionProjections,
   sessionReactionDisplay,
   type AcpSessionMessagePage,
   getAgentsApiBaseUrl,
@@ -2029,12 +2030,13 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   };
   const read = async () => {
     const fresh = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
+    const projections = parsed.values.follow ? await client.sessions.getMessageReactionProjections(sessionId) : [];
     const items = fresh.items.map(row => {
       const prior = page?.items.find(prior => prior.sessionId === row.sessionId && prior.seq === row.seq && prior.messageId === row.messageId);
       const meta = newerSessionMessageMeta(prior?.meta, row.meta);
       return meta === row.meta ? row : { ...row, meta };
     });
-    page = { ...fresh, items };
+    page = { ...fresh, items: mergeSessionReactionProjections(items, projections) };
     render();
   };
   if (!parsed.values.follow) return read();
@@ -2044,7 +2046,6 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   try {
     await client.deployments.subscribe(async event => {
       if ((event.type === 'addReaction' || event.type === 'removeReaction') && agents.has(event.agent_id) && event.session_id === sessionId) {
-        if (!page?.items.some(row => row.sessionId === event.session_id && row.seq === event.seq && row.messageId === event.message_id)) await read();
         if (page) {
           const items = applySessionReactionOperation(page.items, event);
           if (items !== page.items) { page = { ...page, items }; render(event.type); }
