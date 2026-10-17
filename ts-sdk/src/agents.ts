@@ -312,6 +312,7 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'restart',
   'runtime_scopes',
   'executor',
+  'cwd',
   'docker',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
@@ -870,6 +871,8 @@ export interface AgentLaunchConfig {
   registry_auth: RegistryAuth | Record<string, never>;
   runtime_scopes: string[];
   executor?: AgentExecutor;
+  /** Retained Runner workspace; resolved on the Runner host. */
+  cwd?: string | null;
   docker?: AgentDockerOptions | null;
 }
 
@@ -938,6 +941,8 @@ function cloneCompleteLaunchConfig(value: AgentLaunchConfig): AgentLaunchConfig 
 }
 
 export interface BuildAgentConfigOptions {
+  /** Absolute Runner-host workspace. Omission selects the Runner OS owner's home. */
+  cwd?: string | null;
   env?: Record<string, string>;
   secrets?: Record<string, string>;
   routes?: Record<string, AgentRouteConfig> | null;
@@ -2307,6 +2312,7 @@ export function buildAgentConfig(
   }
   if (docker !== undefined) prepared.docker = docker;
   if (executor !== undefined) prepared.executor = executor;
+  if (options.cwd !== undefined) prepared.cwd = options.cwd;
   return { config: prepared };
 }
 
@@ -2340,6 +2346,7 @@ function buildAgentCreateConfig(
   if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) prepared.runtime_scopes = complete.runtime_scopes;
   if (complete.docker) prepared.docker = complete.docker;
   if (complete.executor !== undefined) prepared.executor = complete.executor;
+  if (complete.cwd !== undefined) prepared.cwd = complete.cwd;
   return prepared;
 }
 

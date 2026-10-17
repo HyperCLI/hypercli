@@ -907,6 +907,19 @@ describe('coding agents', () => {
 });
 
 describe('runner process executor', () => {
+  it.each(['process', 'docker'] as const)('preserves Runner cwd through %s createAgent', async (executor) => {
+    const post = vi.fn().mockResolvedValue(runnerResponse('codex'));
+    await runnerDeployments(post).createAgent('codex', {
+      executor,
+      runner: { runnerId: 'runner-1' },
+      cwd: '/remote-owner/project with spaces',
+      syncRoot: '/separate-persistence',
+    });
+    expect(post.mock.calls[0][1]).toMatchObject({
+      cwd: '/remote-owner/project with spaces',
+      sync_root: '/separate-persistence',
+    });
+  });
   function runnerResponse(runtime: string) {
     return { id: `${runtime}-runner-1`, user_id: 'user-1', state: 'RUNNING', runtime };
   }

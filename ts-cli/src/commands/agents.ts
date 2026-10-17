@@ -57,7 +57,7 @@ export const usage = [
   'hyper agents ls [--state X]',
   'hyper agents status <id> [--verbose]',
   'hyper agents wait <id> [--state X] [--timeout S] [--interval S]',
-  'hyper agents create <name> --runtime openclaw|hermes|generic|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--env K=V ...] [--param k=v ...] [--secret K=V ...] [--image IMG] [--sh SCRIPT] [--sync-root P] [--sync-include P ... | --sync-exclude G ...] [--registry-url U --registry-username U --registry-password P] [--restart | --no-restart] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--dry-run] [-- CMD [ARGS...]]',
+  'hyper agents create <name> --runtime openclaw|hermes|generic|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--env K=V ...] [--param k=v ...] [--secret K=V ...] [--image IMG] [--sh SCRIPT] [--sync-root P] [--sync-include P ... | --sync-exclude G ...] [--registry-url U --registry-username U --registry-password P] [--restart | --no-restart] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--cwd RUNNER_HOST_PATH] [--dry-run] [-- CMD [ARGS...]]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--permissions auto|none] [--timeout S] [--stream]',
@@ -568,6 +568,7 @@ function maskCreatePayloadSecrets(payload: Record<string, unknown>): Record<stri
   return masked;
 }
 
+/** Runner create accepts --cwd PATH as an absolute path on the Runner host. */
 async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, {
     runtime: { type: 'string' },
@@ -590,6 +591,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     'runner-tags': { type: 'string' },
     'runner-id': { type: 'string' },
     executor: { type: 'string' },
+    cwd: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
   });
   if (parsed.help) return printHelp();
@@ -645,6 +647,10 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
   // Runner executor choice (rulings: required at create for runner placements,
   // forbidden for hosted agents; the Backend owns both rejections).
   const executor = str(parsed, 'executor')?.toLowerCase();
+  const cwd = str(parsed, 'cwd');
+  if (cwd !== undefined && !runner) {
+    throw new UsageError('--cwd requires runner placement');
+  }
   if (executor && executor !== 'process' && executor !== 'docker') {
     throw new UsageError("--executor must be 'process' or 'docker'");
   }
@@ -667,6 +673,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     ...(tags ? { tags } : {}),
     ...(runner ? { runner } : {}),
     ...(executor ? { executor } : {}),
+    ...(cwd !== undefined ? { cwd } : {}),
     ...launch,
     ...(Object.keys(mergedEnv).length > 0 ? { env: mergedEnv } : {}),
     ...(Object.keys(configBag).length > 0 ? { config: configBag } : {}),

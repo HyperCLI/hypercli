@@ -553,6 +553,16 @@ describe('hyper agents set runtime', () => {
 // ---------- create ----------
 
 describe('hyper agents create', () => {
+  it('passes --cwd verbatim on Runner create and rejects it for hosted create', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    await agents.run(ctx, ['create', 'cx', '--runtime', 'codex', '--runner-id', ID_A,
+      '--executor', 'process', '--cwd', '/remote/project with spaces']);
+    expect(d.createAgent).toHaveBeenCalledWith('codex', expect.objectContaining({
+      cwd: '/remote/project with spaces', runner: { runnerId: ID_A }, executor: 'process',
+    }));
+    expect(await runErr(ctx, ['create', 'hosted', '--runtime', 'codex', '--cwd', '/remote'])).toBeInstanceOf(UsageError);
+  });
   it('--dry-run prints the resolved payload JSON and performs zero SDK calls', async () => {
     const d = createMockDeploymentsApi([agentFixture()]);
     const client = fakeClient({ deployments: d });
