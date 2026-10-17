@@ -57,6 +57,7 @@
         { "argv": ["start", "--help"] },
         { "argv": ["set", "runtime", "--help"] },
         { "argv": ["chat", "--help"] },
+        { "argv": ["messages", "--help"] },
         { "argv": ["stop", "--help"] },
         { "argv": ["delete", "--help"] },
         { "argv": ["exec", "--help"] },

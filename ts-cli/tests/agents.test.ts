@@ -23,6 +23,7 @@ import * as agents from '../src/commands/agents.js';
 import { CliError, UsageError, exitCodeFor } from '../src/core/errors.js';
 import { createOutput } from '../src/core/output.js';
 import type { CommandContext } from '../src/core/types.js';
+import reactionFixture from '../../ts-sdk/tests/fixtures/session-reactions.json';
 
 const ID_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const ID_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
@@ -238,6 +239,26 @@ function makeCtx(
 function asDeployments(client: HyperCLI): MockDeployments {
   return client.deployments as unknown as MockDeployments;
 }
+
+it('reads session message metadata and follows product hints as replacement snapshots without exposing native receipts', async () => {
+  const getMessages = vi.fn().mockResolvedValue({ items: [{ ...reactionFixture.row, messageId: 'message-1' }], hasMore: false, nextCursor: null });
+  const subscribe = vi.fn(async (handler, options) => {
+    await options.onReady();
+    await handler({ ...reactionFixture.event, agent_id: 'foreign-agent' });
+    await handler(reactionFixture.event);
+    await handler(reactionFixture.event);
+  });
+  const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages }, deployments: { subscribe } } as unknown as HyperCLI;
+  const { ctx } = makeCtx(client, 'json');
+  await agents.run(ctx, ['messages', 'session-1', '--follow']);
+  const snapshots = stdout().trim().split('\n').map(line => JSON.parse(line));
+  expect(snapshots).toHaveLength(3);
+  expect(snapshots[0]).toEqual(snapshots[2]);
+  expect(snapshots[0].items[0].meta.reactions[0].count).toBe(2);
+  expect(snapshots[0].items[0].meta.reactions[1].count).toBeNull();
+  expect(stdout()).not.toContain('private-native-receipt');
+  expect(getMessages).toHaveBeenCalledTimes(3);
+});
 
 async function runErr(ctx: CommandContext, args: string[]): Promise<unknown> {
   return agents.run(ctx, args).then(

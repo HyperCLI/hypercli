@@ -110,6 +110,21 @@ export interface AcpSessionState extends AcpSessionRecord {
   agentState: 'live' | 'archived' | 'deleted' | null;
 }
 
+/** Current product metadata on an existing session message, never ACP metadata. */
+export interface SessionMessageMeta {
+  reactions: SessionReactionGroup[];
+  reactionSupport: 'supported' | 'unsupported' | 'unknown';
+  reactionsComplete: boolean;
+}
+
+export interface SessionReactionGroup {
+  reaction: { kind: 'unicode' | 'custom'; value: string };
+  /** Null means unknown, not zero or the number of known actors. */
+  count: number | null;
+  actors: { actor: { id: string; isBot: boolean }; receipt: string | null }[];
+  actorsComplete: boolean;
+}
+
 /** One `session_messages` row (backend `SessionMessage`): the durable full-fidelity truth for a session. */
 export interface AcpSessionMessage {
   /** Stable platform history identity; never an ACP wire field. */
@@ -120,6 +135,8 @@ export interface AcpSessionMessage {
   role: 'user' | 'assistant' | 'tool';
   /** ACP-style settled payload at FULL fidelity — tool calls retained. */
   acp: Record<string, unknown>;
+  /** Absent on older servers. Retain the authoritative snapshot without folding deltas. */
+  meta?: SessionMessageMeta;
   /** Assistant-side end-of-turn marker; turns derive prompt→stop. */
   stopReason: string | null;
   createdAt: string | null;
@@ -266,6 +283,7 @@ function messageFromWire(row: Record<string, unknown>): AcpSessionMessage {
     seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
     role: role === 'user' || role === 'tool' ? role : 'assistant',
     acp: (row.acp && typeof row.acp === 'object' ? row.acp : {}) as Record<string, unknown>,
+    ...(row.meta !== undefined ? { meta: row.meta as SessionMessageMeta } : {}),
     stopReason: pick<string>(row, 'stop_reason', 'stopReason') ?? null,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
     deliveredAt: pick<string>(row, 'delivered_at', 'deliveredAt') ?? null,

@@ -57,6 +57,7 @@ export const usage = [
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
   'hyper agents chat <id> <prompt...> [-s|--session NAME] [--permissions auto|none] [--timeout S] [--stream]',
+  'hyper agents messages <session-id> [--cursor CURSOR] [--limit N] [--follow] (read-only; follow emits current snapshots)',
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
   'hyper agents exec <id> [--] CMD [ARGS...]',
@@ -100,7 +101,7 @@ const ACP_RUNTIMES: ReadonlySet<string> = ACP_SET;
 
 const KNOWN_COMMANDS = new Set([
   'ls', 'list', 'status', 'wait', 'create', 'start', 'chat', 'stop', 'delete', 'exec',
-  'shell', 'logs', 'cp', 'activate', 'routines', 'set', 'login', ...HIDDEN,
+  'shell', 'logs', 'cp', 'activate', 'routines', 'set', 'login', 'messages', ...HIDDEN,
 ]);
 
 const MANAGED_RUNTIMES: ReadonlySet<ManagedAgentRuntime> = new Set([
@@ -1994,6 +1995,41 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
 // help + dispatch
 // ---------------------------------------------------------------------------
 
+async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number | void> {
+  const parsed = parseCommandArgs(args, { cursor: { type: 'string' }, limit: { type: 'string' }, follow: { type: 'boolean', short: 'f' } });
+  if (parsed.help) return printHelp();
+  const sessionId = onePositional(parsed, 'session id');
+  const limit = Number(str(parsed, 'limit') ?? 20);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new UsageError('--limit must be an integer from 1 through 200');
+  const client = await ctx.client();
+  const state = await client.sessions.getSession(sessionId);
+  const agents = new Set(state.participants.filter(p => p.kind === 'agent').map(p => p.participantId));
+  const read = async () => {
+    const page = await client.sessions.getMessages(sessionId, { cursor: str(parsed, 'cursor'), limit });
+    // Receipts are native removal evidence, not display data. Retain counts,
+    // completeness and scoped actors in both JSON and human snapshots.
+    const result = { ...page, items: page.items.map(row => ({ ...row,
+      ...(row.meta ? { meta: { ...row.meta, reactions: row.meta.reactions.map(group => ({ ...group,
+        actors: group.actors.map(({ actor }) => ({ actor })),
+      })) } } : {}),
+    })) };
+    if (ctx.format === 'json' && parsed.values.follow) process.stdout.write(`${JSON.stringify(result)}\n`);
+    else ctx.output.result(result, { columns: ['SEQ', 'MESSAGE', 'ROLE', 'REACTIONS'], rows: result.items.map(row => [row.seq, row.messageId ?? '', row.role,
+      row.meta?.reactions.map(group => `${group.reaction.value}: ${group.count ?? '?'} (${group.actors.map(m => m.actor.id).join(', ')}${group.actorsComplete ? '' : '; actors incomplete'})`).join(' · ') ?? 'unknown',
+    ]) });
+  };
+  if (!parsed.values.follow) return read();
+  const controller = new AbortController();
+  const onSigint = () => controller.abort();
+  process.once('SIGINT', onSigint);
+  try {
+    await client.deployments.subscribe(async event => {
+      if (event.type === 'message.reactions_changed' && agents.has(event.agent_id)) await read();
+    }, { signal: controller.signal, onReady: read });
+  } finally { process.removeListener('SIGINT', onSigint); }
+  return controller.signal.aborted ? 130 : 0;
+}
+
 function printHelp(): void {
   process.stdout.write(`${renderGroupHelp({ name, summary, usage, run })}\n`);
   process.stdout.write('Chat permissions: omission preserves the mode of an existing session; new sessions default to ask.\n'
@@ -2045,6 +2081,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdSet(ctx, rest);
     case 'chat':
       return cmdChat(ctx, rest);
+    case 'messages':
+      return cmdMessages(ctx, rest);
     case 'stop':
       return cmdStop(ctx, rest);
     case 'delete':

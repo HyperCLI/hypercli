@@ -1613,7 +1613,14 @@ export interface RunnerPresenceEvent {
   at: string;
 }
 
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent;
+/** Authorized product read-invalidation hint; reread session message metadata. */
+export interface MessageReactionsChangedEvent {
+  type: 'message.reactions_changed';
+  agent_id: string;
+  message_id: string;
+}
+
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | MessageReactionsChangedEvent;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -4185,6 +4192,10 @@ export class Deployments {
                   frame.type === 'runner.presence'
                   && typeof frame.runner_id === 'string'
                   && frame.runner_id.length > 0
+                ) || (
+                  frame.type === 'message.reactions_changed'
+                  && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
+                  && typeof frame.message_id === 'string' && frame.message_id.length > 0
                 )
               ) {
                 await handler(frame as unknown as DeploymentEvent);
