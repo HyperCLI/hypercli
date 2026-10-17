@@ -132,10 +132,8 @@ pub fn build_chat_integration_config(
                 );
             }
             for base in &bases {
-                if !validate_url("TEAMS_TRUSTED_SERVICE_BASES", base, &["https"])?
-                    .path()
-                    .ends_with('/')
-                {
+                validate_url("TEAMS_TRUSTED_SERVICE_BASES", base, &["https"])?;
+                if !base.ends_with('/') {
                     return Err("TEAMS_TRUSTED_SERVICE_BASES URLs must end with /".into());
                 }
             }
@@ -188,9 +186,9 @@ pub fn build_chat_integration_config(
 
 fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String> {
     if !value.contains("://")
-        || value
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\\' | '?' | '#'))
+        || value.chars().any(|c| {
+            c.is_whitespace() || c.is_control() || matches!(c, '\\' | '?' | '#' | '\u{feff}')
+        })
     {
         return Err(format!("{key} has an invalid URL"));
     }
@@ -198,6 +196,9 @@ fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String>
         .split_once("://")
         .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
         .unwrap_or("");
+    if !authority.is_ascii() {
+        return Err(format!("{key} has an invalid URL"));
+    }
     let pattern = regex::Regex::new(r"(?i)^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]+))?$").unwrap();
     let parts = pattern
         .captures(authority)
@@ -212,12 +213,14 @@ fn validate_url(key: &str, value: &str, schemes: &[&str]) -> Result<Url, String>
     if !host.starts_with('[') {
         let labels: Vec<_> = host.strip_suffix('.').unwrap_or(host).split('.').collect();
         let label = regex::Regex::new(r"(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$").unwrap();
-        let numeric = regex::Regex::new(r"(?i)^(?:[0-9]+|0x[0-9a-f]+)$")
+        let numeric = regex::Regex::new(r"(?i)^(?:[0-9]+|0x[0-9a-f]*)$")
             .unwrap()
             .is_match(labels.last().unwrap());
         let octet = regex::Regex::new(r"^(?:0|[1-9][0-9]{0,2})$").unwrap();
         if host.len() > 253
-            || labels.iter().any(|part| !label.is_match(part))
+            || labels
+                .iter()
+                .any(|part| part.to_ascii_lowercase().starts_with("xn--") || !label.is_match(part))
             || (numeric
                 && (labels.len() != 4
                     || labels

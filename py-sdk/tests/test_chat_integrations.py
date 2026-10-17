@@ -9,18 +9,19 @@ FIXTURES = json.loads((Path(__file__).parents[2] / "tests/fixtures/chat-integrat
 
 
 @pytest.mark.parametrize("integration", ["buzz", "teams", "telegram"])
-@pytest.mark.parametrize("valid,authority", [
-    (valid, authority) for valid in (True, False)
-    for authority in FIXTURES["urlAuthorities"]["valid" if valid else "invalid"]
+@pytest.mark.parametrize("valid,suffix", [
+    (valid, f"{value}/" if axis == "urlAuthorities" else f"example.com{value}")
+    for axis in ("urlAuthorities", "urlPaths") for valid in (True, False)
+    for value in FIXTURES[axis]["valid" if valid else "invalid"]
 ])
-def test_url_authorities(integration, valid, authority):
+def test_urls(integration, valid, suffix):
     template = next(case for case in FIXTURES["valid"] if case["integration"] == integration
                     and (integration != "telegram" or case["values"].get("TELEGRAM_MODE") == "webhook"))
     values = dict(template["values"])
-    url = f"{'wss' if integration == 'buzz' else 'https'}://{authority}/"
+    url = f"{'wss' if integration == 'buzz' else 'https'}://{suffix}"
     key = {"buzz": "BUZZ_RELAY_URL", "teams": "TEAMS_TRUSTED_SERVICE_BASES", "telegram": "TELEGRAM_WEBHOOK_URL"}[integration]
     values[key] = json.dumps([url]) if integration == "teams" else url
-    if valid:
+    if valid and (integration != "teams" or url.endswith("/")):
         build_chat_integration_config(integration, values)
     else:
         with pytest.raises(ValueError):

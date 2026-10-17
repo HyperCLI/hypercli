@@ -57,9 +57,11 @@ def build_chat_integration_config(integration: str, values: dict[str, str]) -> d
     def url(key, protocols, value=None):
         try:
             value = normalized[key] if value is None else value
-            if not re.match(r"^[a-z]+://", value, re.IGNORECASE) or re.search(r"[\s\\?#\x00-\x1f\x7f]", value):
+            if not re.match(r"^[a-z]+://", value, re.IGNORECASE) or re.search(r"[\s\\?#\x00-\x1f\x7f-\x9f\ufeff]", value):
                 raise ValueError()
             authority = re.match(r"^[a-z]+://([^/]+)", value, re.IGNORECASE)
+            if not authority or not authority[1].isascii():
+                raise ValueError()
             match = re.fullmatch(r"(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]+))?", authority[1] if authority else "", re.IGNORECASE)
             if not match or (match[2] is not None and int(match[2]) > 65535):
                 raise ValueError()
@@ -68,8 +70,8 @@ def build_chat_integration_config(integration: str, values: dict[str, str]) -> d
                 ipaddress.IPv6Address(host[1:-1])
             else:
                 labels = host.removesuffix(".").split(".")
-                numeric = re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)", labels[-1], re.IGNORECASE)
-                if len(host) > 253 or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label, re.IGNORECASE) for label in labels):
+                numeric = re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", labels[-1], re.IGNORECASE)
+                if len(host) > 253 or any(label.lower().startswith("xn--") or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label, re.IGNORECASE) for label in labels):
                     raise ValueError()
                 if numeric and (len(labels) != 4 or any(not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", label) or int(label) > 255 for label in labels)):
                     raise ValueError()
@@ -107,7 +109,8 @@ def build_chat_integration_config(integration: str, values: dict[str, str]) -> d
         if not isinstance(bases, list) or not bases or any(not isinstance(base, str) for base in bases):
             raise ValueError("TEAMS_TRUSTED_SERVICE_BASES must be a nonempty JSON array of URLs")
         for base in bases:
-            if not (url("TEAMS_TRUSTED_SERVICE_BASES", ("https",), base).path or "/").endswith("/"):
+            url("TEAMS_TRUSTED_SERVICE_BASES", ("https",), base)
+            if not base.endswith("/"):
                 raise ValueError("TEAMS_TRUSTED_SERVICE_BASES URLs must end with /")
         normalized["TEAMS_TRUSTED_SERVICE_BASES"] = json.dumps(bases, separators=(",", ":"), ensure_ascii=False)
     elif integration == "telegram":
