@@ -77,12 +77,15 @@ it('keeps source in the platform query only', async () => {
   for (const frame of f.frames) { expect(frame.params).not.toHaveProperty('_meta'); expect(frame.params).not.toHaveProperty('source'); }
 });
 
-it('delivers live product attachments independently of native ACP updates', async () => {
+it.each([
+  ['image/png', 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DA8J8BAAf/Af8Bf4mnAAAAAElFTkSuQmCC'],
+  ['application/zip', 'UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=='],
+])('delivers live %s attachments independently of native ACP updates', async (mimeType, data) => {
   const f = await fixture(), client = await f.connect();
   const updates = vi.fn();
   client.addUpdateListener(updates);
   const publication = { type: 'attachment', id: 'publication', sessionId: 'session-1', agentId: 'agent',
-    file: { name: 'bytes.bin', mimeType: 'application/octet-stream', data: 'AAEC/w==', sha256: 'test-hash' } };
+    file: { name: 'bytes.bin', mimeType, data, sha256: 'test-hash' } };
   const received = new Promise<unknown>(resolve => { client.addAttachmentListener(resolve); });
   f.peers[0].send(JSON.stringify(publication));
   expect(await received).toEqual(publication);
