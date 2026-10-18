@@ -108,7 +108,7 @@ def test_response_lost_write_is_not_replayed(monkeypatch):
     assert files["x"] == "intervening user edit"
 
 
-@pytest.mark.parametrize("payload", [None, [], {}, {**NATIVE, "executor": "kubernetes"}, {**NATIVE, "max_bytes": 1}, {**NATIVE, "transport": "other"}, {**NATIVE, "extra": True}, {**REEF, "extra": True}])
+@pytest.mark.parametrize("payload", [None, [], {}, {**NATIVE, "executor": "kubernetes"}, {**NATIVE, "max_bytes": 0}, {**NATIVE, "transport": "other"}, {**NATIVE, "extra": True}, {**REEF, "extra": True}])
 def test_malformed_discovery_has_no_fallback(monkeypatch, payload):
     calls = []
     def handle(request):
@@ -133,6 +133,29 @@ def test_native_discovery_accepts_both_runner_executors(monkeypatch, executor):
         deployments.file_read("agent-contract", "missing")
     assert getattr(error.value, "status_code", None) == 404
     assert calls[0].url.path.endswith("/files/token")
+
+
+def test_native_smaller_ceiling_bounds_read_and_write(monkeypatch):
+    calls = []
+    def handle(request):
+        calls.append(request)
+        if request.url.path.endswith("/files/token"):
+            return httpx.Response(200, json={**NATIVE, "max_bytes": 2})
+        assert request.url.path.endswith("/files/read")
+        assert json.loads(request.content)["max_bytes"] == 2
+        return httpx.Response(200, json={"content_base64": "b2s="})
+    deployments = setup(monkeypatch, handle)
+    assert deployments.file_read_bytes("agent-contract", "x") == b"ok"
+    with pytest.raises(ValueError, match="limited to 2 bytes"):
+        deployments.file_write_bytes("agent-contract", "x", b"big")
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("limit", [0, -1, 1.5, True, "2", RUNNER_FILE_MAX_BYTES + 1])
+def test_native_invalid_ceiling(monkeypatch, limit):
+    deployments = setup(monkeypatch, lambda _: httpx.Response(200, json={**NATIVE, "max_bytes": limit}))
+    with pytest.raises(ValueError, match="invalid runner file transport"):
+        deployments.file_read_bytes("agent-contract", "x")
 
 
 @pytest.mark.parametrize("status", VECTORS["error_statuses"])

@@ -1412,7 +1412,7 @@ export interface AgentFileTokenResponse {
 }
 
 type ReefFileAccess = { url: string; token: string };
-type AgentFileAccess = ReefFileAccess | { transport: 'runner' };
+type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number };
 /** Maximum decoded bytes for the native runner file transport. */
 export const RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024;
 
@@ -3664,10 +3664,10 @@ export class Deployments {
     }
     if ('transport' in payload) {
       // Executor is informational and null until observed; the file operation determines availability.
-      if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || payload.max_bytes !== RUNNER_FILE_MAX_BYTES) {
+      if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0 || payload.max_bytes > RUNNER_FILE_MAX_BYTES) {
         throw new Error('Backend returned an invalid runner file transport');
       }
-      return { transport: 'runner' };
+      return { transport: 'runner', maxBytes: payload.max_bytes };
     }
     const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
     const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
@@ -5052,7 +5052,7 @@ export class Deployments {
     const agentId = await this.agentIdFor(target);
     const access = await this.fileAccess(agentId);
     if ('transport' in access) {
-      const maxBytes = Math.min(options?.maxBytes ?? RUNNER_FILE_MAX_BYTES, RUNNER_FILE_MAX_BYTES);
+      const maxBytes = Math.min(options?.maxBytes ?? access.maxBytes, access.maxBytes);
       if (!Number.isInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a nonnegative integer');
       const payload = await this.agentHttp.post<{ content_base64: string }>(
         `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/read`,
@@ -5130,7 +5130,7 @@ export class Deployments {
     const agentId = await this.agentIdFor(target);
     const access = await this.fileAccess(agentId);
     if ('transport' in access) {
-      if (bytes.byteLength > RUNNER_FILE_MAX_BYTES) throw new Error(`Runner files are limited to ${RUNNER_FILE_MAX_BYTES} bytes`);
+      if (bytes.byteLength > access.maxBytes) throw new Error(`Runner files are limited to ${access.maxBytes} bytes by this backend`);
       const receipt = await this.agentHttp.post<{ ok: boolean }>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/write`, {
         path: nativeFilePath(path), content_base64: encodeBase64(bytes),
       }, { retries: 1, redirect: 'error' }); // Neither retry nor redirect may replay file content.

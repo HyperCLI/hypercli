@@ -44,6 +44,24 @@ function setup() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('native assignment file transport', () => {
+  it('honors a smaller advertised ceiling for reads and writes', async () => {
+    const { deployments, post, files } = setup();
+    files.set('x', btoa('ok'));
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2 } as any);
+    await expect(deployments.fileRead(id, 'x')).resolves.toBe('ok');
+    expect(post).toHaveBeenLastCalledWith(`/deployments/${id}/files/read`, { path: 'x', max_bytes: 2 }, { signal: undefined, redirect: 'error' });
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2 } as any);
+    await expect(deployments.fileWrite(id, 'x', 'big')).rejects.toThrow('limited to 2 bytes');
+    expect(files.get('x')).toBe(btoa('ok'));
+  });
+
+  it.each([0, -1, 1.5, NaN, RUNNER_FILE_MAX_BYTES + 1, '2'])('rejects invalid advertised ceiling %s', async max_bytes => {
+    const { deployments, post } = setup();
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes } as any);
+    await expect(deployments.fileRead(id, 'x')).rejects.toThrow('invalid runner file transport');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['kubernetes', undefined])('rejects unsupported or unreported assignment mode %s', async (executor) => {
     const { deployments, post } = setup();
     post.mockResolvedValueOnce({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES } as any);

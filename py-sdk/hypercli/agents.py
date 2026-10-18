@@ -2313,7 +2313,7 @@ class Deployments:
                 )
             time.sleep(poll_seconds)
 
-    def _file_access(self, agent_id: str) -> tuple[str, str] | Literal["runner"]:
+    def _file_access(self, agent_id: str) -> tuple[str, str] | dict[str, Any]:
         """Resolve the authoritative transport; never infer it from placement or DNS."""
         payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/token")
         if not isinstance(payload, dict):
@@ -2324,9 +2324,9 @@ class Deployments:
         if "transport" in payload:
             if (payload.get("transport") != "runner" or payload.get("executor") not in ("process", "docker")
                     or type(payload.get("max_bytes")) is not int
-                    or payload["max_bytes"] != RUNNER_FILE_MAX_BYTES):
+                    or not 0 < payload["max_bytes"] <= RUNNER_FILE_MAX_BYTES):
                 raise ValueError("Backend returned an invalid runner file transport")
-            return "runner"
+            return payload
         if any(not isinstance(payload.get(key), str) for key in ("url", "token", "expires_at")):
             raise ValueError("Backend returned an invalid Agent file token response")
         url = str(payload.get("url") or "").rstrip("/")
@@ -3792,7 +3792,7 @@ class Deployments:
         agent_id = self._agent_id_for_target(pod)
         resolved_path = resolve_sync_root_file_path(path)
         access = self._file_access(agent_id)
-        if access == "runner":
+        if isinstance(access, dict):
             payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/list", json={
                 # The empty path names the assignment root itself.
                 "path": _native_file_path(resolved_path) if resolved_path else "",
@@ -3823,18 +3823,19 @@ class Deployments:
         if not resolved_path:
             raise ValueError("agent file path is required")
         access = self._file_access(agent_id)
-        if access == "runner":
+        if isinstance(access, dict):
+            max_bytes = access["max_bytes"]
             payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/read", json={
-                "path": _native_file_path(resolved_path), "max_bytes": RUNNER_FILE_MAX_BYTES,
+                "path": _native_file_path(resolved_path), "max_bytes": max_bytes,
             })
             encoded = payload.get("content_base64") if isinstance(payload, dict) else None
-            if not isinstance(encoded, str) or len(encoded) > 4 * ((RUNNER_FILE_MAX_BYTES + 2) // 3):
+            if not isinstance(encoded, str) or len(encoded) > 4 * ((max_bytes + 2) // 3):
                 raise ValueError("Invalid runner file response")
             try:
                 content_bytes = base64.b64decode(encoded, validate=True)
             except (ValueError, binascii.Error):
                 raise ValueError("Invalid runner file response") from None
-            if len(content_bytes) > RUNNER_FILE_MAX_BYTES:
+            if len(content_bytes) > max_bytes:
                 raise ValueError("Invalid runner file response")
             return {"content": content_bytes, "mime_type": None}
         reef_url, token = access
@@ -3889,9 +3890,9 @@ class Deployments:
             )
         agent_id = self._agent_id_for_target(pod)
         access = self._file_access(agent_id)
-        if access == "runner":
-            if len(content) > RUNNER_FILE_MAX_BYTES:
-                raise ValueError(f"Runner files are limited to {RUNNER_FILE_MAX_BYTES} bytes")
+        if isinstance(access, dict):
+            if len(content) > access["max_bytes"]:
+                raise ValueError(f"Runner files are limited to {access['max_bytes']} bytes by this backend")
             # _post performs exactly one HTTP attempt; an uncertain write is never replayed.
             receipt = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/write", json={
                 "path": _native_file_path(path), "content_base64": base64.b64encode(content).decode("ascii"),
@@ -3934,7 +3935,7 @@ class Deployments:
             raise ValueError("agent file path is required")
         agent_id = self._agent_id_for_target(pod)
         access = self._file_access(agent_id)
-        if access == "runner":
+        if isinstance(access, dict):
             if recursive:
                 raise ValueError("Runner file deletion is never recursive")
             # _post performs exactly one HTTP attempt; an uncertain delete is never replayed.

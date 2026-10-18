@@ -2225,7 +2225,8 @@ impl HyperCliClient {
             FileAccess::Runner(token)
                 if token.transport == "runner"
                     && token.executor == "process"
-                    && token.max_bytes == RUNNER_FILE_MAX_BYTES => {}
+                    && token.max_bytes > 0
+                    && token.max_bytes <= RUNNER_FILE_MAX_BYTES => {}
             FileAccess::Runner(_) => {
                 return Err(HyperCliError::InvalidResponse(
                     "Invalid runner file transport".into(),
@@ -2271,9 +2272,9 @@ impl HyperCliClient {
     ) -> Result<Vec<u8>, HyperCliError> {
         let path = reef_relative_path(path, false)?;
         let access = self.deployment_file_token(deployment_id)?;
-        if matches!(access, FileAccess::Runner(_)) {
+        if let FileAccess::Runner(token) = &access {
             native_file_path(&path)?;
-            let limit = max_bytes.min(RUNNER_FILE_MAX_BYTES);
+            let limit = max_bytes.min(token.max_bytes);
             #[derive(Deserialize)]
             struct Content {
                 content_base64: String,
@@ -2283,7 +2284,7 @@ impl HyperCliClient {
                     .post(self.endpoint(&format!("deployments/{deployment_id}/files/read")))
                     .bearer_auth(self.api_key.expose_secret())
                     .json(&json!({"path":path, "max_bytes":limit})),
-                4 * RUNNER_FILE_MAX_BYTES.div_ceil(3) + 1024,
+                4 * limit.div_ceil(3) + 1024,
             )?;
             if payload.content_base64.len() > 4 * limit.div_ceil(3) {
                 return Err(HyperCliError::InvalidResponse(
@@ -2445,11 +2446,12 @@ impl HyperCliClient {
         }
         let path = reef_relative_path(path, false)?;
         let access = self.deployment_file_token(deployment_id)?;
-        if matches!(access, FileAccess::Runner(_)) {
+        if let FileAccess::Runner(token) = &access {
             native_file_path(&path)?;
-            if content.len() > RUNNER_FILE_MAX_BYTES {
+            if content.len() > token.max_bytes {
                 return Err(HyperCliError::InvalidResponse(format!(
-                    "Runner files are limited to {RUNNER_FILE_MAX_BYTES} bytes"
+                    "Runner files are limited to {} bytes by this backend",
+                    token.max_bytes
                 )));
             }
             #[derive(Deserialize)]
@@ -5587,6 +5589,37 @@ mod tests {
             };
             assert!(reef_file_url(&invalid_token, "workspace/a.txt").is_err());
         }
+    }
+
+    #[test]
+    fn runner_file_discovery_honors_smaller_ceiling() {
+        let mut server = mockito::Server::new();
+        let token = server
+            .mock("POST", "/agents/deployments/deployment-1/files/token")
+            .with_status(200)
+            .with_body(r#"{"transport":"runner","executor":"process","max_bytes":2}"#)
+            .expect(2)
+            .create();
+        let read = server
+            .mock("POST", "/agents/deployments/deployment-1/files/read")
+            .match_body(mockito::Matcher::Json(json!({"path":"x", "max_bytes":2})))
+            .with_status(200)
+            .with_body(r#"{"content_base64":"b2s="}"#)
+            .create();
+        let client = client(&server);
+        assert_eq!(
+            client
+                .read_deployment_file_bytes("deployment-1", "x", RUNNER_FILE_MAX_BYTES)
+                .unwrap(),
+            b"ok"
+        );
+        assert!(client
+            .put_deployment_file("deployment-1", "x", b"big")
+            .unwrap_err()
+            .to_string()
+            .contains("limited to 2 bytes"));
+        token.assert();
+        read.assert();
     }
 
     #[test]
