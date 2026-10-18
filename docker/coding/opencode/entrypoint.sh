@@ -18,5 +18,10 @@ mkdir -p "${config_dir}"
 if [ ! -e "${config}" ] && [ ! -L "${config}" ]; then
   cp /opt/hypercli/share/runtime/opencode.json "${config}"
 fi
+mkdir -p "${config_dir}/plugins"
+plugin=${config_dir}/plugins/hyper-session.js
+if [ ! -e "${plugin}" ] && [ ! -L "${plugin}" ]; then
+  ln -s /opt/hypercli/share/runtime/hyper-session.js "${plugin}"
+fi
 
 exec /opt/hypercli/bin/entrypoint "$@"

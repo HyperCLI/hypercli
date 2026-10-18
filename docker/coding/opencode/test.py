@@ -55,6 +55,13 @@ assert_user_config_preserved(
     }}) + "\n",
 )
 
+# Exercise the packaged plugin with a loopback-only backend and real CLI children.
+plugin_test = Path(__file__).with_name("hyper-session.test.mjs").read_text().replace(
+    '"./hyper-session.js"', '"/opt/hypercli/share/runtime/hyper-session.js"'
+)
+run(image, ["node", "--input-type=module", "--eval", plugin_test])
+run(image, ["sh", "-c", 'test -L "$OPENCODE_CONFIG_DIR/plugins/hyper-session.js"'])
+
 entrypoint_env = run(
     image,
     ["sh", "-c", "printf '%s' \"${HYPER_MCP_API_KEY}\""],
