@@ -309,7 +309,7 @@ export class HTTPClient {
     return requestWithRetryHandled({
       method: 'POST',
       url: `${this.baseUrl}${path}`,
-      headers: this.headers,
+      headers: { ...this.headers, ...options.headers },
       body,
       timeout: options.timeout ?? this.timeout,
       retries: options.retries,

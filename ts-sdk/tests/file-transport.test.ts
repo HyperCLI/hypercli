@@ -24,6 +24,45 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('negotiates chunks over actual HTTP before uploading and downloading above the legacy ceiling', async () => {
+  const bytes = Buffer.alloc(256 * 1024 + 17, 173);
+  let stored = Buffer.alloc(0);
+  const requests: Array<{ method: string; path: string; auth?: string; chunks?: string }> = [];
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url!, 'http://localhost');
+    requests.push({ method: request.method!, path: url.pathname,
+      auth: request.headers.authorization, chunks: request.headers['x-hypercli-file-chunks'] as string | undefined });
+    response.setHeader('Content-Type', 'application/json');
+    if (url.pathname.endsWith('/files/token')) {
+      response.end(JSON.stringify({ ...native, ...(request.headers['x-hypercli-file-chunks'] === '1' ? { chunk_bytes: 262144 } : {}) }));
+    } else if (url.pathname.endsWith('/files/stream') && request.method === 'PUT') {
+      const parts: Buffer[] = [];
+      for await (const part of request) parts.push(Buffer.from(part));
+      stored = Buffer.concat(parts);
+      response.end(JSON.stringify({ ok: true }));
+    } else if (url.pathname.endsWith('/files/stream') && request.method === 'GET') {
+      response.setHeader('Content-Type', 'application/octet-stream');
+      response.end(stored);
+    } else {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/agents`;
+    const deployments = new Deployments(new HTTPClient(base, 'api-secret'), 'api-secret', base);
+    await deployments.fileWriteBytes(id, 'large.bin', bytes);
+    expect(Buffer.from(await deployments.fileReadBytes(id, 'large.bin'))).toEqual(bytes);
+    expect(stored).toEqual(bytes);
+    expect(requests.map(r => r.method)).toEqual(['POST', 'PUT', 'POST', 'GET']);
+    expect(requests.every(r => r.auth === 'Bearer api-secret')).toBe(true);
+    expect(requests.filter(r => r.method === 'POST').map(r => r.chunks)).toEqual(['1', '1']);
+    expect(requests.filter(r => r.method !== 'POST').every(r => r.path.endsWith('/files/stream'))).toBe(true);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 describe.each(['hosted', 'native'])('%s file transport through the real HTTP client', (transport) => {
   function setup() {
     const files = new Map<string, Uint8Array>();

@@ -3653,7 +3653,7 @@ export class Deployments {
     const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number; chunk_bytes?: number | null }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
       undefined,
-      { redirect: 'error', headers: { Authorization: `Bearer ${this.apiKey}`, 'X-Hypercli-File-Chunks': '1' } },
+      { redirect: 'error', headers: { 'X-Hypercli-File-Chunks': '1' } },
     );
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('Backend returned an invalid Agent file token response');
