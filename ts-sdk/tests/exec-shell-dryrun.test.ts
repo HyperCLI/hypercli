@@ -1404,7 +1404,9 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked')).rejects.toThrow('sync root');
     await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
     expect(post).toHaveBeenCalledTimes(7);
-    expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token', undefined, { redirect: 'error' });
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token', undefined, {
+      redirect: 'error', headers: { Authorization: 'Bearer sk-hyper-test', 'X-Hypercli-File-Chunks': '1' },
+    });
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('/deployments/'))).toBe(true);
   });
 

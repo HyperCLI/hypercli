@@ -2762,7 +2762,9 @@ describe('Agents SDK', () => {
 
     expect(result.content).toEqual(new Uint8Array([1, 2, 3]));
     expect(result.mimeType).toBe('image/png');
-    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/files/token', undefined, { redirect: 'error' });
+    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/files/token', undefined, {
+      redirect: 'error', headers: { Authorization: 'Bearer hyper_api_test', 'X-Hypercli-File-Chunks': '1' },
+    });
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://agent.example.test/_reef/files/.openclaw/workspace/preview.png');
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       signal: abortController.signal,
@@ -2834,7 +2836,9 @@ describe('Agents SDK', () => {
     await expect(deployments.fileDelete('agent-123', 'workspace/a.txt', { recursive: true })).resolves.toEqual({ status: 'ok' });
 
     expect(post).toHaveBeenCalledTimes(4);
-    expect(post).toHaveBeenCalledWith('/deployments/agent-123/files/token', undefined, { redirect: 'error' });
+    expect(post).toHaveBeenCalledWith('/deployments/agent-123/files/token', undefined, {
+      redirect: 'error', headers: { Authorization: 'Bearer hyper_api_test', 'X-Hypercli-File-Chunks': '1' },
+    });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       'https://agent.example.test/_reef/directories/workspace',
       'https://agent.example.test/_reef/files/workspace/a.txt',
