@@ -1412,9 +1412,11 @@ export interface AgentFileTokenResponse {
 }
 
 type ReefFileAccess = { url: string; token: string };
-type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number; chunks: boolean };
+type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number; chunks: boolean; chunkBytes: number };
+/** Ceiling for a backend that advertises no chunking, i.e. one whole-file write. */
+const LEGACY_SINGLE_SHOT_BYTES = 256 * 1024;
 /** Maximum decoded bytes for the native runner file transport. */
-export const RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024;
+export const RUNNER_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
 function nativeFilePath(path: string): string {
   if (!path || encodeUtf8(path).byteLength > 4096 || /[\\:\0]/.test(path)
@@ -3668,11 +3670,16 @@ export class Deployments {
       if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0 || payload.max_bytes > RUNNER_FILE_MAX_BYTES) {
         throw new Error('Backend returned an invalid runner file transport');
       }
-      if (payload.chunk_bytes !== undefined && payload.chunk_bytes !== null && payload.chunk_bytes !== 256 * 1024) {
+      // The backend negotiates the chunk size and advertises it. Bound it;
+      // never compare it to a literal, or every change to it needs a client
+      // release and old clients reject the server outright.
+      const advertised = payload.chunk_bytes;
+      const chunks = advertised !== undefined && advertised !== null;
+      if (chunks && (!Number.isSafeInteger(advertised) || advertised <= 0 || advertised > payload.max_bytes)) {
         throw new Error('Backend returned an invalid runner chunk size');
       }
-      const chunks = payload.chunk_bytes === 256 * 1024;
-      return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, chunks ? RUNNER_FILE_MAX_BYTES : 256 * 1024), chunks };
+      const chunkBytes = chunks ? (advertised as number) : LEGACY_SINGLE_SHOT_BYTES;
+      return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, chunks ? RUNNER_FILE_MAX_BYTES : LEGACY_SINGLE_SHOT_BYTES), chunks, chunkBytes };
     }
     const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
     const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
@@ -5165,7 +5172,7 @@ export class Deployments {
         try {
           await command('open_write');
           while (offset < bytes.byteLength) {
-            await command('write', bytes.subarray(offset, Math.min(offset + 262144, bytes.byteLength)));
+            await command('write', bytes.subarray(offset, Math.min(offset + access.chunkBytes, bytes.byteLength)));
           }
           await command('commit');
           return { ok: true };

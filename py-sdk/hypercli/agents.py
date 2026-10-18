@@ -146,7 +146,9 @@ DEFAULT_HERMES_AGENT_SYNC_UID = 10000
 DEFAULT_HERMES_AGENT_SYNC_GID = 10000
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
-RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024
+RUNNER_FILE_MAX_BYTES = 50 * 1024 * 1024
+# Ceiling for a backend that advertises no chunking, i.e. one whole-file write.
+LEGACY_SINGLE_SHOT_BYTES = 256 * 1024
 # Reef file writes traverse the Cloudflare-proxied agent hostname
 # (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
 # above 100 MB. Enforced client-side so oversized writes fail fast with a
@@ -2328,10 +2330,15 @@ class Deployments:
                     or type(payload.get("max_bytes")) is not int
                     or not 0 < payload["max_bytes"] <= RUNNER_FILE_MAX_BYTES):
                 raise ValueError("Backend returned an invalid runner file transport")
+            # The backend negotiates the chunk size and advertises it. Bound
+            # it; never compare it to a literal, or every change to it needs a
+            # client release and old clients reject the server outright.
             chunk = payload.get("chunk_bytes")
-            if chunk is not None and (type(chunk) is not int or chunk != 256 * 1024):
+            if chunk is not None and (type(chunk) is not int or chunk <= 0
+                                      or chunk > payload["max_bytes"]):
                 raise ValueError("Backend returned an invalid runner chunk size")
-            payload["max_bytes"] = min(payload["max_bytes"], RUNNER_FILE_MAX_BYTES if chunk else 256 * 1024)
+            payload["max_bytes"] = min(payload["max_bytes"],
+                                       RUNNER_FILE_MAX_BYTES if chunk else LEGACY_SINGLE_SHOT_BYTES)
             return payload
         if any(not isinstance(payload.get(key), str) for key in ("url", "token", "expires_at")):
             raise ValueError("Backend returned an invalid Agent file token response")
@@ -3843,7 +3850,7 @@ class Deployments:
                         length = resp.headers.get("content-length")
                         if length is None or not length.isdigit() or int(length) > max_bytes:
                             raise ValueError("Invalid runner file length")
-                        for chunk in resp.iter_bytes(chunk_size=256 * 1024):
+                        for chunk in resp.iter_bytes(chunk_size=access["chunk_bytes"]):
                             if len(content) + len(chunk) > int(length):
                                 raise ValueError("Invalid runner file length")
                             content.extend(chunk)
@@ -3923,7 +3930,8 @@ class Deployments:
                     resp = client.put(f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/stream",
                                       params={"path": _native_file_path(path)},
                                       headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/octet-stream", "Content-Length": str(len(content))},
-                                      content=(content[i:i + 256 * 1024] for i in range(0, len(content), 256 * 1024)),
+                                      content=(content[i:i + access["chunk_bytes"]]
+                                               for i in range(0, len(content), access["chunk_bytes"])),
                                       follow_redirects=False)
                 if resp.status_code != 200:
                     self._raise_reef_error(resp)

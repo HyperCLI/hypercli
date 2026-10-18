@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Deployments, RUNNER_FILE_MAX_BYTES } from '../src/agents.js';
+import { Deployments, RUNNER_FILE_MAX_BYTES, AGENT_FILE_WRITE_MAX_BYTES } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
 
 const vectors = JSON.parse(readFileSync(new URL('../../rs-sdk/tests/fixtures/agent-file-contract.json', import.meta.url), 'utf8'));
@@ -211,7 +211,7 @@ describe('runner discovery before an executor observation', () => {
   it('still enforces the native write byte limit before dispatch', async () => {
     const fetch = vi.fn(async () => json(unobserved));
     vi.stubGlobal('fetch', fetch);
-    await expect(client().fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
+    await expect(client().fileWriteBytes(id, 'x', new Uint8Array(AGENT_FILE_WRITE_MAX_BYTES + 1))).rejects.toThrow('limited');
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -453,7 +453,7 @@ it('native metadata, maximum bytes, listing and deletion retain the public contr
   // Avoid assertion-library enumeration of 100 million typed-array entries.
   expect(Buffer.from(read.content).equals(Buffer.from(bytes))).toBe(true);
   await expect(deployments.fileWriteBytes(id, 'max', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
-   expect(writes).toBe(400);
+  expect(writes).toBe(RUNNER_FILE_MAX_BYTES / 262144);
   await expect(deployments.filesList(id)).resolves.toEqual([
     { name: 'max', path: 'max', size: RUNNER_FILE_MAX_BYTES, size_formatted: '262144 B', last_modified: null, type: 'file' },
   ]);

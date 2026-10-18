@@ -435,7 +435,10 @@ fn encode_path_key(key: &str) -> String {
 pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
 pub const AGENT_FILE_READ_MAX_BYTES: usize = 250 * 1024 * 1024;
 /// Decoded byte cap for the existing native-runner control transport.
-pub const RUNNER_FILE_MAX_BYTES: usize = 100 * 1024 * 1024;
+pub const RUNNER_FILE_MAX_BYTES: usize = 50 * 1024 * 1024;
+
+/// Ceiling for a backend that advertises no chunking, i.e. one whole-file write.
+const LEGACY_SINGLE_SHOT_BYTES: usize = 256 * 1024;
 
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
@@ -2255,10 +2258,15 @@ impl HyperCliClient {
                     && matches!(token.executor.as_deref(), None | Some("process" | "docker"))
                     && token.max_bytes > 0
                     && token.max_bytes <= RUNNER_FILE_MAX_BYTES
-                    && matches!(token.chunk_bytes, None | Some(262144)) =>
+                    // The backend negotiates the chunk size and advertises it.
+                    // Bound it; never compare it to a literal, or every change
+                    // needs a client release and old clients reject the server.
+                    && token
+                        .chunk_bytes
+                        .is_none_or(|chunk| chunk > 0 && chunk <= token.max_bytes) =>
             {
                 if token.chunk_bytes.is_none() {
-                    token.max_bytes = token.max_bytes.min(262144);
+                    token.max_bytes = token.max_bytes.min(LEGACY_SINGLE_SHOT_BYTES);
                 }
             }
             FileAccess::Runner(_) => {
@@ -2528,7 +2536,7 @@ impl HyperCliClient {
             struct Receipt {
                 ok: bool,
             }
-            if token.chunk_bytes.is_some() {
+            if let Some(chunk_bytes) = token.chunk_bytes {
                 // reqwest bodies own their reader. A single-slot channel lets
                 // the public borrowed-slice API stream without a file-sized copy.
                 let (send, receive) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
@@ -2548,7 +2556,7 @@ impl HyperCliClient {
                     .body(body);
                 let receipt: Receipt = std::thread::scope(|scope| {
                     let request = scope.spawn(move || file_json(request, 4096));
-                    for chunk in content.chunks(262144) {
+                    for chunk in content.chunks(chunk_bytes) {
                         if send.send(chunk.to_vec()).is_err() {
                             break;
                         }

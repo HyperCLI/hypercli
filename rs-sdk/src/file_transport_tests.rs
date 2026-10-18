@@ -154,8 +154,14 @@ fn unsupported_listing_and_limits_never_dispatch_a_file_command() {
             .status(),
         Some(StatusCode::NOT_IMPLEMENTED)
     );
+    // The pre-dispatch guard is the request-body cap, not the runner ceiling;
+    // they are no longer the same number, so name the one being exercised.
     assert!(sdk
-        .put_deployment_file("agent-contract", "x", &vec![0; RUNNER_FILE_MAX_BYTES + 1])
+        .put_deployment_file(
+            "agent-contract",
+            "x",
+            &vec![0; crate::client::AGENT_FILE_WRITE_MAX_BYTES + 1]
+        )
         .is_err());
     discovery.assert();
 }
