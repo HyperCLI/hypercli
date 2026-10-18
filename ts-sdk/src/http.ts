@@ -291,6 +291,18 @@ export class HTTPClient {
     }, handleResponse<T>);
   }
 
+  /** Consume a streamed response while the request deadline remains active. */
+  async getStream<T>(path: string, consume: (response: Response) => Promise<T>, options: RequestOverrides = {}): Promise<T> {
+    return requestWithRetryHandled({
+      method: 'GET', url: `${this.baseUrl}${path}`, headers: this.headers,
+      timeout: options.timeout ?? this.timeout, signal: options.signal,
+      retries: 1, redirect: 'error',
+    }, async response => {
+      if (!response.ok) throw await responseAPIError(response, 'GET');
+      return consume(response);
+    });
+  }
+
   async getWithHeaders<T = any>(
     path: string,
     params?: Record<string, string | number | Array<string | number>>,

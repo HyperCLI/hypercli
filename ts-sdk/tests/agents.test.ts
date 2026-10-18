@@ -2764,6 +2764,7 @@ describe('Agents SDK', () => {
     expect(result.mimeType).toBe('image/png');
     expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/files/token', undefined, {
       redirect: 'error', headers: { 'X-Hypercli-File-Chunks': '1' },
+      signal: abortController.signal,
     });
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://agent.example.test/_reef/files/.openclaw/workspace/preview.png');
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({

@@ -35,11 +35,13 @@ it('negotiates chunks over actual HTTP before uploading and downloading above th
     response.setHeader('Content-Type', 'application/json');
     if (url.pathname.endsWith('/files/token')) {
       response.end(JSON.stringify({ ...native, ...(request.headers['x-hypercli-file-chunks'] === '1' ? { chunk_bytes: 262144 } : {}) }));
-    } else if (url.pathname.endsWith('/files/stream') && request.method === 'PUT') {
+    } else if (url.pathname.endsWith('/files/transfer')) {
       const parts: Buffer[] = [];
       for await (const part of request) parts.push(Buffer.from(part));
-      stored = Buffer.concat(parts);
-      response.end(JSON.stringify({ ok: true }));
+      const chunk = Buffer.concat(parts);
+      if (url.searchParams.get('action') === 'write') stored = Buffer.concat([stored, chunk]);
+      response.end(JSON.stringify({ ok: true, transfer_id: url.searchParams.get('transfer_id'),
+        total: Number(url.searchParams.get('total')), offset: Number(url.searchParams.get('offset')) + chunk.length }));
     } else if (url.pathname.endsWith('/files/stream') && request.method === 'GET') {
       response.setHeader('Content-Type', 'application/octet-stream');
       response.end(stored);
@@ -54,10 +56,10 @@ it('negotiates chunks over actual HTTP before uploading and downloading above th
     await deployments.fileWriteBytes(id, 'large.bin', bytes);
     expect(Buffer.from(await deployments.fileReadBytes(id, 'large.bin'))).toEqual(bytes);
     expect(stored).toEqual(bytes);
-    expect(requests.map(r => r.method)).toEqual(['POST', 'PUT', 'POST', 'GET']);
+    expect(requests.map(r => r.method)).toEqual(['POST', 'POST', 'POST', 'POST', 'POST', 'POST', 'GET']);
     expect(requests.every(r => r.auth === 'Bearer api-secret')).toBe(true);
-    expect(requests.filter(r => r.method === 'POST').map(r => r.chunks)).toEqual(['1', '1']);
-    expect(requests.filter(r => r.method !== 'POST').every(r => r.path.endsWith('/files/stream'))).toBe(true);
+    expect(requests.filter(r => r.path.endsWith('/token')).map(r => r.chunks)).toEqual(['1', '1']);
+    expect(requests.filter(r => !r.path.endsWith('/token')).every(r => /\/files\/(stream|transfer)$/.test(r.path))).toBe(true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
@@ -403,6 +405,7 @@ it('unrelated HTTPClient POST retains its existing redirect default', async () =
 });
 
 it('native metadata, maximum bytes, listing and deletion retain the public contract', async () => {
+  let destination = '';
   const bytes = new Uint8Array(RUNNER_FILE_MAX_BYTES).fill(255);
   let writes = 0;
   const files = new Map<string, Uint8Array>();
@@ -410,15 +413,23 @@ it('native metadata, maximum bytes, listing and deletion retain the public contr
     if (url.endsWith('/files/token')) return json({ ...native, chunk_bytes: 256 * 1024 });
     if (url.includes('/files/stream?')) {
       const path = new URL(url).searchParams.get('path')!;
-      if (init.method !== 'PUT') {
-        const data = files.get(path)!;
-        return new Response(data as unknown as string, { headers: { 'content-length': String(data.length) } });
+      const data = files.get(path)!;
+      return new Response(data as unknown as string, { headers: { 'content-length': String(data.length) } });
+    }
+    if (url.includes('/files/transfer?')) {
+      const query = new URL(url).searchParams;
+      if (query.get('action') === 'open_write') {
+        destination = query.get('path')!;
+        files.set(destination, new Uint8Array(Number(query.get('total'))));
       }
-      writes++;
       const content = init.body as unknown as Uint8Array;
-      expect(content.length).toBe(RUNNER_FILE_MAX_BYTES);
-      files.set(path, content);
-      return json({ ok: true });
+      expect(content.length).toBeLessThanOrEqual(262144);
+      const offset = Number(query.get('offset'));
+      if (query.get('action') === 'write') {
+        writes++;
+        files.get(destination)!.set(content, offset);
+      }
+      return json({ ok: true, transfer_id: query.get('transfer_id'), total: Number(query.get('total')), offset: offset + content.length });
     }
     const body = init.body ? JSON.parse(init.body as string) : {};
     if (url.endsWith('/files/list')) {
@@ -442,7 +453,7 @@ it('native metadata, maximum bytes, listing and deletion retain the public contr
   // Avoid assertion-library enumeration of 100 million typed-array entries.
   expect(Buffer.from(read.content).equals(Buffer.from(bytes))).toBe(true);
   await expect(deployments.fileWriteBytes(id, 'max', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
-  expect(writes).toBe(1);
+   expect(writes).toBe(400);
   await expect(deployments.filesList(id)).resolves.toEqual([
     { name: 'max', path: 'max', size: RUNNER_FILE_MAX_BYTES, size_formatted: '262144 B', last_modified: null, type: 'file' },
   ]);

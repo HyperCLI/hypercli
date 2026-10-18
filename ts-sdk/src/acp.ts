@@ -84,6 +84,11 @@ export interface CodingAgentAcpConnectOptions {
   onReconnect?: () => void | Promise<void>;
 }
 export interface CodingAgentAcpTarget { url: string; token: string }
+/** Live product publication, independent of native ACP and retained history. */
+export interface SessionAttachment {
+  type: 'attachment'; id: string; sessionId: string; agentId: string;
+  file: { name: string; mimeType: 'application/octet-stream'; data: string; sha256: string };
+}
 interface Session { cwd: string; mcpServers: acp.McpServer[] }
 interface Deferred { resolve(): void; reject(error: Error): void }
 
@@ -99,6 +104,7 @@ export class CodingAgentAcpClient {
   private readonly connectedWaiters = new Set<Deferred>();
   private readonly pendingPrompts = new Set<{ sessionId: string; controller: AbortController }>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
+  private readonly attachmentListeners = new Set<(attachment: SessionAttachment) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: PermissionHandler | null = null;
@@ -138,6 +144,9 @@ export class CodingAgentAcpClient {
   }
   addUpdateListener(listener: (notification: acp.SessionNotification) => void): () => void {
     this.updateListeners.add(listener); return () => { this.updateListeners.delete(listener); };
+  }
+  addAttachmentListener(listener: (attachment: SessionAttachment) => void): () => void {
+    this.attachmentListeners.add(listener); return () => { this.attachmentListeners.delete(listener); };
   }
   addErrorListener(listener: (error: Error) => void): () => void {
     this.errorListeners.add(listener); return () => { this.errorListeners.delete(listener); };
@@ -347,6 +356,10 @@ export class CodingAgentAcpClient {
         callObserver(listener, notification);
       }
     };
+    const productAttachment = (attachment: SessionAttachment) => {
+      if (this.closedFlag || generation !== this.generation) return;
+      for (const listener of this.attachmentListeners) callObserver(listener, attachment);
+    };
     const connection = await this.observe('connect', async () => {
       const stream = createWebSocketStream(this.target.url, {
         WebSocket: TrackedSocket, cookieStore: this.cookieStore,
@@ -356,6 +369,16 @@ export class CodingAgentAcpClient {
         // Upstream's active-session router validates an exhaustive update union.
         // Forward notifications untouched; RPCs/callbacks remain SDK-owned.
         readable: stream.readable.pipeThrough(new globalThis.TransformStream({ transform(frame, controller) {
+          if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'attachment') {
+            const attachment = frame as unknown as SessionAttachment;
+            if (typeof attachment.sessionId === 'string' && typeof attachment.id === 'string'
+                && typeof attachment.agentId === 'string' && typeof attachment.file?.name === 'string'
+                && attachment.file.mimeType === 'application/octet-stream'
+                && typeof attachment.file.data === 'string' && typeof attachment.file.sha256 === 'string') {
+              productAttachment(attachment);
+            }
+            return;
+          }
           if (frame && typeof frame === 'object' && 'method' in frame && frame.method === 'session/update' && !('id' in frame)) {
             sessionUpdate(frame.params as acp.SessionNotification);
           } else controller.enqueue(frame);

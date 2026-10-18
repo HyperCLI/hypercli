@@ -6,6 +6,7 @@
  */
 
 import * as agents from './commands/agents.js';
+import * as acp from './commands/acp.js';
 import * as configure from './commands/configure.js';
 import * as files from './commands/files.js';
 import * as flow from './commands/flow.js';
@@ -20,6 +21,7 @@ import * as websearch from './commands/websearch.js';
 import type { CommandGroup } from './core/types.js';
 
 export const GROUPS: readonly CommandGroup[] = [
+  acp,
   me,
   memory,
   configure,

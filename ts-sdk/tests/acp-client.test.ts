@@ -77,6 +77,19 @@ it('keeps source in the platform query only', async () => {
   for (const frame of f.frames) { expect(frame.params).not.toHaveProperty('_meta'); expect(frame.params).not.toHaveProperty('source'); }
 });
 
+it('delivers live product attachments independently of native ACP updates', async () => {
+  const f = await fixture(), client = await f.connect();
+  const updates = vi.fn();
+  client.addUpdateListener(updates);
+  const publication = { type: 'attachment', id: 'publication', sessionId: 'session-1', agentId: 'agent',
+    file: { name: 'bytes.bin', mimeType: 'application/octet-stream', data: 'AAEC/w==', sha256: 'test-hash' } };
+  const received = new Promise<unknown>(resolve => { client.addAttachmentListener(resolve); });
+  f.peers[0].send(JSON.stringify(publication));
+  expect(await received).toEqual(publication);
+  expect(updates).not.toHaveBeenCalled();
+  expect(await client.newSession()).toMatchObject({ sessionId: 'session-1' });
+});
+
 it('sends explicit standard MCP setup, retains omitted values, and preserves peer refusal', async () => {
   const entries: McpServer[] = [
     { name: 'stdio', command: '/bin/tool', args: ['a:b'], env: [{ name: 'KEY', value: 'value' }] },
