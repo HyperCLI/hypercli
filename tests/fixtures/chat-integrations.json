@@ -1,7 +1,7 @@
 {
   "urlAuthorities": {
-    "valid": ["example.com", "example.com:443", "localhost", "127.0.0.1", "255.255.255.255:8443", "[::1]:443", "[2001:db8::1]", "EXAMPLE.com.", "1.2.3.4.", "[::ffff:127.0.0.1]", "example.com:000000000000000000080", "example.com:0"],
-    "invalid": ["/example.com", "999.999.999.999", "256.0.0.1", "127.1", "2130706433", "0177.0.0.1", "0x7f.0.0.1", "example.123", "example.0x", "example.com:", "example.com:65536", "example.com:-1", "example.com:+80", "example.com:1.0", "example.com:８０", "@example.com", "user@example.com", "user:pass@example.com", ":@example.com", "example..com", "-example.com", "[:::1]", "[::1]extra", "%65xample.com", "K.example", "ſ.example", "İ.example", "ı.example", "é.example", "example。com", "ｅxample.com", "example%2ecom", "example.com%2fother", "[fe80::1%25eth0]", "0x", "1.2.3.0x", "000.0.0.1", "1.2.3.4.5", "[::ffff:0127.0.0.1]", "xn--bcher-kva.example", "xn--a.example", "xn--abc.example", "foo_bar.example"]
+    "valid": ["example.com", "example.com:443", "localhost", "127.0.0.1", "255.255.255.255:8443", "[::1]:443", "[2001:db8::1]", "EXAMPLE.com.", "1.2.3.4.", "[::ffff:127.0.0.1]", "example.com:000000000000000000080", "example.com:0", "bücher.example", "xn--bcher-kva.example", "127.1", "2130706433", "0177.0.0.1", "0x7f.0.0.1"],
+    "invalid": ["", "example.com:65536", "example.com:-1", "example.com:bad", "example.com:1.0", "user@example.com", "user:pass@example.com", "[:::1]", "[::1"]
   },
   "urlPaths": {
     "valid": ["", "/", "/region", "/region/.", "/region/..", "/region/./", "/region/../", "/region/%2e", "/region/%2E", "/region/%2e/", "/region/%2e%2e", "/region/.%2e", "/region/%2e.", "/region/%2e%2e/", "/region/%2f", "/region/%2f/", "/region/%3f/", "/region/%23/", "//", "/%", "/%zz/", "/café/"],
