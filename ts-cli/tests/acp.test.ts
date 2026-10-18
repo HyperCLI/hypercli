@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
-import type { CommandContext } from '../core/types.js';
+import type { CommandContext } from '../src/core/types.js';
 
 const mock = vi.hoisted(() => ({ callTool: vi.fn(), connect: vi.fn(), close: vi.fn(async () => {}), transport: vi.fn() }));
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({ Client: class {
@@ -10,7 +10,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({ Streamabl
   constructor(...args: unknown[]) { mock.transport(...args); }
   close = mock.close;
 } }));
-import { run } from './acp.js';
+import { run } from '../src/commands/acp.js';
 
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 

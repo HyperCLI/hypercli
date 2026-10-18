@@ -2,6 +2,11 @@
   "$comment": "Single source of truth for .github/workflows/cli.yml. Every command group's public subcommands (usage lines) + hidden subcommands (HIDDEN lists in src/commands) must appear here; tests/ci-matrix.test.ts fails CI when code and manifest drift apart. smokes[].argv excludes the group token; the CI smoke appends nothing extra — entries already end in --help. The bare ['--help'] entry per group runs in the group gate ('cli / <group>'); every other entry is a matrix check ('cli / <group> / <sub>'). hidden: true = works but absent from the group's help listing. alias: true = alternate spelling of another entry. windows: true = also exercised on windows-latest.",
   "version": 1,
   "groups": {
+    "acp": {
+      "tests": ["acp"],
+      "windows": true,
+      "smokes": [{ "argv": ["--help"] }, { "argv": ["attach", "--help"] }]
+    },
     "core": {
       "tests": ["argv", "help", "table", "ci-matrix", "version"],
       "windows": true,
