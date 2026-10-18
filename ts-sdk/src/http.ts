@@ -19,7 +19,7 @@ export interface RequestOptions {
   redirect?: RequestInit['redirect'];
 }
 
-export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses' | 'redirect'>;
+export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses' | 'redirect' | 'headers'>;
 
 const TRANSPORT_TIMEOUT_CODES = new Set([
   'ETIMEDOUT',

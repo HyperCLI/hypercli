@@ -1412,7 +1412,7 @@ export interface AgentFileTokenResponse {
 }
 
 type ReefFileAccess = { url: string; token: string };
-type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number };
+type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number; chunks: boolean };
 /** Maximum decoded bytes for the native runner file transport. */
 export const RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024;
 
@@ -3650,15 +3650,16 @@ export class Deployments {
   }
 
   private async fileAccess(agentId: string): Promise<AgentFileAccess> {
-    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number }>(
+    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number; chunk_bytes?: number | null }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
       undefined,
-      { redirect: 'error' },
+      { redirect: 'error', headers: { Authorization: `Bearer ${this.apiKey}`, 'X-Hypercli-File-Chunks': '1' } },
     );
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('Backend returned an invalid Agent file token response');
     }
     const fields = 'transport' in payload ? ['transport', 'executor', 'max_bytes'] : ['url', 'token', 'expires_at'];
+    if ('transport' in payload && 'chunk_bytes' in payload) fields.push('chunk_bytes');
     if (Object.keys(payload).length !== fields.length || fields.some((key) => !(key in payload))) {
       throw new Error('Backend returned an invalid Agent file token response');
     }
@@ -3667,7 +3668,11 @@ export class Deployments {
       if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0 || payload.max_bytes > RUNNER_FILE_MAX_BYTES) {
         throw new Error('Backend returned an invalid runner file transport');
       }
-      return { transport: 'runner', maxBytes: payload.max_bytes };
+      if (payload.chunk_bytes !== undefined && payload.chunk_bytes !== null && payload.chunk_bytes !== 256 * 1024) {
+        throw new Error('Backend returned an invalid runner chunk size');
+      }
+      const chunks = payload.chunk_bytes === 256 * 1024;
+      return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, chunks ? RUNNER_FILE_MAX_BYTES : 256 * 1024), chunks };
     }
     const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
     const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
@@ -5054,6 +5059,16 @@ export class Deployments {
     if ('transport' in access) {
       const maxBytes = Math.min(options?.maxBytes ?? access.maxBytes, access.maxBytes);
       if (!Number.isInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a nonnegative integer');
+      if (access.chunks) {
+        const query = new URLSearchParams({ path: resolvedPath, max_bytes: String(maxBytes) });
+        const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/stream?${query}`, {
+          signal: options?.signal, redirect: 'error',
+        });
+        const content = await readResponseBytes(response, path, maxBytes);
+        const length = response.headers.get('content-length');
+        if (length === null || Number(length) !== content.byteLength) throw new Error('Incomplete runner file stream');
+        return { content };
+      }
       const payload = await this.agentHttp.post<{ content_base64: string }>(
         `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/read`,
         { path: absolute ? resolvedPath : nativeFilePath(resolvedPath), max_bytes: maxBytes },
@@ -5131,6 +5146,15 @@ export class Deployments {
     const access = await this.fileAccess(agentId);
     if ('transport' in access) {
       if (bytes.byteLength > access.maxBytes) throw new Error(`Runner files are limited to ${access.maxBytes} bytes by this backend`);
+      if (access.chunks) {
+        const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/stream?${new URLSearchParams({ path: nativeFilePath(path) })}`, {
+          method: 'PUT', redirect: 'error', headers: { 'Content-Type': 'application/octet-stream' },
+          body: bytes as unknown as NonNullable<RequestInit['body']>,
+        });
+        const receipt = await response.json() as { ok?: boolean };
+        if (receipt.ok !== true) throw new Error('Invalid runner file receipt');
+        return receipt;
+      }
       const receipt = await this.agentHttp.post<{ ok: boolean }>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/write`, {
         path: nativeFilePath(path), content_base64: encodeBase64(bytes),
       }, { retries: 1, redirect: 'error' }); // Neither retry nor redirect may replay file content.

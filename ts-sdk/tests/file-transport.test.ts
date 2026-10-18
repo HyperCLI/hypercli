@@ -368,15 +368,20 @@ it('native metadata, maximum bytes, listing and deletion retain the public contr
   let writes = 0;
   const files = new Map<string, Uint8Array>();
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
-    if (url.endsWith('/files/token')) return json(native);
-    const body = init.body ? JSON.parse(init.body as string) : {};
-    if (url.endsWith('/files/write')) {
+    if (url.endsWith('/files/token')) return json({ ...native, chunk_bytes: 256 * 1024 });
+    if (url.includes('/files/stream?')) {
+      const path = new URL(url).searchParams.get('path')!;
+      if (init.method !== 'PUT') {
+        const data = files.get(path)!;
+        return new Response(data as unknown as string, { headers: { 'content-length': String(data.length) } });
+      }
       writes++;
-      const content = Uint8Array.from(Buffer.from(body.content_base64, 'base64'));
+      const content = init.body as unknown as Uint8Array;
       expect(content.length).toBe(RUNNER_FILE_MAX_BYTES);
-      files.set(body.path, content);
+      files.set(path, content);
       return json({ ok: true });
     }
+    const body = init.body ? JSON.parse(init.body as string) : {};
     if (url.endsWith('/files/list')) {
       const prefix = body.path ? `${body.path}/` : '';
       const names = [...files.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));

@@ -90,9 +90,7 @@ fn existing_byte_methods_dispatch_native_with_identical_vectors() {
                 .create();
             let read = server
                 .mock("POST", "/agents/deployments/agent-contract/files/read")
-                .match_body(Matcher::Json(
-                    json!({"path":path,"max_bytes":RUNNER_FILE_MAX_BYTES}),
-                ))
+                .match_body(Matcher::Json(json!({"path":path,"max_bytes":262144})))
                 .with_status(200)
                 .with_body(json!({"content_base64":encoded}).to_string())
                 .create();
@@ -170,6 +168,7 @@ fn malformed_discovery_and_backend_errors_do_not_fall_back() {
         Value::Null,
         json!([]),
         json!({}),
+        json!({"transport":"runner","max_bytes":262144}),
         json!({"transport":"runner","executor":"kubernetes","max_bytes":RUNNER_FILE_MAX_BYTES}),
         json!({"transport":"runner","executor":"process","max_bytes":0}),
         json!({"transport":"runner","executor":"process","max_bytes":-1}),
@@ -453,25 +452,26 @@ fn native_readiness_accepts_missing_file_but_not_missing_agent() {
 fn native_maximum_bytes_and_zero_read_budget() {
     let mut server = Server::new();
     let sdk = client(&server.url());
-    let discovery = token(&mut server, native()).expect(3);
+    let mut negotiated = native();
+    negotiated["chunk_bytes"] = json!(262144);
+    let discovery = token(&mut server, negotiated).expect(3);
     let bytes = vec![255; RUNNER_FILE_MAX_BYTES];
     let write = server
-        .mock("POST", "/agents/deployments/agent-contract/files/write")
-        .match_body(Matcher::Json(
-            json!({"path":"max", "content_base64":STANDARD.encode(&bytes)}),
-        ))
+        .mock(
+            "PUT",
+            "/agents/deployments/agent-contract/files/stream?path=max",
+        )
+        .match_header("content-length", RUNNER_FILE_MAX_BYTES.to_string().as_str())
+        .match_body(bytes.clone())
         .with_status(200)
         .with_body(r#"{"ok":true}"#)
         .create();
     sdk.put_deployment_file("agent-contract", "max", &bytes)
         .unwrap();
     let read = server
-        .mock("POST", "/agents/deployments/agent-contract/files/read")
-        .match_body(Matcher::Json(
-            json!({"path":"max", "max_bytes":RUNNER_FILE_MAX_BYTES}),
-        ))
+        .mock("GET", format!("/agents/deployments/agent-contract/files/stream?path=max&max_bytes={RUNNER_FILE_MAX_BYTES}").as_str())
         .with_status(200)
-        .with_body(json!({"content_base64":STANDARD.encode(&bytes)}).to_string())
+        .with_body(&bytes)
         .create();
     assert_eq!(
         sdk.read_deployment_file_bytes("agent-contract", "max", usize::MAX)
@@ -479,10 +479,12 @@ fn native_maximum_bytes_and_zero_read_budget() {
         bytes
     );
     let empty = server
-        .mock("POST", "/agents/deployments/agent-contract/files/read")
-        .match_body(Matcher::Json(json!({"path":"empty", "max_bytes":0})))
+        .mock(
+            "GET",
+            "/agents/deployments/agent-contract/files/stream?path=empty&max_bytes=0",
+        )
         .with_status(200)
-        .with_body(r#"{"content_base64":""}"#)
+        .with_body("")
         .create();
     assert!(sdk
         .read_deployment_file_bytes("agent-contract", "empty", 0)

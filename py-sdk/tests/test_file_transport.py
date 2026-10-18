@@ -282,11 +282,12 @@ def test_native_maximum_and_metadata(monkeypatch):
     content = b"\xff" * RUNNER_FILE_MAX_BYTES
     def handle(request):
         if request.url.path.endswith("/files/token"):
-            return httpx.Response(200, json=NATIVE)
-        if request.url.path.endswith("/files/write"):
-            assert base64.b64decode(json.loads(request.content)["content_base64"]) == content
+            return httpx.Response(200, json={**NATIVE, "chunk_bytes": 256 * 1024})
+        assert request.url.path.endswith("/files/stream")
+        if request.method == "PUT":
+            assert request.content == content
             return httpx.Response(200, json={"ok": True})
-        return httpx.Response(200, json={"content_base64": base64.b64encode(content).decode()})
+        return httpx.Response(200, content=content, headers={"content-length": str(len(content))})
     deployments = setup(monkeypatch, handle)
     assert deployments.file_write_bytes("agent-contract", "max", content) == {"ok": True}
     assert deployments.file_read_bytes_with_metadata("agent-contract", "max") == {"content": content, "mime_type": None}

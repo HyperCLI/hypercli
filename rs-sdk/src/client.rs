@@ -156,8 +156,35 @@ enum FileAccess {
 #[serde(deny_unknown_fields)]
 struct RunnerFileToken {
     transport: String,
-    executor: String,
+    #[serde(deserialize_with = "present_executor")]
+    executor: Option<String>,
     max_bytes: usize,
+    #[serde(default)]
+    chunk_bytes: Option<usize>,
+}
+
+fn present_executor<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(de)
+}
+
+struct FileChunkReader {
+    receive: std::sync::mpsc::Receiver<Vec<u8>>,
+    current: std::io::Cursor<Vec<u8>>,
+}
+
+impl std::io::Read for FileChunkReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let count = std::io::Read::read(&mut self.current, output)?;
+            if count > 0 || output.is_empty() {
+                return Ok(count);
+            }
+            match self.receive.recv() {
+                Ok(chunk) => self.current = std::io::Cursor::new(chunk),
+                Err(_) => return Ok(0),
+            }
+        }
+    }
 }
 
 impl FileAccess {
@@ -2212,21 +2239,28 @@ impl HyperCliClient {
     /// Resolve the authoritative file transport. Credentials stay internal.
     fn deployment_file_token(&self, deployment_id: &str) -> Result<FileAccess, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/files/token"));
-        let access: FileAccess = file_json(
+        let mut access: FileAccess = file_json(
             self.http
                 .post(&url)
+                .header("X-Hypercli-File-Chunks", "1")
                 .bearer_auth(self.api_key.expose_secret()),
             16_384,
         )?;
-        match &access {
+        match &mut access {
             FileAccess::Reef(token) => {
                 reef_base_url(token)?;
             }
             FileAccess::Runner(token)
                 if token.transport == "runner"
-                    && token.executor == "process"
+                    && matches!(token.executor.as_deref(), None | Some("process" | "docker"))
                     && token.max_bytes > 0
-                    && token.max_bytes <= RUNNER_FILE_MAX_BYTES => {}
+                    && token.max_bytes <= RUNNER_FILE_MAX_BYTES
+                    && matches!(token.chunk_bytes, None | Some(262144)) =>
+            {
+                if token.chunk_bytes.is_none() {
+                    token.max_bytes = token.max_bytes.min(262144);
+                }
+            }
             FileAccess::Runner(_) => {
                 return Err(HyperCliError::InvalidResponse(
                     "Invalid runner file transport".into(),
@@ -2247,7 +2281,26 @@ impl HyperCliClient {
         path: &str,
     ) -> Result<Vec<AgentFileEntry>, HyperCliError> {
         let path = reef_relative_path(path, true)?;
-        let token = self.deployment_file_token(deployment_id)?.reef()?;
+        let access = self.deployment_file_token(deployment_id)?;
+        if matches!(access, FileAccess::Runner(_)) {
+            if !path.is_empty() {
+                native_file_path(&path)?;
+            }
+            let listing: AgentDirectoryListing = file_json(
+                self.http
+                    .post(self.endpoint(&format!("deployments/{deployment_id}/files/list")))
+                    .bearer_auth(self.api_key.expose_secret())
+                    .json(&json!({"path": path})),
+                1024 * 1024,
+            )?;
+            if listing.listing_type != "directory" {
+                return Err(HyperCliError::InvalidResponse(
+                    "Invalid runner directory listing".into(),
+                ));
+            }
+            return Ok(listing.into_entries());
+        }
+        let token = access.reef()?;
         let (url, path) = reef_directory_url(&token, &path)?;
         let listing: AgentDirectoryListing = self.send_json(
             "list_deployment_files",
@@ -2275,6 +2328,23 @@ impl HyperCliClient {
         if let FileAccess::Runner(token) = &access {
             native_file_path(&path)?;
             let limit = max_bytes.min(token.max_bytes);
+            if token.chunk_bytes.is_some() {
+                let response = self
+                    .http
+                    .get(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
+                    .bearer_auth(self.api_key.expose_secret())
+                    .query(&[("path", path.as_str()), ("max_bytes", &limit.to_string())])
+                    .send()
+                    .map_err(|_| HyperCliError::Transport("File read request failed".into()))?;
+                let length = response.content_length();
+                let bytes = bounded_file_body(response, limit)?;
+                if length != Some(bytes.len() as u64) {
+                    return Err(HyperCliError::InvalidResponse(
+                        "Incomplete runner file stream".into(),
+                    ));
+                }
+                return Ok(bytes);
+            }
             #[derive(Deserialize)]
             struct Content {
                 content_base64: String,
@@ -2457,6 +2527,48 @@ impl HyperCliClient {
             #[derive(Deserialize)]
             struct Receipt {
                 ok: bool,
+            }
+            if token.chunk_bytes.is_some() {
+                // reqwest bodies own their reader. A single-slot channel lets
+                // the public borrowed-slice API stream without a file-sized copy.
+                let (send, receive) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
+                let body = reqwest::blocking::Body::sized(
+                    FileChunkReader {
+                        receive,
+                        current: std::io::Cursor::new(Vec::new()),
+                    },
+                    content.len() as u64,
+                );
+                let request = self
+                    .http
+                    .put(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
+                    .bearer_auth(self.api_key.expose_secret())
+                    .query(&[("path", path.as_str())])
+                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                    .body(body);
+                let receipt: Receipt = std::thread::scope(|scope| {
+                    let request = scope.spawn(move || file_json(request, 4096));
+                    for chunk in content.chunks(262144) {
+                        if send.send(chunk.to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    drop(send);
+                    request
+                        .join()
+                        .map_err(|_| HyperCliError::Transport("File write worker failed".into()))?
+                })?;
+                if !receipt.ok {
+                    return Err(HyperCliError::InvalidResponse(
+                        "Invalid runner file receipt".into(),
+                    ));
+                }
+                return Ok(DeploymentFileWriteResponse {
+                    status: "ok".into(),
+                    path,
+                    size: content.len() as u64,
+                    target: String::new(),
+                });
             }
             let receipt: Receipt = file_json(
                 self.http
