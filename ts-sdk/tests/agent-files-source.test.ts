@@ -36,7 +36,10 @@ describe('Reef-only sync-root file client', () => {
     expect(deployments.fileRead).toHaveBeenCalledWith(agent, 'AGENTS.md', undefined);
     expect(deployments.fileReadBytes).toHaveBeenCalledWith(agent, 'data.bin', undefined);
     expect(deployments.fileWrite).toHaveBeenCalledWith(agent, 'notes/todo.md', 'x');
-    expect(deployments.fileWriteBytes).toHaveBeenCalledWith(agent, 'data.bin', new Uint8Array([1]));
+    expect(deployments.fileWriteBytes).toHaveBeenCalledWith(agent, 'data.bin', new Uint8Array([1]), {});
+    const controller = new AbortController();
+    await agent.files.writeBytes('cancel.bin', new Uint8Array([2]), { signal: controller.signal });
+    expect(deployments.fileWriteBytes).toHaveBeenLastCalledWith(agent, 'cancel.bin', new Uint8Array([2]), { signal: controller.signal });
     expect(deployments.fileDelete).toHaveBeenCalledWith(agent, 'notes', { recursive: true });
   });
 });
