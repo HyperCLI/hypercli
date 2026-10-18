@@ -1413,8 +1413,8 @@ export interface AgentFileTokenResponse {
 
 type ReefFileAccess = { url: string; token: string };
 type AgentFileAccess = ReefFileAccess | { transport: 'runner' };
-/** Native control frames are deliberately bounded for prompt/markdown files. */
-export const RUNNER_FILE_MAX_BYTES = 262_144;
+/** Maximum decoded bytes for the native runner file transport. */
+export const RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024;
 
 function nativeFilePath(path: string): string {
   if (!path || encodeUtf8(path).byteLength > 4096 || /[\\:\0]/.test(path)
@@ -5065,7 +5065,9 @@ export class Deployments {
       }
       let content: Uint8Array;
       try {
-        content = Uint8Array.from(atob(payload.content_base64), (character) => character.charCodeAt(0));
+        const binary = atob(payload.content_base64);
+        content = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) content[i] = binary.charCodeAt(i);
       } catch {
         throw new Error('Invalid runner file response');
       }
@@ -5107,7 +5109,7 @@ export class Deployments {
    * Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`,
    * the Cloudflare edge request-body cap on the agent hostname). Larger data
    * should be split across files or synced via the agent's own tooling.
-   * Native runner files are limited to 256 KiB under the retained assignment root.
+   * Native runner files are limited to 100 MiB under the retained assignment root.
    */
   async fileWriteBytes(
     target: Agent | string,

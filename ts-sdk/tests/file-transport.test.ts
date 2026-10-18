@@ -170,8 +170,8 @@ describe('runner discovery before an executor observation', () => {
   it('still enforces the native write byte limit before dispatch', async () => {
     const fetch = vi.fn(async () => json(unobserved));
     vi.stubGlobal('fetch', fetch);
-    await expect(client().fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('Runner files are limited');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(client().fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -393,7 +393,10 @@ it('native metadata, maximum bytes, listing and deletion retain the public contr
   }));
   const deployments = client();
   await expect(deployments.fileWriteBytes(id, 'max', bytes)).resolves.toEqual({ ok: true });
-  await expect(deployments.fileReadBytesWithMetadata(id, 'max')).resolves.toEqual({ content: bytes });
+  const read = await deployments.fileReadBytesWithMetadata(id, 'max');
+  expect(read.content.byteLength).toBe(bytes.byteLength);
+  // Avoid assertion-library enumeration of 100 million typed-array entries.
+  expect(Buffer.from(read.content).equals(Buffer.from(bytes))).toBe(true);
   await expect(deployments.fileWriteBytes(id, 'max', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
   expect(writes).toBe(1);
   await expect(deployments.filesList(id)).resolves.toEqual([

@@ -93,7 +93,7 @@ describe('native assignment file transport', () => {
     const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwHwyBNBgAAEnICff5q7YNAAAAAElFTkSuQmCC';
     files.set(path, png);
     expect(Buffer.from(await deployments.fileReadBytes(id, path, { maxBytes: 25_000_000 })).toString('base64')).toBe(png);
-    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path, max_bytes: RUNNER_FILE_MAX_BYTES }, { signal: undefined, redirect: 'error' });
+    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path, max_bytes: 25_000_000 }, { signal: undefined, redirect: 'error' });
     const reads = post.mock.calls.length;
     await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
     await expect(deployments.fileDelete(id, path)).rejects.toThrow();

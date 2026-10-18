@@ -149,7 +149,7 @@ fn existing_byte_methods_dispatch_native_with_identical_vectors() {
 fn unsupported_listing_and_limits_never_dispatch_a_file_command() {
     let mut server = Server::new();
     let sdk = client(&server.url());
-    let discovery = token(&mut server, native()).expect(2);
+    let discovery = token(&mut server, native()).expect(1);
     assert_eq!(
         sdk.list_deployment_files("agent-contract", "")
             .unwrap_err()

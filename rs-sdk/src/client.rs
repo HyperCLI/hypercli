@@ -408,7 +408,7 @@ fn encode_path_key(key: &str) -> String {
 pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
 pub const AGENT_FILE_READ_MAX_BYTES: usize = 250 * 1024 * 1024;
 /// Decoded byte cap for the existing native-runner control transport.
-pub const RUNNER_FILE_MAX_BYTES: usize = 262_144;
+pub const RUNNER_FILE_MAX_BYTES: usize = 100 * 1024 * 1024;
 
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
@@ -2429,7 +2429,7 @@ impl HyperCliClient {
     ///
     /// Per-file writes are limited to 100 MiB
     /// ([`AGENT_FILE_WRITE_MAX_BYTES`], the Cloudflare edge request-body cap
-    /// on the agent hostname). Native runner writes are limited to 256 KiB.
+    /// on the agent hostname). Native runner writes are limited to 100 MiB.
     /// Requests are never automatically replayed after an uncertain outcome.
     pub fn put_deployment_file(
         &self,
@@ -2448,9 +2448,9 @@ impl HyperCliClient {
         if matches!(access, FileAccess::Runner(_)) {
             native_file_path(&path)?;
             if content.len() > RUNNER_FILE_MAX_BYTES {
-                return Err(HyperCliError::InvalidResponse(
-                    "Runner files are limited to 262144 bytes".into(),
-                ));
+                return Err(HyperCliError::InvalidResponse(format!(
+                    "Runner files are limited to {RUNNER_FILE_MAX_BYTES} bytes"
+                )));
             }
             #[derive(Deserialize)]
             struct Receipt {

@@ -146,7 +146,7 @@ DEFAULT_HERMES_AGENT_SYNC_UID = 10000
 DEFAULT_HERMES_AGENT_SYNC_GID = 10000
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
-RUNNER_FILE_MAX_BYTES = 262_144
+RUNNER_FILE_MAX_BYTES = 100 * 1024 * 1024
 # Reef file writes traverse the Cloudflare-proxied agent hostname
 # (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
 # above 100 MB. Enforced client-side so oversized writes fail fast with a
@@ -3875,7 +3875,7 @@ class Deployments:
         Per-file writes are limited to 100 MiB (``AGENT_FILE_WRITE_MAX_BYTES``,
         the Cloudflare edge request-body cap on the agent hostname). Larger
         data should be split across files or synced via the agent's own
-        tooling. Native runner writes are limited to 256 KiB.
+        tooling. Native runner writes are limited to 100 MiB.
         """
         path = normalize_writable_backend_file_path(path)
         if not path:
