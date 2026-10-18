@@ -80,7 +80,7 @@ describe('coding agents', () => {
     for (const built of [create, launch]) {
       expect(built.env.OPENCODE_PERMISSION).toBe(env.OPENCODE_PERMISSION);
       expect(built.env.BUZZ_ACP_NATIVE_MODE).toBe(env.BUZZ_ACP_NATIVE_MODE);
-      expect(built.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
+      expect(built.command).toEqual(['/usr/local/bin/hyper-acp']);
       for (const key of ['HYPER_ACP_PERMISSIONS', 'HYPER_ACP_PERMISSION_MODE', 'HYPER_ACP_AUTO_APPROVE_PERMISSION']) {
         expect(built.env).not.toHaveProperty(key);
       }
@@ -347,7 +347,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_CODEX_IMAGE,
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
@@ -382,7 +382,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
     });
   });
 
@@ -493,7 +493,7 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
@@ -972,7 +972,7 @@ describe('runner process executor', () => {
     expect(body).toMatchObject({
       runtime: 'opencode',
       executor: 'process',
-      command: ['hyper-acp', 'plugin', 'buzz'],
+      command: ['hyper-acp'],
       size: 'large',
       restart: false,
       runner: { runner_id: 'runner-1' },
@@ -1072,7 +1072,7 @@ describe('buzz acp raw outbound launch', () => {
       buzzEnabled: true,
     });
     const payload = post.mock.calls[0][1];
-    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
+    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp']);
     expect(payload.routes).toEqual({});
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');

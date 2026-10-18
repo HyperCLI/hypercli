@@ -1315,7 +1315,7 @@ export function buildBuzzLaunchConfig(
   ]) { delete env[key]; delete secrets[key]; }
   env.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(apiBase);
   return { ...stored, env, secrets, routes: {}, restart: false,
-    command: [stored.executor === 'process' ? 'hyper-acp' : '/usr/local/bin/hyper-acp', 'plugin', 'buzz'] };
+    command: [stored.executor === 'process' ? 'hyper-acp' : '/usr/local/bin/hyper-acp'] };
 }
 
 /** Whether the runtime has a Buzz coding harness launch mapping. */

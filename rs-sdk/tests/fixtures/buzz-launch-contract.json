@@ -9,7 +9,7 @@
     "workspaces:*"
   ],
   "common": {
-    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+    "command": ["/usr/local/bin/hyper-acp"],
     "size": "large",
     "routes": {},
     "restart": false,

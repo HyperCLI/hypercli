@@ -1185,12 +1185,9 @@ impl BuzzLaunchConfig {
         // slot without baking a stale tier into a client-side contract.
         request.size = None;
         request.mark_buzz_deployment(None);
-        // Select the Buzz plugin explicitly while preserving the image entrypoint.
-        request.command = vec![
-            "/usr/local/bin/hyper-acp".to_owned(),
-            "plugin".to_owned(),
-            "buzz".to_owned(),
-        ];
+        // Buzz is selected by its credentials in env, not by a subcommand; the
+        // explicit binary preserves the image entrypoint.
+        request.command = vec!["/usr/local/bin/hyper-acp".to_owned()];
         if request.image.is_none() {
             request.image = request.runtime.default_buzz_image().map(str::to_owned);
         }
@@ -2439,7 +2436,7 @@ mod tests {
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
         assert_eq!(
             request.command,
-            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            ["/usr/local/bin/hyper-acp"]
         );
         assert!(!request.restart);
         assert_eq!(
@@ -3018,7 +3015,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_launch_selects_plugin_and_preserves_image_entrypoint() {
+    fn buzz_launch_uses_bare_binary_and_preserves_image_entrypoint() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut request)
@@ -3029,13 +3026,13 @@ mod tests {
         assert!(!request.env.contains_key("HYPER_ACP_WS_URL"));
         assert_eq!(
             request.command,
-            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            ["/usr/local/bin/hyper-acp"]
         );
         assert!(request.entrypoint.is_empty());
         let wire = serde_json::to_value(&request).unwrap();
         assert_eq!(
             wire["command"],
-            serde_json::json!(["/usr/local/bin/hyper-acp", "plugin", "buzz"])
+            serde_json::json!(["/usr/local/bin/hyper-acp"])
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("BUZZ_ACP_RELAY_OBSERVER"));
