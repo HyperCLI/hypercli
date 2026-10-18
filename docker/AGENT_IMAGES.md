@@ -138,7 +138,7 @@ nothing is copied into the image workspace as a skill file.
 
 Coding images boot generic ACP by default. Intentional Buzz/Nostr launches
 inject the agent identity, relay URL, and owner-signed authorization tag and
-select `hyper-acp plugin buzz` explicitly. See [coding/README.md](coding/README.md)
+select `hyper-acp` with Buzz credentials explicitly. See [coding/README.md](coding/README.md)
 for the image startup and child-environment contract; shell launches retain
 the same image and persistent home.
 

@@ -26,7 +26,7 @@ this repository or its build contexts.
   and `~/.hypercli/SOUL.md`.
 - The private mono's `acp/hyper-acp` owns hosted ACP startup. Plain ACP launches run
   `hyper-acp` with `HYPER_ACP_AGENT_COMMAND` and `HYPER_ACP_AGENT_ARGS`.
-  Buzz/Nostr launches run `hyper-acp plugin buzz`, which links the copied
+  Buzz/Nostr launches run `hyper-acp` with Buzz credentials, which links the copied
   `acp/hyper-acp/plugins/buzz` implementation for relay behavior, ordinary ACP
   turns and local reply signing/publication. The Buzz plugin
   manifest pins the unmodified upstream Buzz crates it consumes.
@@ -51,7 +51,7 @@ and the executable tests together when the contract changes.
 - Keep provider-owned identity, relay, authorization, reply, mention, and
   workspace variables non-overridable by user environment.
 - Keep Buzz provider deployments `restart: false`; normal
-  `hyper-acp plugin buzz` exit must remain terminal for the pod.
+  `hyper-acp` with Buzz credentials exit must remain terminal for the pod.
 - Do not convert ACP activity or thinking output into a final Buzz message.
 - Do not replace user-managed files or links under `/home/node`.
 - Do not put secrets, raw provider requests, auth tags, private keys, or

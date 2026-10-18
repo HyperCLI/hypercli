@@ -245,7 +245,7 @@ These absolute child paths are executed verbatim. Claude Code also sets
 `CLAUDE_CODE_EXECUTABLE=/opt/hypercli/bin/claude` so its ACP adapter launches
 the image's bundled Claude executable.
 
-Buzz mode is selected by launching `hyper-acp plugin buzz` with `BUZZ_ACP_*`
+Buzz mode is selected by launching `hyper-acp` with Buzz credentials with `BUZZ_ACP_*`
 environment. Direct, non-Buzz SDK launches use the same non-Buzz runtime images
 through vanilla `hyper-acp` and `HYPER_ACP_*` environment.
 
@@ -258,7 +258,7 @@ The persistence and workspace roots are intentionally different:
   default; OpenClaw retains full-root persistence.
 - `/home/node/shared` is reserved for HyperCLI Workspace projections.
 - `/home/node/.buzz` is the hosted Buzz nest and the working directory of the
-  `hyper-acp plugin buzz` process and coding runtime.
+  `hyper-acp` with Buzz credentials process and coding runtime.
 
 Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
@@ -276,7 +276,7 @@ Use only a trusted immutable image reference.
 
 ### Message behavior
 
-Stock Buzz delivers inbound conversation events to the remote `hyper-acp plugin buzz`
+Stock Buzz delivers inbound conversation events to the remote `hyper-acp` with Buzz credentials
 harness. Non-JSON child output is skipped; there is no plaintext fallback. The
 hosted connector auto-publishes the completed assistant text to the channel—no
 agent-callable send command/tool exists on the hosted lane.
@@ -302,7 +302,7 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   through the authenticated HyperCLI lifecycle APIs. Native process exit follows
   ordinary `restart: false` cleanup and releases the slot once stopped.
 - Existing deployments created before `restart: false` was supported retain
-  their saved restart policy. Their `hyper-acp plugin buzz` process may be relaunched by
+  their saved restart policy. Their `hyper-acp` with Buzz credentials process may be relaunched by
   the managed runtime after process exit until the deployment is recreated with the new
   launch shape.
 - Desktop Stop and Delete actions do not invoke the provider. A local delete
@@ -358,7 +358,7 @@ workspace ownership, passwordless sudo, and idempotent retry.
 
 It handcrafts the provider request; it does not start the official Buzz Desktop
 binary, send a relay prompt, or prove a Desktop-visible tool response. A real
-Desktop → relay → `hyper-acp plugin buzz` → runtime → published-response E2E remains a
+Desktop → relay → `hyper-acp` with Buzz credentials → runtime → published-response E2E remains a
 production acceptance requirement.
 
 ### Security boundaries

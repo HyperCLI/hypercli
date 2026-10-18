@@ -33,7 +33,7 @@ Buzz Desktop
   -> HyperCLI deployments API
   -> HyperClaw/Lagoon
   -> hypercli-<runtime> image
-  -> hyper-acp plugin buzz
+  -> hyper-acp
   -> runtime ACP child
   -> Buzz relay
 ```
@@ -128,7 +128,7 @@ The reusable upstream boundaries are:
 - provider request, response, and portable launch wire types;
 - environment validation, precedence, and provider-owned key rules;
 - sanitized provider-wire golden fixtures;
-- setup payload types parsed by `hyper-acp plugin buzz`;
+- setup payload types parsed by `hyper-acp` with Buzz credentials;
 - naming, error classification, and reconciliation invariants as references.
 
 The preferred future extraction is small shared crates such as
@@ -174,7 +174,7 @@ Buzz provider launches use:
 | Property | Value |
 | --- | --- |
 | Size | largest currently available entitlement slot (`large` > `medium` > `small`) |
-| Entrypoint command | `/usr/local/bin/hyper-acp plugin buzz` |
+| Entrypoint command | `/usr/local/bin/hyper-acp` |
 | ACP child | `BUZZ_ACP_AGENT_COMMAND`, `BUZZ_ACP_AGENT_ARGS` |
 | Permission mode | The Buzz caller selects advertised native configuration; it does not rely on host permission interception. |
 | Restart | `false` |
@@ -263,7 +263,7 @@ OpenClaw is a separate ACP desktop runtime. `buzz-agent` is upstream Buzz's nati
 ACP runtime. The upstream Sprig multicall binary is kept at
 `/usr/local/lib/acp/buzz/sprig`; only the native Buzz image exposes
 `buzz-agent` and `buzz-dev-mcp` on `PATH`. Plain hosted ACP uses
-`/usr/local/bin/hyper-acp`; Buzz/Nostr launches use `/usr/local/bin/hyper-acp plugin buzz`.
+`/usr/local/bin/hyper-acp`; Buzz/Nostr launches use `/usr/local/bin/hyper-acp`.
 A deprecated compat symlink at `/usr/local/bin/acp` points to the same binary
 for launch configs not yet migrated.
 
@@ -307,7 +307,7 @@ Runtime entrypoints perform compatibility setup and then `exec` the shared
 entrypoint under `tini`; native Buzz uses the shared entrypoint directly.
 The shared entrypoint `exec`s the default or caller-supplied command, and its
 exit status becomes the container exit status. Intentional Nostr callers can
-still supply `/usr/local/bin/hyper-acp plugin buzz` explicitly.
+still supply `/usr/local/bin/hyper-acp` explicitly.
 
 User and Buzz turns use ordinary ACP prompts. Platform identity, file and
 environment instructions belong in native runtime configuration and the seeded
@@ -499,7 +499,7 @@ legacy `HYPER_ACP_WS_LISTEN` and `HYPER_ACP_LOG`; no inbound container port or
 Kubernetes startup override is needed. HyperACP owns connect/reconnect and the
 generic ACP wire protocol.
 
-Native `buzz-agent` is a stdio ACP child, distinct from `hyper-acp plugin buzz`.
+Native `buzz-agent` is a stdio ACP child, distinct from `hyper-acp` with Buzz credentials.
 Generic clients supply tools through standard `session/new.mcpServers`, which
 hyper-acp forwards verbatim (the HyperACP MCP registry is removed). The hosted
 Buzz connector submits an empty MCP server list and publishes completed
@@ -601,7 +601,7 @@ Provider, SDK, ACP, or image changes must verify:
    pins emitted requests to that fixture; all six image tests then check its
    launcher, child, MCP, and optional Claude executable paths inside the real
    candidate image as UID 1000 after entrypoint setup, and exercise the emitted
-   `hyper-acp plugin buzz --help` command with networking disabled. Missing
+   `hyper-acp --help` command with networking disabled. Missing
    fixtures, dangling links, non-executable files, and overwritten launch env
    fail this gate.
 6. The canonical instruction template is seeded once into each runtime's
