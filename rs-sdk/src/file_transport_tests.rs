@@ -170,8 +170,11 @@ fn malformed_discovery_and_backend_errors_do_not_fall_back() {
         Value::Null,
         json!([]),
         json!({}),
-        json!({"transport":"runner","executor":"docker","max_bytes":RUNNER_FILE_MAX_BYTES}),
-        json!({"transport":"runner","executor":"process","max_bytes":1}),
+        json!({"transport":"runner","executor":"kubernetes","max_bytes":RUNNER_FILE_MAX_BYTES}),
+        json!({"transport":"runner","executor":"process","max_bytes":0}),
+        json!({"transport":"runner","executor":"process","max_bytes":-1}),
+        json!({"transport":"runner","executor":"process","max_bytes":1.5}),
+        json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES + 1}),
         json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES,"extra":true}),
         json!({"url":"https://reef.example.test/_reef","token":"fixture","expires_at":"future","extra":true}),
     ] {
