@@ -63,13 +63,6 @@ HyperClaw and Lagoon own:
 The image owns only process setup, installed runtime binaries, filesystem prompt
 initialization, compatibility links, and the runtime-specific ACP child command.
 
-OpenCode's installed `hyper-session.js` plugin sets `HYPER_SESSION_ID` to the
-platform session UUID for each shell invocation and its CLI children. It resolves
-the native session ID through Backend using the runtime agent credential; no
-session mapping is cached. An unavailable or unbound identity fails the invocation
-rather than inheriting a stale UUID. The entrypoint seeds the plugin link in the
-resolved OpenCode configuration directory without replacing user-managed files.
-
 ## Local And Hosted Installation
 
 Buzz's Settings > Agents screen discovers and installs local harnesses. For
