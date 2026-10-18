@@ -2257,7 +2257,6 @@ impl HyperCliClient {
                 if token.transport == "runner"
                     && matches!(token.executor.as_deref(), None | Some("process" | "docker"))
                     && token.max_bytes > 0
-                    && token.max_bytes <= RUNNER_FILE_MAX_BYTES
                     // The backend negotiates the chunk size and advertises it.
                     // Bound it; never compare it to a literal, or every change
                     // needs a client release and old clients reject the server.
@@ -2265,9 +2264,14 @@ impl HyperCliClient {
                         .chunk_bytes
                         .is_none_or(|chunk| chunk > 0 && chunk <= token.max_bytes) =>
             {
-                if token.chunk_bytes.is_none() {
-                    token.max_bytes = token.max_bytes.min(LEGACY_SINGLE_SHOT_BYTES);
-                }
+                // A ceiling above ours is not invalid, it is more than we will
+                // use: clamp it. Rejecting would break every shipped client the
+                // moment the backend raises the limit.
+                token.max_bytes = token.max_bytes.min(if token.chunk_bytes.is_none() {
+                    LEGACY_SINGLE_SHOT_BYTES
+                } else {
+                    RUNNER_FILE_MAX_BYTES
+                });
             }
             FileAccess::Runner(_) => {
                 return Err(HyperCliError::InvalidResponse(

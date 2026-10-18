@@ -217,7 +217,7 @@ describe('runner discovery before an executor observation', () => {
 
   it.each([
     ...[undefined, '', 'null', 'kubernetes', 0, false, [], {}].map((executor) => ({ ...unobserved, executor })),
-    ...[undefined, null, '262144', 0, RUNNER_FILE_MAX_BYTES + 1].map((max_bytes) => ({ ...unobserved, max_bytes })),
+    ...[undefined, null, '262144', 0].map((max_bytes) => ({ ...unobserved, max_bytes })),
     ...[undefined, null, 'other'].map((transport) => ({ ...unobserved, transport })),
     { ...unobserved, extra: true },
   ].map((value) => [value]))('rejects invalid discovery before write dispatch: %j', async (value) => {

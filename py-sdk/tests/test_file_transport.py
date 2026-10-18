@@ -151,11 +151,28 @@ def test_native_smaller_ceiling_bounds_read_and_write(monkeypatch):
     assert len(calls) == 3
 
 
-@pytest.mark.parametrize("limit", [0, -1, 1.5, True, "2", RUNNER_FILE_MAX_BYTES + 1])
+@pytest.mark.parametrize("limit", [0, -1, 1.5, True, "2"])
 def test_native_invalid_ceiling(monkeypatch, limit):
     deployments = setup(monkeypatch, lambda _: httpx.Response(200, json={**NATIVE, "max_bytes": limit}))
     with pytest.raises(ValueError, match="invalid runner file transport"):
         deployments.file_read_bytes("agent-contract", "x")
+
+
+def test_native_ceiling_above_this_client_is_clamped_not_refused(monkeypatch):
+    """A backend that raises its limit must not break shipped clients.
+
+    This is the same pin that was removed from chunk_bytes; max_bytes kept it.
+    """
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if str(request.url).endswith("/files/token"):
+            return httpx.Response(200, json={**NATIVE, "max_bytes": RUNNER_FILE_MAX_BYTES * 4})
+        return httpx.Response(200, json={"content_base64": "b2s="})
+
+    deployments = setup(monkeypatch, handler)
+    assert deployments.file_read_bytes("agent-contract", "x") == b"ok"
 
 
 @pytest.mark.parametrize("status", VECTORS["error_statuses"])

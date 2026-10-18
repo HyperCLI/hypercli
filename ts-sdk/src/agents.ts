@@ -3667,7 +3667,7 @@ export class Deployments {
     }
     if ('transport' in payload) {
       // Executor is informational and null until observed; the file operation determines availability.
-      if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0 || payload.max_bytes > RUNNER_FILE_MAX_BYTES) {
+      if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0) {
         throw new Error('Backend returned an invalid runner file transport');
       }
       // The backend negotiates the chunk size and advertises it. Bound it;
@@ -3678,6 +3678,9 @@ export class Deployments {
       if (chunks && (!Number.isSafeInteger(advertised) || advertised <= 0 || advertised > payload.max_bytes)) {
         throw new Error('Backend returned an invalid runner chunk size');
       }
+      // A ceiling above ours is not invalid, it is more than we will use:
+      // clamp it. Rejecting would break every shipped client the moment the
+      // backend raises the limit — the same pin we removed from chunk_bytes.
       const chunkBytes = chunks ? (advertised as number) : LEGACY_SINGLE_SHOT_BYTES;
       return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, chunks ? RUNNER_FILE_MAX_BYTES : LEGACY_SINGLE_SHOT_BYTES), chunks, chunkBytes };
     }

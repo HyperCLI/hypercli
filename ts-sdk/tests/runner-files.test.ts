@@ -55,11 +55,21 @@ describe('native assignment file transport', () => {
     expect(files.get('x')).toBe(btoa('ok'));
   });
 
-  it.each([0, -1, 1.5, NaN, RUNNER_FILE_MAX_BYTES + 1, '2'])('rejects invalid advertised ceiling %s', async max_bytes => {
+  it.each([0, -1, 1.5, NaN, '2'])('rejects invalid advertised ceiling %s', async max_bytes => {
     const { deployments, post } = setup();
     post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes } as any);
     await expect(deployments.fileRead(id, 'x')).rejects.toThrow('invalid runner file transport');
     expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('clamps a ceiling larger than this client supports instead of refusing it', async () => {
+    // A backend that raises its limit must not break shipped clients. This is
+    // the same pin that was removed from chunk_bytes; max_bytes kept it.
+    const { deployments, post, files } = setup();
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process',
+      max_bytes: RUNNER_FILE_MAX_BYTES * 4 } as any);
+    files.set('x', btoa('ok'));
+    await expect(deployments.fileRead(id, 'x')).resolves.toBe('ok');
   });
 
   it.each(['kubernetes', undefined])('rejects unsupported or unreported assignment mode %s', async (executor) => {

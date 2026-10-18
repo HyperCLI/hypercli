@@ -167,6 +167,30 @@ fn unsupported_listing_and_limits_never_dispatch_a_file_command() {
 }
 
 #[test]
+fn advertised_ceiling_above_this_client_is_clamped_not_refused() {
+    // A backend that raises its limit must not break shipped clients. This is
+    // the same pin that was removed from chunk_bytes; max_bytes kept it.
+    let mut server = Server::new();
+    let sdk = client(&server.url());
+    let discovery = token(
+        &mut server,
+        json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES * 4}),
+    );
+    let read = server
+        .mock("POST", "/agents/deployments/agent-contract/files/read")
+        .with_status(200)
+        .with_body(json!({"content_base64":"b2s="}).to_string())
+        .create();
+    assert_eq!(
+        sdk.read_deployment_file_bytes("agent-contract", "x", 1024)
+            .unwrap(),
+        b"ok".to_vec()
+    );
+    discovery.assert();
+    read.assert();
+}
+
+#[test]
 fn malformed_discovery_and_backend_errors_do_not_fall_back() {
     let mut server = Server::new();
     let sdk = client(&server.url());
@@ -179,7 +203,6 @@ fn malformed_discovery_and_backend_errors_do_not_fall_back() {
         json!({"transport":"runner","executor":"process","max_bytes":0}),
         json!({"transport":"runner","executor":"process","max_bytes":-1}),
         json!({"transport":"runner","executor":"process","max_bytes":1.5}),
-        json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES + 1}),
         json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES,"extra":true}),
         json!({"url":"https://reef.example.test/_reef","token":"fixture","expires_at":"future","extra":true}),
     ] {

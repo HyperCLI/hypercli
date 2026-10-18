@@ -2328,7 +2328,7 @@ class Deployments:
         if "transport" in payload:
             if (payload.get("transport") != "runner" or payload.get("executor") not in (None, "process", "docker")
                     or type(payload.get("max_bytes")) is not int
-                    or not 0 < payload["max_bytes"] <= RUNNER_FILE_MAX_BYTES):
+                    or payload["max_bytes"] <= 0):
                 raise ValueError("Backend returned an invalid runner file transport")
             # The backend negotiates the chunk size and advertises it. Bound
             # it; never compare it to a literal, or every change to it needs a
