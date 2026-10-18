@@ -182,7 +182,7 @@ containers. Today the image aliases resolve as:
 | `kimi-k3-anthropic` | `kimi-k3-anthropic` | Pinned Kimi K3 Anthropic Messages route |
 
 The authoritative alias map lives in
-[`pulumi/pulumi-agents-k8s/gpus.yaml`](/home/ubuntu/dev/hypercli-mono/pulumi/pulumi-agents-k8s/gpus.yaml).
+`pulumi/pulumi-agents-k8s/gpus.yaml`, in the parent deployment repository.
 Image configs duplicate the public names so runtime UIs can list and select
 them before the first model request.
 
