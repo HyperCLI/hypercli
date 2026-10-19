@@ -29,8 +29,8 @@ bodies.
 
 ### ACP working-directory conveniences
 
-The explicit `AcpClient::new_session(cwd)`, `resume_session(cwd, session_id,
-replay)` and `load_session(cwd, session_id)` signatures remain supported.
+The explicit `AcpClient::new_session(cwd)` and `resume_session(cwd,
+session_id, replay)` signatures remain supported.
 Paths are sent verbatim; the runtime determines their validity.
 
 For platform defaults, call `new_session_default(&platform, deployment_id)` on
@@ -166,9 +166,10 @@ hosted runtime resolves configured paths, including paths relative to runtime
 override verbatim. For existing sessions, obtain the original cwd from standard
 session discovery or stored native setup, not the current launch default.
 `new_session_default` uses the platform runtime-path read; `resume_session_stored`
-uses retained setup or standard catalog discovery. `load_session` sends an explicit
-full native history request, never an attachment fallback or a scrolling request.
-`list_sessions` uses the standard ACP catalog.
+uses retained setup or standard catalog discovery. There is no client-side full
+history load: history pages come from the REST messages API, and managed native
+reconciliation belongs to Backend, which drives `session/load` on its own import
+leg. `list_sessions` uses the standard ACP catalog.
 `close_session` closes remote session resources; `close` releases the transport.
 `cancel` only queues a notification, not an acknowledgment that execution stopped.
 
