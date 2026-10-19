@@ -190,10 +190,6 @@ class ACPClient:
     def closed(self):
         return self._closed
 
-    @property
-    def load_session_capable(self):
-        return self._initialize_response.get("agentCapabilities", {}).get("loadSession") is True
-
     async def __aenter__(self):
         return self
 
@@ -334,17 +330,6 @@ class ACPClient:
         setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
         params = {"sessionId": session_id, **setup}
         result = await self.request("session/resume", params)
-        self._session_setups[session_id] = setup
-        if "configOptions" in result:
-            self._session_config_options[session_id] = deepcopy(result["configOptions"] or [])
-        return result
-
-    async def load_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None):
-        """Explicit standard full load; attachment never falls back to this."""
-        cwd = await self._original_session_cwd(session_id) if cwd is _UNSET_CWD else cwd
-        previous = self._session_setups.get(session_id, {})
-        setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
-        result = await self.request("session/load", {"sessionId": session_id, **setup})
         self._session_setups[session_id] = setup
         if "configOptions" in result:
             self._session_config_options[session_id] = deepcopy(result["configOptions"] or [])

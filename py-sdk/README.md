@@ -380,8 +380,9 @@ async with await ACPClient.connect(proxy_url, token=api_key, on_update=handle_up
 ```
 
 Use `resume_session(id, cwd=...)` for supported native attachment. It never
-falls back to full load or resubmits a turn. `load_session` explicitly sends
-standard v1 `session/load`; managed native reconciliation belongs to Backend.
+falls back to full load or resubmits a turn. There is no client-side full
+history load: managed native reconciliation belongs to Backend, which drives
+`session/load` on its own import leg.
 `cancel(id)` sends the standard notification, never a replacement prompt.
 There are no replay/window cursor arguments. Both `prompt` and `submit_prompt`
 wait for the native terminal response. `submit_prompt` returns the upstream typed

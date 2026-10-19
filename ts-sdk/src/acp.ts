@@ -229,17 +229,6 @@ export class CodingAgentAcpClient {
     if (result.configOptions) this.sessionConfig.set(sessionId, result.configOptions);
     return result;
   }
-  /** Explicit full history load. Reconnect/attachment never invokes it. */
-  async loadSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.LoadSessionResponse> {
-    const cwd = options.cwd ?? await this.originalSessionCwd(sessionId);
-    const mcpServers = structuredClone(options.mcpServers ?? this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? []);
-    const connection = this.connection, generation = this.generation;
-    const result = await this.request<acp.LoadSessionResponse>('session/load', { sessionId, cwd, mcpServers });
-    if (connection !== this.connection || generation !== this.generation || this.closedFlag) throw new CodingAgentAcpConnectionError('ACP load interrupted');
-    this.sessions.set(sessionId, { cwd, mcpServers });
-    if (result.configOptions) this.sessionConfig.set(sessionId, result.configOptions);
-    return result;
-  }
   async prompt(sessionId: string, prompt: string | acp.ContentBlock | acp.ContentBlock[]): Promise<acp.PromptResponse> {
     const pending = { sessionId, controller: new AbortController() };
     this.pendingPrompts.add(pending);

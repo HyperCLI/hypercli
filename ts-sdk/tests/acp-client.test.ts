@@ -35,7 +35,7 @@ async function fixture() {
           sessions.set(sessionId, frame.params.cwd); result(socket, frame, { sessionId }); break;
         }
         case 'session/list': result(socket, frame, { sessions: [...sessions].map(([sessionId, cwd]) => ({ sessionId, cwd })) }); break;
-        case 'session/resume': case 'session/load': result(socket, frame, {}); break;
+        case 'session/resume': result(socket, frame, {}); break;
         case 'session/prompt': result(socket, frame, { stopReason: 'end_turn' }); break;
         default: send(socket, { id: frame.id, error: { code: -32601, message: 'Method not found', data: { method: frame.method } } });
       }
@@ -53,16 +53,16 @@ async function fixture() {
     calls: (method: string) => frames.filter(f => f.method === method) };
 }
 
-it('constructs exact v1 initialize/new/prompt/resume/load requests with no private window fields', async () => {
+it('constructs exact v1 initialize/new/prompt/resume requests with no private window fields', async () => {
   const f = await fixture(), client = await f.connect();
   const { sessionId } = await client.newSession();
   const blocks = [{ type: 'text' as const, text: '  /compact\n' }, { type: 'image' as const, mimeType: 'image/png', data: 'AA==' }];
   expect(await client.prompt(sessionId, blocks)).toEqual({ stopReason: 'end_turn' });
-  await client.resumeSession(sessionId); await client.loadSession(sessionId);
+  await client.resumeSession(sessionId);
   expect(f.calls('initialize')[0].params).toEqual({ protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'hypercli-ts-sdk', version: '' } });
   expect(f.calls('session/new')[0].params).toEqual({ cwd: '/platform', mcpServers: [] });
   expect(f.calls('session/prompt')[0].params).toEqual({ sessionId, prompt: blocks });
-  for (const method of ['session/resume', 'session/load']) expect(f.calls(method)[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: [] });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: [] });
   expect(client.negotiatedProtocolVersion).toBe(1);
   expect(client.initializeResponse?.agentInfo?.name).toBe('fixture');
   expect(f.urls[0].pathname).toBe('/ws/acp');
@@ -105,13 +105,14 @@ it('sends explicit standard MCP setup, retains omitted values, and preserves pee
   entries[0].name = 'caller-mutated';
   await client.resumeSession(sessionId);
   expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual(original);
-  await client.loadSession(sessionId, { mcpServers: [] });
+  await client.resumeSession(sessionId, { mcpServers: [] });
   await client.resumeSession(sessionId);
   expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual([]);
   await client.resumeSession(sessionId, { mcpServers: original });
-  f.hooks.set('session/load', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32602, message: 'HTTP unsupported' } }));
-  await expect(client.loadSession(sessionId, { mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
-  await client.resumeSession(sessionId);
+  f.hooks.set('session/resume', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32602, message: 'HTTP unsupported' } }));
+  await expect(client.resumeSession(sessionId, { mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+  f.hooks.delete('session/resume');
+  await client.resumeSession(sessionId, { mcpServers: original });
   expect(f.calls('session/resume').at(-1)?.params.mcpServers).toEqual(original);
   f.hooks.set('session/fork', (frame, socket) => f.result(socket, frame, { sessionId: 'fork' }));
   await client.unstableForkSession(sessionId, { mcpServers: [] });

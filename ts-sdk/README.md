@@ -369,8 +369,9 @@ Unknown legacy workspace setup is not guessed into ACP catalog entries.
 
 History pages use `SessionsAPI.getMessages`; ACP has no custom history-window
 options. Reconnect reattaches tracked sessions with supported `session/resume`
-and never resends a turn. Explicit `loadSession` uses v1 `session/load`; managed
-native reconciliation belongs to Backend and is never driven by scrolling.
+and never resends a turn. There is no client-side full history load: managed
+native reconciliation belongs to Backend, which drives `session/load` on its
+own import leg, and is never driven by scrolling.
 
 `AcpTurnDriver` serializes one queued submission per prompt, preserving all
 content blocks. Its commit hook runs after verified completion and before

@@ -58,7 +58,7 @@ class Peer:
         self.tasks = set()
         self.cancelled = False
         self.reject_prompt = False
-        self.reject_load = False
+        self.reject_resume = False
         self.hold_initialize = False
         self.hold_close = False
         self.early_close = None
@@ -78,13 +78,9 @@ class Peer:
 
     async def resume_session(self, session_id, **kwargs):
         assert session_id == "opaque/runtime:id"
-        return schema.ResumeSessionResponse()
-
-    async def load_session(self, session_id, **kwargs):
-        assert session_id == "opaque/runtime:id"
-        if self.reject_load:
+        if self.reject_resume:
             raise RequestError(-32602, "unsupported setup")
-        return schema.LoadSessionResponse()
+        return schema.ResumeSessionResponse()
 
     async def list_sessions(self, **kwargs):
         return schema.ListSessionsResponse.model_validate({"sessions": [
@@ -179,18 +175,19 @@ async def test_mcp_setup_explicit_empty_and_omitted_preserve_standard_entries():
         sid = await client.new_session(cwd="/workspace", mcp_servers=entries)
         entries[0]["name"] = "caller-mutated"
         await client.resume_session(sid)
-        await client.load_session(sid, mcp_servers=[])
+        await client.resume_session(sid, mcp_servers=[])
         await client.resume_session(sid)
-        await client.load_session(sid, mcp_servers=original)
-        peer.reject_load = True
+        await client.resume_session(sid, mcp_servers=original)
+        peer.reject_resume = True
         with pytest.raises(ACPRequestError) as refusal:
-            await client.load_session(sid, mcp_servers=[])
+            await client.resume_session(sid, mcp_servers=[])
         assert refusal.value.code == -32602
+        peer.reject_resume = False
         await client.resume_session(sid)
-        frames = [f for direction, f in peer.frames if direction == "in" and f["method"] in ("session/new", "session/load", "session/resume")]
+        frames = [f for direction, f in peer.frames if direction == "in" and f["method"] in ("session/new", "session/resume")]
         assert [f["params"]["mcpServers"] for f in frames] == [original, original, [], [], original, [], original]
         for frame in frames:
-            model = {"session/new": schema.NewSessionRequest, "session/load": schema.LoadSessionRequest, "session/resume": schema.ResumeSessionRequest}[frame["method"]]
+            model = {"session/new": schema.NewSessionRequest, "session/resume": schema.ResumeSessionRequest}[frame["method"]]
             model.model_validate(frame["params"])
             assert "HYPER_ADDITIONAL_MCP_SERVERS" not in frame["params"]
 
@@ -244,14 +241,14 @@ async def test_setup_preserves_absolute_runtime_host_cwd_verbatim(cwd):
         assert setup[-1]["params"]["sessionId"] == sid
 
 
-async def test_resume_has_no_private_window_and_explicit_load_is_standard():
+async def test_resume_has_no_private_window_and_sends_standard_params():
     async with server() as (peer, url), await ACPClient.connect(url) as client:
         sid = await client.new_session(cwd="/workspace")
         with pytest.raises(TypeError):
             await client.resume_session(sid, cwd="/workspace", replay_from={"type": "start", "limit": 50})
-        await client.load_session(sid)
+        await client.resume_session(sid)
         inbound = [f for direction, f in peer.frames if direction == "in"]
-        assert [f["method"] for f in inbound] == ["initialize", "session/new", "session/load"]
+        assert [f["method"] for f in inbound] == ["initialize", "session/new", "session/resume"]
         assert inbound[-1]["params"] == {"sessionId": sid, "cwd": "/workspace", "mcpServers": []}
 
 

@@ -5,8 +5,8 @@ import * as acp from '@agentclientprotocol/sdk';
 import { CodingAgentAcpClient } from '../src/acp.js';
 
 it.each([
-  ['session/list', true], ['session/resume', true], ['session/load', true],
-  ['session/resume', false], ['session/load', false],
+  ['session/list', true], ['session/resume', true],
+  ['session/resume', false],
 ] as const)('retains native model config updates during %s (warm=%s)', async (method, warm) => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>(resolve => server.once('listening', resolve));
@@ -31,8 +31,7 @@ it.each([
   try {
     if (warm) await client.newSession();
     if (method === 'session/list') await client.listSessions();
-    else if (method === 'session/resume') await client.resumeSession('native-session');
-    else await client.loadSession('native-session');
+    else await client.resumeSession('native-session');
     await client.setModel('native-session', 'next');
     expect(requests.at(-1).params).toEqual({ sessionId: 'native-session', configId: 'native-model-option', value: 'next' });
   } finally {

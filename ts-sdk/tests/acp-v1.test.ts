@@ -21,7 +21,6 @@ async function peer() {
       .onRequest('initialize', () => ({ protocolVersion: 1, agentCapabilities: { loadSession: true } }))
       .onRequest('session/new', () => ({ sessionId: 'opaque/session' }))
       .onRequest('session/resume', () => ({}))
-      .onRequest('session/load', () => ({}))
       .onRequest('session/set_config_option', () => ({ configOptions: [] }))
       .onRequest('session/prompt', async ({ params, client }) => {
         emit = update => client.notify('session/update', { sessionId: params.sessionId, update });
@@ -107,12 +106,12 @@ it('does not confuse concurrent same-content prompt results', async () => {
   expect(await first).toEqual({ stopReason: 'end_turn' }); expect(await second).toEqual({ stopReason: 'max_tokens' });
 });
 
-it('emits exact v1 config, resume and load payloads without private cursor authoring', async () => {
+it('emits exact v1 config and resume payloads without private cursor authoring', async () => {
   const p = await peer(), { sessionId } = await p.client.newSession();
   await p.client.setConfigOption(sessionId, 'model', 'native');
-  await p.client.resumeSession(sessionId); await p.client.loadSession(sessionId);
+  await p.client.resumeSession(sessionId);
   expect(p.frames.find(f => f.method === 'session/set_config_option').params).toEqual({ sessionId, configId: 'model', value: 'native' });
-  for (const method of ['session/resume', 'session/load']) expect(p.frames.find(f => f.method === method).params).toEqual({ sessionId, cwd: '/workspace', mcpServers: [] });
+  expect(p.frames.find(f => f.method === 'session/resume').params).toEqual({ sessionId, cwd: '/workspace', mcpServers: [] });
   for (const frame of p.frames) {
     for (const key of ['_meta', 'replayFrom', 'from', 'limit']) expect(frame.params).not.toHaveProperty(key);
   }

@@ -430,16 +430,6 @@ impl AcpClient {
         self.state.dead.load(Ordering::SeqCst)
     }
 
-    /// Whether the peer advertises standard full-history load.
-    pub fn load_session_capable(&self) -> bool {
-        self.initialize_response
-            .lock()
-            .unwrap()
-            .pointer("/agentCapabilities/loadSession")
-            .and_then(Value::as_bool)
-            == Some(true)
-    }
-
     /// Take the `session/update` notification sink. Each item is the raw
     /// notification `params` object. Callable once; subsequent calls return
     /// `None`. The channel closes when the connection dies.
@@ -494,33 +484,6 @@ impl AcpClient {
         self.require_connection()?;
         let cwd = platform.deployment_runtime_cwd(deployment_id).await?;
         Ok(self.new_session(&cwd).await?)
-    }
-
-    /// Explicit full history load; never used as an attachment fallback.
-    pub async fn load_session(&self, cwd: &str, session_id: &str) -> Result<Value, AcpError> {
-        self.load_session_with_mcp_servers(cwd, session_id, None)
-            .await
-    }
-
-    /// None retains successful setup; Some(&[]) explicitly clears MCP entries.
-    pub async fn load_session_with_mcp_servers(
-        &self,
-        cwd: &str,
-        session_id: &str,
-        mcp_servers: Option<&[Value]>,
-    ) -> Result<Value, AcpError> {
-        let servers = self.session_mcp_servers(session_id, mcp_servers);
-        let result = self
-            .request(
-                "session/load",
-                json!({"sessionId":session_id, "cwd":cwd, "mcpServers":servers}),
-            )
-            .await?;
-        self.session_setups
-            .lock()
-            .unwrap()
-            .insert(session_id.to_owned(), (cwd.to_owned(), servers));
-        Ok(result)
     }
 
     /// Supported v1 resume; never substitutes a new session on failure.
@@ -964,9 +927,9 @@ mod tests {
             for (index, (method, servers)) in [
                 ("session/new", expected.clone()),
                 ("session/resume", expected.clone()),
-                ("session/load", vec![]),
                 ("session/resume", vec![]),
-                ("session/load", expected.clone()),
+                ("session/resume", vec![]),
+                ("session/resume", expected.clone()),
                 ("session/resume", vec![]),
                 ("session/resume", expected),
             ].into_iter().enumerate() {
@@ -990,12 +953,12 @@ mod tests {
             .unwrap();
         client.resume_session_stored(&sid).await.unwrap();
         client
-            .load_session_with_mcp_servers("/workspace", &sid, Some(&[]))
+            .resume_session_with_mcp_servers("/workspace", &sid, Some(&[]))
             .await
             .unwrap();
         client.resume_session_stored(&sid).await.unwrap();
         client
-            .load_session_with_mcp_servers("/workspace", &sid, Some(&entries))
+            .resume_session_with_mcp_servers("/workspace", &sid, Some(&entries))
             .await
             .unwrap();
         assert!(matches!(
@@ -1432,13 +1395,13 @@ mod tests {
                 )
                 .await;
 
-                let load = read_frame(&mut socket).await;
-                assert_eq!(load["method"], "session/load");
-                assert!(load["params"].get("replayFrom").is_none());
-                assert_eq!(load["params"]["sessionId"], "sess-1");
+                let resumed = read_frame(&mut socket).await;
+                assert_eq!(resumed["method"], "session/resume");
+                assert!(resumed["params"].get("replayFrom").is_none());
+                assert_eq!(resumed["params"]["sessionId"], "sess-1");
                 send_frame(
                     &mut socket,
-                    respond(load["id"].as_u64().unwrap(), json!({})),
+                    respond(resumed["id"].as_u64().unwrap(), json!({})),
                 )
                 .await;
 
@@ -1495,11 +1458,10 @@ mod tests {
         let client = AcpClient::connect(&url, "secret-token").await.unwrap();
         let mut updates = client.take_updates().unwrap();
         client.initialize().await.unwrap();
-        assert!(client.load_session_capable());
         let session_id = client.new_session("/workspace").await.unwrap();
         assert_eq!(session_id, "sess-1");
         client
-            .load_session("/workspace", &session_id)
+            .resume_session("/workspace", &session_id)
             .await
             .unwrap();
 
@@ -1773,7 +1735,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn explicit_load_preserves_peer_refusal_without_fallback() {
+    async fn peer_refusal_is_preserved_without_fallback() {
         let (url, server) = start_server(move |mut socket| async move {
             let init = read_frame(&mut socket).await;
             send_frame(
@@ -1782,7 +1744,7 @@ mod tests {
             )
             .await;
             for method in [
-                "session/load",
+                "session/resume",
                 "session/new",
                 "session/list",
                 "session/close",
@@ -1805,10 +1767,8 @@ mod tests {
 
         let client = AcpClient::connect(&url, "token").await.unwrap();
         client.initialize().await.unwrap();
-        assert!(!client.load_session_capable());
-
         let error = client
-            .load_session("/workspace", "sess-stale")
+            .resume_session("/workspace", "sess-stale")
             .await
             .unwrap_err();
         match &error {
@@ -1818,7 +1778,7 @@ mod tests {
                 message,
                 data,
             } => {
-                assert_eq!(method, "session/load");
+                assert_eq!(method, "session/resume");
                 assert_eq!(data, &None);
                 assert_eq!(*code, Some(-32601));
                 assert_eq!(message, "peer refusal");
