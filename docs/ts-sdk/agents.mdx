@@ -385,9 +385,9 @@ Authentication remains runtime-specific:
 
 | Runtime | Current SDK behavior |
 | --- | --- |
-| OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
-| Codex | Discovers adapter methods and adds native device login, status, and logout |
-| Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
+| OpenCode | Lists native provider login methods; exposes login, status, and logout |
+| Codex | Lists native device login; exposes login, status, and logout |
+| Claude Code | Lists Claude.ai, Console, and SSO login; exposes login, status, and logout |
 | Goose | SDK status discovery and noninteractive logout are unsupported |
 | Kimi Code | Native login; SDK status discovery and noninteractive logout are unsupported |
 
@@ -433,7 +433,8 @@ A typed Buzz launch:
 - defaults `size` to `"large"` (only `"large"` or `"medium"` are accepted) and
   forces `restart: false`;
 - clears public routes and selects
-  `command: ["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, preserving the image entrypoint;
+  `command: ["/usr/local/bin/hyper-acp"]` for container launches (or
+  `["hyper-acp"]` for process execution), preserving the image entrypoint;
 - derives the selected runtime's ACP child command;
 - selects the normal coding runtime image; only native Buzz Agent uses
   `hypercli-buzz-agent`;
@@ -458,7 +459,7 @@ the public SDK integration boundary.
 Routes are a generic dict keyed by route name. Outside the OpenClaw helper methods, the SDK does not inject route defaults.
 
 ```ts
-const agent = await client.deployments.create({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "docs-demo",
   routes: {
     app: { prefix: "app", port: 8080, auth: false },

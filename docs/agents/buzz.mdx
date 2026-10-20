@@ -55,10 +55,11 @@ The persistent root is `/home/node`; `/home/node/shared` is reserved for
 Workspace projections. Runtime-specific sync policies and authentication
 requirements are described in [coding runtimes](/agents/coding-runtimes).
 
-The agent private key and caller environment become deployment environment
-values. Treat access to deployment configuration, environment, and exec as
-sensitive. The default logging filter disables ACP stream-content logging;
-overriding it may expose generated text.
+The TypeScript renderer puts `BUZZ_PRIVATE_KEY` and the optional `BUZZ_AUTH_TAG`
+in launch secrets; relay and runtime settings are launch environment values.
+Secrets are made available to the runtime at launch. Treat environment and
+exec access as sensitive. The default logging filter disables ACP
+stream-content logging; overriding it may expose generated text.
 
 Use the public deployment APIs or [CLI](/cli/commands/agents) for status, logs,
 stop, and delete. SDK request rendering alone does not establish desktop,
