@@ -4,8 +4,7 @@ description: Python SDK helpers for creating, starting, and calling Hermes Agent
 ---
 
 Use `client.deployments.create_agent("hermes_acp", ...)` for the managed
-Hermes runtime. The helper selects image
-`ghcr.io/hypercli/hypercli-hermes:latest`, sync root `/home/hermes`,
+Hermes runtime. The helper selects the [Hermes image family](/agents/images), sync root `/home/hermes`,
 `sync_exclude=["shared/**"]`, and UID/GID `10000`.
 
 ## Create
@@ -20,6 +19,8 @@ agent = client.deployments.create_agent(
     name="hermes",
     size="small",
 )
+client.deployments.wait_for_state(agent.id, {"STOPPED"}, timeout=330)
+agent = client.deployments.start(agent.id)
 agent = agent.wait_running()
 ```
 

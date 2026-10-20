@@ -3,7 +3,9 @@ title: TUI
 description: Follow jobs with live logs and metrics from the terminal UI.
 ---
 
-The CLI includes a full-screen job monitor driven by the `hyper jobs logs --tui` path.
+The legacy Python CLI (`hypercli-cli`) includes a full-screen job monitor
+through `hyper jobs logs --tui`. The current TypeScript CLI does not implement
+the TUI or `jobs metrics`; use `hyper jobs logs --follow` for streaming logs.
 
 ## Launch The TUI
 

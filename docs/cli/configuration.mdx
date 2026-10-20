@@ -25,7 +25,9 @@ hyper me --output json
 Use it to verify identity and key capabilities before a billed operation. Its
 output contains account identifiers and should not be pasted into public logs.
 
-`hyper status` queries compact model and cluster health through the agents API:
+The legacy Python CLI's `hyper status` queries compact model and cluster health
+through the agents API. The TypeScript CLI does not register this command; use
+`hyper me` to inspect identity and entitlements.
 
 ```bash
 hyper status

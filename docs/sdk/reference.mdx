@@ -79,12 +79,12 @@ Major methods:
 - `models()`
 - convenience inference helpers such as `chat()` and `openai()`
 
-## `client.deployments`
+## Billing-backed helpers
 
 Billing-backed deployment helpers:
 
-- `purchase_entitlement_from_balance(plan_id, duration=..., tags=None, extend_existing=None)`
-- `redeem_grant_code(code, extend_existing=None)`
+- `client.agent.purchase_entitlement_from_balance(plan_id, duration=..., tags=None, extend_existing=None)`
+- `client.deployments.redeem_grant_code(code, extend_existing=None)`
 
 Important account types:
 

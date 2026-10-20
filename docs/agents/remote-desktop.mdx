@@ -52,8 +52,9 @@ await client.deployments.desktopUrl(agentId, { redirect: "vnc.html", resize: "sc
 ```
 
 ```python
-client.deployments.refresh_token(agent_id)  # mints the token
-url = agent.browser_desktop_url(token)
+agent = client.deployments.get(agent_id)
+access = client.deployments.refresh_token(agent_id)
+url = agent.browser_desktop_url(access["token"])
 ```
 
 Both throw when the agent is not running or the desktop route is not enabled.

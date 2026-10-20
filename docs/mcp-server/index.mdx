@@ -3,7 +3,10 @@ title: MCP Server
 description: Connect AI assistants to HyperCLI using Model Context Protocol
 ---
 
-The HyperCLI MCP server exposes the full HyperCLI API via [Model Context Protocol](https://modelcontextprotocol.io), enabling AI assistants like Claude to manage GPU jobs, check balances, and more.
+The hosted HyperCLI MCP endpoint exposes platform tools through
+[Model Context Protocol](https://modelcontextprotocol.io). Discover the tool
+catalog from the connected server; availability depends on the deployment
+and your credentials.
 
 ## Endpoint
 
@@ -17,13 +20,13 @@ Provide your API key as a Bearer token in the Authorization header. Get your API
 
 ## Claude Code
 
-Add to your Claude Code MCP settings (`~/.claude/settings.json`):
+For clients accepting HTTP MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "hypercli": {
-      "type": "url",
+      "type": "http",
       "url": "https://api.hypercli.com/api/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -40,27 +43,16 @@ claude mcp add hypercli --transport http https://api.hypercli.com/api/mcp \
   --header "Authorization: Bearer YOUR_API_KEY"
 ```
 
-## Claude Desktop
+## Other clients
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "hypercli": {
-      "type": "url",
-      "url": "https://api.hypercli.com/api/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
-    }
-  }
-}
-```
+Use your client's remote HTTP MCP setup and configure the endpoint and bearer
+header above. Client-specific configuration files and remote-server support
+vary; a stdio-only client cannot consume an HTTP URL as an executable command.
 
 ## Available Tools
 
-Once connected, Claude can use these tools:
+The following are examples from the platform catalog. Use MCP `tools/list`
+for the connected server's authoritative names, descriptions, and input schemas:
 
 | Tool | Description |
 |------|-------------|

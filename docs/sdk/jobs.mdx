@@ -112,11 +112,10 @@ job = client.jobs.get("job_id")
 
 `elapsed` and `time_left` are safe to use even against older Orchestra deployments that still return stale runtime counters, because the SDK recomputes them from the job timestamps when needed.
 
-## Logs, Metrics, Exec, And Lifecycle
+## Logs, Exec, And Lifecycle
 
 ```python
 client.jobs.logs(job.job_id)
-client.jobs.metrics(job.job_id)
 client.jobs.exec(job.job_id, ["nvidia-smi"], timeout=30)
 client.jobs.extend(job.job_id, 7200)
 client.jobs.cancel(job.job_id)

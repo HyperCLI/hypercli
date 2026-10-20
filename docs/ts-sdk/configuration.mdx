@@ -142,7 +142,6 @@ import {
   DEFAULT_API_URL,
   DEFAULT_AGENTS_API_BASE_URL,
   DEFAULT_AGENTS_WS_URL,
-  DEFAULT_WS_URL,
 } from "@hypercli.com/sdk";
 ```
 
@@ -163,8 +162,7 @@ const client = new HyperCLI({
 The SDK exports a few image helpers used by the workflow wrappers:
 
 ```ts
-import { GHCR_IMAGES, COMFYUI_IMAGE } from "@hypercli.com/sdk";
+import { COMFYUI_IMAGE } from "@hypercli.com/sdk";
 ```
 
-- `GHCR_IMAGES`: base GitHub Container Registry namespace
 - `COMFYUI_IMAGE`: default image used by `ComfyUIJob`

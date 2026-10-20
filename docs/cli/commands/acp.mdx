@@ -1,0 +1,20 @@
+---
+title: hyper acp attach
+description: Publish a local attachment through a running Hyper-ACP host.
+---
+
+```bash
+hyper acp attach --file ./report.pdf --session-id <session-uuid>
+```
+
+This TypeScript CLI command calls the local host's `attach_file` MCP tool.
+It requires a running Hyper-ACP listener and `HYPER_AGENTS_API_KEY` in the
+runtime environment. Omit `--session-id` when `HYPER_SESSION_ID` is already
+set. File paths resolve on the CLI host.
+
+The listener is `http://127.0.0.1:18521/mcp` by default. Set
+`HYPER_ACP_MCP_PORT` for a different port. If `HYPER_ACP_MCP_SERVER` is set,
+it must match that loopback endpoint.
+
+An attachment is a host tool operation, not an ACP protocol extension. A
+failed request may have uncertain delivery; do not automatically retry it.

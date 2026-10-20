@@ -5,6 +5,28 @@ description: Recommended media generation commands, with optional x402 pay-per-u
 
 `hyper flow` is the recommended CLI surface for media generation.
 
+## TypeScript CLI
+
+```bash
+hyper flow create text-to-image --prompt "a cinematic landscape"
+hyper flow create image-to-video --prompt "slow camera push" --image-url https://example.com/image.png
+hyper flow list
+hyper flow status <render_id>
+hyper flow wait <render_id> --timeout 600
+hyper flow cancel <render_id> --yes
+```
+
+Use `hyper flow create --help` for supported types and typed flags. Repeated
+`--param key=value` options pass additional parameters; `--dry-run` prints the
+resolved request without submitting it. Upload local assets with
+`hyper files upload` and pass their IDs with `--file-ids`.
+
+## Legacy Python CLI
+
+The remaining sections describe `hypercli-cli` only. Its shortcut commands,
+local-path uploads, `--watch`, and `--x402` flags are not implemented by the
+TypeScript CLI.
+
 ## Billing Order
 
 Normal flow commands use this order automatically:

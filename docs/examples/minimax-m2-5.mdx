@@ -5,6 +5,9 @@ description: Deploy MiniMax M2.5 (229B MoE, 10B active) on 4x RTX Pro 6000 GPUs.
 
 # Deploying MiniMax M2.5
 
+The `hyper instances` commands in this recipe require the legacy Python CLI
+(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+
 [MiniMax M2.5](https://huggingface.co/MiniMaxAI/MiniMax-M2.5) is a 229 billion parameter Mixture-of-Experts model (10B active) that ranks #1 among open-source models on coding, math, science, and agentic tasks. It ships as native FP8, supports 196K context, and includes built-in reasoning with tool calling. This guide deploys it on 4x RTX Pro 6000 GPUs using vLLM.
 
 ## Requirements

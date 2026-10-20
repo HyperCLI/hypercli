@@ -33,8 +33,8 @@ const team = await client.workspaces.get("team-knowledge");
 const matches = await client.workspaces.search("launch handoff", {}, { vector: true });
 ```
 
-`workspaceRef` accepts a workspace ID, slug, or name. `search(query, subject?,
-{ vector? })` hits the backend search endpoint with vector search enabled by
+`workspaceRef` accepts a workspace ID, slug, or name.
+`search(query, subject?, { vector? })` hits the backend search endpoint with vector search enabled by
 default; pass `{ vector: false }` for keyword-only search.
 
 ## Create, Update, Delete
@@ -220,6 +220,7 @@ not paste them into public logs.
 const { content, path, name } = await client.workspaces.downloadFileBytes(
   "team-knowledge",
   "projects/example/report.pdf",
+  {}, // optional subject context
   { raw: true },
 );
 ```

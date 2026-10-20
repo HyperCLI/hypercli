@@ -3,6 +3,10 @@ title: hyper workspaces
 description: Manage shared Workspaces, uploaded originals, Markdown projections, search, sync, enrichment, and grants.
 ---
 
+This command group belongs to the legacy Python CLI (`hypercli-cli`), which is
+end-of-life. The current SDKs expose [Workspace APIs](/ts-sdk/workspaces);
+`@hypercli.com/cli` has no `workspaces` group.
+
 ## Overview
 
 `hyper workspaces` manages durable shared Workspaces. A Workspace stores versioned original files, generates deterministic `.tomd` Markdown projections, injects frontmatter when projections are accessed, supports search, and can be granted to agents for sync into `/home/node/shared`.

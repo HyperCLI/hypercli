@@ -4,8 +4,7 @@ description: TypeScript SDK helpers for creating, starting, and calling Hermes A
 ---
 
 Use `client.deployments.createAgent("hermes_acp", ...)` for the managed
-Hermes runtime. The helper selects image
-`ghcr.io/hypercli/hypercli-hermes:latest`, sync root `/home/hermes`,
+Hermes runtime. The helper selects the [Hermes image family](/agents/images), sync root `/home/hermes`,
 `syncExclude: ["shared/**"]`, and UID/GID `10000`.
 
 ## Create
@@ -19,6 +18,8 @@ let agent = await client.deployments.createAgent("hermes_acp", {
   name: "hermes",
   size: "small",
 });
+await client.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
+agent = await client.deployments.start(agent.id);
 agent = await agent.waitRunning();
 ```
 

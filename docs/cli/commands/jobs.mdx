@@ -3,16 +3,27 @@ title: hyper jobs
 description: Inspect jobs, stream logs, watch metrics, exec commands, and open shells.
 ---
 
+This page describes the current TypeScript CLI unless a section is marked
+Python-only.
+
+## Create
+
+```bash
+hyper jobs gpus
+hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 --gpu l40s -- nvidia-smi
+```
+
+Use `--dry-run` to validate a create request without launching a job.
+
 ## list
 
 ```bash
 hyper jobs list
 hyper jobs list --state running
-hyper jobs list --tag team=ml --tag env=prod
 hyper jobs list --output json
 ```
 
-The CLI resolves repeated `--tag KEY=VALUE` flags into API tag filters.
+Repeated `--tag KEY=VALUE` filters are a legacy Python CLI option.
 
 ## get
 
@@ -29,11 +40,11 @@ Job IDs can be full UUIDs or recent prefixes when the prefix is unambiguous.
 hyper jobs logs <job_id>
 hyper jobs logs <job_id> --tail 200
 hyper jobs logs <job_id> --follow
-hyper jobs logs <job_id> --tui
-hyper jobs logs <job_id> --tui --cancel-on-exit
 ```
 
-## metrics
+The `--tui` and `--cancel-on-exit` log options are Python-only.
+
+## metrics (Python only)
 
 ```bash
 hyper jobs metrics <job_id>
@@ -45,14 +56,14 @@ hyper jobs metrics <job_id> --output json
 
 ```bash
 hyper jobs exec <job_id> nvidia-smi
-hyper jobs exec <job_id> python -- -c 'import torch; print(torch.cuda.device_count())'
+hyper jobs exec <job_id> -- python -c 'import torch; print(torch.cuda.device_count())'
 ```
 
 Important flag:
 
-- `--timeout`, `-t`
+- `--timeout`
 
-## shell
+## shell (Python only)
 
 ```bash
 hyper jobs shell <job_id>
@@ -64,7 +75,7 @@ This opens an interactive PTY over WebSocket.
 ## extend
 
 ```bash
-hyper jobs extend <job_id> 7200
+hyper jobs extend <job_id> --seconds 7200
 ```
 
 ## cancel
@@ -75,7 +86,7 @@ hyper jobs cancel <job_id>
 
 ## Creating Jobs
 
-New job creation lives under:
+The legacy Python CLI creates jobs under:
 
 ```bash
 hyper instances launch ...

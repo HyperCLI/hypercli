@@ -1,61 +1,48 @@
 ---
-title: Supported Runtime Images
-description: Public Agent runtime images, runtime names, and tag semantics
+title: Runtime Images
+description: Managed runtime image families and explicit image overrides.
 ---
 
-HyperCLI publishes supported Agent runtime images under
-`ghcr.io/hypercli`. The Python and TypeScript helpers select the right image
-for each managed runtime, so most applications should choose a runtime family
-instead of hand-pinning an image.
+Python and TypeScript managed-runtime helpers select image and storage settings
+for each runtime. Prefer choosing the runtime rather than copying an image
+default from an older example.
 
-## Image Inventory
+## Image families
 
-| Runtime | Backend runtime | Public image |
+All image names below are under `ghcr.io/hypercli/`.
+
+| Runtime | SDK runtime | Image repository |
 | --- | --- | --- |
-| OpenClaw | `openclaw_acp` | `ghcr.io/hypercli/hypercli-openclaw:prod` |
-| Hermes Agent | `hermes_acp` | `ghcr.io/hypercli/hypercli-hermes:latest` |
-| Buzz Agent | `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| OpenCode | `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
-| Goose | `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
-| Codex | `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| Claude Code | `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
-| Kimi Code | `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
-| Pi | `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
+| OpenClaw | `openclaw_acp` | `hypercli-openclaw` |
+| Hermes | `hermes_acp` | `hypercli-hermes` |
+| Buzz Agent | `buzz-agent` | `hypercli-buzz-agent` |
+| OpenCode | `opencode` | `hypercli-opencode` |
+| Goose | `goose` | `hypercli-goose` |
+| Codex | `codex` | `hypercli-codex` |
+| Claude Code | `claude-code` | `hypercli-claude` |
+| Kimi Code | `kimi-code` | `hypercli-kimi-code` |
+| Pi | `pi` | `hypercli-pi` |
 
-OpenClaw supports desktop through explicit environment and route configuration.
-Hermes runs ACP-only. Coding
-runtimes use vanilla `hyper-acp`; Buzz launches select `hyper-acp` with Buzz credentials
-with Buzz-specific environment.
+OpenClaw desktop uses the same image with explicit environment and routes.
+Buzz configuration retains the chosen coding runtime's image. Generic
+deployments and Rust requests require an explicit image selection.
 
-Base and internal images, including `hypercli-buzz-base`, registry-local
-`:latest` images, and CI smoke images, are implementation details. They are not
-the user-facing launch targets.
+## Tags and overrides
 
-## Tag Semantics
+The production channel is `:prod`; `:latest` is the development channel.
+These are mutable tags, not release-version or immutable build identifiers.
+An explicit `image` option overrides helper selection. For an older installed
+SDK, pass the intended tag explicitly rather than assuming its default has
+the current channel policy.
 
-Use helper-selected defaults for normal launches. The helpers track the
-supported runtime names from the backend launch contract and choose the current
-public image for that runtime.
+```ts
+const agent = await client.deployments.createAgent("opencode", {
+  name: "custom-image",
+  image: "ghcr.io/hypercli/hypercli-opencode:prod",
+});
+```
 
-OpenClaw production tags are promotion tags:
-
-- `hypercli-openclaw:prod` is promoted from a tested internal `:latest`.
-
-The Buzz coding images and Hermes publish tested short-SHA tags and public
-`:latest` tags. A successful promotion means the image-specific contract tests
-and runtime E2E gates for that family have passed.
-
-For smoke tests, E2E tests, and release validation, use an immutable SHA tag or
-an explicit non-promoted candidate image when the test is meant to validate a
-new build. Do not use a moving promotion tag to prove the candidate under test.
-
-For user documentation and examples, prefer runtime helpers and omit `image`
-unless the example is about advanced image override behavior. If you do pin an
-image, pin the smallest supported public tag that expresses your intent.
-
-## Overrides
-
-The generic Agent API accepts an explicit `image` override. Use it for custom
-containers or advanced debugging. Managed runtime helpers should normally own
-image selection because routes, authentication, sync defaults, and runtime
-commands differ by family.
+An image name in this catalog does not prove that a particular candidate build
+has been published or passed a live runtime test. Check the selected registry
+tag when choosing a custom build. See [coding runtimes](/agents/coding-runtimes)
+for authentication and persistence defaults.

@@ -144,7 +144,7 @@ For account-facing billing and capacity screens, prefer `client.agent.entitlemen
 ## Create
 
 ```ts
-const agent = await client.deployments.create({
+const agent = await client.deployments.createAgent("openclaw_acp", {
   name: "docs-demo",
   size: "medium",
   env: { APP_ENV: "prod" },
@@ -239,7 +239,7 @@ does not proxy, redirect, or archive file traffic. Data is copied from object
 storage to the PVC only during
 an explicit cold restore; ordinary start reuses the retained PVC. See
 [Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
-and the complete lifecycle and full-PVC archive semantics.
+and storage semantics.
 
 `env` and `secrets` are separate string records. A key cannot appear in both.
 The slack relay keys (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_USER_TOKEN`,
@@ -305,7 +305,7 @@ The protected noVNC route is `desktop-<agent>.hypercli.app`.
 OpenClaw helpers only add defaults on top of that generic launch surface:
 
 - `image`
-  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`
+  selects the [OpenClaw image family](/agents/images)
 - `routes`
   explicit desktop configuration includes the protected `desktop` route; otherwise no routes
   are injected
@@ -354,15 +354,15 @@ const agent = await client.deployments.createAgent("openclaw_acp", {
 Seven hosted coding runtimes share one launch helper,
 `createAgent(runtime, ...)`:
 
-| Runtime value | Generic default image |
+| Runtime value | Image repository (see [tags](/agents/images)) |
 | --- | --- |
-| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
-| `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
-| `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
-| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
-| `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
+| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent` |
+| `opencode` | `ghcr.io/hypercli/hypercli-opencode` |
+| `codex` | `ghcr.io/hypercli/hypercli-codex` |
+| `claude-code` | `ghcr.io/hypercli/hypercli-claude` |
+| `goose` | `ghcr.io/hypercli/hypercli-goose` |
+| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code` |
+| `pi` | `ghcr.io/hypercli/hypercli-pi` |
 
 These runtimes have no OpenClaw gateway and no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
@@ -370,6 +370,9 @@ use the authenticated deployment API:
 
 ```ts
 const codex = await client.deployments.createAgent("codex", { name: "codex" });
+await client.deployments.waitForState(codex.id, ["STOPPED"], 330_000);
+await client.deployments.start(codex.id);
+await client.deployments.waitForState(codex.id, ["RUNNING"], 300_000, ["FAILED"]);
 const methods = await codex.auth.methods();
 const status = await codex.auth.status();
 const login = await codex.auth.login({ method: "device" });
@@ -385,8 +388,8 @@ Authentication remains runtime-specific:
 | OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
 | Codex | Discovers adapter methods and adds native device login, status, and logout |
 | Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
-| Goose | Uses adapter discovery/status with the injected deployment credential; no noninteractive logout |
-| Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
+| Goose | SDK status discovery and noninteractive logout are unsupported |
+| Kimi Code | Native login; SDK status discovery and noninteractive logout are unsupported |
 
 OpenCode and Goose images default to HyperCLI's Anthropic-native
 `default-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps Moonshot's upstream service and
@@ -445,17 +448,10 @@ An explicit `image` overrides the default. `buzzEnabled` is the deprecated
 raw-environment compatibility path and cannot be combined with a typed `buzz`
 value or explicit `command`.
 
-The typed SDK renderer checks required identity fields but does
-not duplicate every stock Desktop cross-field validation. The Desktop provider
-also maps structured Goose model/provider fields to
-`GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
-environment when needed.
-
-Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
-stop callback. Hosted Buzz implements no chat shutdown command; use authenticated
-HyperCLI lifecycle APIs to stop or delete deployments.
-See [Buzz Desktop](/agents/buzz) for the full protocol,
-message-publishing, ownership, and security boundaries.
+The typed SDK renderer checks required identity fields. Set Goose-specific
+provider environment explicitly when needed. Use authenticated HyperCLI
+lifecycle APIs to stop or delete deployments. See [Buzz](/agents/buzz) for
+the public SDK integration boundary.
 
 ## Routes
 
@@ -547,9 +543,9 @@ Important fields:
 - `command`
 - `entrypoint`
 
-`launchEpoch` is the opaque monotonic identifier for one admitted launch. It
-can fence asynchronous reads and waits, but REST remains authoritative and
-clients should not reproduce the server state machine.
+`launchEpoch` attributes observations to one admitted launch; it is not
+lifecycle authority. Use REST state and credential validity rather than
+client-side epoch gates.
 
 Important properties:
 
@@ -680,8 +676,8 @@ explicit connection cwd, then the standard `session/list` catalog, in that order
 Explicit cwd works without listing support. Catalog errors remain errors;
 today's launch default is never used for resume. For a
 legacy session with no catalog setup, supply its original cwd explicitly.
-The raw Python and Rust SDK APIs continue to require an explicit cwd; callers
-can read the standard session catalog when resuming from a fresh client.
+Raw clients can supply an explicit cwd. Rust also provides
+`new_session_default` and `resume_session_stored`; see [Rust SDK](/rs-sdk/index).
 
 To mint a child key for one exact agent:
 

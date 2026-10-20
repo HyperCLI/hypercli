@@ -7,7 +7,8 @@ description: High-level image, video, speech, and transcription endpoints with f
 
 Flows are the recommended API surface for media generation on HyperCLI.
 
-Instead of manually choosing templates, GPUs, and regions for each request, you call a flow endpoint and HyperCLI handles the routing using defaults from infrastructure `flows.yaml`.
+Instead of manually choosing templates, GPUs, and regions for each request,
+call a flow endpoint and let the service choose its configured defaults.
 
 - Create flow jobs: `POST /api/flow/{flow_type}`
 - Poll flow renders: `GET /api/flow/renders/{render_id}/status`
@@ -28,7 +29,7 @@ curl https://api.hypercli.com/flows
 curl https://api.hypercli.com/flows/text-to-image
 ```
 
-## Current Flow Prices
+## Flow Price Examples
 
 | Flow | Price (USD) |
 |------|-------------|
@@ -43,7 +44,8 @@ curl https://api.hypercli.com/flows/text-to-image
 | `audio-to-text` | `0.01` |
 
 <Note>
-Source of truth is infrastructure `flows.yaml`. Use `GET /flows` at runtime to avoid stale client-side price tables.
+Prices can change. Use the public `GET /flows` catalog at runtime rather than
+depending on this illustrative price table.
 </Note>
 
 ## Auth and Billing Modes
@@ -65,9 +67,9 @@ See [x402 Top-Ups and Flow Checkout](/flows/x402).
 
 ```bash
 # Account-billed flow
-hyper flow text-to-image "a cinematic portrait"
+hyper flow create text-to-image --prompt "a cinematic portrait"
 
-# x402 pay-per-use flow
+# Legacy Python CLI only: x402 pay-per-use flow
 hyper flow text-to-image "a cinematic portrait" --x402
 ```
 

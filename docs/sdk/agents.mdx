@@ -47,7 +47,7 @@ summary = client.agent.subscription_summary()
 entitlements = client.agent.entitlements()
 entitlement_items = summary.entitlement_items
 subscriptions = client.agent.subscriptions()
-purchase = client.deployments.purchase_entitlement_from_balance(
+purchase = client.agent.purchase_entitlement_from_balance(
     "solo",
     duration=30 * 24 * 60 * 60,
     tags=["customer=acme"],
@@ -71,7 +71,7 @@ The key split is:
   change a recurring subscription to one canonical `plan_id` and `quantity`
 - `create_stripe_trial_checkout()`
   create the account's one-time Team trial checkout
-- `client.deployments.purchase_entitlement_from_balance()`
+- `client.agent.purchase_entitlement_from_balance()`
   charges Orchestra balance, creates a grant, then creates a new entitlement unless `extend_existing=True` is explicit
 - `client.deployments.redeem_grant_code()`
   applies an existing unapplied grant code to create a new entitlement unless the code or request explicitly extends
@@ -123,7 +123,7 @@ Those are account/inference helpers, not agent runtime helpers.
 The Python SDK exposes the prepaid entitlement surface through two existing
 namespaces:
 
-- `client.deployments.purchase_entitlement_from_balance(plan_id, duration=..., tags=..., extend_existing=False)`
+- `client.agent.purchase_entitlement_from_balance(plan_id, duration=..., tags=..., extend_existing=False)`
 - `client.deployments.redeem_grant_code(code, extend_existing=False)`
 
 Notes:
@@ -144,7 +144,7 @@ The Python SDK uses separate URLs for the primary product API and the agents API
 - deployment shell/log streams
   - use the agents WebSocket base derived from the agents REST base
 - `client.agent`
-  - uses the agents host for inference, deriving `/v1` from the agents REST base
+  - inference uses the product base with `/v1`, independently of Agent control
 
 Recommended setting:
 
@@ -162,7 +162,8 @@ This namespace manages agent runtimes.
 ### Create
 
 ```python
-agent = client.deployments.create(
+agent = client.deployments.create_agent(
+    "openclaw_acp",
     name="docs-demo",
     size="medium",
     env={"APP_ENV": "prod"},
@@ -214,7 +215,7 @@ client.deployments.stop("self")
 START uses the Backend-stored launch configuration and accepts only `dry_run`.
 It does not accept or repair `launch_config`; use `update(...,
 launch_config=...)` explicitly before starting when configuration must change.
-`self` is not accepted for lifecycle actions, delete, or key rotation.
+Use an explicit agent ID for delete or key rotation.
 
 This generic path does not inject any routes: openclaw agents ship no public
 gateway route post-cut (the pod gateway is a loopback ACP hop). Pass
@@ -246,7 +247,7 @@ are generic launch options. They belong to the base deployment contract, not
 to OpenClaw specifically. `registry_auth` is caller-held for private
 registries: the owner-facing Agent projection redacts it. Supply it when
 explicitly updating a private-registry launch config.
-Omit `restart` to preserve the platform default, or set `restart=False` for a
+The Python create helpers default to `restart=False` for a
 one-shot process that should leave the deployment stopped after its main
 container exits.
 
@@ -267,7 +268,7 @@ does not proxy, redirect, or archive file traffic. Data is copied from object
 storage to the PVC only during
 an explicit cold restore; ordinary start reuses the retained PVC. See
 [Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
-and the complete lifecycle and full-PVC archive semantics.
+and storage semantics.
 
 `env` and `secrets` are separate string dictionaries. A key cannot appear in
 both. Omitted `secrets` keys are preserved by the Backend; supply a key again
@@ -280,16 +281,13 @@ launch-config patches.
 
 ### OpenClaw Launch Shape
 
-The Python SDK has no OpenClaw-specific create/start helper; assemble the
-launch over the generic surface:
+Use `create_agent("openclaw_acp", ...)` for OpenClaw launch defaults:
 
 ```python
-agent = client.deployments.create(
+agent = client.deployments.create_agent(
+    "openclaw_acp",
     name="docs-demo",
     tags=["team=dev"],
-    runtime="openclaw",
-    image="ghcr.io/hypercli/hypercli-openclaw:prod",
-    sync_root="/home/node",
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
 agent = client.deployments.start(agent.id)
@@ -315,7 +313,7 @@ Use `routes=build_openclaw_desktop_route()` and `HYPER_DESKTOP_ENABLED=1` in
 `gateway.trustedProxies`; `build_openclaw_trusted_proxies_env([...])` builds
 that launch env.
 
-Everything else stays explicit on the generic launch surface:
+The managed helper also supplies storage and Workspace defaults:
 
 - `sync_root`
   a nonblank value (OpenClaw convention: `/home/node`) is the sole persistence
@@ -331,11 +329,9 @@ Memory search is configured by default, but automatic indexing is off unless you
 ```python
 from hypercli import build_openclaw_memory_index_env
 
-agent = client.deployments.create(
+agent = client.deployments.create_agent(
+    "openclaw_acp",
     name="indexed-agent",
-    runtime="openclaw",
-    image="ghcr.io/hypercli/hypercli-openclaw:prod",
-    sync_root="/home/node",
     env=build_openclaw_memory_index_env({
         "on_session_start": True,
         "on_search": True,
@@ -353,7 +349,7 @@ Registry fields are still inherited from the generic deployment API:
 ```python
 agent = client.deployments.create(
     name="private-image-demo",
-    runtime="openclaw",
+    runtime="openclaw_acp",
     image="ghcr.io/example/agent:latest",
     sync_root="/home/node",
     registry_url="registry.example.com",
@@ -366,15 +362,15 @@ agent = client.deployments.create(
 Seven hosted coding runtimes share one launch helper,
 `create_agent(runtime, ...)`:
 
-| Runtime value | Generic default image |
+| Runtime value | Image repository (see [tags](/agents/images)) |
 | --- | --- |
-| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
-| `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
-| `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
-| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
-| `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
+| `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent` |
+| `opencode` | `ghcr.io/hypercli/hypercli-opencode` |
+| `codex` | `ghcr.io/hypercli/hypercli-codex` |
+| `claude-code` | `ghcr.io/hypercli/hypercli-claude` |
+| `goose` | `ghcr.io/hypercli/hypercli-goose` |
+| `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code` |
+| `pi` | `ghcr.io/hypercli/hypercli-pi` |
 
 These runtimes have no public route by default.
 Lifecycle, files, exec, shell, workspace sync, and interactive authentication
@@ -382,6 +378,9 @@ use the authenticated deployment API:
 
 ```python
 codex = client.deployments.create_agent("codex", name="codex")
+client.deployments.wait_for_state(codex.id, {"STOPPED"}, timeout=330)
+client.deployments.start(codex.id)
+codex = client.deployments.wait_running(codex.id)
 methods = codex.auth.methods()
 status = codex.auth.status()
 
@@ -397,8 +396,8 @@ Authentication remains runtime-specific:
 | OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
 | Codex | Discovers adapter methods and adds native device login, status, and logout |
 | Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
-| Goose | Uses adapter discovery/status with the injected deployment credential; no noninteractive logout |
-| Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
+| Goose | SDK status discovery and noninteractive logout are unsupported |
+| Kimi Code | Native login; SDK status discovery and noninteractive logout are unsupported |
 
 OpenCode and Goose images default to HyperCLI's Anthropic-native
 `default-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps
@@ -410,28 +409,9 @@ inference, authentication, and selective-sync matrix.
 
 #### Buzz-managed identity launches
 
-The typed Buzz launch contract is TypeScript-SDK-only
-(`createAgent(runtime, { buzz: ... })`); the Python SDK's `create_agent`
-accepts no `buzz` option, and passing a `buzz` keyword raises `TypeError`.
-From Python, render the raw contract over the generic launch surface:
-
-```python
-agent = client.deployments.create_agent(
-    "opencode",
-    name="buzz-opencode",
-    env={
-        "BUZZ_RELAY_URL": relay_url,
-        "BUZZ_PRIVATE_KEY": agent_nsec,  # promoted to launch secrets
-    },
-)
-```
-
-`BUZZ_PRIVATE_KEY` and `NOSTR_PRIVATE_KEY` in `env` are promoted to launch
-secrets; the remaining `BUZZ_*` keys pass through as launch environment, and
-the managed image parses them at boot. The canonical ACP elements — command
-`["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, the runtime's ACP child
-command, empty public routes, and `restart=False` — are the caller's
-responsibility in a raw Python launch; the TS typed renderer owns them there.
+The Python SDK's `create_agent` accepts no `buzz` option; passing that keyword
+raises `TypeError`. The TypeScript and Rust SDKs provide typed Buzz launch
+renderers. See [Buzz](/agents/buzz) for their public configuration surfaces.
 
 Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
 (product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
@@ -453,15 +433,8 @@ The nest is reconciled after the persistent home mount. The plugin sends ordinar
 ACP turns; native runtime configuration supplies instructions, not a compiled
 Buzz prompt. An explicit `image=` overrides the default.
 
-The Desktop provider maps structured Goose model/provider fields to
-`GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
-environment when needed.
-
-Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
-stop callback. Hosted Buzz implements no chat shutdown command; use authenticated
-HyperCLI lifecycle APIs to stop or delete deployments.
-See [Buzz Desktop](/agents/buzz) for the full protocol,
-message-publishing, ownership, and security boundaries.
+Set Goose-specific provider environment explicitly when needed. Use
+authenticated HyperCLI lifecycle APIs to stop or delete deployments.
 
 ### Route Configuration
 
@@ -588,9 +561,9 @@ A hydrated `Agent` contains:
 - `command`
 - `entrypoint`
 
-Lifecycle and restore states are forward-compatible strings. `launch_epoch` is
-an opaque monotonic identifier for fencing observations from older launches;
-clients must not implement the server state machine from it.
+Lifecycle and restore states are forward-compatible strings. `launch_epoch`
+attributes observations to a launch; it is not lifecycle authority. Use REST
+state and credential validity rather than client-side epoch gates.
 
 Important computed properties:
 

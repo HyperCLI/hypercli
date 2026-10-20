@@ -3,13 +3,15 @@ title: Coding Runtimes and Persistence
 description: Inference, authentication, and selective-sync defaults for managed coding agents, OpenClaw, and Hermes
 ---
 
-HyperCLI provides six ACP coding-runtime container families plus the OpenClaw
+HyperCLI provides seven ACP coding-runtime container families plus the OpenClaw
 runtime and the ACP-native Hermes runtime. The ACP families and OpenClaw
 use `/home/node`; Hermes uses `/home/hermes`. They do not all use the same
 inference, API-authentication, or backup policy.
 
-The Python and TypeScript coding-agent helpers apply the defaults below. A
-Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
+The Python and TypeScript coding-agent helpers apply the defaults below.
+Their selected state also includes `.hypercli/USER.md` and `.hypercli/SOUL.md`
+for persona persistence. A
+Buzz-managed launch retains the corresponding runtime image and adds
 `hyper-acp` with Buzz credentials; it does not change the runtime's native authentication intent.
 
 ## Runtime matrix
@@ -22,6 +24,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
+| Pi | Runtime-specific provider configuration. | `.pi` | Native authentication status discovery is not supported by the SDK helper. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw drives sessions over the in-pod ACP bridge; its gateway binds loopback with auth mode `none`. Update its persisted `.openclaw/openclaw.json` through `hyper agents exec`-style edits at rest, then restart. |
 | Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is ACP-native; sessions run through the backend ACP bridge like the coding harnesses. |
 
@@ -40,7 +43,7 @@ complete configuration; HyperCLI does not mix a vendor URL with a platform
 credential.
 
 Hermes launches as runtime `hermes_acp` with
-`ghcr.io/hypercli/hypercli-hermes:latest` and exposes no public route by
+the [Hermes image family](/agents/images) and exposes no public route by
 default; the pod's hyper-acp child dials the backend ACP bridge. The SDK seeds
 no authentication material and never substitutes caller-supplied secrets for
 the backend-injected model credential.
@@ -102,20 +105,16 @@ restore source. Reef always reserves `.reef-sync/**` and
 `.reef-sync-upload/**`; those internal paths are excluded even in full-root
 mode.
 
-Archive is a storage-lifecycle boundary rather than another selective-sync
-pass. After the runtime and steady watcher are quiescent, it copies and verifies
-the complete PVC minus Reef's two internal paths, regardless of the user's
-include/exclude policy, and then evicts the cluster-local object prefix. This
-captures ordinary local deletions exactly in the committed archive. An empty
-include still selects no user objects during restore; consequently, a cold
-restore with that policy cannot currently prove a selected source and fails.
+Archive and restore are separate deployment operations. Wait for their
+authoritative states before issuing the next operation. An empty include list
+is invalid; use an omitted policy or an empty exclude list for whole-root sync.
 
 ## Container families
 
 Coding-agent helpers select the supported public image for the requested
 runtime. Buzz-managed launches use the same runtime images and select Buzz mode
 with `/usr/local/bin/hyper-acp` plus `BUZZ_ACP_*` environment. Only
-native Buzz Agent uses `hypercli-buzz-agent:latest`. An explicit immutable
+native Buzz Agent uses the `hypercli-buzz-agent` image family. An explicit
 `image` override still wins.
 
 No runtime ships a public route by default. Use authenticated deployment

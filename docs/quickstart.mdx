@@ -52,7 +52,9 @@ See [Inference](/inference/index) for the current model lineup.
 
 ```bash
 hyper agents create my-agent --runtime openclaw
+hyper agents wait my-agent --state STOPPED
 hyper agents start my-agent
+hyper agents wait my-agent --state RUNNING
 hyper agents shell my-agent
 ```
 

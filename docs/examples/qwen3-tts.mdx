@@ -5,6 +5,11 @@ description: Deploy Qwen3-TTS with voice cloning, preset voices, and voice desig
 
 # Qwen3 TTS — Voice Cloning on GPU
 
+The `hyper instances` commands in this recipe require the legacy Python CLI
+(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+This self-hosted model recipe is separate from the managed Voice API, which
+supports reference cloning rather than preset/design synthesis.
+
 [Qwen3-TTS](https://huggingface.co/Qwen/Qwen3-TTS) is Alibaba's text-to-speech model with native voice cloning — give it a reference audio clip and it reproduces that voice. This guide uses our optimized container with a REST API for cloning, preset voices, and voice design.
 
 ## Requirements

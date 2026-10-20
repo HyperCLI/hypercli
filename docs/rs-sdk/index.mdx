@@ -1,0 +1,70 @@
+---
+title: Rust SDK
+description: Use the public hypercli-sdk Rust crate for deployments and platform APIs.
+---
+
+The Rust SDK lives in `rs-sdk/` in the
+[public repository](https://github.com/HyperCLI/hypercli/tree/main/rs-sdk).
+The repository root is its Cargo workspace. The current source requires
+Rust 1.95 or newer.
+
+## Build from source
+
+```bash
+git clone https://github.com/HyperCLI/hypercli.git
+cd hypercli
+cargo check -p hypercli-sdk --locked
+cargo doc -p hypercli-sdk --no-deps --locked
+```
+
+For a local checkout, add a path dependency to your application's manifest:
+
+```toml
+[dependencies]
+hypercli-sdk = { path = "../hypercli/rs-sdk" }
+```
+
+This uses the checked-out source, not a claim that its development version is
+already published to crates.io. Generated API documentation is available at
+`target/doc/hypercli_sdk/index.html` after the documentation build.
+
+## Read deployments
+
+```rust
+use hypercli_sdk::{discover_client_config, HyperCliClient};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = HyperCliClient::new(discover_client_config()?)?;
+    for deployment in client.list_deployments()? {
+        println!("{} {}", deployment.id, deployment.state);
+    }
+    Ok(())
+}
+```
+
+Configuration reads `HYPER_API_KEY` and the shared `~/.hypercli/config`, with
+`HYPER_AGENTS_API_KEY` as the runtime fallback. Agent control can be selected
+independently through `HYPER_AGENTS_API_BASE`.
+
+The client includes blocking API methods. Construct and drop it outside a
+Tokio runtime; its async session API shares the configured HTTP transport.
+
+## Deployment and session APIs
+
+- `create_deployment` accepts `CreateDeploymentRequest`; set an explicit
+  `image`, since Rust does not choose runtime images.
+- `start_deployment` uses stored launch configuration. Update it through
+  `UpdateDeploymentRequest::launch_config` before starting when needed.
+- `wait_deployment_state` and `wait_deployment_running` are async state waiters.
+- `list_deployments_with_capacity` preserves entitlement-backed slot capacity.
+- `client.sessions()` reads retained session metadata and paginated messages.
+- `AcpClient` provides native ACP v1 requests, updates, and correlated prompt
+  results. Callers own connection initialization and reconnection.
+- `new_session_default(&platform, deployment_id)` resolves a new session's cwd
+  from runtime paths. `resume_session_stored(session_id, replay)` uses retained
+  or discovered setup for that existing session.
+
+ACP prompt completion is the native terminal response; REST history is a
+separate surface. Optional runtime capabilities remain runtime-dependent.
+See [deployment concepts](/agents/index), [image channels](/agents/images), and
+[Buzz configuration](/agents/buzz).

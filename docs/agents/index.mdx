@@ -11,13 +11,10 @@ an agent can provide:
 - **Desktop** — browser-accessible desktop on desktop-enabled OpenClaw runtimes
 - **Shell access** — backend WebSocket PTY terminal
 - **File system** — read/write files on the container
-- **Coding agents** — Buzz Agent, OpenCode, Goose, Codex, Claude Code, and Kimi Code
+- **Coding agents** — Buzz Agent, OpenCode, Goose, Codex, Claude Code, Kimi Code, and Pi
 
-For launching Buzz coding agents, see [Buzz](/agents/buzz): the
-[HyperCLI menubar app](/agents/buzz#path-a-hypercli-menubar-app) is the fastest
-path (click to launch, live CPU/RAM in the menu bar, chat from stock Buzz),
-and the [Buzz Desktop provider](/agents/buzz#path-b-buzz-desktop--hypercli-provider)
-lets stock Buzz Desktop launch the same runtimes from its "Run on" menu.
+For public SDK launch configuration for Buzz coding agents, see
+[Buzz](/agents/buzz).
 
 Agents are ideal for autonomous AI workflows, development environments,
 API-style services, or any task that needs a persistent Linux runtime with
@@ -70,33 +67,34 @@ Current auth split:
 Agents move through these states:
 
 ```
-CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPPING → STOPPED → ARCHIVING → ARCHIVED
+create → CREATING → STOPPED
+start  → STARTING → RUNNING
+stop   → STOPPING → STOPPED
+archive → ARCHIVING → ARCHIVED
+restore → RESTORING → STOPPED
 ```
 
 | State         | Description                                                |
 |---------------|------------------------------------------------------------|
 | `CREATING`    | Control plane is establishing the agent namespace          |
-| `PENDING`     | Runtime resources admitted and awaiting scheduling         |
-| `DOWNLOADING` | Runtime container image is being pulled                    |
+| `STARTING`    | Runtime start is in progress                               |
 | `RESTORING`   | Durable agent data is being restored                       |
-| `SYNCING`     | Agent workspace is being synchronized                      |
 | `RUNNING`     | Runtime healthy and endpoints accessible                   |
 | `STOPPING`    | Runtime cleanup accepted but still in progress              |
 | `STOPPED`     | Cleanup confirmed, configuration preserved, slot freed      |
 | `ARCHIVING`   | Warm storage is being finalized into an exact cold archive  |
-| `ARCHIVED`    | Backend terminal projection; cold-restorable, zero Lagoon resources |
+| `ARCHIVED`    | Cold-restorable archive retained                            |
 | `DELETED`     | Terminal deletion tombstone, normally hidden from reads      |
 | `FAILED`      | Lifecycle operation failed with diagnostics                |
 
-Boot stages can branch based on whether the runtime is warm, needs an image
-pull, or has durable data to restore. Do not infer a strict sequence beyond
-the authoritative snapshots.
+These are operation examples, not a closed client-side state machine. State
+strings are forward-compatible; always use authoritative REST snapshots.
 
 Do not treat `STOPPING` as stopped: cleanup is still active and its deployment
 slot remains occupied. Stopped agents retain warm local storage and can be
-restarted. Archived agents retain a Backend projection; a later start is a
-fresh admission that restores into a new namespace and PVC from cold storage.
-Deleted agents are gone permanently.
+restarted. Archived agents retain a restorable record. Restore and start are
+separate operations. Delete accepts a durable soft deletion; background cleanup
+may continue after the response.
 
 ## Health Monitoring
 
@@ -104,7 +102,7 @@ Agent health is monitored through the managed runtime connection rather than a
 public HTTP health endpoint. This approach:
 
 - Works through managed routing without exposing health endpoints
-- Detects application-level hangs (not just TCP connectivity)
+- Reports connection and runtime health through platform status
 - Integrates with the existing log streaming infrastructure
 
 ## Resources
@@ -117,7 +115,7 @@ HyperCLI billing now has two additive ledgers:
 Check your current slot inventory and pooled inference with:
 
 ```bash
-hyper agents budget
+hyper me
 ```
 
 ### Size Presets
@@ -140,7 +138,7 @@ Examples:
   slots, and more pooled inference
 
 <Tip>
-Use `hyper agents budget` to see granted, used, and available slots by tier before creating or starting agents.
+Use `hyper me` for entitlements, or SDK `listWithCapacity()` / `list_with_capacity()` for deployment capacity.
 </Tip>
 
 ## Next Steps

@@ -5,16 +5,14 @@ description: Create and control an OpenClaw managed runtime in a few commands.
 
 ## Prerequisites
 
-1. A HyperCLI key:
+1. A HyperCLI API key and an active agent entitlement from the
+   [console](https://console.hypercli.com).
+
+2. Node.js 22+ and the current CLI:
 
    ```bash
-   hyper agent subscribe solo
-   ```
-
-2. The CLI installed:
-
-   ```bash
-   pip install hypercli-cli
+   npm install -g @hypercli.com/cli
+   hyper configure
    ```
 
 ## Environment Variables
@@ -29,18 +27,19 @@ description: Create and control an OpenClaw managed runtime in a few commands.
 ## Create An Agent With The CLI
 
 ```bash
-hyper agents create --name my-agent --size small
-# after status reports STOPPED:
+hyper agents create my-agent --runtime openclaw --size small
+hyper agents wait my-agent --state STOPPED --timeout 330
 hyper agents start my-agent
+hyper agents wait my-agent --state RUNNING --timeout 300
 hyper agents status my-agent
 hyper agents exec my-agent echo hello world
 hyper agents shell my-agent
-hyper agents chat my-agent
-hyper agents stop my-agent --force
+hyper agents chat my-agent "Hello"
+hyper agents stop my-agent --yes
 ```
 
 <Tip>
-The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.json`.
+The CLI supports names and unambiguous ID prefixes.
 </Tip>
 
 ## Create An Agent With The Python SDK
@@ -48,14 +47,12 @@ The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.jso
 ```python
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
+client = HyperCLI()
 
-agent = client.deployments.create(
+agent = client.deployments.create_agent(
+    "openclaw_acp",
     name="my-agent",
     size="small",
-    runtime="openclaw",
-    image="ghcr.io/hypercli/hypercli-openclaw:prod",
-    sync_root="/home/node",
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
 agent = client.deployments.start(agent.id)
@@ -65,8 +62,8 @@ print(agent.id, agent.state, agent.vnc_url)
 result = client.deployments.exec(agent, ["echo", "hello world"])
 print(result.stdout)
 
-client.deployments.file_write(agent, "/tmp/test.txt", "Hello from SDK!")
-content = client.deployments.file_read(agent, "/tmp/test.txt")
+client.deployments.file_write(agent, "test.txt", "Hello from SDK!")
+content = client.deployments.file_read(agent, "test.txt")
 print(content)
 
 client.deployments.stop(agent.id)

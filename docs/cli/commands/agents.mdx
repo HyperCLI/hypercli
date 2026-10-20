@@ -1,356 +1,145 @@
 ---
 title: hyper agents
-description: Detailed reference for agent lifecycle, routes, files, exec, and backend shells/logs.
+description: TypeScript CLI reference for managed agents, sessions, routes, files, and runtime access.
 ---
 
-## Overview
+This page describes `@hypercli.com/cli`. Use `hyper agents --help` for the
+command inventory and `hyper agents <command> --help` for flags.
 
-`hyper agents` manages live HyperCLI deployments.
-
-It covers:
-
-- create / start / stop / delete
-- wait and status
-- file copy
-- one-shot exec
-- backend WebSocket shell
-- backend log streaming
-
-## Command Inventory
-
-| Area | Commands |
-| --- | --- |
-| Read-only discovery | `budget`, `list`/`ls`, `status`, `metrics`, `web-search` |
-| Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
-| Routes | `routes list`, `routes add`, `routes remove` |
-| Container access | `exec`, `cp`, `shell`, `logs`, `token` |
-| Compatibility chat | `chat` |
-
-Run `hyper agents <command> --help` for the current flags. Lifecycle, file
-writes, exec/shell, config patches, cron mutations, token refreshes, and relay
-key operations change remote state or expose sensitive output.
-
-## Environment Selection
+## Create, start, and inspect
 
 ```bash
-HYPER_API_BASE=https://api.dev.hypercli.com hyper agents
-```
-
-`HYPER_AGENTS_API_BASE` independently selects direct Agent control. REST and
-WebSocket endpoints derive from the product base only when no Agents base is supplied;
-`--agents-ws-url` is unsupported.
-
-## Current Route Defaults
-
-OpenClaw-backed agents use:
-
-- `desktop-<host>` = desktop when launched with the desktop/browser flavor
-- no default `shell-<host>` route
-
-Extra routes can be supplied at create/start time or reconciled dynamically on
-a running deployment. A deployment can have at most ten routes.
-
-## Dynamic Routes
-
-```bash
-hyper agents routes list <agent> --output table
-hyper agents routes add <agent> web --port 3000
-hyper agents routes add <agent> public --port 8080 --no-auth --prefix app
-hyper agents routes add <agent> root --port 3000 --root
-hyper agents routes remove <agent> web
-```
-
-`routes add` creates or replaces only the named route; it does not rewrite the
-other routes. Authentication is on by default. `--prefix NAME` publishes at a
-prefixed hostname, while `--root` selects the agent's root hostname. Those two
-flags are mutually exclusive. Use `--output table|json` for either human or
-machine output.
-
-Responses keep the reusable desired `routes` map separate from
-`route_statuses`, which contains resolved URLs and live infrastructure status.
-Route-limit and infrastructure errors come from the backend and are shown
-without replacing the rest of the route dictionary.
-
-Inside a managed runtime, the reserved target `self` selects the agent bound to
-the authenticated runtime key:
-
-```bash
-hyper agents status self
-hyper agents routes add self web -p 3000
-hyper agents stop self --force
-```
-
-`self` is accepted only for status, start, stop, and route operations. An
-in-runtime process cannot call `start self` after its own runtime has stopped; that form
-is intended for an out-of-band holder of a stable exact-agent key. `start self`
-uses the complete flat `launch_config` in the caller's protected local state,
-resolves the bound UUID through `GET /deployments/self`, and then uses ordinary
-UUID START. It fails when that complete local input is unavailable and rejects
-partial launch overrides.
-
-## Lifecycle
-
-### `create`
-
-```bash
-hyper agents create --name docs-demo --size medium
-# after status reports STOPPED:
+hyper agents create docs-demo --runtime openclaw --size small
+hyper agents wait docs-demo --state STOPPED --timeout 330
 hyper agents start docs-demo
-hyper agents create --name desktop-demo --desktop
-# after status reports STOPPED:
-hyper agents start desktop-demo
-```
-
-Important options:
-
-- `--name`
-- `--size`
-- `--desktop / --no-desktop`
-- `--env`
-- `--command`
-- `--entrypoint`
-- `--image`
-- `--registry-url`
-- `--registry-username`
-- `--registry-password`
-- `--dry-run`
-
-`create` admits provisioning and normally returns `CREATING`. It never launches
-the runtime. Wait until `status` reports `STOPPED`, then use the separate
-`hyper agents start <id-or-name>` command when the workspace is ready.
-
-Desktop/browser agents use the standard OpenClaw image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
-
-Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
-(product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
-appropriate ACP URL, and platform `HYPER_AGENTS_API_KEY`.
-Customer overrides of either base and `HYPER_API_KEY` in launch `env` or `secrets` are
-preserved. Clients prefer explicit and configured canonical credentials before
-the runtime fallback, allowing broader uses such as managing other agents.
-The launch owner's auth key is never automatically forwarded.
-The Agents base never selects inference. Explicit `HYPER_ACP_WS_URL` wins;
-otherwise derive from the Agents base, using the product base only if no Agents
-base is supplied. External inference URLs/keys must not implicitly redirect
-platform callbacks or reconnects; ACP uses the separate platform runtime key.
-Workspaces boot sync is configured by CLI/SDK helper options that render
-`HYPER_WORKSPACES_*` environment variables. There is no public
-`launch_config.workspacesSync` field.
-
-Memory search is configured by default, but automatic indexing is off unless you opt in:
-
-```bash
-hyper agents create \
-  --index-on-session-start \
-  --index-on-search \
-  --index-watch \
-  --index-watch-debounce-ms 30000 \
-  --index-interval-minutes 0
-```
-
-Use `--memory-search/--no-memory-search`, `--index-on-session-start/--no-index-on-session-start`, `--index-on-search/--no-index-on-search`, `--index-watch/--no-index-watch`, `--index-watch-debounce-ms`, and `--index-interval-minutes`. `0` interval minutes disables periodic sync.
-
-### `wait`
-
-```bash
-hyper agents wait <agent_id> --timeout 300
-```
-
-`wait` uses deployment events to wake authoritative REST state checks. The
-legacy `--poll-interval` option is deprecated and ignored.
-
-### `list`
-
-```bash
-hyper agents list
+hyper agents wait docs-demo --state RUNNING --timeout 300
+hyper agents status docs-demo
 hyper agents list --json
 ```
 
-The table is the safe default for resolving IDs, names, and states. JSON output
-includes the Backend-redacted `launch_config`; secret values and registry
-credentials are absent. It is not a restartable complete launch input.
-Private-registry `registry_auth` is caller-held and must come from the
-protected local launch state or be supplied again through registry flags before
-START.
+Create admits a deployment; start is a separate operation using its stored
+launch configuration. START does not accept image, environment, or desktop
+overrides. Status and list return snapshots; wait uses deployment events to
+wake authoritative REST checks.
 
-### `status`
+Runtime choices include `openclaw`, `hermes`, `generic`, `opencode`, `codex`,
+`claude-code`, `goose`, `kimi-code`, `pi`, and `buzz`. Names and unambiguous
+ID prefixes can be used to select agents.
 
-```bash
-hyper agents status <agent_id>
-hyper agents status self
-```
-
-### `metrics`
-
-Show the live CPU and memory usage reported for each process container in a
-running agent. Values use standard resource quantity units such as `m`, `n`,
-`Ki`, and `Mi`.
+Create options include `--image`, `--size`, repeated `--env KEY=VALUE` and
+`--secret KEY=VALUE`, `--sync-root`, `--sync-include` or `--sync-exclude`,
+registry credentials, runner placement, and `--dry-run`. Pass a custom
+command after `--`. See [runtime images](/agents/images) and
+[persistence](/agents/coding-runtimes).
 
 ```bash
-hyper agents metrics <agent_id>
-hyper agents metrics <agent_id> --json
+hyper agents create custom --runtime generic --image example/agent:prod \
+  --env LOG_LEVEL=info --dry-run -- /app/agent
 ```
 
-### `start`
+`hyper agents set runtime <id> <runtime>` resets the stored launch image to
+that runtime's default. Use it only when intentionally changing the runtime.
+
+## Environment selection
 
 ```bash
-hyper agents start <agent_id>
-hyper agents start self
-hyper agents start <agent_id> --desktop
-hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
+HYPER_API_BASE=https://api.dev.hypercli.com hyper agents list
 ```
 
-A zero-option START loads the complete launch configuration from protected
-local Agent state and fails clearly when it is unavailable. `start self` first
-resolves the bound UUID and uses that same local input. It rejects partial image,
-environment, route, registry, sync, and desktop overrides; `--dry-run` validates
-the same complete local configuration. START requires the complete flat
-`launch_config`; backend list/status projections are redacted and are not
-restart payloads.
+`HYPER_AGENTS_API_BASE` independently selects Agent control. When omitted,
+the Agents endpoint derives from the product base. See
+[configuration](/cli/configuration) for credential precedence.
 
-### `stop`
+## Chat and retained messages
 
 ```bash
-hyper agents stop <agent_id>
-hyper agents stop self --force
-hyper agents stop <agent_id> --wait --timeout 900
+hyper agents chat docs-demo "Summarize the project" --stream
+hyper agents chat docs-demo "Continue" --session work
+hyper agents messages <session-id> --limit 20
+hyper agents messages <session-id> --cursor <cursor>
 ```
 
-Without `--wait`, a successful request normally reports **Agent stopping**:
-the managed control plane has accepted cleanup, but the runtime and deployment
-slot may still be active. `--wait` uses deployment events to wake REST checks
-until the backend reports `STOPPED`.
+Chat uses ACP. `--cwd` supplies a runtime-host working directory;
+`--mcp-servers FILE` supplies session MCP configuration. Permission policy is
+selected with `--permissions auto|none`. Retained messages are platform REST
+history, separate from ACP prompt completion. `messages --follow` emits current
+snapshots rather than a durable event stream.
 
-`wait` and `stop --wait` are event-assisted. `create` returns the admission
-snapshot immediately. `list` and
-`status` are one-shot REST snapshots; there is no general-purpose
-`hyper agents watch` command.
-
-### `archive`
+For runtime-native login:
 
 ```bash
-hyper agents archive <agent_id>
+hyper agents login docs-demo
 ```
 
-Archive sends a bodyless request for a stopped agent and does not launch it.
-The accepted state is `ARCHIVING`.
+Available login flows depend on the selected runtime.
 
-### `restore`
+## Exec, files, shell, and logs
 
 ```bash
-hyper agents restore <agent_id>
+hyper agents exec docs-demo -- uname -a
+hyper agents cp ./local.txt docs-demo:local.txt
+hyper agents cp docs-demo:output.log ./output.log
+hyper agents shell docs-demo
+hyper agents logs docs-demo -n 200 -f
 ```
 
-Restore sends a bodyless request for a stopped agent. The backend reports
-`RESTORING` while it restores the archived state and returns the agent to
-`STOPPED`; use `start` after the restore completes.
+Exec and shell use authenticated backend WebSockets; no public shell route is
+required. File transfers obtain scoped credentials and transfer directly to
+the agent file service. Relative remote paths are relative to the sync root;
+the CLI also accepts absolute paths and `~/…`.
 
-### `delete`
+Captured logs support `--source both|stdout|stderr`,
+`--generation current|previous`, `--max-bytes`, and `--max-lines`. Runner
+captures are replacement snapshots, not a chronological merge of stdout and
+stderr. Logs may contain application data; avoid sharing sensitive output.
+
+## Routes
 
 ```bash
-hyper agents delete <agent_id> --force
+hyper agents routes list docs-demo
+hyper agents routes add docs-demo web --port 3000
+hyper agents routes add docs-demo public --port 8080 --no-auth --prefix app
+hyper agents routes remove docs-demo web
 ```
 
-Delete removes the runtime and its record. Use `stop` when the intent is to
-preserve the record and synced state.
+Named updates preserve other routes. Authentication is enabled by default.
+`--prefix` and `--root` are mutually exclusive. Desired route configuration
+and resolved `route_statuses` are separate response fields.
 
-## Safe Remote Inspection
+The base OpenClaw launch has no public route. Desktop access requires explicit
+environment and route configuration; see [remote desktop](/agents/remote-desktop).
 
-Start with bounded, read-only commands:
+## Stop, archive, restore, and delete
 
 ```bash
-hyper agents list
-hyper agents status <agent_id>
-hyper agents metrics <agent_id>
-hyper agents logs <agent_id> --no-follow -n 100
+hyper agents stop docs-demo --yes
+hyper agents wait docs-demo --state STOPPED
+hyper agents archive docs-demo
+hyper agents wait docs-demo --state ARCHIVED
+hyper agents restore docs-demo
+hyper agents wait docs-demo --state STOPPED
+hyper agents start docs-demo
 ```
 
-Do not begin with a shell or broad environment dump. Logs can
-still contain credentials or user content; summarize relevant fields and redact
-values before sharing. Avoid commands such as `env`, `printenv`, recursive home
-directory reads, or full config dumps unless the specific investigation
-requires them and the output remains private.
-
-For backend control-plane inspection, use read-only commands first and scope
-them to the relevant deployment and time window. Do not print workload specs,
-secrets, configuration objects, or complete environment variables. Runtime
-logs can also contain credentials, so search for a narrow request ID, render
-ID, status code, or timestamp and redact before sharing. Never mutate or
-restart a workload as part of diagnosis without approval.
-
-Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
-`cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, or `delete`.
-
-## Search
-
-Search through the HyperCLI Brave proxy:
+Archive and restore do not start the runtime. Lifecycle responses acknowledge
+accepted operations; use wait to confirm the resulting state.
 
 ```bash
-hyper agents web-search "release notes" --count 5
-hyper agents web-search "release notes" --json
+hyper agents stop docs-demo --yes
+hyper agents wait docs-demo --state STOPPED
+hyper agents delete docs-demo --yes
 ```
 
-## Exec, Copy, Shell, Logs
+Delete is distinct from stop and accepts a durable soft deletion; acceptance
+does not prove background cleanup has completed.
 
-### `exec`
+## Other commands
 
-One-shot command through Backend's token-authenticated `/ws/exec/{agent_id}`
-WebSocket. The CLI waits for one result and a normal server close:
+- `hyper agents activate <code> [--extend-existing]` redeems an activation code.
+- `hyper agents routines` manages scheduled prompts; see [routines](/cli/commands/routines).
+- `hyper websearch "release notes" --count 5` searches through the platform proxy.
+- `hyper agents token <id>` refreshes agent access credentials.
 
-```bash
-hyper agents exec <agent_id> uname -- -a
-```
-
-### `cp`
-
-```bash
-hyper agents cp ./local.txt <agent_id>:/workspace/local.txt
-hyper agents cp <agent_id>:/workspace/output.log ./output.log
-```
-
-Each copy mints a fresh files-scoped credential from Backend and transfers the
-file directly to or from the Agent's retained Reef server. The CLI does not
-send file bytes through Backend, follow redirects, or fall back to S3.
-
-### `shell`
-
-Interactive PTY through backend `/ws/shell/{agent_id}`:
-
-```bash
-hyper agents shell <agent_id>
-```
-
-This is the current shell path. It does not rely on a `shell-<host>` route.
-
-### `logs`
-
-```bash
-hyper agents logs <agent_id> -n 200 -f
-hyper agents logs <agent_id> --ws
-```
-
-Use `--ws` when you want the backend WebSocket path explicitly.
-
-## Tokens And Env
-
-### `token`
-
-Refresh the current backend agent access token:
-
-```bash
-hyper agents token <agent_id>
-```
-
-The token value is stored in `~/.hypercli/agents.json`; the command prints only
-its expiry. Treat the state file as sensitive.
-
-### `budget`
-
-Show current resource budget and usage:
-
-```bash
-hyper agents budget
-```
-
-### `chat`
-
-This is older compatibility chat behavior and is not the preferred current OpenClaw path.
+The legacy Python CLI has additional and differently named options. In
+particular, its `--force`, `--desktop`, `--wait` on stop, `budget`, and
+`web-search` examples are not the TypeScript CLI interface.

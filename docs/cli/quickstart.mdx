@@ -58,7 +58,9 @@ hyper agent status
 
 ```bash
 hyper agents create docs-demo --runtime openclaw
+hyper agents wait docs-demo --state STOPPED
 hyper agents start docs-demo
+hyper agents wait docs-demo --state RUNNING
 hyper agents status docs-demo
 ```
 

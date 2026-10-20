@@ -98,11 +98,9 @@ from hypercli import HyperCLI, build_openclaw_desktop_route
 
 client = HyperCLI(api_key="hyper_...")
 
-agent = client.deployments.create(
+agent = client.deployments.create_agent(
+    "openclaw_acp",
     name="docs-demo",
-    runtime="openclaw",
-    image="ghcr.io/hypercli/hypercli-openclaw:prod",
-    sync_root="/home/node",
     routes=build_openclaw_desktop_route(),
     env={"APP_ENV": "prod", "HYPER_DESKTOP_ENABLED": "1"},
 )

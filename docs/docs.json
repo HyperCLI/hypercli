@@ -153,6 +153,12 @@
             ]
           },
           {
+            "group": "Rust SDK",
+            "pages": [
+              "rs-sdk/index"
+            ]
+          },
+          {
             "group": "Python SDK",
             "pages": [
               "sdk/index",
@@ -213,6 +219,7 @@
           {
             "group": "Commands",
             "pages": [
+              "cli/commands/acp",
               "cli/commands/agent",
               "cli/commands/agents",
               "cli/commands/billing",
