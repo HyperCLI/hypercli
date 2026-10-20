@@ -84,10 +84,10 @@ export interface CodingAgentAcpConnectOptions {
   onReconnect?: () => void | Promise<void>;
 }
 export interface CodingAgentAcpTarget { url: string; token: string }
-/** Live product publication, independent of native ACP and retained history. */
+/** Retained product publication, independent of native ACP. */
 export interface SessionAttachment {
-  type: 'attachment'; id: string; sessionId: string; agentId: string;
-  file: { name: string; mimeType: string; data: string; sha256: string };
+  type: 'attachment'; id: string; sessionId: string; agentId: string; nativeSessionId: string;
+  file: { type: 'resource_link'; uri: string; name: string; mimeType: string; size: number; sha256: string };
 }
 interface Session { cwd: string; mcpServers: acp.McpServer[] }
 interface Deferred { resolve(): void; reject(error: Error): void }
@@ -363,7 +363,7 @@ export class CodingAgentAcpClient {
             if (typeof attachment.sessionId === 'string' && typeof attachment.id === 'string'
                 && typeof attachment.agentId === 'string' && typeof attachment.file?.name === 'string'
                 && typeof attachment.file.mimeType === 'string'
-                && typeof attachment.file.data === 'string' && typeof attachment.file.sha256 === 'string') {
+                && typeof attachment.file.uri === 'string' && typeof attachment.file.sha256 === 'string') {
               productAttachment(attachment);
             }
             return;

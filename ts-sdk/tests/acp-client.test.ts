@@ -84,8 +84,8 @@ it.each([
   const f = await fixture(), client = await f.connect();
   const updates = vi.fn();
   client.addUpdateListener(updates);
-  const publication = { type: 'attachment', id: 'publication', sessionId: 'session-1', agentId: 'agent',
-    file: { name: 'bytes.bin', mimeType, data, sha256: 'test-hash' } };
+  const publication = { type: 'attachment', id: 'publication', sessionId: 'session-1', agentId: 'agent', nativeSessionId: 'native',
+    file: { type: 'resource_link', uri: 'file:///workspace/.outbox/bytes.bin', name: 'bytes.bin', mimeType, size: Buffer.from(data, 'base64').length, sha256: 'test-hash' } };
   const received = new Promise<unknown>(resolve => { client.addAttachmentListener(resolve); });
   f.peers[0].send(JSON.stringify(publication));
   expect(await received).toEqual(publication);
