@@ -30,13 +30,13 @@ impl ManagedRuntime {
     /// Container image owned by HyperCLI for a hosted coding runtime.
     pub const fn default_buzz_image(self) -> Option<&'static str> {
         match self {
-            Self::BuzzAgent => Some("ghcr.io/hypercli/hypercli-buzz-agent:latest"),
-            Self::Opencode => Some("ghcr.io/hypercli/hypercli-opencode:latest"),
-            Self::Codex => Some("ghcr.io/hypercli/hypercli-codex:latest"),
-            Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-claude:latest"),
-            Self::Goose => Some("ghcr.io/hypercli/hypercli-goose:latest"),
-            Self::KimiCode => Some("ghcr.io/hypercli/hypercli-kimi-code:latest"),
-            Self::Pi => Some("ghcr.io/hypercli/hypercli-pi:latest"),
+            Self::BuzzAgent => Some("ghcr.io/hypercli/hypercli-buzz-agent:prod"),
+            Self::Opencode => Some("ghcr.io/hypercli/hypercli-opencode:prod"),
+            Self::Codex => Some("ghcr.io/hypercli/hypercli-codex:prod"),
+            Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-claude:prod"),
+            Self::Goose => Some("ghcr.io/hypercli/hypercli-goose:prod"),
+            Self::KimiCode => Some("ghcr.io/hypercli/hypercli-kimi-code:prod"),
+            Self::Pi => Some("ghcr.io/hypercli/hypercli-pi:prod"),
             Self::Generic
             | Self::Openclaw
             | Self::HermesAgent

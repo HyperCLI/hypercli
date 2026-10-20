@@ -31,10 +31,10 @@ deployments and Rust requests require an explicit image selection.
 
 The production channel is `:prod`; `:latest` is the development channel.
 These are mutable tags, not release-version or immutable build identifiers.
-Current Python and TypeScript helpers default OpenClaw to `:prod`, but Hermes
-and all seven coding runtimes still default to `:latest`. These defaults do
-not yet select the channel based on the API environment. Pass an explicit
-`image` option to select the intended channel.
+Managed runtime defaults use `:prod` in Backend and the SDKs. Defaults do not
+change with the API environment. Pass an explicit `image` option to use
+`:latest` for development or select another image. Existing agents retain
+their stored image configuration.
 
 ```ts
 const agent = await client.deployments.createAgent("opencode", {

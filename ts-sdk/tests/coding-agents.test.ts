@@ -714,7 +714,7 @@ describe('coding agents', () => {
 
     await deployments.createAgent('pi');
     expect(post.mock.calls[0][1]).toMatchObject({
-      image: 'ghcr.io/hypercli/hypercli-pi:latest',
+      image: 'ghcr.io/hypercli/hypercli-pi:prod',
       command: ['/usr/local/bin/hyper-acp'],
       sync_root: '/home/node',
       sync_include: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],

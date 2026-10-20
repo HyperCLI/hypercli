@@ -23,7 +23,7 @@
   "runtimes": {
     "buzz-agent": {
       "sync_exclude": [],
-      "image": "ghcr.io/hypercli/hypercli-buzz-agent:latest",
+      "image": "ghcr.io/hypercli/hypercli-buzz-agent:prod",
       "stock_agent_command": "buzz-agent",
       "agent_command": "/usr/local/bin/buzz-agent",
       "agent_args": "",
@@ -38,7 +38,7 @@
         ".local/state/opencode",
         ".cache/opencode"
       ],
-      "image": "ghcr.io/hypercli/hypercli-opencode:latest",
+      "image": "ghcr.io/hypercli/hypercli-opencode:prod",
       "stock_agent_command": "opencode",
       "agent_command": "/opt/hypercli/bin/opencode",
       "agent_args": "acp",
@@ -47,7 +47,7 @@
     },
     "codex": {
       "sync_include": [".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-      "image": "ghcr.io/hypercli/hypercli-codex:latest",
+      "image": "ghcr.io/hypercli/hypercli-codex:prod",
       "stock_agent_command": "codex-acp",
       "agent_command": "/opt/hypercli/bin/codex-acp",
       "agent_args": "",
@@ -56,7 +56,7 @@
     },
     "claude-code": {
       "sync_include": [".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-      "image": "ghcr.io/hypercli/hypercli-claude:latest",
+      "image": "ghcr.io/hypercli/hypercli-claude:prod",
       "stock_agent_command": "claude-agent-acp",
       "agent_command": "/opt/hypercli/bin/claude-agent-acp",
       "agent_args": "",
@@ -65,7 +65,7 @@
     },
     "goose": {
       "sync_include": [".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-      "image": "ghcr.io/hypercli/hypercli-goose:latest",
+      "image": "ghcr.io/hypercli/hypercli-goose:prod",
       "stock_agent_command": "goose",
       "agent_command": "/usr/local/bin/goose",
       "agent_args": "acp",
@@ -74,7 +74,7 @@
     },
     "pi": {
       "sync_include": [".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-      "image": "ghcr.io/hypercli/hypercli-pi:latest",
+      "image": "ghcr.io/hypercli/hypercli-pi:prod",
       "stock_agent_command": "pi-acp",
       "agent_command": "/opt/hypercli/bin/pi-acp",
       "agent_args": "",
@@ -83,7 +83,7 @@
     },
     "kimi-code": {
       "sync_include": [".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-      "image": "ghcr.io/hypercli/hypercli-kimi-code:latest",
+      "image": "ghcr.io/hypercli/hypercli-kimi-code:prod",
       "stock_agent_command": "kimi",
       "agent_command": "/opt/hypercli/bin/kimi",
       "agent_args": "acp",

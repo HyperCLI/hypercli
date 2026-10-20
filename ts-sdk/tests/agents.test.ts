@@ -2202,7 +2202,7 @@ describe('Agents SDK', () => {
 
   it('retains the backend-hydrated launch config after start', async () => {
     const persistedLaunchConfig = {
-      image: 'ghcr.io/hypercli/hypercli-opencode:latest',
+      image: 'ghcr.io/hypercli/hypercli-opencode:prod',
       command: ['/usr/local/bin/hyper-acp'],
       env: { BUZZ_RELAY_URL: 'wss://buzz.example.test' },
       restart: false,

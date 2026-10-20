@@ -2402,7 +2402,7 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
             "state": "starting",
             "runtime": "opencode",
             "launch_config": {
-                "image": "ghcr.io/hypercli/hypercli-opencode:latest",
+                "image": "ghcr.io/hypercli/hypercli-opencode:prod",
                 "command": ["/usr/local/bin/hyper-acp"],
                 "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
                 "restart": False,
@@ -2424,7 +2424,7 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
         agent = agents_client.start("11111111-1111-4111-8111-111111111111")
 
         assert agent.launch_config == {
-            "image": "ghcr.io/hypercli/hypercli-opencode:latest",
+            "image": "ghcr.io/hypercli/hypercli-opencode:prod",
             "command": ["/usr/local/bin/hyper-acp"],
             "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
             "restart": False,
