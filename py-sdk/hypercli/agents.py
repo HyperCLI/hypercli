@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import asyncio
-import base64
-import binascii
 import copy
 import inspect
 import json
@@ -147,8 +145,6 @@ DEFAULT_HERMES_AGENT_SYNC_GID = 10000
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 RUNNER_FILE_MAX_BYTES = 50 * 1024 * 1024
-# Ceiling for a backend that advertises no chunking, i.e. one whole-file write.
-LEGACY_SINGLE_SHOT_BYTES = 256 * 1024
 # Reef file writes traverse the Cloudflare-proxied agent hostname
 # (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
 # above 100 MB. Enforced client-side so oversized writes fail fast with a
@@ -2317,12 +2313,10 @@ class Deployments:
 
     def _file_access(self, agent_id: str) -> tuple[str, str] | dict[str, Any]:
         """Resolve the authoritative transport; never infer it from placement or DNS."""
-        payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/token", headers={"X-Hypercli-File-Chunks": "1"})
+        payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/token")
         if not isinstance(payload, dict):
             raise ValueError("Backend returned an invalid Agent file token response")
-        fields = {"transport", "executor", "max_bytes"} if "transport" in payload else {"url", "token", "expires_at"}
-        if "transport" in payload and "chunk_bytes" in payload:
-            fields.add("chunk_bytes")
+        fields = {"transport", "executor", "max_bytes", "chunk_bytes"} if "transport" in payload else {"url", "token", "expires_at"}
         if set(payload) != fields:
             raise ValueError("Backend returned an invalid Agent file token response")
         if "transport" in payload:
@@ -2330,15 +2324,10 @@ class Deployments:
                     or type(payload.get("max_bytes")) is not int
                     or payload["max_bytes"] <= 0):
                 raise ValueError("Backend returned an invalid runner file transport")
-            # The backend negotiates the chunk size and advertises it. Bound
-            # it; never compare it to a literal, or every change to it needs a
-            # client release and old clients reject the server outright.
-            chunk = payload.get("chunk_bytes")
-            if chunk is not None and (type(chunk) is not int or chunk <= 0
-                                      or chunk > payload["max_bytes"]):
+            chunk = payload["chunk_bytes"]
+            if type(chunk) is not int or chunk <= 0 or chunk > payload["max_bytes"]:
                 raise ValueError("Backend returned an invalid runner chunk size")
-            payload["max_bytes"] = min(payload["max_bytes"],
-                                       RUNNER_FILE_MAX_BYTES if chunk else LEGACY_SINGLE_SHOT_BYTES)
+            payload["max_bytes"] = min(payload["max_bytes"], RUNNER_FILE_MAX_BYTES)
             return payload
         if any(not isinstance(payload.get(key), str) for key in ("url", "token", "expires_at")):
             raise ValueError("Backend returned an invalid Agent file token response")
@@ -3838,38 +3827,24 @@ class Deployments:
         access = self._file_access(agent_id)
         if isinstance(access, dict):
             max_bytes = access["max_bytes"]
-            if access.get("chunk_bytes"):
-                content = bytearray()
-                with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-                    with client.stream("GET", f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/stream",
-                                       params={"path": resolved_path, "max_bytes": max_bytes},
-                                       headers={"Authorization": f"Bearer {self._api_key}"}, follow_redirects=False) as resp:
-                        if resp.status_code != 200:
-                            resp.read()
-                            self._raise_reef_error(resp)
-                        length = resp.headers.get("content-length")
-                        if length is None or not length.isdigit() or int(length) > max_bytes:
+            content = bytearray()
+            with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+                with client.stream("GET", f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/stream",
+                                   params={"path": _native_file_path(resolved_path), "max_bytes": max_bytes},
+                                   headers={"Authorization": f"Bearer {self._api_key}"}, follow_redirects=False) as resp:
+                    if resp.status_code != 200:
+                        resp.read()
+                        self._raise_reef_error(resp)
+                    length = resp.headers.get("content-length")
+                    if length is None or not length.isdigit() or int(length) > max_bytes:
+                        raise ValueError("Invalid runner file length")
+                    for chunk in resp.iter_bytes(chunk_size=access["chunk_bytes"]):
+                        if len(content) + len(chunk) > int(length):
                             raise ValueError("Invalid runner file length")
-                        for chunk in resp.iter_bytes(chunk_size=access["chunk_bytes"]):
-                            if len(content) + len(chunk) > int(length):
-                                raise ValueError("Invalid runner file length")
-                            content.extend(chunk)
-                        if len(content) != int(length):
-                            raise ValueError("Incomplete runner file stream")
-                return {"content": bytes(content), "mime_type": None}
-            payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/read", json={
-                "path": _native_file_path(resolved_path), "max_bytes": max_bytes,
-            })
-            encoded = payload.get("content_base64") if isinstance(payload, dict) else None
-            if not isinstance(encoded, str) or len(encoded) > 4 * ((max_bytes + 2) // 3):
-                raise ValueError("Invalid runner file response")
-            try:
-                content_bytes = base64.b64decode(encoded, validate=True)
-            except (ValueError, binascii.Error):
-                raise ValueError("Invalid runner file response") from None
-            if len(content_bytes) > max_bytes:
-                raise ValueError("Invalid runner file response")
-            return {"content": content_bytes, "mime_type": None}
+                        content.extend(chunk)
+                    if len(content) != int(length):
+                        raise ValueError("Incomplete runner file stream")
+            return {"content": bytes(content), "mime_type": None}
         reef_url, token = access
         content = bytearray()
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
@@ -3925,24 +3900,16 @@ class Deployments:
         if isinstance(access, dict):
             if len(content) > access["max_bytes"]:
                 raise ValueError(f"Runner files are limited to {access['max_bytes']} bytes by this backend")
-            if access.get("chunk_bytes"):
-                with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-                    resp = client.put(f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/stream",
-                                      params={"path": _native_file_path(path)},
-                                      headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/octet-stream", "Content-Length": str(len(content))},
-                                      content=(content[i:i + access["chunk_bytes"]]
-                                               for i in range(0, len(content), access["chunk_bytes"])),
-                                      follow_redirects=False)
-                if resp.status_code != 200:
-                    self._raise_reef_error(resp)
-                receipt = resp.json()
-                if not isinstance(receipt, dict) or receipt.get("ok") is not True:
-                    raise ValueError("Invalid runner file receipt")
-                return receipt
-            # _post performs exactly one HTTP attempt; an uncertain write is never replayed.
-            receipt = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/write", json={
-                "path": _native_file_path(path), "content_base64": base64.b64encode(content).decode("ascii"),
-            })
+            with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+                resp = client.put(f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/stream",
+                                  params={"path": _native_file_path(path)},
+                                  headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/octet-stream", "Content-Length": str(len(content))},
+                                  content=(content[i:i + access["chunk_bytes"]]
+                                           for i in range(0, len(content), access["chunk_bytes"])),
+                                  follow_redirects=False)
+            if resp.status_code != 200:
+                self._raise_reef_error(resp)
+            receipt = resp.json()
             if not isinstance(receipt, dict) or receipt.get("ok") is not True:
                 raise ValueError("Invalid runner file receipt")
             return receipt

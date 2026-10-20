@@ -8,15 +8,7 @@ const id = '11111111-2222-4333-8444-555555555555';
 function setup() {
   const files = new Map<string, string>();
   const post = vi.fn(async (url: string, body?: any) => {
-    if (url.endsWith('/files/token')) return { transport: 'runner', executor: 'process', max_bytes: RUNNER_FILE_MAX_BYTES };
-    if (url.endsWith('/files/read')) {
-      if (!files.has(body.path)) throw new APIError(404, 'Runner file not_found');
-      return { content_base64: files.get(body.path) };
-    }
-    if (url.endsWith('/files/write')) {
-      files.set(body.path, body.content_base64);
-      return { ok: true };
-    }
+    if (url.endsWith('/files/token')) return { transport: 'runner', executor: 'process', max_bytes: RUNNER_FILE_MAX_BYTES, chunk_bytes: 262144 };
     if (url.endsWith('/files/list')) {
       const prefix = body.path ? `${body.path}/` : '';
       if (body.path && ![...files.keys()].some((key) => key.startsWith(prefix))) throw new APIError(404, 'Runner file not_found');
@@ -37,57 +29,84 @@ function setup() {
     throw new Error(`Unexpected request ${url}`);
   });
   const get = vi.fn().mockResolvedValue({ id, user_id: 'owner', state: 'STOPPED', runner: { runner_id: 'runner-id', tags: [] } });
-  const deployments = new Deployments({ post, get } as unknown as HTTPClient, 'fixture-key', 'https://api.example.test/agents');
-  return { files, post, get, deployments };
+  const getStream = vi.fn(async (url: string, consume: (response: Response) => unknown) => {
+    const query = new URL(url, 'https://fixture.test').searchParams;
+    const path = query.get('path')!;
+    if (!files.has(path)) throw new APIError(404, 'Runner file not_found');
+    const bytes = Buffer.from(files.get(path)!, 'base64');
+    return consume(new Response(bytes, { headers: { 'content-length': String(bytes.length) } }));
+  });
+  const transfers = new Map<string, { path: string; bytes: Buffer }>();
+  const postRaw = vi.fn(async (url: string, body: Uint8Array) => {
+    const q = new URL(url, 'https://fixture.test').searchParams;
+    const transfer = q.get('transfer_id')!;
+    const action = q.get('action');
+    const offset = Number(q.get('offset'));
+    if (action === 'open_write') transfers.set(transfer, { path: q.get('path')!, bytes: Buffer.alloc(Number(q.get('total'))) });
+    if (action === 'write') transfers.get(transfer)!.bytes.set(body, offset);
+    if (action === 'commit') {
+      const value = transfers.get(transfer)!;
+      files.set(value.path, value.bytes.toString('base64'));
+    }
+    return { ok: true, transfer_id: transfer, total: Number(q.get('total')), offset: offset + body.length };
+  });
+  const deployments = new Deployments({ post, get, getStream, postRaw } as unknown as HTTPClient, 'fixture-key', 'https://api.example.test/agents');
+  return { files, post, get, getStream, postRaw, deployments };
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('native assignment file transport', () => {
+  it.each([undefined, null, 0, -1, '262144'])('rejects missing or invalid chunk metadata %s without fallback', async chunk_bytes => {
+    const { deployments, post, getStream, postRaw } = setup();
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: RUNNER_FILE_MAX_BYTES, chunk_bytes } as any);
+    await expect(deployments.fileRead(id, 'x')).rejects.toThrow();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(getStream).not.toHaveBeenCalled();
+    expect(postRaw).not.toHaveBeenCalled();
+  });
   it('honors a smaller advertised ceiling for reads and writes', async () => {
-    const { deployments, post, files } = setup();
+    const { deployments, post, files, getStream } = setup();
     files.set('x', btoa('ok'));
-    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2 } as any);
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2, chunk_bytes: 2 } as any);
     await expect(deployments.fileRead(id, 'x')).resolves.toBe('ok');
-    expect(post).toHaveBeenLastCalledWith(`/deployments/${id}/files/read`, { path: 'x', max_bytes: 2 }, { signal: undefined, redirect: 'error' });
-    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2 } as any);
+    expect(getStream).toHaveBeenLastCalledWith(`/deployments/${id}/files/stream?path=x&max_bytes=2`, expect.any(Function), { signal: undefined });
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes: 2, chunk_bytes: 2 } as any);
     await expect(deployments.fileWrite(id, 'x', 'big')).rejects.toThrow('limited to 2 bytes');
     expect(files.get('x')).toBe(btoa('ok'));
   });
 
   it.each([0, -1, 1.5, NaN, '2'])('rejects invalid advertised ceiling %s', async max_bytes => {
     const { deployments, post } = setup();
-    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes } as any);
+    post.mockResolvedValueOnce({ transport: 'runner', executor: 'process', max_bytes, chunk_bytes: 262144 } as any);
     await expect(deployments.fileRead(id, 'x')).rejects.toThrow('invalid runner file transport');
     expect(post).toHaveBeenCalledTimes(1);
   });
 
   it('clamps a ceiling larger than this client supports instead of refusing it', async () => {
-    // A backend that raises its limit must not break shipped clients. This is
-    // the same pin that was removed from chunk_bytes; max_bytes kept it.
     const { deployments, post, files } = setup();
     post.mockResolvedValueOnce({ transport: 'runner', executor: 'process',
-      max_bytes: RUNNER_FILE_MAX_BYTES * 4 } as any);
+      max_bytes: RUNNER_FILE_MAX_BYTES * 4, chunk_bytes: 262144 } as any);
     files.set('x', btoa('ok'));
     await expect(deployments.fileRead(id, 'x')).resolves.toBe('ok');
   });
 
   it.each(['kubernetes', undefined])('rejects unsupported or unreported assignment mode %s', async (executor) => {
     const { deployments, post } = setup();
-    post.mockResolvedValueOnce({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES } as any);
+    post.mockResolvedValueOnce({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES, chunk_bytes: 262144 } as any);
     await expect(deployments.fileWrite(id, 'AGENTS.md', 'User-provided instructions')).rejects.toThrow('invalid runner file transport');
     expect(post).toHaveBeenCalledTimes(1);
   });
   it.each(['process', 'docker'])('accepts the %s executor token and round-trips natively', async (executor) => {
     const { deployments, post, files } = setup();
-    post.mockImplementationOnce(async () => ({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES } as any));
+    post.mockImplementationOnce(async () => ({ transport: 'runner', executor, max_bytes: RUNNER_FILE_MAX_BYTES, chunk_bytes: 262144 } as any));
     await expect(deployments.fileWrite(id, 'AGENTS.md', 'docker workspace')).resolves.toEqual({ ok: true });
     await expect(deployments.fileRead(id, 'AGENTS.md')).resolves.toBe('docker workspace');
     expect(files.has('AGENTS.md')).toBe(true);
   });
 
   it('routes Agent.files and deployment text/byte helpers through authenticated backend paths', async () => {
-    const { deployments, post } = setup();
+    const { deployments, getStream } = setup();
     const fetch = vi.fn(() => { throw new Error('No Reef request expected'); });
     vi.stubGlobal('fetch', fetch);
     const agent = await deployments.get(id);
@@ -95,7 +114,7 @@ describe('native assignment file transport', () => {
     await expect(agent.files.read('.hypercli/USER.md')).resolves.toBe('Hello 🌍');
     await deployments.fileWriteBytes(id, 'binary', new Uint8Array([0, 255, 128]));
     await expect(deployments.fileReadBytes(id, 'binary')).resolves.toEqual(new Uint8Array([0, 255, 128]));
-    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path: 'binary', max_bytes: 256 * 1024 }, { signal: undefined, redirect: 'error' });
+    expect(getStream).toHaveBeenCalledWith(`/deployments/${id}/files/stream?path=binary&max_bytes=${RUNNER_FILE_MAX_BYTES}`, expect.any(Function), { signal: undefined });
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -110,18 +129,20 @@ describe('native assignment file transport', () => {
   });
 
   it.each(['../file', 'a\0b', 'a.', 'a:stream'])('rejects native path %j without a file command', async (path) => {
-    const { deployments, post } = setup();
+    const { deployments, post, getStream, postRaw } = setup();
     await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
     await expect(deployments.fileRead(id, path)).rejects.toThrow();
     expect(post.mock.calls.every(([url]) => url.endsWith('/token'))).toBe(true);
+    expect(getStream).not.toHaveBeenCalled();
+    expect(postRaw).not.toHaveBeenCalled();
   });
 
   it.each(['/home/ubuntu/hcr_style/png/logo_vertical.png', '/root/link/../image #?%.png', 'C:\\images\\a.png'])('preserves absolute READ address %s in the existing wire shape', async path => {
-    const { deployments, post, files } = setup();
+    const { deployments, post, files, getStream } = setup();
     const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwHwyBNBgAAEnICff5q7YNAAAAAElFTkSuQmCC';
     files.set(path, png);
     expect(Buffer.from(await deployments.fileReadBytes(id, path, { maxBytes: 25_000_000 })).toString('base64')).toBe(png);
-    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path, max_bytes: 256 * 1024 }, { signal: undefined, redirect: 'error' });
+    expect(getStream).toHaveBeenCalledWith(`/deployments/${id}/files/stream?${new URLSearchParams({ path, max_bytes: '25000000' })}`, expect.any(Function), { signal: undefined });
     const reads = post.mock.calls.length;
     await expect(deployments.fileWrite(id, path, 'x')).rejects.toThrow();
     await expect(deployments.fileDelete(id, path)).rejects.toThrow();
@@ -139,12 +160,12 @@ describe('native assignment file transport', () => {
   });
 
   it('caps writes and read results, forwards abort signals, and round-trips listing and deletion', async () => {
-    const { deployments, post, files } = setup();
+    const { deployments, getStream, files } = setup();
     await expect(deployments.fileWriteBytes(id, 'x', new Uint8Array(RUNNER_FILE_MAX_BYTES + 1))).rejects.toThrow('limited');
     files.set('x', btoa('1234'));
     const signal = new AbortController().signal;
-    await expect(deployments.fileRead(id, 'x', { maxBytes: 1, signal })).rejects.toThrow('Invalid runner file response');
-    expect(post).toHaveBeenCalledWith(`/deployments/${id}/files/read`, { path: 'x', max_bytes: 1 }, { signal, redirect: 'error' });
+    await expect(deployments.fileRead(id, 'x', { maxBytes: 1, signal })).rejects.toThrow('read limit');
+    expect(getStream).toHaveBeenCalledWith(`/deployments/${id}/files/stream?path=x&max_bytes=1`, expect.any(Function), { signal });
     files.set('.hypercli/USER.md', btoa('profile'));
     const root = await deployments.filesList(id);
     expect(root).toEqual([{ name: '.hypercli', path: '.hypercli/', type: 'directory' }, { name: 'x', path: 'x', type: 'file', size: 1 }]);

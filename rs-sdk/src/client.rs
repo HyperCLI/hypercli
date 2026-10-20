@@ -6,7 +6,6 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::blocking::{Client as HttpClient, RequestBuilder};
 use reqwest::Client as AsyncHttpClient;
@@ -159,8 +158,7 @@ struct RunnerFileToken {
     #[serde(deserialize_with = "present_executor")]
     executor: Option<String>,
     max_bytes: usize,
-    #[serde(default)]
-    chunk_bytes: Option<usize>,
+    chunk_bytes: usize,
 }
 
 fn present_executor<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Option<String>, D::Error> {
@@ -438,7 +436,6 @@ pub const AGENT_FILE_READ_MAX_BYTES: usize = 250 * 1024 * 1024;
 pub const RUNNER_FILE_MAX_BYTES: usize = 50 * 1024 * 1024;
 
 /// Ceiling for a backend that advertises no chunking, i.e. one whole-file write.
-const LEGACY_SINGLE_SHOT_BYTES: usize = 256 * 1024;
 
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
@@ -2245,7 +2242,6 @@ impl HyperCliClient {
         let mut access: FileAccess = file_json(
             self.http
                 .post(&url)
-                .header("X-Hypercli-File-Chunks", "1")
                 .bearer_auth(self.api_key.expose_secret()),
             16_384,
         )?;
@@ -2257,21 +2253,10 @@ impl HyperCliClient {
                 if token.transport == "runner"
                     && matches!(token.executor.as_deref(), None | Some("process" | "docker"))
                     && token.max_bytes > 0
-                    // The backend negotiates the chunk size and advertises it.
-                    // Bound it; never compare it to a literal, or every change
-                    // needs a client release and old clients reject the server.
-                    && token
-                        .chunk_bytes
-                        .is_none_or(|chunk| chunk > 0 && chunk <= token.max_bytes) =>
+                    && token.chunk_bytes > 0
+                    && token.chunk_bytes <= token.max_bytes =>
             {
-                // A ceiling above ours is not invalid, it is more than we will
-                // use: clamp it. Rejecting would break every shipped client the
-                // moment the backend raises the limit.
-                token.max_bytes = token.max_bytes.min(if token.chunk_bytes.is_none() {
-                    LEGACY_SINGLE_SHOT_BYTES
-                } else {
-                    RUNNER_FILE_MAX_BYTES
-                });
+                token.max_bytes = token.max_bytes.min(RUNNER_FILE_MAX_BYTES);
             }
             FileAccess::Runner(_) => {
                 return Err(HyperCliError::InvalidResponse(
@@ -2340,45 +2325,18 @@ impl HyperCliClient {
         if let FileAccess::Runner(token) = &access {
             native_file_path(&path)?;
             let limit = max_bytes.min(token.max_bytes);
-            if token.chunk_bytes.is_some() {
-                let response = self
-                    .http
-                    .get(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
-                    .bearer_auth(self.api_key.expose_secret())
-                    .query(&[("path", path.as_str()), ("max_bytes", &limit.to_string())])
-                    .send()
-                    .map_err(|_| HyperCliError::Transport("File read request failed".into()))?;
-                let length = response.content_length();
-                let bytes = bounded_file_body(response, limit)?;
-                if length != Some(bytes.len() as u64) {
-                    return Err(HyperCliError::InvalidResponse(
-                        "Incomplete runner file stream".into(),
-                    ));
-                }
-                return Ok(bytes);
-            }
-            #[derive(Deserialize)]
-            struct Content {
-                content_base64: String,
-            }
-            let payload: Content = file_json(
-                self.http
-                    .post(self.endpoint(&format!("deployments/{deployment_id}/files/read")))
-                    .bearer_auth(self.api_key.expose_secret())
-                    .json(&json!({"path":path, "max_bytes":limit})),
-                4 * limit.div_ceil(3) + 1024,
-            )?;
-            if payload.content_base64.len() > 4 * limit.div_ceil(3) {
+            let response = self
+                .http
+                .get(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&[("path", path.as_str()), ("max_bytes", &limit.to_string())])
+                .send()
+                .map_err(|_| HyperCliError::Transport("File read request failed".into()))?;
+            let length = response.content_length();
+            let bytes = bounded_file_body(response, limit)?;
+            if length != Some(bytes.len() as u64) {
                 return Err(HyperCliError::InvalidResponse(
-                    "Invalid runner file response".into(),
-                ));
-            }
-            let bytes = STANDARD.decode(payload.content_base64).map_err(|_| {
-                HyperCliError::InvalidResponse("Invalid runner file response".into())
-            })?;
-            if bytes.len() > limit {
-                return Err(HyperCliError::InvalidResponse(
-                    "Invalid runner file response".into(),
+                    "Incomplete runner file stream".into(),
                 ));
             }
             return Ok(bytes);
@@ -2540,55 +2498,35 @@ impl HyperCliClient {
             struct Receipt {
                 ok: bool,
             }
-            if let Some(chunk_bytes) = token.chunk_bytes {
-                // reqwest bodies own their reader. A single-slot channel lets
-                // the public borrowed-slice API stream without a file-sized copy.
-                let (send, receive) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
-                let body = reqwest::blocking::Body::sized(
-                    FileChunkReader {
-                        receive,
-                        current: std::io::Cursor::new(Vec::new()),
-                    },
-                    content.len() as u64,
-                );
-                let request = self
-                    .http
-                    .put(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
-                    .bearer_auth(self.api_key.expose_secret())
-                    .query(&[("path", path.as_str())])
-                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-                    .body(body);
-                let receipt: Receipt = std::thread::scope(|scope| {
-                    let request = scope.spawn(move || file_json(request, 4096));
-                    for chunk in content.chunks(chunk_bytes) {
-                        if send.send(chunk.to_vec()).is_err() {
-                            break;
-                        }
+            // reqwest bodies own their reader. A single-slot channel lets
+            // the public borrowed-slice API stream without a file-sized copy.
+            let (send, receive) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
+            let body = reqwest::blocking::Body::sized(
+                FileChunkReader {
+                    receive,
+                    current: std::io::Cursor::new(Vec::new()),
+                },
+                content.len() as u64,
+            );
+            let request = self
+                .http
+                .put(self.endpoint(&format!("deployments/{deployment_id}/files/stream")))
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&[("path", path.as_str())])
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(body);
+            let receipt: Receipt = std::thread::scope(|scope| {
+                let request = scope.spawn(move || file_json(request, 4096));
+                for chunk in content.chunks(token.chunk_bytes) {
+                    if send.send(chunk.to_vec()).is_err() {
+                        break;
                     }
-                    drop(send);
-                    request
-                        .join()
-                        .map_err(|_| HyperCliError::Transport("File write worker failed".into()))?
-                })?;
-                if !receipt.ok {
-                    return Err(HyperCliError::InvalidResponse(
-                        "Invalid runner file receipt".into(),
-                    ));
                 }
-                return Ok(DeploymentFileWriteResponse {
-                    status: "ok".into(),
-                    path,
-                    size: content.len() as u64,
-                    target: String::new(),
-                });
-            }
-            let receipt: Receipt = file_json(
-                self.http
-                    .post(self.endpoint(&format!("deployments/{deployment_id}/files/write")))
-                    .bearer_auth(self.api_key.expose_secret())
-                    .json(&json!({"path":path, "content_base64":STANDARD.encode(content)})),
-                4096,
-            )?;
+                drop(send);
+                request
+                    .join()
+                    .map_err(|_| HyperCliError::Transport("File write worker failed".into()))?
+            })?;
             if !receipt.ok {
                 return Err(HyperCliError::InvalidResponse(
                     "Invalid runner file receipt".into(),
@@ -5721,14 +5659,18 @@ mod tests {
         let token = server
             .mock("POST", "/agents/deployments/deployment-1/files/token")
             .with_status(200)
-            .with_body(r#"{"transport":"runner","executor":"process","max_bytes":2}"#)
+            .with_body(
+                r#"{"transport":"runner","executor":"process","max_bytes":2,"chunk_bytes":2}"#,
+            )
             .expect(2)
             .create();
         let read = server
-            .mock("POST", "/agents/deployments/deployment-1/files/read")
-            .match_body(mockito::Matcher::Json(json!({"path":"x", "max_bytes":2})))
+            .mock(
+                "GET",
+                "/agents/deployments/deployment-1/files/stream?path=x&max_bytes=2",
+            )
             .with_status(200)
-            .with_body(r#"{"content_base64":"b2s="}"#)
+            .with_body("ok")
             .create();
         let client = client(&server);
         assert_eq!(

@@ -1,5 +1,4 @@
 """File contract exercised through httpx (no live hosts or credentials)."""
-import base64
 import json
 from pathlib import Path
 
@@ -10,7 +9,7 @@ from hypercli.agents import RUNNER_FILE_MAX_BYTES, Agent, Deployments
 from hypercli.http import APIError, HTTPClient
 
 VECTORS = json.loads((Path(__file__).parents[2] / "rs-sdk/tests/fixtures/agent-file-contract.json").read_text())
-NATIVE = {"transport": "runner", "executor": "process", "max_bytes": RUNNER_FILE_MAX_BYTES}
+NATIVE = {"transport": "runner", "executor": "process", "max_bytes": RUNNER_FILE_MAX_BYTES, "chunk_bytes": 262144}
 REEF = {"url": "https://reef.example.test/_reef", "token": "reef-secret", "expires_at": "2026-10-01T00:00:00Z"}
 
 
@@ -27,19 +26,20 @@ def test_identical_bound_methods_paths_bytes_and_text(monkeypatch, tmp_path, nat
 
     def handle(request):
         calls.append(str(request.url))
-        assert not request.url.query
         if request.url.host == "api.example.test":
             assert request.headers["authorization"] == "Bearer api-secret"
             if request.url.path.endswith("/files/token"):
+                assert "x-hypercli-file-chunks" not in request.headers
                 return httpx.Response(200, json=NATIVE if native else REEF)
             assert native
-            body = json.loads(request.content)
-            if request.url.path.endswith("/files/write"):
-                files[body["path"]] = base64.b64decode(body["content_base64"])
+            assert request.url.path.endswith("/files/stream")
+            path = request.url.params["path"]
+            if request.method == "PUT":
+                files[path] = request.content
                 return httpx.Response(200, json={"ok": True})
-            assert request.url.path.endswith("/files/read")
-            return httpx.Response(200, json={"content_base64": base64.b64encode(files[body["path"]]).decode()})
+            return httpx.Response(200, content=files[path], headers={"content-length": str(len(files[path]))})
         assert not native
+        assert not request.url.query
         assert request.url.host == "reef.example.test"
         assert request.headers["authorization"] == "Bearer reef-secret"
         path = request.url.path.removeprefix("/_reef/files/")
@@ -94,10 +94,10 @@ def test_response_lost_write_is_not_replayed(monkeypatch):
         if request.url.path.endswith("/files/token"):
             return httpx.Response(200, json=NATIVE)
         writes.append(request)
-        body = json.loads(request.content)
-        files[body["path"]] = body["content_base64"]
+        path = request.url.params["path"]
+        files[path] = request.content
         if len(writes) == 1:
-            files[body["path"]] = "intervening user edit"
+            files[path] = "intervening user edit"
             raise httpx.ReadError("response lost", request=request)
         return httpx.Response(200, json={"ok": True})
 
@@ -125,7 +125,7 @@ def test_native_discovery_accepts_both_runner_executors(monkeypatch, executor):
     calls = []
     def handle(request):
         calls.append(request)
-        if request.url.path.endswith("/files/read"):
+        if request.url.path.endswith("/files/stream"):
             return httpx.Response(404, json={"detail": "Runner file not_found"})
         return httpx.Response(200, json={**NATIVE, "executor": executor})
     deployments = setup(monkeypatch, handle)
@@ -140,10 +140,10 @@ def test_native_smaller_ceiling_bounds_read_and_write(monkeypatch):
     def handle(request):
         calls.append(request)
         if request.url.path.endswith("/files/token"):
-            return httpx.Response(200, json={**NATIVE, "max_bytes": 2})
-        assert request.url.path.endswith("/files/read")
-        assert json.loads(request.content)["max_bytes"] == 2
-        return httpx.Response(200, json={"content_base64": "b2s="})
+            return httpx.Response(200, json={**NATIVE, "max_bytes": 2, "chunk_bytes": 2})
+        assert request.url.path.endswith("/files/stream")
+        assert request.url.params["max_bytes"] == "2"
+        return httpx.Response(200, content=b"ok")
     deployments = setup(monkeypatch, handle)
     assert deployments.file_read_bytes("agent-contract", "x") == b"ok"
     with pytest.raises(ValueError, match="limited to 2 bytes"):
@@ -159,17 +159,14 @@ def test_native_invalid_ceiling(monkeypatch, limit):
 
 
 def test_native_ceiling_above_this_client_is_clamped_not_refused(monkeypatch):
-    """A backend that raises its limit must not break shipped clients.
-
-    This is the same pin that was removed from chunk_bytes; max_bytes kept it.
-    """
+    """The local read ceiling remains enforced independently of server limits."""
     calls = []
 
     def handler(request):
         calls.append(str(request.url))
         if str(request.url).endswith("/files/token"):
             return httpx.Response(200, json={**NATIVE, "max_bytes": RUNNER_FILE_MAX_BYTES * 4})
-        return httpx.Response(200, json={"content_base64": "b2s="})
+        return httpx.Response(200, content=b"ok")
 
     deployments = setup(monkeypatch, handler)
     assert deployments.file_read_bytes("agent-contract", "x") == b"ok"
@@ -188,6 +185,8 @@ def test_native_list_and_delete_roundtrip_and_malformed_bytes(monkeypatch):
     def handle(request):
         if request.url.path.endswith("/files/token"):
             return httpx.Response(200, json=NATIVE)
+        if request.url.path.endswith("/files/stream"):
+            return httpx.Response(200, content=b"short", headers={"content-length": "10"})
         body = json.loads(request.content)
         if request.url.path.endswith("/files/list"):
             prefix = f"{body['path']}/" if body["path"] else ""
@@ -207,8 +206,6 @@ def test_native_list_and_delete_roundtrip_and_malformed_bytes(monkeypatch):
             if files.pop(body["path"], None) is None:
                 return httpx.Response(404, json={"detail": "Runner file not_found"})
             return httpx.Response(200, json={"status": "deleted", "path": body["path"]})
-        if request.url.path.endswith("/files/read"):
-            return httpx.Response(200, json={"content_base64": "?"})
         pytest.fail("Unexpected request")
     deployments = setup(monkeypatch, handle)
     files[".hypercli/USER.md"] = b"profile"
@@ -226,7 +223,7 @@ def test_native_list_and_delete_roundtrip_and_malformed_bytes(monkeypatch):
         deployments.file_delete("agent-contract", ".hypercli", recursive=True)
     with pytest.raises(ValueError, match="limited"):
         deployments.file_write_bytes("agent-contract", "x", b"x" * (RUNNER_FILE_MAX_BYTES + 1))
-    with pytest.raises(ValueError, match="Invalid runner file response"):
+    with pytest.raises(ValueError, match="Incomplete runner file stream"):
         deployments.file_read("agent-contract", "x")
 
 
@@ -292,7 +289,7 @@ def test_native_operation_errors_after_discovery(monkeypatch, operation, status)
             deployments.file_write("agent-contract", "x", "content")
     assert error.value.status_code == status
     assert error.value.detail == "operation rejected"
-    assert calls == ["/agents/deployments/agent-contract/files/token", f"/agents/deployments/agent-contract/files/{operation}"]
+    assert calls == ["/agents/deployments/agent-contract/files/token", "/agents/deployments/agent-contract/files/stream"]
 
 
 def test_native_maximum_and_metadata(monkeypatch):

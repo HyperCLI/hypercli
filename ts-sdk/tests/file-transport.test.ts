@@ -10,7 +10,7 @@ import { HTTPClient } from '../src/http.js';
 
 const vectors = JSON.parse(readFileSync(new URL('../../rs-sdk/tests/fixtures/agent-file-contract.json', import.meta.url), 'utf8'));
 const id = 'agent-contract';
-const native = { transport: 'runner', executor: 'process', max_bytes: RUNNER_FILE_MAX_BYTES };
+const native = { transport: 'runner', executor: 'process', max_bytes: RUNNER_FILE_MAX_BYTES, chunk_bytes: 262144 };
 const reef = { url: 'https://reef.example.test/_reef', token: 'reef-secret', expires_at: '2026-10-01T00:00:00Z' };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 
@@ -24,7 +24,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('negotiates chunks over actual HTTP before uploading and downloading above the legacy ceiling', async () => {
+it('streams multiple chunks over actual HTTP without a discovery opt-in header', async () => {
   const bytes = Buffer.alloc(256 * 1024 + 17, 173);
   let stored = Buffer.alloc(0);
   const requests: Array<{ method: string; path: string; auth?: string; chunks?: string }> = [];
@@ -34,7 +34,7 @@ it('negotiates chunks over actual HTTP before uploading and downloading above th
       auth: request.headers.authorization, chunks: request.headers['x-hypercli-file-chunks'] as string | undefined });
     response.setHeader('Content-Type', 'application/json');
     if (url.pathname.endsWith('/files/token')) {
-      response.end(JSON.stringify({ ...native, ...(request.headers['x-hypercli-file-chunks'] === '1' ? { chunk_bytes: 262144 } : {}) }));
+      response.end(JSON.stringify(native));
     } else if (url.pathname.endsWith('/files/transfer')) {
       const parts: Buffer[] = [];
       for await (const part of request) parts.push(Buffer.from(part));
@@ -58,7 +58,7 @@ it('negotiates chunks over actual HTTP before uploading and downloading above th
     expect(stored).toEqual(bytes);
     expect(requests.map(r => r.method)).toEqual(['POST', 'POST', 'POST', 'POST', 'POST', 'POST', 'GET']);
     expect(requests.every(r => r.auth === 'Bearer api-secret')).toBe(true);
-    expect(requests.filter(r => r.path.endsWith('/token')).map(r => r.chunks)).toEqual(['1', '1']);
+    expect(requests.filter(r => r.path.endsWith('/token')).map(r => r.chunks)).toEqual([undefined, undefined]);
     expect(requests.filter(r => !r.path.endsWith('/token')).every(r => /\/files\/(stream|transfer)$/.test(r.path))).toBe(true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -68,27 +68,38 @@ it('negotiates chunks over actual HTTP before uploading and downloading above th
 describe.each(['hosted', 'native'])('%s file transport through the real HTTP client', (transport) => {
   function setup() {
     const files = new Map<string, Uint8Array>();
+    const transfers = new Map<string, string>();
     const calls: string[] = [];
     vi.stubGlobal('WebSocket', class { constructor() { throw new Error('SDK must not open file WS'); } });
     vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
       const url = new URL(input);
       calls.push(input);
       const headers = new Headers(init.headers);
-      expect(url.search).toBe('');
       if (url.host === 'api.example.test') {
         expect(headers.get('Authorization')).toBe('Bearer api-secret');
         if (url.pathname.endsWith('/files/token')) return json(transport === 'native' ? native : reef);
         if (url.pathname === `/agents/deployments/${id}`) return json({ id, state: 'STOPPED', user_id: 'owner' });
         expect(transport).toBe('native');
-        const body = JSON.parse(init.body as string);
-        if (url.pathname.endsWith('/files/write')) {
-          files.set(body.path, Uint8Array.from(Buffer.from(body.content_base64, 'base64')));
-          return json({ ok: true });
+        if (url.pathname.endsWith('/files/transfer')) {
+          const q = url.searchParams;
+          const transfer = q.get('transfer_id')!;
+          const offset = Number(q.get('offset'));
+          const bytes = init.body as Uint8Array;
+          if (q.get('action') === 'open_write') {
+            transfers.set(transfer, q.get('path')!);
+            files.set(q.get('path')!, new Uint8Array(Number(q.get('total'))));
+          }
+          if (q.get('action') === 'write') files.get(transfers.get(transfer)!)!.set(bytes, offset);
+          return json({ ok: true, transfer_id: transfer, total: Number(q.get('total')), offset: offset + bytes.length });
         }
-        if (url.pathname.endsWith('/files/read')) return json({ content_base64: Buffer.from(files.get(body.path)!).toString('base64') });
+        if (url.pathname.endsWith('/files/stream')) {
+          const bytes = files.get(url.searchParams.get('path')!)!;
+          return new Response(bytes as BodyInit, { headers: { 'content-length': String(bytes.length) } });
+        }
         throw new Error(`Unexpected API request ${url.pathname}`);
       }
       expect(transport).toBe('hosted');
+      expect(url.search).toBe('');
       expect(url.host).toBe('reef.example.test');
       expect(headers.get('Authorization')).toBe('Bearer reef-secret');
       expect(init.redirect).toBe('error');
@@ -137,7 +148,7 @@ describe.each(['hosted', 'native'])('%s file transport through the real HTTP cli
       if (transport === 'native') {
         await expect(deployments.fileRead(id, path)).resolves.toBe('absolute fixture');
         expect(calls.map(url => new URL(url).pathname)).toEqual([
-          `/agents/deployments/${id}/files/token`, `/agents/deployments/${id}/files/read`,
+          `/agents/deployments/${id}/files/token`, `/agents/deployments/${id}/files/stream`,
         ]);
       } else {
         await expect(deployments.fileRead(id, path)).rejects.toThrow('relative to the sync root');
@@ -180,11 +191,12 @@ describe('runner discovery before an executor observation', () => {
       expect(init.method).toBe('POST');
       expect(init.redirect).toBe('error');
       if (url.endsWith('/files/token')) return json(unobserved);
-      expect(url).toBe(`https://api.example.test/agents/deployments/${id}/files/write`);
-      expect(JSON.parse(init.body as string)).toEqual({
-        path: '.hypercli/USER.md', content_base64: Buffer.from(content).toString('base64'),
-      });
-      return json({ ok: true });
+      const q = new URL(url).searchParams;
+      expect(new URL(url).pathname).toBe(`/agents/deployments/${id}/files/transfer`);
+      if (q.get('action') === 'open_write') expect(q.get('path')).toBe('.hypercli/USER.md');
+      if (q.get('action') === 'write') expect(Buffer.from(init.body as Uint8Array).toString()).toBe(content);
+      return json({ ok: true, transfer_id: q.get('transfer_id'), total: Number(q.get('total')),
+        offset: Number(q.get('offset')) + (init.body as Uint8Array).length });
     }));
     const deployments = client();
     const result = caller === 'bound'
@@ -193,10 +205,9 @@ describe('runner discovery before an executor observation', () => {
         ? await deployments.fileWriteBytes(id, '.hypercli/USER.md', new TextEncoder().encode(content))
         : await deployments.fileWrite(id, '.hypercli/USER.md', content);
     expect(result).toEqual({ ok: true });
-    expect(calls.filter((url) => url.includes('/files/'))).toEqual([
-      `https://api.example.test/agents/deployments/${id}/files/token`,
-      `https://api.example.test/agents/deployments/${id}/files/write`,
-    ]);
+    const fileCalls = calls.filter((url) => url.includes('/files/')).map(url => new URL(url));
+    expect(fileCalls[0].pathname).toBe(`/agents/deployments/${id}/files/token`);
+    expect(fileCalls.slice(1).map(url => url.searchParams.get('action'))).toEqual(['open_write', 'write', 'commit']);
   });
 
   it.each([401, 403, 409, 501, 503])('preserves authoritative write failure %i without fallback or replay', async (status) => {
@@ -204,8 +215,8 @@ describe('runner discovery before an executor observation', () => {
       ? json(unobserved) : json({ detail: 'operation rejected' }, status));
     vi.stubGlobal('fetch', fetch);
     await expect(client().fileWrite(id, 'x', 'content')).rejects.toMatchObject({ statusCode: status, detail: 'operation rejected' });
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls[1][0]).toBe(`https://api.example.test/agents/deployments/${id}/files/write`);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.slice(1).map(([url]) => new URL(url).searchParams.get('action'))).toEqual(['open_write', 'abort']);
   });
 
   it('still enforces the native write byte limit before dispatch', async () => {
@@ -233,13 +244,14 @@ it('does not replay a committed native write after the response is lost', async 
   let content = '';
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
     if (url.endsWith('/files/token')) return json(native);
-    writes++;
-    content = JSON.parse(init.body as string).content_base64;
-    if (writes === 1) {
+    const q = new URL(url).searchParams;
+    if (q.get('action') === 'commit') {
+      writes++;
       content = 'intervening user edit';
       throw Object.assign(new Error('response lost'), { cause: { code: 'ECONNRESET' } });
     }
-    return json({ ok: true });
+    return json({ ok: true, transfer_id: q.get('transfer_id'), total: Number(q.get('total')),
+      offset: Number(q.get('offset')) + (init.body as Uint8Array).length });
   }));
   await expect(client().fileWrite(id, 'x', 'original')).rejects.toThrow('response lost');
   expect(writes).toBe(1);
@@ -324,8 +336,11 @@ describe.each(['read', 'write'])('native %s HTTP errors after discovery', (opera
     const deployments = client();
     await expect(operation === 'read' ? deployments.fileRead(id, 'x') : deployments.fileWrite(id, 'x', 'content'))
       .rejects.toMatchObject({ statusCode: status, detail: 'operation rejected' });
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toBe(`https://api.example.test/agents/deployments/${id}/files/${operation}`);
+    expect(calls).toHaveLength(operation === 'read' ? 2 : 3);
+    expect(new URL(calls[1]).pathname).toBe(`/agents/deployments/${id}/files/${operation === 'read' ? 'stream' : 'transfer'}`);
+    if (operation === 'write') {
+      expect(calls.slice(1).map(url => new URL(url).searchParams.get('action'))).toEqual(['open_write', 'abort']);
+    }
   });
 });
 
@@ -361,7 +376,8 @@ describe.each([307, 308])('real HTTP %i file redirects', (status) => {
           return;
         }
         for await (const _chunk of request) { /* consume the original request before replying */ }
-        if (request.url?.endsWith(`/files/${operation}`)) {
+        const url = new URL(request.url!, 'http://fixture');
+        if (url.pathname.endsWith(`/files/${operation === 'read' ? 'stream' : operation === 'write' ? 'transfer' : operation}`) && url.searchParams.get('action') !== 'abort') {
           redirectedRequests++;
           response.writeHead(status, { Location: origin === 'same-origin' ? '/receiver' : `${receiverBase}/receiver` });
           response.end();

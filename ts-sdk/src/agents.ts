@@ -1412,9 +1412,7 @@ export interface AgentFileTokenResponse {
 }
 
 type ReefFileAccess = { url: string; token: string };
-type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number; chunks: boolean; chunkBytes: number };
-/** Ceiling for a backend that advertises no chunking, i.e. one whole-file write. */
-const LEGACY_SINGLE_SHOT_BYTES = 256 * 1024;
+type AgentFileAccess = ReefFileAccess | { transport: 'runner'; maxBytes: number; chunkBytes: number };
 /** Maximum decoded bytes for the native runner file transport. */
 export const RUNNER_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -3652,16 +3650,15 @@ export class Deployments {
   }
 
   private async fileAccess(agentId: string, signal?: AbortSignal): Promise<AgentFileAccess> {
-    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number; chunk_bytes?: number | null }>(
+    const payload = await this.agentHttp.post<AgentFileTokenResponse | { transport: 'runner'; executor: AgentExecutor | null; max_bytes: number; chunk_bytes: number }>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
       undefined,
-      { redirect: 'error', headers: { 'X-Hypercli-File-Chunks': '1' }, ...(signal ? { signal } : {}) },
+      { redirect: 'error', ...(signal ? { signal } : {}) },
     );
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('Backend returned an invalid Agent file token response');
     }
-    const fields = 'transport' in payload ? ['transport', 'executor', 'max_bytes'] : ['url', 'token', 'expires_at'];
-    if ('transport' in payload && 'chunk_bytes' in payload) fields.push('chunk_bytes');
+    const fields = 'transport' in payload ? ['transport', 'executor', 'max_bytes', 'chunk_bytes'] : ['url', 'token', 'expires_at'];
     if (Object.keys(payload).length !== fields.length || fields.some((key) => !(key in payload))) {
       throw new Error('Backend returned an invalid Agent file token response');
     }
@@ -3670,19 +3667,11 @@ export class Deployments {
       if (payload.transport !== 'runner' || (payload.executor !== null && payload.executor !== 'process' && payload.executor !== 'docker') || !Number.isSafeInteger(payload.max_bytes) || payload.max_bytes <= 0) {
         throw new Error('Backend returned an invalid runner file transport');
       }
-      // The backend negotiates the chunk size and advertises it. Bound it;
-      // never compare it to a literal, or every change to it needs a client
-      // release and old clients reject the server outright.
-      const advertised = payload.chunk_bytes;
-      const chunks = advertised !== undefined && advertised !== null;
-      if (chunks && (!Number.isSafeInteger(advertised) || advertised <= 0 || advertised > payload.max_bytes)) {
+      const chunkBytes = payload.chunk_bytes;
+      if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0 || chunkBytes > payload.max_bytes) {
         throw new Error('Backend returned an invalid runner chunk size');
       }
-      // A ceiling above ours is not invalid, it is more than we will use:
-      // clamp it. Rejecting would break every shipped client the moment the
-      // backend raises the limit — the same pin we removed from chunk_bytes.
-      const chunkBytes = chunks ? (advertised as number) : LEGACY_SINGLE_SHOT_BYTES;
-      return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, chunks ? RUNNER_FILE_MAX_BYTES : LEGACY_SINGLE_SHOT_BYTES), chunks, chunkBytes };
+      return { transport: 'runner', maxBytes: Math.min(payload.max_bytes, RUNNER_FILE_MAX_BYTES), chunkBytes };
     }
     const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
     const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
@@ -5069,34 +5058,13 @@ export class Deployments {
     if ('transport' in access) {
       const maxBytes = Math.min(options?.maxBytes ?? access.maxBytes, access.maxBytes);
       if (!Number.isInteger(maxBytes) || maxBytes < 0) throw new Error('maxBytes must be a nonnegative integer');
-      if (access.chunks) {
-        const query = new URLSearchParams({ path: resolvedPath, max_bytes: String(maxBytes) });
-        return this.agentHttp.getStream(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/stream?${query}`, async response => {
-          const content = await readResponseBytes(response, path, maxBytes);
-          const length = response.headers.get('content-length');
-          if (length === null || Number(length) !== content.byteLength) throw new Error('Incomplete runner file stream');
-          return { content };
-        }, { signal: options?.signal });
-      }
-      const payload = await this.agentHttp.post<{ content_base64: string }>(
-        `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/read`,
-        { path: absolute ? resolvedPath : nativeFilePath(resolvedPath), max_bytes: maxBytes },
-        { signal: options?.signal, redirect: 'error' },
-      );
-      if (typeof payload?.content_base64 !== 'string' || payload.content_base64.length > Math.ceil(maxBytes / 3) * 4
-        || payload.content_base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload.content_base64)) {
-        throw new Error('Invalid runner file response');
-      }
-      let content: Uint8Array;
-      try {
-        const binary = atob(payload.content_base64);
-        content = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) content[i] = binary.charCodeAt(i);
-      } catch {
-        throw new Error('Invalid runner file response');
-      }
-      if (content.byteLength > maxBytes) throw fileReadLimitError(path, maxBytes);
-      return { content };
+      const query = new URLSearchParams({ path: absolute ? resolvedPath : nativeFilePath(resolvedPath), max_bytes: String(maxBytes) });
+      return this.agentHttp.getStream(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/stream?${query}`, async response => {
+        const content = await readResponseBytes(response, path, maxBytes);
+        const length = response.headers.get('content-length');
+        if (length === null || Number(length) !== content.byteLength) throw new Error('Incomplete runner file stream');
+        return { content };
+      }, { signal: options?.signal });
     }
     if (absolute) resolveSyncRootFilePath(path); // Hosted transport has no runtime-absolute address space.
     const response = await this.fetchReef(access, `/files/${encodeFilePath(resolvedPath)}`, {
@@ -5156,40 +5124,34 @@ export class Deployments {
     const access = await this.fileAccess(agentId, options.signal);
     if ('transport' in access) {
       if (bytes.byteLength > access.maxBytes) throw new Error(`Runner files are limited to ${access.maxBytes} bytes by this backend`);
-      if (access.chunks) {
-        const transferId = crypto.randomUUID();
-        let offset = 0;
-        const command = async (action: string, body: Uint8Array = new Uint8Array(0), signal = options.signal) => {
-          const query = new URLSearchParams({ transfer_id: transferId, action, total: String(bytes.byteLength),
-            offset: String(offset), path: action === 'open_write' ? nativeFilePath(path) : '' });
-          const receipt = await this.agentHttp.postRaw<{ ok: boolean; transfer_id: string; offset: number; total: number }>(
-            `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/transfer?${query}`, body, 'application/octet-stream',
-            { signal, retries: 1, redirect: 'error', ...(action === 'abort' ? { timeout: 1000 } : {}) });
-          const expected = offset + body.byteLength;
-          if (receipt.ok !== true || receipt.transfer_id !== transferId || receipt.offset !== expected || receipt.total !== bytes.byteLength) {
-            throw new Error('Invalid runner file receipt');
-          }
-          offset = expected;
-          return receipt;
-        };
-        try {
-          await command('open_write');
-          while (offset < bytes.byteLength) {
-            await command('write', bytes.subarray(offset, Math.min(offset + access.chunkBytes, bytes.byteLength)));
-          }
-          await command('commit');
-          return { ok: true };
-        } catch (error) {
-          // Abort is cleanup, never replay of an uncertain write or commit.
-          await command('abort', new Uint8Array(0), new AbortController().signal).catch(() => undefined);
-          throw error;
+      const runnerPath = nativeFilePath(path);
+      const transferId = crypto.randomUUID();
+      let offset = 0;
+      const command = async (action: string, body: Uint8Array = new Uint8Array(0), signal = options.signal) => {
+        const query = new URLSearchParams({ transfer_id: transferId, action, total: String(bytes.byteLength),
+          offset: String(offset), path: action === 'open_write' ? runnerPath : '' });
+        const receipt = await this.agentHttp.postRaw<{ ok: boolean; transfer_id: string; offset: number; total: number }>(
+          `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/transfer?${query}`, body, 'application/octet-stream',
+          { signal, retries: 1, redirect: 'error', ...(action === 'abort' ? { timeout: 1000 } : {}) });
+        const expected = offset + body.byteLength;
+        if (receipt.ok !== true || receipt.transfer_id !== transferId || receipt.offset !== expected || receipt.total !== bytes.byteLength) {
+          throw new Error('Invalid runner file receipt');
         }
+        offset = expected;
+        return receipt;
+      };
+      try {
+        await command('open_write');
+        while (offset < bytes.byteLength) {
+          await command('write', bytes.subarray(offset, Math.min(offset + access.chunkBytes, bytes.byteLength)));
+        }
+        await command('commit');
+        return { ok: true };
+      } catch (error) {
+        // Abort is cleanup, never replay of an uncertain write or commit.
+        await command('abort', new Uint8Array(0), new AbortController().signal).catch(() => undefined);
+        throw error;
       }
-      const receipt = await this.agentHttp.post<{ ok: boolean }>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/write`, {
-        path: nativeFilePath(path), content_base64: encodeBase64(bytes),
-      }, { retries: 1, redirect: 'error', signal: options.signal }); // Neither retry nor redirect may replay file content.
-      if (receipt?.ok !== true) throw new Error('Invalid runner file receipt');
-      return receipt;
     }
     const response = await this.fetchReef(access, `/files/${encodedPath}`, {
       method: 'PUT',

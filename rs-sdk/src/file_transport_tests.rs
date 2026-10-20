@@ -26,13 +26,14 @@ fn client(base: &str) -> HyperCliClient {
 }
 
 fn native() -> Value {
-    json!({"transport":"runner", "executor":"process", "max_bytes":RUNNER_FILE_MAX_BYTES})
+    json!({"transport":"runner", "executor":"process", "max_bytes":RUNNER_FILE_MAX_BYTES, "chunk_bytes":262144})
 }
 
 fn token(server: &mut Server, payload: Value) -> mockito::Mock {
     server
         .mock("POST", "/agents/deployments/agent-contract/files/token")
         .match_header("authorization", "Bearer api-secret")
+        .match_header("x-hypercli-file-chunks", Matcher::Missing)
         .with_status(200)
         .with_body(payload.to_string())
         .create()
@@ -79,20 +80,23 @@ fn existing_byte_methods_dispatch_native_with_identical_vectors() {
     for case in fixture["paths"].as_array().unwrap() {
         for hex in fixture["bytes_hex"].as_array().unwrap() {
             let bytes = fixture_bytes(hex);
-            let encoded = STANDARD.encode(&bytes);
             let path = case["normalized"].as_str().unwrap();
             let write = server
-                .mock("POST", "/agents/deployments/agent-contract/files/write")
+                .mock("PUT", "/agents/deployments/agent-contract/files/stream")
+                .match_query(Matcher::UrlEncoded("path".into(), path.into()))
                 .match_header("authorization", "Bearer api-secret")
-                .match_body(Matcher::Json(json!({"path":path,"content_base64":encoded})))
+                .match_body(bytes.clone())
                 .with_status(200)
                 .with_body(r#"{"ok":true}"#)
                 .create();
             let read = server
-                .mock("POST", "/agents/deployments/agent-contract/files/read")
-                .match_body(Matcher::Json(json!({"path":path,"max_bytes":262144})))
+                .mock("GET", "/agents/deployments/agent-contract/files/stream")
+                .match_query(Matcher::AllOf(vec![
+                    Matcher::UrlEncoded("path".into(), path.into()),
+                    Matcher::UrlEncoded("max_bytes".into(), RUNNER_FILE_MAX_BYTES.to_string()),
+                ]))
                 .with_status(200)
-                .with_body(json!({"content_base64":encoded}).to_string())
+                .with_body(&bytes)
                 .create();
             let input = case["input"].as_str().unwrap();
             let receipt = sdk
@@ -116,17 +120,17 @@ fn existing_byte_methods_dispatch_native_with_identical_vectors() {
         fixture["directory_shaped_json"].as_str().unwrap(),
     ] {
         let write = server
-            .mock("POST", "/agents/deployments/agent-contract/files/write")
-            .match_body(Matcher::Json(
-                json!({"path":"text.json", "content_base64":STANDARD.encode(content)}),
-            ))
+            .mock("PUT", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::UrlEncoded("path".into(), "text.json".into()))
+            .match_body(content)
             .with_status(200)
             .with_body(r#"{"ok":true}"#)
             .create();
         let read = server
-            .mock("POST", "/agents/deployments/agent-contract/files/read")
+            .mock("GET", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::Any)
             .with_status(200)
-            .with_body(json!({"content_base64":STANDARD.encode(content)}).to_string())
+            .with_body(content)
             .create();
         sdk.put_deployment_file_text("agent-contract", "text.json", content)
             .unwrap();
@@ -168,18 +172,17 @@ fn unsupported_listing_and_limits_never_dispatch_a_file_command() {
 
 #[test]
 fn advertised_ceiling_above_this_client_is_clamped_not_refused() {
-    // A backend that raises its limit must not break shipped clients. This is
-    // the same pin that was removed from chunk_bytes; max_bytes kept it.
     let mut server = Server::new();
     let sdk = client(&server.url());
     let discovery = token(
         &mut server,
-        json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES * 4}),
+        json!({"transport":"runner","executor":"process","max_bytes":RUNNER_FILE_MAX_BYTES * 4,"chunk_bytes":262144}),
     );
     let read = server
-        .mock("POST", "/agents/deployments/agent-contract/files/read")
+        .mock("GET", "/agents/deployments/agent-contract/files/stream")
+        .match_query(Matcher::Any)
         .with_status(200)
-        .with_body(json!({"content_base64":"b2s="}).to_string())
+        .with_body("ok")
         .create();
     assert_eq!(
         sdk.read_deployment_file_bytes("agent-contract", "x", 1024)
@@ -234,19 +237,16 @@ fn malformed_discovery_and_backend_errors_do_not_fall_back() {
 }
 
 #[test]
-fn native_read_rejects_invalid_base64_and_decoded_overflow() {
+fn native_read_rejects_overflow() {
     let mut server = Server::new();
     let sdk = client(&server.url());
-    let discovery = token(&mut server, native()).expect(3);
-    for encoded in [
-        "?".to_owned(),
-        STANDARD.encode([1, 2]),
-        STANDARD.encode(vec![0; RUNNER_FILE_MAX_BYTES + 1]),
-    ] {
+    let discovery = token(&mut server, native()).expect(2);
+    for bytes in [vec![1, 2], vec![0; RUNNER_FILE_MAX_BYTES + 1]] {
         let read = server
-            .mock("POST", "/agents/deployments/agent-contract/files/read")
+            .mock("GET", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::Any)
             .with_status(200)
-            .with_body(json!({"content_base64":encoded}).to_string())
+            .with_body(bytes)
             .create();
         assert!(sdk
             .read_deployment_file_bytes("agent-contract", "x", 1)
@@ -269,9 +269,10 @@ fn native_operation_errors_after_discovery_preserve_status_without_fallback() {
         for operation in ["read", "write"] {
             let response = server
                 .mock(
-                    "POST",
-                    format!("/agents/deployments/agent-contract/files/{operation}").as_str(),
+                    if operation == "read" { "GET" } else { "PUT" },
+                    "/agents/deployments/agent-contract/files/stream",
                 )
+                .match_query(Matcher::Any)
                 .with_status(status as usize)
                 .with_body(r#"{"detail":"operation rejected"}"#)
                 .create();
@@ -301,9 +302,10 @@ fn native_utf8_preserves_bom_and_replaces_malformed_subsequences() {
         let bytes = fixture_bytes(&vector["hex"]);
         let decoded = vector["decoded"].as_str().unwrap();
         let read = server
-            .mock("POST", "/agents/deployments/agent-contract/files/read")
+            .mock("GET", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::Any)
             .with_status(200)
-            .with_body(json!({"content_base64": STANDARD.encode(bytes)}).to_string())
+            .with_body(bytes)
             .create();
         assert_eq!(
             sdk.read_deployment_file("agent-contract", "text", 100)
@@ -313,10 +315,9 @@ fn native_utf8_preserves_bom_and_replaces_malformed_subsequences() {
         read.assert();
         read.remove();
         let write = server
-            .mock("POST", "/agents/deployments/agent-contract/files/write")
-            .match_body(Matcher::Json(
-                json!({"path":"text", "content_base64":STANDARD.encode(decoded)}),
-            ))
+            .mock("PUT", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::UrlEncoded("path".into(), "text".into()))
+            .match_body(decoded)
             .with_status(200)
             .with_body(r#"{"ok":true}"#)
             .create();
@@ -325,9 +326,10 @@ fn native_utf8_preserves_bom_and_replaces_malformed_subsequences() {
         write.assert();
         write.remove();
         let read_back = server
-            .mock("POST", "/agents/deployments/agent-contract/files/read")
+            .mock("GET", "/agents/deployments/agent-contract/files/stream")
+            .match_query(Matcher::Any)
             .with_status(200)
-            .with_body(json!({"content_base64": STANDARD.encode(decoded)}).to_string())
+            .with_body(decoded)
             .create();
         assert_eq!(
             sdk.read_deployment_file("agent-contract", "text", 100)
@@ -450,7 +452,8 @@ fn native_readiness_accepts_missing_file_but_not_missing_agent() {
         .create();
     let discovery = token(&mut server, native()).expect(2);
     let read = server
-        .mock("POST", "/agents/deployments/agent-contract/files/read")
+        .mock("GET", "/agents/deployments/agent-contract/files/stream")
+        .match_query(Matcher::Any)
         .with_status(404)
         .with_body(r#"{"detail":"Runner file not_found"}"#)
         .create();
@@ -594,10 +597,10 @@ fn lost_write_response_never_replays_over_an_intervening_edit() {
                 )
                 .unwrap();
             } else {
-                assert!(headers.starts_with("POST /agents/deployments/agent-contract/files/write "));
+                assert!(headers
+                    .starts_with("PUT /agents/deployments/agent-contract/files/stream?path=x "));
                 writes += 1;
-                let body: Value = serde_json::from_slice(&body).unwrap();
-                content = body["content_base64"].as_str().unwrap().to_owned();
+                content = String::from_utf8(body).unwrap();
                 if writes == 1 {
                     content = "intervening edit".into();
                 }
