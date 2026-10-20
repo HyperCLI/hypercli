@@ -435,8 +435,6 @@ pub const AGENT_FILE_READ_MAX_BYTES: usize = 250 * 1024 * 1024;
 /// Decoded byte cap for the existing native-runner control transport.
 pub const RUNNER_FILE_MAX_BYTES: usize = 50 * 1024 * 1024;
 
-/// Ceiling for a backend that advertises no chunking, i.e. one whole-file write.
-
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
 /// A token that does not resolve to `https://<host>/_reef` with no
