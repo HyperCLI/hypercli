@@ -34,6 +34,7 @@ import {
   type AgentRouteConfig,
   type AgentState,
   type CodingAgentAcpDiagnostic,
+  type CodingAgentAcpConnectOptions,
   type CodingAgentAcpDiagnosticError,
   type CodingAgentAcpStage,
   type Deployments,
@@ -60,7 +61,7 @@ export const usage = [
   'hyper agents create <name> --runtime openclaw|hermes|generic|goose|opencode|codex|claude-code|kimi-code|pi|buzz [--model M] [--plan P] [--size S] [--env K=V ...] [--param k=v ...] [--secret K=V ...] [--image IMG] [--sh SCRIPT] [--sync-root P] [--sync-include P ... | --sync-exclude G ...] [--registry-url U --registry-username U --registry-password P] [--restart | --no-restart] [--runner-tags a,b] [--runner-id UUID] [--executor process|docker] [--cwd RUNNER_HOST_PATH] [--dry-run] [-- CMD [ARGS...]]',
   'hyper agents start <id>',
   'hyper agents set runtime <id> <runtime>  (resets the launch image to the runtime default)',
-  'hyper agents chat <id> <prompt...> [-s|--session NAME] [--permissions auto|none] [--timeout S] [--stream]',
+  'hyper agents chat <id> <prompt...> [-s|--session NAME] [--cwd PATH] [--mcp-servers FILE|-] [--permissions auto|none] [--timeout S] [--stream]',
   'hyper agents messages <session-id> [--cursor CURSOR] [--limit N] [--follow] (read-only; follow emits current snapshots)',
   'hyper agents stop <id> [--yes]',
   'hyper agents delete <id> [--yes]',
@@ -1617,7 +1618,7 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 // chat — the canonical one-shot prompt round trip, validated per runtime in CI
 //
-// CI contract: zero TTY, no prompts, no stdin reads. Exit 0 exactly when an
+// CI contract: zero TTY, no prompts; stdin only with --mcp-servers -. Exit 0 exactly when an
 // assistant reply is produced. Every failure is a CliError naming its stage:
 //   chat: <start|wait|connect|initialize|cwd|new|list|resume|prompt> stage failed: ...
 // Progress (started agent, session opened) goes to stderr via
@@ -1657,12 +1658,48 @@ function acpContentText(content: unknown): string {
   return '';
 }
 
+// Use the upstream McpServer union exposed by the SDK's construction options.
+type McpServer = NonNullable<CodingAgentAcpConnectOptions['mcpServers']>[number];
+
+async function readChatMcpServers(file: string): Promise<McpServer[]> {
+  let value: unknown;
+  try {
+    let text: string;
+    if (file === '-') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+      text = Buffer.concat(chunks).toString('utf8');
+    } else text = readFileSync(file, 'utf8');
+    value = JSON.parse(text);
+  } catch {
+    throw new UsageError('--mcp-servers: could not read JSON array');
+  }
+  const object = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
+  const pairs = (v: unknown) => Array.isArray(v) && v.every((entry) =>
+    object(entry) && typeof entry.name === 'string' && typeof entry.value === 'string');
+  if (!Array.isArray(value) || !value.every((server) => {
+    if (!object(server) || typeof server.name !== 'string') return false;
+    if (server.type === 'http' || server.type === 'sse') {
+      return typeof server.url === 'string' && pairs(server.headers);
+    }
+    return server.type === undefined && typeof server.command === 'string'
+      && Array.isArray(server.args) && server.args.every((arg) => typeof arg === 'string')
+      && pairs(server.env);
+  })) {
+    throw new UsageError('--mcp-servers must be a JSON array of ACP MCP servers (stdio command/args/env or http/sse url/headers)');
+  }
+  return value as McpServer[];
+}
+
 async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, {
     session: { type: 'string', short: 's' },
     timeout: { type: 'string' },
     stream: { type: 'boolean', default: false },
     permissions: { type: 'string' },
+    cwd: { type: 'string' },
+    'mcp-servers': { type: 'string' },
   });
   if (parsed.help) return printHelp();
   const permissions = str(parsed, 'permissions');
@@ -1680,6 +1717,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
   if (sessionName !== undefined && !sessionName.trim()) throw new UsageError('--session must not be empty');
   const stream = parsed.values.stream === true;
   const timeoutMs = secondsFlag(parsed, 'timeout', 120);
+  const cwd = str(parsed, 'cwd');
+  const mcpFile = str(parsed, 'mcp-servers');
+  const mcpServers = mcpFile === undefined ? undefined : await readChatMcpServers(mcpFile);
 
   const { client, d } = await adopt(ctx);
   const resolved = await api('get agent', async () => d.get(await resolveAgentRef(d, ref)));
@@ -1804,6 +1844,8 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     // inside acpConnect. A refusal fails attachment without a replacement.
     const acp = await atStage('connect', () =>
       agent.acpConnect({
+        ...(cwd !== undefined ? { cwd } : {}),
+        ...(mcpServers !== undefined ? { mcpServers } : {}),
         signal: controller.signal,
         onDiagnostic,
         clientInfo: { name: 'hypercli-cli' },

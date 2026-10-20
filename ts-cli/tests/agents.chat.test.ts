@@ -10,6 +10,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { APIError, CodingAgentAcpRequestError, type CodingAgentAcpDiagnostic, type Agent, type HyperCLI } from '@hypercli.com/sdk';
 import * as agents from '../src/commands/agents.js';
 import { CliError, UsageError, exitCodeFor } from '../src/core/errors.js';
@@ -186,6 +189,76 @@ describe('hyper agents chat — family dispatch', () => {
 });
 
 // ---------- sessions ----------
+
+describe('hyper agents chat — setup', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'hyper-chat-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  const servers = [
+    { name: 'stdio', command: '/tools/server', args: ['--read-only'], env: [{ name: 'KEY', value: 'value' }] },
+    { type: 'http', name: 'http', url: 'https://example.test/mcp', headers: [{ name: 'X-Test', value: 'yes' }] },
+    { type: 'sse', name: 'sse', url: 'https://example.test/sse', headers: [] },
+  ];
+
+  it.each([false, true])('passes cwd and every MCP transport to SDK construction (resume=%s)', async (resume) => {
+    const file = join(dir, 'servers.json');
+    writeFileSync(file, JSON.stringify(servers));
+    const { acpConnect, client } = fakeAcpClient(['ok']);
+    const ctx = makeCtx(fakeClient(chatDeployments([chatAgentFixture({ acpConnect })])), 'table');
+    await agents.run(ctx, ['chat', ID_A, 'hi', '--cwd', '/remote/project', '--mcp-servers', file,
+      ...(resume ? ['--session', 'existing'] : [])]);
+    expect(acpConnect).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/remote/project', mcpServers: servers }));
+    if (resume) {
+      expect(acpConnect).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'existing' }));
+      expect(client.resumeSession).toHaveBeenCalledWith('existing');
+      expect(client.newSession).not.toHaveBeenCalled();
+    } else {
+      expect(client.newSession).toHaveBeenCalledOnce();
+      expect(client.resumeSession).not.toHaveBeenCalled();
+    }
+  });
+
+  it('preserves SDK defaults when setup flags are omitted', async () => {
+    const { acpConnect } = fakeAcpClient(['ok']);
+    const ctx = makeCtx(fakeClient(chatDeployments([chatAgentFixture({ acpConnect })])), 'table');
+    await agents.run(ctx, ['chat', ID_A, 'hi']);
+    expect(acpConnect.mock.calls[0][0]).not.toHaveProperty('cwd');
+    expect(acpConnect.mock.calls[0][0]).not.toHaveProperty('mcpServers');
+  });
+
+  it('reads an explicit empty MCP array from stdin', async () => {
+    const input = vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+      yield Buffer.from('[]');
+    });
+    try {
+      const { acpConnect } = fakeAcpClient(['ok']);
+      const ctx = makeCtx(fakeClient(chatDeployments([chatAgentFixture({ acpConnect })])), 'table');
+      await agents.run(ctx, ['chat', ID_A, 'hi', '--mcp-servers', '-']);
+      expect(acpConnect).toHaveBeenCalledWith(expect.objectContaining({ mcpServers: [] }));
+    } finally { input.mockRestore(); }
+  });
+
+  it.each(['{invalid', '{}', 'null', '[null]', '[{"name":"bad","command":"server","args":[],"env":{}}]',
+    '[{"type":"http","name":"bad","url":"https://example.test","headers":{}}]'])
+  ('rejects malformed setup before creating a client: %s', async (text) => {
+    const file = join(dir, 'invalid.json');
+    writeFileSync(file, text);
+    const d = chatDeployments([chatAgentFixture()]);
+    const ctx = makeCtx(fakeClient(d), 'table');
+    await expect(agents.run(ctx, ['chat', ID_A, 'hi', '--mcp-servers', file])).rejects.toBeInstanceOf(UsageError);
+    expect(ctx.client).not.toHaveBeenCalled();
+    expect(d.get).not.toHaveBeenCalled();
+  });
+
+  it('documents setup flags in help without creating a client', async () => {
+    const ctx = makeCtx(fakeClient(chatDeployments([])), 'table');
+    await agents.run(ctx, ['chat', '--help']);
+    expect(stdout()).toContain('--cwd PATH');
+    expect(stdout()).toContain('--mcp-servers FILE|-');
+    expect(ctx.client).not.toHaveBeenCalled();
+  });
+});
 
 describe('hyper agents chat — sessions', () => {
   it('--session resumes via resumeSession instead of newSession', async () => {
