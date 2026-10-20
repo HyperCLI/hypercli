@@ -2107,7 +2107,7 @@ describe('Agents SDK', () => {
     expect(get).not.toHaveBeenCalledWith('/deployments/coder');
   });
 
-  it('starts OpenClaw Pro without launch mutation', async () => {
+  it('starts OpenClaw without launch mutation', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-pro',
       user_id: 'user-456',

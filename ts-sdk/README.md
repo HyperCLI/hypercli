@@ -215,7 +215,7 @@ paths are relative to `syncRoot`, and `filesList("")` lists the complete root, i
 dot-directories. The OpenClaw helpers add concrete
 image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by default;
 there is no public `openclaw` route (the pod gateway binds loopback with auth
-mode `none` as an ACP hop only; pro adds the protected `desktop` route).
+mode `none` as an ACP hop only; desktop configuration adds the protected route).
 Regular OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`;
 Desktop support uses the same OpenClaw image with explicit environment and routes.
 Coding helpers instead inject the runtime-specific include defaults

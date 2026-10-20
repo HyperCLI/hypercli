@@ -584,7 +584,7 @@ class TestCreateAgentCodingRuntimes:
 
 class TestCreateAgentOpenClawRuntimes:
     """ts createAgent openclaw branch: env builders from the existing py data
-    tables; the pro variant adds the desktop leg (its only public route)."""
+    tables; desktop environment and routes remain explicit options."""
 
     def test_default_launch_shape(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw_acp")

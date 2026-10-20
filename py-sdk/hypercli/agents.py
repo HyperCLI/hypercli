@@ -2577,8 +2577,7 @@ class Deployments:
         (mirrors ts-sdk ``Deployments.createAgent``).
 
         - ``openclaw_acp``: OpenClaw ACP launch
-          with cron/memory/workspaces defaults (the pro variant adds the
-          desktop route and leg).
+          with cron/memory/workspaces defaults.
         - ``hermes_acp``: Hermes ACP launch with the hermes
           image, sync-root, and cron defaults.
         - ``buzz-agent``/``opencode``/``codex``/``claude-code``/``goose``/

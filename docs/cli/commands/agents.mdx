@@ -119,7 +119,7 @@ Important options:
 the runtime. Wait until `status` reports `STOPPED`, then use the separate
 `hyper agents start <id-or-name>` command when the workspace is ready.
 
-Desktop/browser agents use the OpenClaw pro image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
+Desktop/browser agents use the standard OpenClaw image, set `HYPER_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `HYPER_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env HYPER_DESKTOP_ENABLED=True`.
 
 Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`
 (product/inference), `HYPER_AGENTS_API_BASE` (direct Agent control), the
