@@ -365,10 +365,10 @@ scope, 422 invalid UUID. No service impersonation or runtime-ID resolution occur
 ## ACP v1 conversation client
 
 `hypercli.acp.ACPClient` connects to the backend `/ws/acp` authority using the
-pinned upstream v1 SDK (schema-v1.23.0, Git commit
-`9d07d7871ef4b220b8507e15fc4b1560f0950a64`). Install with a Git-enabled pip
-environment; pip provisions the upstream declared `pdm-backend` build prerequisite
-in build isolation. Product ACP traffic targets vanilla v1 throughout.
+pinned upstream `agent-client-protocol[http]==1.0.0rc2` from PyPI
+(schema-v1.23.0). Its `acp/` package matches Git commit
+`9d07d7871ef4b220b8507e15fc4b1560f0950a64` byte-for-byte.
+Product ACP traffic targets vanilla v1 throughout.
 
 ```python
 from hypercli.acp import ACPClient, AmbiguousDeliveryError, RetryableACPError
