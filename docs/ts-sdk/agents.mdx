@@ -190,7 +190,7 @@ such as START use the Backend-stored launch configuration and accept only
 `dryRun`; they do not accept or repair `launchConfig`. Delete and key rotation
 reject `self`.
 
-This generic path does not inject any routes. Use `createAgent("openclaw_acp", ...)` when you want the OpenClaw launch defaults (and `"openclaw-pro"` for the desktop route).
+This generic path does not inject any routes. Use `createAgent("openclaw_acp", ...)` when you want the OpenClaw launch defaults.
 
 Create/update launch options:
 
@@ -298,19 +298,16 @@ Generic routes omit `remove_headers` when it is absent or an empty array.
 `gateway.trustedProxies`; `buildOpenClawTrustedProxiesEnv([...])` builds that
 launch env.
 
-Pass runtime `"openclaw-pro"` to `createAgent(...)` for the desktop/browser
-flavor, or persist the same
-launch config through `update(...)` before a later start. The pro launch inherits
-the same OpenClaw defaults, selects the `hypercli-openclaw:pro-prod` image when no
-image is provided, sets `HYPER_DESKTOP_ENABLED=1`, and includes the protected
-noVNC route at `desktop-<agent>.hypercli.app`.
+For desktop/browser access, set `env: { HYPER_DESKTOP_ENABLED: '1' }` and
+`openClawRoutes: { includeDesktop: true }` on `createAgent('openclaw_acp', ...)`.
+The protected noVNC route is `desktop-<agent>.hypercli.app`.
 
 OpenClaw helpers only add defaults on top of that generic launch surface:
 
 - `image`
-  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for `runtime: "openclaw-pro"`
+  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`
 - `routes`
-  a pro launch includes the protected `desktop` route; otherwise no routes
+  explicit desktop configuration includes the protected `desktop` route; otherwise no routes
   are injected
 - `syncRoot`
   defaults to `/home/node`
@@ -640,7 +637,7 @@ cookie, or subprotocol.
 
 ## `CodingAgent`
 
-Every managed runtime — `openclaw_acp`, `openclaw-pro`, `hermes_acp`, and the
+Every managed runtime — `openclaw_acp`, `hermes_acp`, and the
 coding-agent runtimes — boots its pod behind `hyper-acp` and hydrates as
 `CodingAgent`, the one ACP-facing facade. Chat, sessions, runtime auth, and
 turn driving all ride the same ACP bridge; runtimes differ only in the

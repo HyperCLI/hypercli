@@ -1439,7 +1439,7 @@ describe('Agents SDK', () => {
       id: STORED_AGENT_ID,
       user_id: 'user-456',
       state: 'STARTING',
-      runtime: 'openclaw-pro',
+      runtime: 'openclaw_acp',
     });
     const patch = vi.fn().mockResolvedValue({
       id: 'agent-sync-all',
@@ -2112,7 +2112,7 @@ describe('Agents SDK', () => {
       id: 'agent-pro',
       user_id: 'user-456',
       state: 'STARTING',
-      runtime: 'openclaw-pro',
+      runtime: 'openclaw_acp',
     });
     const patch = vi.fn().mockResolvedValue({
       id: 'agent-sync-presence',
@@ -2596,7 +2596,7 @@ describe('Agents SDK', () => {
     })).toBe(false);
     expect(launchConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } } })).toBe(true);
     expect(launchConfigHasDesktop({ routes: { browser: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
-    expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:pro-prod' })).toBe(false);
+    expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:prod' })).toBe(false);
     expect(agentConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
     expect(agentConfigHasDesktop({
       launchConfig: { env: { HYPER_DESKTOP_ENABLED: 'false' } },
@@ -2889,7 +2889,7 @@ describe('Agents SDK', () => {
       .rejects.toMatchObject({ statusCode: 403, message: expect.stringContaining('forbidden') });
   });
 
-  it.each(['openclaw_acp', 'hermes_acp', 'openclaw-pro'])(
+  it.each(['openclaw_acp', 'hermes_acp'])(
     'hydrates runtime %s to the ACP-facing Agent',
     async (runtime) => {
       const http = {
@@ -2922,7 +2922,7 @@ describe('Agents SDK', () => {
     expect(() => generic.auth).toThrow(/Runtime authentication is not available/);
   });
 
-  it.each(['hermes_acp', 'openclaw_acp', 'openclaw-pro'])(
+  it.each(['hermes_acp', 'openclaw_acp'])(
     'createAgent accepts a backend response labeled %s',
     async (runtime) => {
       const http = {
@@ -2954,7 +2954,7 @@ describe('Agents SDK', () => {
       id: 'agent-pro',
       user_id: 'user-456',
       state: 'running',
-      hostname: 'openclaw-pro.hypercli.com',
+      hostname: 'openclaw-desktop.hypercli.com',
       gateway_token: 'must-not-hydrate',
     });
 

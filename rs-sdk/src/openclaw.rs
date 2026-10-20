@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 use crate::{AgentSize, CreateDeploymentRequest, ManagedRuntime, RouteConfig};
 
 pub const OPENCLAW_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:prod";
-pub const OPENCLAW_PRO_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
 pub const OPENCLAW_SYNC_ROOT: &str = "/home/node";
 pub const OPENCLAW_DESKTOP_PORT: u16 = 3000;
 pub const OPENCLAW_DESKTOP_PREFIX: &str = "desktop";
@@ -102,8 +101,8 @@ pub const OPENCLAW_SYNC_EXCLUDE: [&str; 9] = [
 
 /// Minimal managed launch defaults for hosted OpenClaw agents.
 ///
-/// With `desktop` enabled this builds the `openclaw-pro` variant: desktop
-/// route, `HYPER_DESKTOP_ENABLED=1`, pro image.
+/// With `desktop` enabled this adds the desktop route and
+/// `HYPER_DESKTOP_ENABLED=1` to the standard image.
 #[derive(Clone, Debug, Default)]
 pub struct OpenClawLaunchConfig {
     pub desktop: bool,
@@ -154,20 +153,9 @@ impl OpenClawLaunchConfig {
     /// Apply the OpenClaw defaults to a create request. Explicitly set fields
     /// win; only unset fields are filled in.
     pub fn apply_to_create(&self, request: &mut CreateDeploymentRequest) {
-        request.runtime = if self.desktop {
-            ManagedRuntime::OpenclawPro
-        } else {
-            ManagedRuntime::Openclaw
-        };
+        request.runtime = ManagedRuntime::Openclaw;
         if request.image.is_none() {
-            request.image = Some(
-                if self.desktop {
-                    OPENCLAW_PRO_IMAGE
-                } else {
-                    OPENCLAW_IMAGE
-                }
-                .to_owned(),
-            );
+            request.image = Some(OPENCLAW_IMAGE.to_owned());
         }
         if self.desktop {
             request
@@ -241,11 +229,7 @@ impl CreateDeploymentRequest {
     /// applied. Pass `size` to claim a slot-sized deployment; `None` uses the
     /// plan default.
     pub fn openclaw(name: Option<String>, size: Option<AgentSize>, desktop: bool) -> Self {
-        let mut request = CreateDeploymentRequest::new(if desktop {
-            ManagedRuntime::OpenclawPro
-        } else {
-            ManagedRuntime::Openclaw
-        });
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
         request.name = name;
         request.size = size;
         OpenClawLaunchConfig {
@@ -343,10 +327,10 @@ mod tests {
     }
 
     #[test]
-    fn openclaw_pro_adds_desktop_route_and_env() {
+    fn openclaw_desktop_adds_route_and_env() {
         let request = CreateDeploymentRequest::openclaw(None, None, true);
-        assert_eq!(request.runtime, ManagedRuntime::OpenclawPro);
-        assert_eq!(request.image.as_deref(), Some(OPENCLAW_PRO_IMAGE));
+        assert_eq!(request.runtime, ManagedRuntime::Openclaw);
+        assert_eq!(request.image.as_deref(), Some(OPENCLAW_IMAGE));
         let desktop = request.routes.get("desktop").expect("desktop route");
         assert_eq!(desktop.port, OPENCLAW_DESKTOP_PORT);
         assert!(desktop.auth);

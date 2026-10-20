@@ -95,7 +95,6 @@ const DEFAULT_PERSONA_PROFILE = new DefaultPersonaProfile();
 // and are deliberately absent here.
 const AGENT_PERSONA_PROFILES: Readonly<Record<string, AgentPersonaProfile>> = {
   openclaw_acp: OPENCLAW_PERSONA_PROFILE,
-  'openclaw-pro': OPENCLAW_PERSONA_PROFILE,
   hermes_acp: HERMES_PERSONA_PROFILE,
 };
 export { AGENT_PERSONA_PROFILES };

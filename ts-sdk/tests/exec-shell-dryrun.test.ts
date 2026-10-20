@@ -9,7 +9,6 @@ import {
   Agent,
   DEFAULT_OPENCLAW_IMAGE,
   DEFAULT_AGENT_RUNTIME_SCOPES,
-  DEFAULT_OPENCLAW_PRO_IMAGE,
   Deployments,
   buildAgentConfig,
   buildOpenClawCronEnv,
@@ -266,14 +265,14 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
   });
 
-  it('openclaw-pro launch defaults desktop image env and routes', async () => {
+  it('openclaw launch accepts explicit desktop env and routes', async () => {
     const post = vi.fn().mockResolvedValue({
-      runtime: 'openclaw-pro',
+      runtime: 'openclaw_acp',
       id: 'agent-openclaw',
       user_id: 'user-1',
       state: 'starting',
       launch_config: {
-        image: DEFAULT_OPENCLAW_PRO_IMAGE,
+        image: DEFAULT_OPENCLAW_IMAGE,
         env: { HYPER_DESKTOP_ENABLED: '1' },
         routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       },
@@ -284,11 +283,15 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    const agent = await deployments.createAgent('openclaw-pro', { name: 'test-agent', dryRun: true });
+    const agent = await deployments.createAgent('openclaw_acp', {
+      name: 'test-agent', dryRun: true,
+      env: { HYPER_DESKTOP_ENABLED: '1' },
+      openClawRoutes: { includeDesktop: true },
+    });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
-      runtime: 'openclaw-pro',
-      image: DEFAULT_OPENCLAW_PRO_IMAGE,
+      runtime: 'openclaw_acp',
+      image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
       sync_exclude: expect.arrayContaining([
         'shared/**',

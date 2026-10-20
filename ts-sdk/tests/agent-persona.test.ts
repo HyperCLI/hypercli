@@ -101,11 +101,10 @@ describe('resolveAgentPersonaProfile', () => {
 
   it('covers every known runtime spelling exactly once per family', () => {
     const runtimes = [
-      'generic', 'openclaw-pro', 'openclaw_acp', 'hermes_acp',
+      'generic', 'openclaw_acp', 'hermes_acp',
       'buzz-agent', 'opencode', 'codex', 'claude-code', 'goose', 'kimi-code', 'pi',
     ];
     const expected: Record<string, 'openclaw_acp' | 'hermes_acp' | 'default'> = {
-      'openclaw-pro': 'openclaw_acp',
       openclaw_acp: 'openclaw_acp',
       hermes_acp: 'hermes_acp',
     };
@@ -116,7 +115,7 @@ describe('resolveAgentPersonaProfile', () => {
 
   it('registry keys form a small closed set', () => {
     expect(Object.keys(AGENT_PERSONA_PROFILES).sort()).toEqual(
-      ['hermes_acp', 'openclaw-pro', 'openclaw_acp'],
+      ['hermes_acp', 'openclaw_acp'],
     );
   });
 });

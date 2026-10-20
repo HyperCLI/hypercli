@@ -52,7 +52,6 @@ AGENTS_API_PREFIX = "/deployments"
 AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.hypercli.com/ws/acp"
 DEV_AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.dev.hypercli.com/ws/acp"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
-DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
 DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes:latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
@@ -224,7 +223,6 @@ def _run_sync(
 # deliberately not in this union (mirrors ts-sdk).
 ManagedAgentRuntime = Literal[
     "generic",
-    "openclaw-pro",
     "openclaw_acp",
     "hermes_acp",
     "buzz-agent",
@@ -361,7 +359,7 @@ def build_openclaw_desktop_route(
     desktop_auth: bool = True,
     desktop_prefix: str = "desktop",
 ) -> dict[str, dict]:
-    """Desktop leg route for openclaw-pro.
+    """Desktop leg route for OpenClaw.
 
     There is no public gateway route anymore: the OpenClaw gateway binds
     loopback in-pod with auth mode ``none`` as an ACP hop only.
@@ -1949,7 +1947,7 @@ class Agent:
         return await self._require_deployments().shell_connect(self.id, shell=shell)
 
 
-# Every managed runtime — openclaw_acp, openclaw-pro, hermes_acp, and the
+# Every managed runtime — openclaw_acp, hermes_acp, and the
 # coding-agent runtimes — boots its pod behind hyper-acp, so runtime auth
 # rides the same exec/shell surface; the runtimes differ only in the
 # ``runtime`` label plus launch-config data (images, sync roots/uid/gid,
@@ -2578,7 +2576,7 @@ class Deployments:
         stays the raw generic entry; ``create_agent`` is the typed one
         (mirrors ts-sdk ``Deployments.createAgent``).
 
-        - ``openclaw_acp``/``openclaw-pro``: OpenClaw ACP launch
+        - ``openclaw_acp``: OpenClaw ACP launch
           with cron/memory/workspaces defaults (the pro variant adds the
           desktop route and leg).
         - ``hermes_acp``: Hermes ACP launch with the hermes
@@ -2621,7 +2619,7 @@ class Deployments:
         }
         if runtime == "generic":
             return self.create(**launch)
-        if runtime in ("openclaw-pro", "openclaw_acp"):
+        if runtime == "openclaw_acp":
             return self._create_openclaw_agent(
                 runtime,
                 workspaces_sync=workspaces_sync,
@@ -2644,12 +2642,10 @@ class Deployments:
         )
 
     def _create_openclaw_agent(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
-        pro = runtime == "openclaw-pro"
         # The openclaw launch family rejects nested config: launch settings are
         # top-level fields only.
         launch.pop("config")
         launch["env"] = {
-            **({"HYPER_DESKTOP_ENABLED": "1"} if pro else {}),
             **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
             **build_openclaw_cron_env(knobs["cron_enabled"]),
             **build_openclaw_memory_index_env(knobs["memory_index"]),
@@ -2664,18 +2660,14 @@ class Deployments:
             **build_openclaw_trusted_proxies_env(knobs["trusted_proxies"]),
         }
         if launch["routes"] is None:
-            launch["routes"] = build_openclaw_desktop_route() if pro else {}
-        launch["image"] = launch["image"] or (
-            DEFAULT_OPENCLAW_PRO_IMAGE if pro else DEFAULT_OPENCLAW_IMAGE
-        )
+            launch["routes"] = {}
+        launch["image"] = launch["image"] or DEFAULT_OPENCLAW_IMAGE
         if launch["sync_root"] is None:
             launch["sync_root"] = DEFAULT_CODING_AGENT_SYNC_ROOT
         # An explicit None include/exclude opts out of the default into
         # whole-root persistence, the same as ts's explicit null.
         if launch["sync_include"] is _UNSET and launch["sync_exclude"] is _UNSET:
             launch["sync_exclude"] = list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
-        if pro and launch["runtime_scopes"] is None:
-            launch["runtime_scopes"] = list(DEFAULT_AGENT_RUNTIME_SCOPES)
         return self.create(runtime=runtime, **launch)
 
     def _create_hermes_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:

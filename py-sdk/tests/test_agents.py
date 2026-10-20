@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from hypercli.agents import (
+    DEFAULT_OPENCLAW_IMAGE,
     AGENT_RUNTIME_INACTIVE_STATES,
     AGENT_TRANSITIONAL_STATES,
     CANONICAL_AGENT_STATES,
@@ -25,7 +26,6 @@ from hypercli.agents import (
     AgentCapacity,
     AgentLaunchValueMutation,
     AgentRoutes,
-    DEFAULT_OPENCLAW_PRO_IMAGE,
     DeploymentEvent,
     Deployments,
     OPENCLAW_TRUSTED_PROXIES_ENV,
@@ -1086,7 +1086,7 @@ def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
     )
 
 
-def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
+def test_launch_config_desktop_detection_uses_explicit_config_not_image():
     assert launch_config_has_desktop({"env": {"HYPER_DESKTOP_ENABLED": "1"}}) is True
     assert launch_config_has_desktop({"env": {"HYPER_DESKTOP_ENABLED": "0"}, "routes": {"desktop": {}}}) is False
     assert (
@@ -1101,7 +1101,7 @@ def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
         )
         is True
     )
-    assert launch_config_has_desktop({"image": DEFAULT_OPENCLAW_PRO_IMAGE}) is False
+    assert launch_config_has_desktop({"image": DEFAULT_OPENCLAW_IMAGE}) is False
     assert (
         agent_config_has_desktop(
             {"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}}
@@ -1634,7 +1634,7 @@ def test_hydrate_agent_yields_flat_agent_for_every_runtime(agents_client):
     base = {"id": "agent-123", "user_id": "user-456", "state": "RUNNING"}
 
     for runtime in (
-        "hermes_acp", "openclaw_acp", "openclaw-pro", "generic",
+        "hermes_acp", "openclaw_acp", "generic",
     ):
         agent = agents_client._hydrate_agent({**base, "runtime": runtime})
         assert type(agent) is Agent, runtime

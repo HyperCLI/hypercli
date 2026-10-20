@@ -98,7 +98,6 @@ import { HTTPClient, type RequestOverrides } from './http.js';
 import { normalizeSlackRelayBaseUrl } from './channels.js';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
-export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
 export const DEFAULT_HERMES_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-hermes:latest';
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
@@ -133,7 +132,6 @@ export const DEFAULT_PI_ENV = Object.freeze({});
 // deliberately not in this union.
 export type ManagedAgentRuntime =
   | 'generic'
-  | 'openclaw-pro'
   | 'openclaw_acp'
   | 'hermes_acp'
   | 'buzz-agent'
@@ -3371,8 +3369,6 @@ interface AcpRuntimeRow {
   openclawControlUi?: boolean;
   /** Memory-index env knobs (openclaw family). */
   openclawMemoryIndex?: boolean;
-  /** HYPER_DESKTOP_ENABLED=1 + default desktop route (openclaw-pro). */
-  desktop?: boolean;
   /** Best-effort file deletes on resetRuntimeDefaults. */
   resetFiles?: readonly string[];
   /** Best-effort recursive directory deletes on resetRuntimeDefaults (reef transport only; runner forbids recursive). */
@@ -3412,11 +3408,6 @@ const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
 };
 const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRuntimeRow> = {
   openclaw_acp: OPENCLAW_ACP_ROW,
-  'openclaw-pro': {
-    ...OPENCLAW_ACP_ROW,
-    image: DEFAULT_OPENCLAW_PRO_IMAGE,
-    desktop: true,
-  },
   hermes_acp: {
     image: DEFAULT_HERMES_AGENT_IMAGE,
     syncRoot: DEFAULT_HERMES_AGENT_SYNC_ROOT,
@@ -3497,7 +3488,7 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
 };
 
 /**
- * Every managed runtime — openclaw_acp, openclaw-pro, hermes_acp, and the
+ * Every managed runtime — openclaw_acp, hermes_acp, and the
  * coding-agent runtimes — boots its pod behind `hyper-acp`, so chat,
  * sessions, runtime auth, and turn driving all ride the same ACP bridge; the
  * runtimes differ only in the `runtime` label plus launch-config data
@@ -3811,8 +3802,6 @@ export class Deployments {
     }
     rejectOpenClawSecretOnlyEnv({ ...(options.env ?? {}) });
     const effectiveEnv: Record<string, string> = {
-      // openclaw-pro's desktop leg is the same launch shape with the flag on.
-      ...(family.desktop ? { HYPER_DESKTOP_ENABLED: '1' } : null),
       ...(family.workspacesSyncEnv ? buildWorkspacesSyncEnv(options.workspacesSync ?? null) : null),
       ...(family.cronEnv ? family.cronEnv(options.cronEnabled ?? null) : null),
       ...(family.openclawMemoryIndex ? buildOpenClawMemoryIndexEnv(options.memoryIndex) : null),
@@ -3869,9 +3858,8 @@ export class Deployments {
     } else if (family.syncExclude) {
       syncExclude = [...family.syncExclude];
     }
-    const defaultRoutes = family.desktop
-      ? buildOpenClawDesktopRoute({ includeDesktop: true, ...(options.openClawRoutes ?? {}) })
-      : (options.openClawRoutes?.includeDesktop ? buildOpenClawDesktopRoute(options.openClawRoutes) : {});
+    const defaultRoutes = options.openClawRoutes?.includeDesktop
+      ? buildOpenClawDesktopRoute(options.openClawRoutes) : {};
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       meta: buzzLaunch ? {

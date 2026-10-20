@@ -17,7 +17,6 @@ from hypercli.agents import (
     DEFAULT_HERMES_AGENT_SYNC_EXCLUDE,
     DEFAULT_HERMES_AGENT_SYNC_ROOT,
     DEFAULT_OPENCLAW_IMAGE,
-    DEFAULT_OPENCLAW_PRO_IMAGE,
     Agent,
     Deployments,
     build_hermes_cron_env,
@@ -65,13 +64,6 @@ def _default_openclaw_image(image: str | None, config: dict | None = None) -> st
     return configured or DEFAULT_OPENCLAW_IMAGE
 
 
-def _default_openclaw_pro_image(image: str | None, config: dict | None = None) -> str:
-    if image:
-        return image
-    configured = str((config or {}).get("image") or "").strip()
-    return configured or DEFAULT_OPENCLAW_PRO_IMAGE
-
-
 def _default_hermes_agent_image(image: str | None, config: dict | None = None) -> str:
     if image:
         return image
@@ -117,8 +109,7 @@ def _desktop_enabled_from_launch(desktop: bool | None, env: dict | None = None, 
             return True
         if _falsey_env(launch_env.get("HYPER_DESKTOP_ENABLED")):
             return False
-    image = str((launch_config or {}).get("image") or "")
-    return "hypercli-openclaw:pro" in image or image.endswith("-pro")
+    return False
 
 
 def _split_saved_launch_config(launch_config: dict | None) -> tuple[dict, dict]:
@@ -617,10 +608,10 @@ def create(
         else:
             pod = agents.create(
                 **common,
-                image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
+                image=_default_openclaw_image(image),
                 sync_uid=sync_uid,
                 sync_gid=sync_gid,
-                runtime="openclaw-pro" if desktop_enabled else "openclaw",
+                runtime="openclaw",
                 env=build_openclaw_memory_index_env(memory_index) | effective_env,
                 routes=build_openclaw_desktop_route() if desktop_enabled else {},
                 runtime_scopes=list(DEFAULT_AGENT_RUNTIME_SCOPES) if desktop_enabled else None,
@@ -1026,11 +1017,7 @@ def start(
         desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
         effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
         effective_env = _apply_openclaw_cron_env(effective_env, cron, default=None)
-        effective_image = (
-            _default_openclaw_pro_image(image, saved_launch_fields)
-            if desktop_enabled
-            else _default_openclaw_image(image, saved_launch_fields)
-        )
+        effective_image = _default_openclaw_image(image, saved_launch_fields)
     effective_command = command_argv if command_argv is not None else saved_launch_fields.get("command")
     effective_entrypoint = entrypoint_argv if entrypoint_argv is not None else saved_launch_fields.get("entrypoint")
     effective_registry_url = registry_url if registry_url is not None else saved_launch_fields.get("registry_url")

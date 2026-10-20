@@ -486,7 +486,6 @@ const NATIVE_LOGIN_HINTS: Readonly<Record<string, string>> = {
   'kimi-code': 'kimi-code reads provider credentials from the pod environment at launch: hyper agents create <name> --runtime kimi-code --env ...',
   'buzz-agent': 'buzz-agent is configured at launch via env; there is no interactive pod login',
   pi: 'Pi uses native provider configuration: open hyper agents shell <id>, then run pi to configure API keys or login',
-  'openclaw-pro': 'openclaw authenticates in-pod over ACP; there is no pod login flow',
   openclaw_acp: 'openclaw authenticates in-pod over ACP; there is no pod login flow',
   hermes_acp: 'hermes authenticates in-pod over ACP; there is no pod login flow',
 };

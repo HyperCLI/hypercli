@@ -217,7 +217,7 @@ image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by default;
 there is no public `openclaw` route (the pod gateway binds loopback with auth
 mode `none` as an ACP hop only; pro adds the protected `desktop` route).
 Regular OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`;
-desktop/pro OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:pro-prod`.
+Desktop support uses the same OpenClaw image with explicit environment and routes.
 Coding helpers instead inject the runtime-specific include defaults
 documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
@@ -305,7 +305,7 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.
 
-Use `createAgent('openclaw-pro', ...)` or `update(..., { launchConfig })` to persist the desktop/browser image. The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
+Use `createAgent('openclaw_acp', { env: { HYPER_DESKTOP_ENABLED: '1' }, openClawRoutes: { includeDesktop: true } })` to enable desktop/browser access on the standard image. The protected noVNC route is `desktop-<agent>.hypercli.app`.
 
 For a running desktop-enabled agent, `client.deployments.desktopUrl(id)` returns
 a JWT-signed URL that logs straight into the noVNC page: it builds

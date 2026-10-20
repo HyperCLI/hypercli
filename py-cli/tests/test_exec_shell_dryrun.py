@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 from hypercli.agents import (
+    DEFAULT_OPENCLAW_IMAGE,
     AGENT_FILE_MAX_BYTES,
     DEFAULT_HERMES_AGENT_IMAGE,
-    DEFAULT_OPENCLAW_PRO_IMAGE,
 )
 from typer.testing import CliRunner
 
@@ -372,7 +372,7 @@ def test_agents_archive_is_an_explicit_non_launching_command(monkeypatch):
     assert "Agent archiving: demo" in result.stdout
 
 
-def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
+def test_agents_create_desktop_uses_standard_openclaw_image(monkeypatch):
     captured = {}
 
     class FakeDeployments:
@@ -394,11 +394,11 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--desktop", "--name", "demo"])
 
     assert result.exit_code == 0
-    assert captured["runtime"] == "openclaw-pro"
+    assert captured["runtime"] == "openclaw"
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "1"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["routes"]["desktop"]["port"] == 3000
-    assert captured["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+    assert captured["image"] == DEFAULT_OPENCLAW_IMAGE
     assert "https://desktop-demo.hypercli.app" in result.stdout
 
 
@@ -427,7 +427,7 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert captured["runtime"] == "openclaw-pro"
+    assert captured["runtime"] == "openclaw"
     assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "True"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["routes"]["desktop"]["port"] == 3000

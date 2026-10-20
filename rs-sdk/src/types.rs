@@ -10,7 +10,6 @@ use thiserror::Error;
 pub enum ManagedRuntime {
     Generic,
     Openclaw,
-    OpenclawPro,
     HermesAgent,
     // ACP-driven successors of the legacy openclaw/hermes-agent wire names;
     // the Backend folds the legacy spellings into these at create/patch.
@@ -40,7 +39,6 @@ impl ManagedRuntime {
             Self::Pi => Some("ghcr.io/hypercli/hypercli-pi:latest"),
             Self::Generic
             | Self::Openclaw
-            | Self::OpenclawPro
             | Self::HermesAgent
             | Self::OpenclawAcp
             | Self::HermesAcp => None,
@@ -74,7 +72,6 @@ impl ManagedRuntime {
             Self::Pi => Some(&[".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
             Self::Generic
             | Self::Openclaw
-            | Self::OpenclawPro
             | Self::HermesAgent
             | Self::OpenclawAcp
             | Self::HermesAcp => None,
@@ -2369,7 +2366,6 @@ mod tests {
         // surface from stored rows and both must round-trip.
         for (wire, expected) in [
             ("openclaw", ManagedRuntime::Openclaw),
-            ("openclaw-pro", ManagedRuntime::OpenclawPro),
             ("hermes-agent", ManagedRuntime::HermesAgent),
             ("openclaw_acp", ManagedRuntime::OpenclawAcp),
             ("hermes_acp", ManagedRuntime::HermesAcp),

@@ -143,7 +143,7 @@ File paths are relative to `sync_root`, and
 launches; there is no public `openclaw` gateway route (the pod gateway binds
 loopback with auth mode `none` as an ACP hop only). The canonical images are
 `ghcr.io/hypercli/hypercli-openclaw:prod` for regular OpenClaw and
-`ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro OpenClaw — pass
+the same image for desktop-enabled OpenClaw — pass
 the image, `sync_root`, and exclusion choices explicitly in the launch config.
 `create_agent` instead injects the runtime-specific include defaults documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
@@ -231,7 +231,7 @@ carry open-string diagnostics: `reason` is the stable cause such as `start`,
 `api_stop`, `runtime_exit`, `timeout`, or `delete`, `error` is a failure code
 when the transition failed, and `message` is human-readable context.
 
-Persist the desktop/browser launch through `create(...)` or `update(..., launch_config=...)` (build the payload with `build_agent_config`). The pro launch config selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through a protected `desktop` route (the `desktop-<agent>.hypercli.app` host, port 3000, `auth=True`), and sets `HYPER_DESKTOP_ENABLED=1`.
+Persist desktop/browser configuration through `create(...)` or `update(..., launch_config=...)` (build the payload with `build_agent_config`). Use the standard OpenClaw image, a protected `desktop` route (the `desktop-<agent>.hypercli.app` host, port 3000, `auth=True`), and `HYPER_DESKTOP_ENABLED=1`.
 
 Automatic memory indexing is off by default. Opt in by merging `build_openclaw_memory_index_env({"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0})` into the launch `env`.
 

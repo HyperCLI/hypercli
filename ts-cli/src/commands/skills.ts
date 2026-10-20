@@ -63,7 +63,7 @@ const DESCRIPTION_MIN = 16;
 /**
  * Verified runtime -> skills directory mapping. Paths are relative to the
  * agent sync root (the Reef file API rejects absolute paths). Evidence:
- *   openclaw_acp, openclaw-pro: hypercli-agent-images/openclaw/init.sh:5,12
+ *   openclaw_acp: hypercli-agent-images/openclaw/init.sh:5,12
  *     (STATE_DIR=$HOME/.openclaw, OPENCLAW_SKILLS_DIR=$STATE_DIR/skills)
  *   hermes_acp: hypercli-agent-images/hermes-agent/entrypoint.sh:7,14 and
  *     Dockerfile (`ENV HERMES_HOME=/home/hermes/.hermes`, dir ${HERMES_HOME}/skills)
@@ -78,7 +78,6 @@ const DESCRIPTION_MIN = 16;
  */
 const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
   openclaw_acp: '.openclaw/skills',
-  'openclaw-pro': '.openclaw/skills',
   hermes_acp: '.hermes/skills',
   opencode: '.agents/skills',
   'buzz-agent': '.agents/skills',
@@ -95,7 +94,6 @@ const SKILLS_DIR_BY_RUNTIME: Readonly<Record<string, string>> = {
  */
 const SYNC_ROOT_BY_RUNTIME: Readonly<Record<string, string>> = {
   openclaw_acp: '/home/node',
-  'openclaw-pro': '/home/node',
   hermes_acp: '/home/hermes',
   opencode: '/home/node',
   'buzz-agent': '/home/node',

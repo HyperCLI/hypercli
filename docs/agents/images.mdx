@@ -13,7 +13,6 @@ instead of hand-pinning an image.
 | Runtime | Backend runtime | Public image |
 | --- | --- | --- |
 | OpenClaw | `openclaw_acp` | `ghcr.io/hypercli/hypercli-openclaw:prod` |
-| OpenClaw Pro | `openclaw-pro` | `ghcr.io/hypercli/hypercli-openclaw:pro-prod` |
 | Hermes Agent | `hermes_acp` | `ghcr.io/hypercli/hypercli-hermes:latest` |
 | Buzz Agent | `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
 | OpenCode | `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
@@ -23,9 +22,8 @@ instead of hand-pinning an image.
 | Kimi Code | `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
 | Pi | `pi` | `ghcr.io/hypercli/hypercli-pi:latest` |
 
-OpenClaw Pro layers desktop support on top of
-
-the promoted OpenClaw runtime. Hermes runs ACP-only. Coding
+OpenClaw supports desktop through explicit environment and route configuration.
+Hermes runs ACP-only. Coding
 runtimes use vanilla `hyper-acp`; Buzz launches select `hyper-acp` with Buzz credentials
 with Buzz-specific environment.
 
@@ -42,8 +40,6 @@ public image for that runtime.
 OpenClaw production tags are promotion tags:
 
 - `hypercli-openclaw:prod` is promoted from a tested internal `:latest`.
-- `hypercli-openclaw:pro-prod` is built from `:prod`, sanity-checked with
-  desktop enabled, and then published.
 
 The Buzz coding images and Hermes publish tested short-SHA tags and public
 `:latest` tags. A successful promotion means the image-specific contract tests

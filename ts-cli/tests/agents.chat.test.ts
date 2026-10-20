@@ -167,7 +167,7 @@ function fakeAcpClient(chunks: string[], sessionId = 'sess-acp-1') {
 // ---------- family dispatch: every runtime rides ACP ----------
 
 describe('hyper agents chat — family dispatch', () => {
-  it.each(['openclaw', 'openclaw-pro', 'hermes-agent', 'openclaw_acp', 'hermes_acp', 'opencode', 'buzz-agent'])(
+  it.each(['openclaw', 'hermes-agent', 'openclaw_acp', 'hermes_acp', 'opencode', 'buzz-agent'])(
     '%s: ACP connect/newSession/prompt, fresh session by default',
     async (runtime) => {
       const { acpConnect, client } = fakeAcpClient(['Hello', ' world']);

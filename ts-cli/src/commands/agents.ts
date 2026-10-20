@@ -96,7 +96,7 @@ const RUNTIME_LABELS: ReadonlyMap<string, ManagedAgentRuntime> = new Map([
 ]);
 
 /** desktop/src/agent-utils parity: only these runtimes get the token ceremony. */
-const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw-pro', 'openclaw_acp']);
+const OPENCLAW_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['openclaw_acp']);
 const HERMES_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['hermes_acp']);
 /** Agent family: chat rides the pod-side ACP bridge, never a gateway. */
 const ACP_SET: ReadonlySet<ManagedAgentRuntime> = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi-code', 'pi', 'buzz-agent']);

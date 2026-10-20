@@ -61,7 +61,7 @@ describe('dist export parity', () => {
     const root = await import('../dist/index.js');
     expect(root.DEFAULT_PERSONA_SOUL_PATH).toBe('.hypercli/SOUL.md');
     expect(root.DEFAULT_PERSONA_USER_PATH).toBe('.hypercli/USER.md');
-    expect(root.AGENT_PERSONA_PROFILES.openclaw_acp).toBe(root.AGENT_PERSONA_PROFILES['openclaw-pro']);
+    expect(root.AGENT_PERSONA_PROFILES.openclaw_acp.family).toBe('openclaw_acp');
     expect(root.resolveAgentPersonaProfile('openclaw_acp')).toBeInstanceOf(root.OpenClawPersonaProfile);
     expect(root.resolveAgentPersonaProfile('hermes_acp')).toBeInstanceOf(root.HermesPersonaProfile);
     expect(root.resolveAgentPersonaProfile('opencode')).toBeInstanceOf(root.DefaultPersonaProfile);

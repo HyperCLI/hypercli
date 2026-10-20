@@ -21,7 +21,6 @@ from hypercli.agents import (
     DEFAULT_HERMES_AGENT_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
     DEFAULT_OPENCLAW_IMAGE,
-    DEFAULT_OPENCLAW_PRO_IMAGE,
     DEFAULT_OPENCLAW_SYNC_EXCLUDE,
     DEFAULT_PI_ENV,
     DEFAULT_PI_IMAGE,
@@ -611,16 +610,18 @@ class TestCreateAgentOpenClawRuntimes:
         assert "HYPER_DESKTOP_ENABLED" not in env
         assert "HYPER_ACP_PERMISSIONS" not in env
 
-    def test_pro_adds_desktop_leg_and_runtime_scopes(self, monkeypatch):
-        deployments, posts = _capture_create(monkeypatch, "openclaw-pro")
+    def test_openclaw_accepts_explicit_desktop_leg(self, monkeypatch):
+        deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
-        deployments.create_agent("openclaw-pro")
+        deployments.create_agent(
+            "openclaw_acp", env={"HYPER_DESKTOP_ENABLED": "1"},
+            routes={"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}},
+        )
 
         body = posts[0][1]
-        assert body["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+        assert body["image"] == DEFAULT_OPENCLAW_IMAGE
         assert body["env"]["HYPER_DESKTOP_ENABLED"] == "1"
         assert body["routes"] == {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}
-        assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
 
     def test_caller_routes_pass_through_untouched(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw_acp")

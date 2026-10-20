@@ -30,7 +30,6 @@ const ALL_NAMES = [
 
 /** Verified runtime -> [sync-root-relative skills dir, absolute skills dir]. */
 const VERIFIED: Array<[string, string, string]> = [
-  ['openclaw-pro', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['openclaw_acp', '.openclaw/skills', '/home/node/.openclaw/skills'],
   ['hermes_acp', '.hermes/skills', '/home/hermes/.hermes/skills'],
   ['opencode', '.agents/skills', '/home/node/.agents/skills'],

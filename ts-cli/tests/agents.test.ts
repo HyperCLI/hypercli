@@ -1421,7 +1421,7 @@ describe('hyper agents models', () => {
   });
 
   it('--json emits the curated catalog bag (no provider secrets)', async () => {
-    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw-pro' })], {
+    const d = createMockDeploymentsApi([agentFixture({ runtime: 'openclaw_acp' })], {
       fileRead: vi.fn(async () => openclawJsonFixture()),
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'json');
