@@ -61,7 +61,7 @@ Tokio runtime; its async session API shares the configured HTTP transport.
 - `AcpClient` provides native ACP v1 requests, updates, and correlated prompt
   results. Callers own connection initialization and reconnection.
 - `new_session_default(&platform, deployment_id)` resolves a new session's cwd
-  from runtime paths. `resume_session_stored(session_id, replay)` uses retained
+  from runtime paths. `resume_session_stored(session_id)` uses retained
   or discovered setup for that existing session.
 
 ACP prompt completion is the native terminal response; REST history is a
