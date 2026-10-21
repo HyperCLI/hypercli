@@ -143,3 +143,7 @@ does not prove background cleanup has completed.
 The legacy Python CLI has additional and differently named options. In
 particular, its `--force`, `--desktop`, `--wait` on stop, `budget`, and
 `web-search` examples are not the TypeScript CLI interface.
+
+The legacy Python CLI also accepts `hyper agents ls` as an alias for
+`hyper agents list`. Its `hyper agents metrics <id> [--json]` command reads one
+live Reef CPU and memory sample through the Backend WebSocket.
