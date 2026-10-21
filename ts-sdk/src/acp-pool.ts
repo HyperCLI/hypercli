@@ -4,7 +4,7 @@
  * Callers choose keys for connections they want to share (for example, an
  * agent ID or an agent/session pair). The pool hands out refcounted leases
  * on a single connected client per key: concurrent `acquire()` calls dedupe onto one
- * in-flight connect, the last `release()` closes the client, and a terminal
+ * in-flight connect, the last `release()` closes or retains the client, and a terminal
  * self-close makes the pool forget the entry so the next `acquire()` dials
  * fresh. Update fan-out across subscribers is handled by
  * `client.addUpdateListener(...)`.
@@ -44,6 +44,7 @@ export class CodingAgentAcpPool {
   ) => Promise<CodingAgentAcpClient>;
   private readonly connectOptions?: (key: string) => CodingAgentAcpConnectOptions;
   private readonly entries = new Map<string, PoolEntry>();
+  private readonly retainConnections: number;
 
   constructor(options: {
     /**
@@ -58,9 +59,12 @@ export class CodingAgentAcpPool {
     ) => Promise<CodingAgentAcpClient>;
     /** Per-key connect options; the pool chains its close bookkeeping into `onClose`. */
     connectOptions?: (key: string) => CodingAgentAcpConnectOptions;
+    /** Retain up to this many established connections after release (LRU). */
+    retainConnections?: number;
   }) {
     this.connect = options.connect;
     this.connectOptions = options.connectOptions;
+    this.retainConnections = options.retainConnections ?? 0;
   }
 
   /**
@@ -88,6 +92,9 @@ export class CodingAgentAcpPool {
         continue;
       }
       const current = entry;
+      this.entries.delete(key);
+      this.entries.set(key, entry);
+      this.trim();
       let released = false;
       return {
         client,
@@ -201,7 +208,19 @@ export class CodingAgentAcpPool {
     if (entry.forgotten) return;
     entry.refs -= 1;
     if (entry.refs > 0) return;
-    this.drop(key);
+    if (this.retainConnections === 0) this.drop(key);
+    else this.trim();
+  }
+
+  private trim(): void {
+    let established = [...this.entries.values()].filter(entry => entry.client !== null).length;
+    for (const [key, entry] of this.entries) {
+      if (established <= this.retainConnections) break;
+      if (entry.client !== null && entry.refs === 0) {
+        this.drop(key);
+        established -= 1;
+      }
+    }
   }
 
   private forget(key: string, entry: PoolEntry): void {

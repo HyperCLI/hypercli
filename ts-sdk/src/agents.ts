@@ -1636,6 +1636,7 @@ export interface AgentStateFields {
   avatarAudioUrl?: string | null;
   displayIdentity?: Record<string, any> | null;
   runtime?: string | null;
+  hyperAcpVersion?: number | null;
   managed?: boolean | null;
   isLaunchable?: boolean;
   gatewayId?: string | null;
@@ -1679,6 +1680,7 @@ export interface AgentHydrationData {
   avatar_audio_url?: string | null;
   display_identity?: Record<string, any> | null;
   runtime?: string | null;
+  hyper_acp_version?: number | null;
   managed?: boolean | null;
   is_launchable?: boolean;
   gateway_id?: string | null;
@@ -2140,6 +2142,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     avatarAudioUrl: data.avatar_audio_url ?? null,
     displayIdentity: data.display_identity ? structuredClone(data.display_identity) : null,
     runtime: data.runtime ?? null,
+    hyperAcpVersion: data.hyper_acp_version ?? null,
     managed: data.managed ?? null,
     isLaunchable: data.is_launchable ?? data.managed !== false,
     gatewayId: data.gateway_id ?? null,
@@ -2629,6 +2632,7 @@ export class Agent {
   public readonly avatarAudioUrl: string | null;
   public readonly displayIdentity: Record<string, any> | null;
   public readonly runtime: string | null;
+  public readonly hyperAcpVersion: number | null;
   public readonly managed: boolean | null;
   public readonly isLaunchable: boolean;
   public readonly gatewayId: string | null;
@@ -2671,6 +2675,7 @@ export class Agent {
     this.avatarAudioUrl = fields.avatarAudioUrl ?? null;
     this.displayIdentity = fields.displayIdentity ? structuredClone(fields.displayIdentity) : null;
     this.runtime = fields.runtime ?? null;
+    this.hyperAcpVersion = fields.hyperAcpVersion ?? null;
     this.managed = fields.managed ?? null;
     this.isLaunchable = fields.isLaunchable ?? true;
     this.gatewayId = fields.gatewayId ?? null;

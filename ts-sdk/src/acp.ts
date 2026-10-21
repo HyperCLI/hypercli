@@ -66,6 +66,8 @@ function callObserver<T>(observer: ((value: T) => void) | undefined, value: T): 
   try { void Promise.resolve(observer?.(value)).catch(() => {}); } catch { /* Isolate consumer observers. */ }
 }
 export interface CodingAgentAcpConnectOptions {
+  /** Disable automatic reconnect/resume for explicitly opened app attachments. */
+  reconnect?: boolean;
   onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void;
   resolveDefaultCwd?: () => Promise<string>;
   signal?: AbortSignal;
@@ -85,6 +87,12 @@ export interface CodingAgentAcpConnectOptions {
 }
 export interface CodingAgentAcpTarget { url: string; token: string }
 /** Retained product publication, independent of native ACP. */
+export interface SessionSnapshot {
+  type: 'sessionSnapshot';
+  sessionId: string;
+  fingerprint: string | null;
+}
+
 export interface SessionAttachment {
   type: 'attachment'; id: string; sessionId: string; agentId: string; nativeSessionId: string;
   file: { type: 'resource_link'; uri: string; name: string; mimeType: string; size: number; sha256: string };
@@ -105,6 +113,7 @@ export class CodingAgentAcpClient {
   private readonly pendingPrompts = new Set<{ sessionId: string; controller: AbortController }>();
   private readonly updateListeners = new Set<(notification: acp.SessionNotification) => void>();
   private readonly attachmentListeners = new Set<(attachment: SessionAttachment) => void>();
+  private readonly snapshotListeners = new Set<(snapshot: SessionSnapshot) => void>();
   private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: PermissionHandler | null = null;
@@ -147,6 +156,11 @@ export class CodingAgentAcpClient {
   }
   addAttachmentListener(listener: (attachment: SessionAttachment) => void): () => void {
     this.attachmentListeners.add(listener); return () => { this.attachmentListeners.delete(listener); };
+  }
+
+  addSnapshotListener(listener: (snapshot: SessionSnapshot) => void): () => void {
+    this.snapshotListeners.add(listener);
+    return () => { this.snapshotListeners.delete(listener); };
   }
   addErrorListener(listener: (error: Error) => void): () => void {
     this.errorListeners.add(listener); return () => { this.errorListeners.delete(listener); };
@@ -349,6 +363,10 @@ export class CodingAgentAcpClient {
       if (this.closedFlag || generation !== this.generation) return;
       for (const listener of this.attachmentListeners) callObserver(listener, attachment);
     };
+    const productSnapshot = (snapshot: SessionSnapshot) => {
+      if (this.closedFlag || generation !== this.generation) return;
+      for (const listener of this.snapshotListeners) callObserver(listener, snapshot);
+    };
     const connection = await this.observe('connect', async () => {
       const stream = createWebSocketStream(this.target.url, {
         WebSocket: TrackedSocket, cookieStore: this.cookieStore,
@@ -358,6 +376,14 @@ export class CodingAgentAcpClient {
         // Upstream's active-session router validates an exhaustive update union.
         // Forward notifications untouched; RPCs/callbacks remain SDK-owned.
         readable: stream.readable.pipeThrough(new globalThis.TransformStream({ transform(frame, controller) {
+          if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'sessionSnapshot') {
+            const snapshot = frame as unknown as SessionSnapshot;
+            if (typeof snapshot.sessionId === 'string'
+                && (snapshot.fingerprint === null || typeof snapshot.fingerprint === 'string')) {
+              productSnapshot(snapshot);
+            }
+            return;
+          }
           if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'attachment') {
             const attachment = frame as unknown as SessionAttachment;
             if (typeof attachment.sessionId === 'string' && typeof attachment.id === 'string'
@@ -405,7 +431,7 @@ export class CodingAgentAcpClient {
   }
   private scheduleReconnect(code: number, reason: string): void {
     if (this.closedFlag) return;
-    if (TERMINAL_CODES.has(code) || this.failures >= ACP_RECONNECT_DELAYS_MS.length) {
+    if (this.options.reconnect === false || TERMINAL_CODES.has(code) || this.failures >= ACP_RECONNECT_DELAYS_MS.length) {
       this.terminalError = new CodingAgentAcpConnectionError('ACP connection closed', { code });
       const listeners = [...this.closeListeners];
       this.close();

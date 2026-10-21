@@ -48,6 +48,13 @@ describe('Agents SDK', () => {
       .toThrow('small, medium, large');
   });
 
+  it.each([null, 1, 99])('preserves informational Hyper-ACP version %s', version => {
+    const agent = Agent.fromDict({ id: 'agent-1', state: 'RUNNING', hyper_acp_version: version });
+    expect(agent.hyperAcpVersion).toBe(version);
+    expect(agent.state).toBe('RUNNING');
+    expect(Agent.fromDict({ id: 'legacy', state: 'RUNNING' }).hyperAcpVersion).toBeNull();
+  });
+
   it('hydrates meta status separately from lifecycle state', () => {
     const agent = Agent.fromDict({
       id: 'agent-1',

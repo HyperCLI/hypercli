@@ -93,6 +93,18 @@ it.each([
   expect(await client.newSession()).toMatchObject({ sessionId: 'session-1' });
 });
 
+it.each([null, 'a'.repeat(40)])('delivers product snapshots without changing native ACP (%s)', async fingerprint => {
+  const f = await fixture(), client = await f.connect();
+  const updates = vi.fn();
+  client.addUpdateListener(updates);
+  const snapshot = { type: 'sessionSnapshot', sessionId: 'session-1', fingerprint };
+  const received = new Promise(resolve => { client.addSnapshotListener(resolve); });
+  f.peers[0].send(JSON.stringify(snapshot));
+  expect(await received).toEqual(snapshot);
+  expect(updates).not.toHaveBeenCalled();
+  expect(await client.newSession()).toMatchObject({ sessionId: 'session-1' });
+});
+
 it('sends explicit standard MCP setup, retains omitted values, and preserves peer refusal', async () => {
   const entries: McpServer[] = [
     { name: 'stdio', command: '/bin/tool', args: ['a:b'], env: [{ name: 'KEY', value: 'value' }] },
@@ -385,6 +397,29 @@ it.each(['release', 'drop', 'close'])('shares pooled connection and cleans up on
   if (action === 'release') { a.release(); a.release(); expect(b.client.closed).toBe(false); b.release(); }
   else if (action === 'drop') pool.drop('agent'); else pool.close();
   expect(a.client.closed).toBe(true); expect(pool.size()).toBe(0);
+});
+
+it('retains three released connections and evicts the least recently accessed', async () => {
+  const f = await fixture(), pool = new CodingAgentAcpPool({
+    connect: (_key, options) => f.connect(options), retainConnections: 3,
+    connectOptions: () => ({ reconnect: false }),
+  });
+  cleanup.push(() => pool.close());
+  const a = await pool.acquire('a'); a.release();
+  const b = await pool.acquire('b'); b.release();
+  const c = await pool.acquire('c'); c.release();
+  const revisit = await pool.acquire('a');
+  expect(revisit.client).toBe(a.client); revisit.release();
+  const d = await pool.acquire('d'); d.release();
+  expect(pool.size()).toBe(3);
+  expect(b.client.closed).toBe(true);
+  expect(a.client.closed).toBe(false);
+  expect(c.client.closed).toBe(false);
+  expect(f.peers).toHaveLength(4);
+  f.peers[0].close(1000, 'retired');
+  await vi.waitFor(() => expect(a.client.closed).toBe(true));
+  expect(pool.size()).toBe(2);
+  expect(f.peers).toHaveLength(4);
 });
 
 it.each(['drop', 'close'])('cancels pending pooled initialize on %s', async action => {

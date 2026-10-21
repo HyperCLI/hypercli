@@ -446,6 +446,7 @@ export {
   type CodingAgentAcpPromptResult,
   type CodingAgentAcpTransport,
   type CodingAgentAcpTarget,
+  type SessionSnapshot,
 } from './acp.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
 export { buildAdditionalMcpEnv } from './mcp.js';
