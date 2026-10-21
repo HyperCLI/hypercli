@@ -4150,30 +4150,38 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn wait_deployment_state_reconciles_when_event_subscription_is_unavailable() {
         let mut server = Server::new_async().await;
-        let rest_calls = Arc::new(Mutex::new(0usize));
-        let response_calls = Arc::clone(&rest_calls);
+        let unavailable = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed_unavailable = Arc::clone(&unavailable);
         let states = server
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_chunked_body(move |writer| {
-                let mut count = response_calls.lock().unwrap();
-                let state = if *count == 0 { "STARTING" } else { "RUNNING" };
-                *count += 1;
+                // Success must follow the actual event-endpoint failure, not
+                // race it on the second REST poll under a busy CI executor.
+                let state = if observed_unavailable.load(std::sync::atomic::Ordering::Acquire) {
+                    "RUNNING"
+                } else {
+                    "STARTING"
+                };
                 writer.write_all(
                     json!({"id": "deployment-1", "state": state})
                         .to_string()
                         .as_bytes(),
                 )
             })
-            .expect(2)
+            .expect_at_least(2)
             .create_async()
             .await;
         let token = server
             .mock("POST", "/agents/deployments/events/token")
             .with_status(503)
             .with_header("content-type", "application/json")
-            .with_body(json!({"detail": "events unavailable"}).to_string())
+            .with_chunked_body(move |writer| {
+                writer.write_all(json!({"detail": "events unavailable"}).to_string().as_bytes())?;
+                unavailable.store(true, std::sync::atomic::Ordering::Release);
+                Ok(())
+            })
             .expect(1)
             .create_async()
             .await;
