@@ -66,6 +66,8 @@ export interface AcpSessionRecord {
   mode?: 'ask' | 'auto' | 'none' | null;
   /** Descriptive creation provenance; unknown values are preserved. */
   source: string | null;
+  /** Opaque external reference, independent of source; absent on older servers. */
+  externalUrl?: string | null;
   createdAt: string | null;
   /** Last-activity timestamp; bumps on every message append, not on row touch. */
   updatedAt: string | null;
@@ -334,6 +336,7 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
     id: String(row.id ?? ''),
     ...(row.mode !== undefined ? { mode: row.mode as AcpSessionRecord['mode'] } : {}),
     source: typeof row.source === 'string' ? row.source : null,
+    externalUrl: pick<string>(row, 'external_url', 'externalUrl') ?? null,
     importOutcome: pick<SessionImportOutcome>(row, 'import_outcome', 'importOutcome') ?? null,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
     updatedAt: pick<string>(row, 'updated_at', 'updatedAt') ?? null,

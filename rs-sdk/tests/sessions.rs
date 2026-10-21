@@ -35,6 +35,46 @@ fn client(server: &mockito::ServerGuard) -> HyperCliClient {
 }
 
 #[test]
+fn list_and_detail_preserve_opaque_external_references() {
+    for fields in [
+        json!({"external_url": "  opaque:Thread/%2f?x=A+B#片  "}),
+        json!({"external_url": ""}),
+        json!({"external_url": null}),
+        json!({}),
+    ] {
+        let mut row = json!({"id": "s", "source": "future-source"});
+        row.as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        let mut server = mockito::Server::new();
+        let detail = server
+            .mock("GET", "/agents/sessions/s")
+            .with_status(200)
+            .with_body(row.to_string())
+            .create();
+        let catalog = server
+            .mock("GET", "/agents/sessions")
+            .with_status(200)
+            .with_body(json!({"items": [row], "has_more": false}).to_string())
+            .create();
+        let client = client(&server);
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let state = client.sessions().get_session("s").await.unwrap();
+            let page = client
+                .sessions()
+                .list_sessions(&SessionListOptions::default())
+                .await
+                .unwrap();
+            assert_eq!(state.external_url.as_deref(), fields["external_url"].as_str());
+            assert_eq!(state.source.as_deref(), Some("future-source"));
+            assert_eq!(page.items, vec![state]);
+        });
+        detail.assert();
+        catalog.assert();
+    }
+}
+
+#[test]
 fn detail_preserves_platform_metadata_and_uses_injected_authenticated_transport() {
     let mut server = mockito::Server::new();
     let detail = server.mock("GET", "/agents/sessions/platform%2Fodd%20id%3F%23%25")

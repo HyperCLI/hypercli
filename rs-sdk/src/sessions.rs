@@ -53,6 +53,8 @@ pub struct SessionImportOutcome {
 pub struct SessionRecord {
     pub id: String,
     pub source: Option<String>,
+    /// Opaque external reference, independent of source; absent on older servers.
+    pub external_url: Option<String>,
     pub summary_text: Option<String>,
     #[serde(default, deserialize_with = "null_vec")]
     pub summary_keywords: Vec<String>,

@@ -19,6 +19,7 @@ class SessionRecord:
     head_seq: int | None = None
     receipts: list[dict[str, Any]] = field(default_factory=list)
     agent_state: str | None = None  # computed per request ("live"|"archived"|"deleted"); None on old servers
+    external_url: str | None = None  # opaque external reference, independent of source
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SessionRecord":
@@ -26,6 +27,7 @@ class SessionRecord:
         return cls(
             id=str(data["id"]),
             source=data.get("source") if isinstance(data.get("source"), str) else None,
+            external_url=data.get("external_url"),
             summary_text=data.get("summary_text"),
             summary_keywords=list(data.get("summary_keywords") or []),
             created_at=data.get("created_at"),

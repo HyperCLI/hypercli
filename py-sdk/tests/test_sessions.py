@@ -67,8 +67,12 @@ SESSION_ROW = {
 
 
 @pytest.mark.parametrize("source", [None, "slack", "future-client"])
-def test_detail_http_contract_and_list_consistency(monkeypatch, source):
-    row = {**SESSION_ROW, "source": source, "agentState": "live"}
+@pytest.mark.parametrize("external_fields", [
+    {"external_url": "  opaque:Thread/%2f?x=A+B#片  "},
+    {"external_url": ""}, {"external_url": None}, {},
+])
+def test_detail_http_contract_and_list_consistency(monkeypatch, source, external_fields):
+    row = {**SESSION_ROW, "source": source, "agentState": "live", **external_fields}
     requests = []
 
     def send(self, request, **kwargs):
@@ -85,6 +89,7 @@ def test_detail_http_contract_and_list_consistency(monkeypatch, source):
         summary_keywords=row["summary_keywords"], created_at=row["created_at"],
         updated_at=row["updated_at"], participants=row["participants"],
         agent_state="live",
+        external_url=external_fields.get("external_url"),
     )
     assert len(requests) == 1
     request = requests[0]

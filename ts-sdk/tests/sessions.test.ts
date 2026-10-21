@@ -2,6 +2,22 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
 import { SessionsAPI, type AcpSessionState, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
 
+describe('external session references', () => {
+  it.each(['  opaque:Thread/%2f?x=A+B#片  ', '', null, undefined])(
+    'retains %j independently of source in list and detail', async externalUrl => {
+      const row = { id: 's', source: 'future-source',
+        ...(externalUrl !== undefined ? { external_url: externalUrl } : {}) };
+      const get = vi.fn().mockResolvedValueOnce({ items: [row], has_more: false }).mockResolvedValueOnce(row);
+      const api = new SessionsAPI({ get });
+      const catalog = (await api.listSessions()).items[0];
+      const detail = await api.getSession('s');
+      for (const record of [catalog, detail]) {
+        expect(record.externalUrl).toBe(externalUrl ?? null);
+        expect(record.source).toBe('future-source');
+      }
+    });
+});
+
 describe('durable session import evidence', () => {
   it.each(['retained', 'empty', 'filtered', 'unsupported', 'malformed', 'failed'] as const)(
     'preserves %s even on an empty messages page', async (status) => {
@@ -144,6 +160,7 @@ describe('session detail HTTP contract', () => {
     });
     const record: AcpSessionRecord = {
       importOutcome: null,
+      externalUrl: null,
       id: SESSION_ID, source,
       summaryText: sessionRow.summary_text, summaryKeywords: sessionRow.summary_keywords,
       createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at,
@@ -170,6 +187,7 @@ describe('session detail HTTP contract', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(detail).toEqual({
       importOutcome: null,
+      externalUrl: null,
       id: SESSION_ID, source: null, summaryText: null, summaryKeywords: [],
       createdAt: sessionRow.created_at, updatedAt: sessionRow.updated_at, participants: [],
       lastMessageId: null, messageCount: 0, headSeq: 0, receipts: [], agentState: null,
@@ -345,6 +363,7 @@ describe('SessionsAPI (§15)', () => {
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toEqual({
       importOutcome: null,
+      externalUrl: null,
       id: SESSION_ID,
       source: null,
       createdAt: '2026-09-25T12:00:00+00:00',
