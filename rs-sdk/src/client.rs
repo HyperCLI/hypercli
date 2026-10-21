@@ -3997,17 +3997,25 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(start_paused = true)]
     async fn wait_deployment_state_reconciles_when_transition_event_is_missed() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
+        let (ready_tx, mut ready_rx) = tokio::sync::oneshot::channel();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
         let websocket = tokio::spawn(async move {
             let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
                 .unwrap();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            socket.send(Message::Ping(Vec::new().into())).await.unwrap();
+            assert_eq!(
+                socket.next().await.unwrap().unwrap(),
+                Message::Pong(Vec::new().into())
+            );
+            ready_tx.send(()).unwrap();
+            done_rx.await.unwrap();
         });
 
         let mut server = Server::new_async().await;
@@ -4017,15 +4025,6 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(json!({"id": "deployment-1", "state": "STARTING"}).to_string())
-            .expect(1)
-            .create_async()
-            .await;
-        let running_state = server
-            .mock("GET", "/agents/deployments/deployment-1")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(json!({"id": "deployment-1", "state": "RUNNING"}).to_string())
             .expect(1)
             .create_async()
             .await;
@@ -4051,20 +4050,52 @@ mod tests {
         .await
         .unwrap();
 
-        let deployment = event_client
-            .wait_deployment_state_with_poll_interval(
+        let mut running_state = None;
+        let clock_started = tokio::time::Instant::now();
+        let deployment = {
+            let deployment = event_client.wait_deployment_state_with_poll_interval(
                 "deployment-1",
                 &["RUNNING"],
                 &["STOPPED", "FAILED"],
                 Duration::from_secs(1),
                 Duration::from_millis(20),
-            )
-            .await
-            .unwrap();
+            );
+            tokio::pin!(deployment);
+            let started = Instant::now();
+            loop {
+                tokio::select! {
+                    result = &mut deployment => break result.unwrap(),
+                    ready = &mut ready_rx, if running_state.is_none() => {
+                        ready.unwrap();
+                        running_state = Some(server
+                            .mock("GET", "/agents/deployments/deployment-1")
+                            .match_header("authorization", "Bearer test-credential")
+                            .with_status(200)
+                            .with_header("content-type", "application/json")
+                            .with_body(json!({"id": "deployment-1", "state": "RUNNING"}).to_string())
+                            .expect(1)
+                            .create_async()
+                            .await);
+                        // Reconcile only after the client is reading the socket. No
+                        // deployment.transition is sent: REST must discover RUNNING.
+                        tokio::time::advance(Duration::from_millis(20)).await;
+                    }
+                    // Keep Tokio from auto-advancing the paused clock during I/O.
+                    _ = tokio::task::yield_now() => {
+                        assert!(started.elapsed() < Duration::from_secs(1), "reconciliation stalled");
+                    }
+                }
+            }
+        };
+        // Success must come from reconciliation, not the timeout's final REST read.
+        assert_eq!(clock_started.elapsed(), Duration::from_millis(20));
+        tokio::time::resume();
 
         assert_eq!(deployment.state, "RUNNING");
+        done_tx.send(()).unwrap();
         websocket.await.unwrap();
         initial_state.assert_async().await;
+        let running_state = running_state.unwrap();
         running_state.assert_async().await;
         token.assert_async().await;
         drop(initial_state);
