@@ -71,6 +71,7 @@ export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpRequestError,
+  CodingAgentSessionStartupError,
   CodingAgentAcpAttachmentError,
   CodingAgentAcpUnavailableError,
   ACP_RECONNECT_DELAYS_MS,

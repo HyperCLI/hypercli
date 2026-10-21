@@ -58,6 +58,12 @@ def test_mcp_launch_selections_use_existing_create_environment():
     assert build_additional_mcp_env([]) == {"HYPER_ADDITIONAL_MCP_SERVERS": "[]"}
 
 
+@pytest.mark.parametrize("observation", [{}, {"hyper_acp_version": None}, {"hyper_acp_version": 0}, {"hyper_acp_version": 1}])
+def test_agent_hydrates_runtime_version_observation(observation):
+    agent = Agent.from_dict({"id": "agent", "state": "RUNNING", **observation})
+    assert agent.hyper_acp_version == observation.get("hyper_acp_version")
+
+
 def test_vendored_agents_openapi_matches_canonical_data_plane_routes():
     schema_path = Path(__file__).resolve().parents[2] / "docs" / "agents-openapi.json"
     schema = json.loads(schema_path.read_text())

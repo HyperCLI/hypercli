@@ -434,6 +434,7 @@ export {
   CodingAgentAcpClient,
   CodingAgentAcpConnectionError,
   CodingAgentAcpRequestError,
+  CodingAgentSessionStartupError,
   CodingAgentAcpAttachmentError,
   CodingAgentAcpUnavailableError,
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,

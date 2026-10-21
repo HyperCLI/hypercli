@@ -3,7 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
-import { CodingAgentAcpConnectionError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
+import { CodingAgentAcpConnectionError, CodingAgentSessionStartupError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
 import { buildAdditionalMcpEnv } from '../src/mcp.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
@@ -103,6 +103,57 @@ it.each([null, 'a'.repeat(40)])('delivers product snapshots without changing nat
   expect(await received).toEqual(snapshot);
   expect(updates).not.toHaveBeenCalled();
   expect(await client.newSession()).toMatchObject({ sessionId: 'session-1' });
+});
+
+it('settles only the exact startup waiter locally, ignores stale IDs, and retains the usable socket', async () => {
+  const f = await fixture(), client = await f.connect();
+  f.hooks.set('session/new', () => {});
+  const first = client.newSession().catch(error => error);
+  const second = client.newSession();
+  let secondSettled = false;
+  void second.then(() => { secondSettled = true; });
+  await vi.waitFor(() => expect(f.calls('session/new')).toHaveLength(2));
+  const [a, b] = f.calls('session/new');
+  const fail = (requestId: unknown, error = { code: 'unavailable', message: 'All worker slots are occupied (3/3).' }) =>
+    f.peers[0].send(JSON.stringify({ type: 'sessionStartupError', requestId, error }));
+  // Exact JSON ID identity matters: the numeric ID's string spelling is unknown.
+  fail(String(a.id));
+  fail(99999);
+  fail(a.id, { code: 'other', message: 'Malformed product failure' });
+  await client.listSessions(); // Ordered round trip proves the ignored frames were consumed.
+  expect(secondSettled).toBe(false);
+  fail(a.id);
+  const error = await first;
+  expect(error).toBeInstanceOf(CodingAgentSessionStartupError);
+  expect(error).toMatchObject({ requestId: a.id, code: 'unavailable', message: 'All worker slots are occupied (3/3).' });
+  expect(error).not.toHaveProperty('cause');
+  fail(a.id); // Already settled.
+  expect(secondSettled).toBe(false);
+  f.result(f.peers[0], b, { sessionId: 'second', _meta: { opaque: true } });
+  expect(await second).toEqual({ sessionId: 'second', _meta: { opaque: true } });
+  fail(b.id); // Native success already settled.
+  f.hooks.delete('session/new');
+  expect(await client.newSession()).toEqual({ sessionId: 'session-1' });
+  expect(client.connected).toBe(true);
+  expect(f.peers).toHaveLength(1);
+  expect(f.frames.every(frame => frame.method && !frame.error)).toBe(true);
+  expect(f.calls('session/new')).toHaveLength(3); // No replay.
+});
+
+it('keeps genuinely unsent input intact when another operation has a startup refusal', async () => {
+  const f = await fixture();
+  let resolveCwd!: (cwd: string) => void;
+  const client = await f.connect({ resolveDefaultCwd: () => new Promise(resolve => { resolveCwd = resolve; }) });
+  const unsent = client.newSession();
+  f.hooks.set('session/resume', (frame, socket) => socket.send(JSON.stringify({
+    type: 'sessionStartupError', requestId: frame.id, error: { code: 'unavailable', message: 'Capacity full' },
+  })));
+  await expect(client.resumeSession('existing', { cwd: '/existing' })).rejects.toBeInstanceOf(CodingAgentSessionStartupError);
+  expect(f.calls('session/new')).toHaveLength(0);
+  resolveCwd('/unsent');
+  expect(await unsent).toEqual({ sessionId: 'session-1' });
+  expect(f.calls('session/new')[0].params.cwd).toBe('/unsent');
+  expect(f.peers).toHaveLength(1);
 });
 
 it('sends explicit standard MCP setup, retains omitted values, and preserves peer refusal', async () => {
@@ -256,6 +307,22 @@ it('reports reconnect resume refusal without creating a replacement session', as
   f.peers[0].terminate();
   await vi.waitFor(() => expect(errors.some(e => e.message.includes('gone'))).toBe(true), { timeout: 3000 });
   expect(f.calls('session/new')).toHaveLength(1); expect(f.calls('session/prompt')).toHaveLength(0);
+});
+
+it('reports product startup refusal during reconnect without recycling the healthy socket', async () => {
+  const f = await fixture(), errors: Error[] = [], client = await f.connect({ onError: e => errors.push(e) });
+  await client.newSession();
+  f.hooks.set('session/resume', (frame, socket) => socket.send(JSON.stringify({
+    type: 'sessionStartupError', requestId: frame.id, error: { code: 'unavailable', message: 'Capacity full' },
+  })));
+  f.peers[0].terminate();
+  await vi.waitFor(() => expect(errors).toHaveLength(1), { timeout: 3000 });
+  expect(errors[0]).toMatchObject({ cause: { name: 'CodingAgentSessionStartupError', code: 'unavailable' } });
+  expect(client.connected).toBe(true);
+  await client.listSessions();
+  expect(f.peers).toHaveLength(2);
+  expect(f.calls('session/resume')).toHaveLength(1);
+  expect(f.calls('session/new')).toHaveLength(1);
 });
 
 it.each(['refresh', 'resume'])('isolates throwing error observers during reconnect %s settlement', async stage => {

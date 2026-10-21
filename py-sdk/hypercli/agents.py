@@ -1015,6 +1015,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         if isinstance(data.get("display_identity"), dict)
         else None,
         "runtime": data.get("runtime"),
+        "hyper_acp_version": data.get("hyper_acp_version"),
         "managed": data.get("managed"),
         "is_launchable": bool(is_launchable),
         "gateway_id": data.get("gateway_id"),
@@ -1667,6 +1668,8 @@ class Agent:
     avatar_url: Optional[str] = None
     display_identity: Optional[dict] = None
     runtime: Optional[str] = None
+    # Observed product hello version, independent of the package release version.
+    hyper_acp_version: int | None = None
     managed: Optional[bool] = None
     is_launchable: bool = True
     gateway_id: Optional[str] = None

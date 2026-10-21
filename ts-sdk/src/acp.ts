@@ -32,6 +32,28 @@ export class CodingAgentAcpRequestError extends Error {
     this.name = 'CodingAgentAcpRequestError';
   }
 }
+/** Product startup refusal: the associated native operation was not forwarded. */
+export class CodingAgentSessionStartupError extends Error {
+  readonly code = 'unavailable';
+  constructor(public readonly requestId: string | number, message: string) {
+    super(message);
+    this.name = 'CodingAgentSessionStartupError';
+  }
+}
+
+// SDK 1.5.0 has no public single-waiter rejection API. Reuse its owned waiter
+// and cleanup rather than inventing an ACP response or a second pending map.
+function rejectStartup(connection: acp.ClientConnection, requestId: string | number, message: string): void {
+  const context = connection.agent as unknown as {
+    cx: { connection: { pendingResponses: Map<string | number, { cleanup?(): void; reject(error: Error): void }> } };
+  };
+  const pending = context.cx.connection.pendingResponses;
+  const waiter = pending.get(requestId);
+  if (!waiter) return;
+  pending.delete(requestId);
+  waiter.cleanup?.();
+  waiter.reject(new CodingAgentSessionStartupError(requestId, message));
+}
 export class CodingAgentAcpAttachmentError extends Error {
   constructor(public readonly sessionId: string, detail: string, options: { cause?: unknown } = {}) {
     super(`ACP session ${sessionId} could not be reattached: ${detail}`, options);
@@ -376,6 +398,14 @@ export class CodingAgentAcpClient {
         // Upstream's active-session router validates an exhaustive update union.
         // Forward notifications untouched; RPCs/callbacks remain SDK-owned.
         readable: stream.readable.pipeThrough(new globalThis.TransformStream({ transform(frame, controller) {
+          if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'sessionStartupError') {
+            const failure = frame as unknown as { requestId?: unknown; error?: { code?: unknown; message?: unknown } };
+            if ((typeof failure.requestId === 'string' || typeof failure.requestId === 'number')
+                && failure.error?.code === 'unavailable' && typeof failure.error.message === 'string') {
+              rejectStartup(pending, failure.requestId, failure.error.message);
+            }
+            return;
+          }
           if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'sessionSnapshot') {
             const snapshot = frame as unknown as SessionSnapshot;
             if (typeof snapshot.sessionId === 'string'
@@ -454,7 +484,7 @@ export class CodingAgentAcpClient {
           try { await this.resumeSession(sid, { cwd: setup.cwd }); }
           catch (error) {
             if (!ownsConnection()) return;
-            if (!(error instanceof CodingAgentAcpRequestError)) {
+            if (!(error instanceof CodingAgentAcpRequestError) && !(error instanceof CodingAgentSessionStartupError)) {
               connection?.close(error instanceof Error ? error : undefined);
               return;
             }
