@@ -29,6 +29,14 @@ const ID_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const ID_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 const ID_A2 = 'aaaaaaaa-9999-4999-8999-999999999999';
 
+// Dashboard selection follows Agents routing, including an explicit override.
+const dashboardCases = [
+  { apiBase: 'https://api.dev.hypercli.com', agentsBase: '', consoleBase: 'https://console.dev.hypercli.com' },
+  { apiBase: 'https://api.hypercli.com', agentsBase: '', consoleBase: 'https://console.hypercli.com' },
+  { apiBase: 'https://api.hypercli.com', agentsBase: 'https://api.dev.hypercli.com/agents', consoleBase: 'https://console.dev.hypercli.com' },
+  { apiBase: 'https://api.dev.hypercli.com', agentsBase: 'https://api.hypercli.com/agents', consoleBase: 'https://console.hypercli.com' },
+];
+
 // Sentinels: must never appear in full on stdout/stderr anywhere.
 const JWT = 'jwt-sentinel-must-not-print';
 const SCOPED_KEY = 'hak-scoped-FULLSECRET-0000aaaa';
@@ -37,11 +45,14 @@ let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 let stdoutChunks: string[];
 let stderrChunks: string[];
+let home: string;
 
 const stdout = () => stdoutChunks.join('');
 const stderr = () => stderrChunks.join('');
 
 beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), 'hyper-agents-test-'));
+  vi.stubEnv('HYPER_HOME', home);
   stdoutChunks = [];
   stderrChunks = [];
   stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
@@ -57,6 +68,8 @@ beforeEach(() => {
 afterEach(() => {
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
+  vi.unstubAllEnvs();
+  rmSync(home, { recursive: true, force: true });
 });
 
 // ---------- fixtures ----------
@@ -310,7 +323,9 @@ describe('hyper agents ls', () => {
     expect(d.list).toHaveBeenCalledWith({ state: 'RUNNING' });
   });
 
-  it('--json emits redacted record bags', async () => {
+  it.each(dashboardCases)('--json emits redacted records with $consoleBase for product=$apiBase agents=$agentsBase', async ({ apiBase, agentsBase, consoleBase }) => {
+    vi.stubEnv('HYPER_API_BASE', apiBase);
+    vi.stubEnv('HYPER_AGENTS_API_BASE', agentsBase);
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'json');
 
@@ -319,7 +334,7 @@ describe('hyper agents ls', () => {
     const payload = JSON.parse(stdout()) as Array<Record<string, unknown>>;
     expect(payload).toHaveLength(1);
     expect(payload[0].id).toBe(ID_A);
-    expect(payload[0].dashboard).toBe(`https://console.hypercli.com/agents/${ID_A}`);
+    expect(payload[0].dashboard).toBe(`${consoleBase}/agents/${ID_A}`);
     expect(stdout()).not.toContain(JWT);
   });
 });
@@ -327,7 +342,9 @@ describe('hyper agents ls', () => {
 // ---------- status ----------
 
 describe('hyper agents status', () => {
-  it('shows the dashboard URL, runtime, state, and plan field as returned', async () => {
+  it.each(dashboardCases)('shows $consoleBase, runtime, state, and plan for product=$apiBase agents=$agentsBase', async ({ apiBase, agentsBase, consoleBase }) => {
+    vi.stubEnv('HYPER_API_BASE', apiBase);
+    vi.stubEnv('HYPER_AGENTS_API_BASE', agentsBase);
     const d = createMockDeploymentsApi([agentFixture()]);
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
 
@@ -335,7 +352,7 @@ describe('hyper agents status', () => {
 
     const out = stdout();
     expect(out).toContain('dashboard');
-    expect(out).toContain(`https://console.hypercli.com/agents/${ID_A}`);
+    expect(out).toContain(`${consoleBase}/agents/${ID_A}`);
     expect(out).toContain('runtime');
     expect(out).toContain('openclaw_acp');
     expect(out).toContain('state');
