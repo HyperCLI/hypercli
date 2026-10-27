@@ -169,6 +169,10 @@ symlinks and non-JSON configuration remain untouched. It does not provision an
 unattended agent profile. Previously persisted user-workspace profiles are not
 deleted or rewritten.
 
+The OpenCode image installs the pinned V2 `@opencode/cli` npm package. Its ACP
+initialize response advertises standard terminal authentication when the client
+supports it. Existing supported V1 configuration remains compatible.
+
 Buzz provider launches use:
 
 | Property | Value |

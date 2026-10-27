@@ -3,7 +3,7 @@
 ARG HYPERCLI_AGENT_BASE_IMAGE=hypercli-agent-base:local
 FROM ${HYPERCLI_AGENT_BASE_IMAGE}
 
-ARG OPENCODE_VERSION=1.18.35
+ARG OPENCODE_VERSION=2.2.0
 ARG HYPER_RUNTIME_HOME=/home/node/.config/opencode
 ENV HYPER_RUNTIME_HOME=${HYPER_RUNTIME_HOME}
 
@@ -11,7 +11,7 @@ USER root
 COPY --chown=node:node opencode/opencode.json /opt/hypercli/share/runtime/opencode.json
 COPY --chmod=0755 opencode/entrypoint.sh /opt/hypercli/bin/opencode-entrypoint
 RUN export HOME=/root && \
-    npm install --global --no-audit --no-fund "opencode-ai@${OPENCODE_VERSION}" && \
+    npm install --global --no-audit --no-fund "@opencode/cli@${OPENCODE_VERSION}" && \
     opencode --version && \
     rm -rf /tmp/opencode && \
     printf '%s\n' opencode > /opt/hypercli/share/runtime/runtime

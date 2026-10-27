@@ -31,16 +31,15 @@ assert_auth_methods(
     agent_command="/opt/hypercli/bin/opencode",
     agent_args="acp",
     expected={"opencode-login"},
-    # 1.18.35 advertises the v1 default agent method, not type=terminal.
-    # Its human-readable CLI instruction is not a routing capability.
+    terminal={"opencode-login"},
 )
 
 login_result = run(image, ["opencode", "auth", "login", "--help"])
 login_help = login_result.stdout + login_result.stderr
-assert "--provider" in login_help
+assert "[<target>]" in login_help
 assert "--method" in login_help
 list_result = run(image, ["opencode", "auth", "list"])
-assert "0 credentials" in list_result.stdout + list_result.stderr
+assert "No authenticated integrations" in list_result.stdout + list_result.stderr
 assert_models(
     image,
     agent_command="/opt/hypercli/bin/opencode",
