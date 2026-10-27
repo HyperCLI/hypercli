@@ -96,6 +96,7 @@ export interface CodingAgentAcpConnectOptions {
   token?: string;
   cwd?: string;
   clientInfo?: { name?: string; version?: string };
+  clientCapabilities?: acp.ClientCapabilities;
   mcpServers?: acp.McpServer[];
   transport?: CodingAgentAcpTransport;
   sessionId?: string;
@@ -444,7 +445,7 @@ export class CodingAgentAcpClient {
     });
     try {
       const response = await this.observe('initialize', () => connection.agent.request('initialize', {
-        protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: this.options.clientInfo?.name ?? 'hypercli-ts-sdk', version: this.options.clientInfo?.version ?? '' },
+        protocolVersion: 1, clientCapabilities: this.options.clientCapabilities ?? {}, clientInfo: { name: this.options.clientInfo?.name ?? 'hypercli-ts-sdk', version: this.options.clientInfo?.version ?? '' },
       }));
       if (response.protocolVersion !== 1) throw new CodingAgentAcpConnectionError('ACP peer did not select v1');
       if (this.closedFlag || generation !== this.generation) throw new CodingAgentAcpConnectionError('ACP connect aborted');

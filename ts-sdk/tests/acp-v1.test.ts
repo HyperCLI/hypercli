@@ -9,7 +9,7 @@ import { AcpTurnDriver } from '../src/acp-driver.js';
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function peer() {
+async function peer(clientCapabilities?: acp.ClientCapabilities) {
   const frames: any[] = [], updates: acp.SessionUpdate[] = [];
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>(resolve => server.once('listening', resolve));
@@ -38,12 +38,32 @@ async function peer() {
     cleanup.push(() => connection.close());
   });
   const client = await CodingAgentAcpClient.connect({ url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, token: '' },
-    { cwd: '/workspace', onUpdate: notification => updates.push(notification.update) });
+    { cwd: '/workspace', clientCapabilities, onUpdate: notification => updates.push(notification.update) });
   cleanup.push(() => client.close());
   return { client, frames, updates, pending,
     emit: async (update: acp.SessionUpdate) => { await vi.waitFor(() => expect(emit).toBeDefined()); await emit(update); },
     finish: async () => { await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0)); pending.shift()!({ stopReason: 'end_turn' }); } };
 }
+
+it('opts into standard compaction without unrelated capabilities and preserves typed patches', async () => {
+  const plain = await peer();
+  expect(plain.frames[0].params.clientCapabilities).toEqual({});
+  const p = await peer({ session: { compaction: {} } });
+  expect(p.frames[0].params.clientCapabilities).toEqual({ session: { compaction: {} } });
+  const { sessionId } = await p.client.newSession();
+  const turn = p.client.prompt(sessionId, '/compact');
+  const updates: acp.SessionUpdate[] = [
+    { sessionUpdate: 'compaction_update', compactionId: 'opaque', status: 'in_progress' },
+    { sessionUpdate: 'compaction_summary_chunk', compactionId: 'opaque', content: { type: 'text', text: 'summary' } },
+    { sessionUpdate: 'compaction_update', compactionId: 'opaque', status: 'completed' },
+    { sessionUpdate: 'compaction_update', compactionId: 'opaque', status: 'failed', summary: null, error: 'failed' },
+    { sessionUpdate: 'compaction_update', compactionId: 'opaque', status: '_future', summary: [], error: null },
+  ];
+  for (const update of updates) await p.emit(update);
+  await vi.waitFor(() => expect(p.updates).toEqual(updates));
+  await p.finish();
+  await turn;
+});
 
 it('uses the real upstream v1 router and only the correlated terminal response completes a prompt', async () => {
   const p = await peer(), { sessionId } = await p.client.newSession();
