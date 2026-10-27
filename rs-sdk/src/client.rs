@@ -4206,13 +4206,15 @@ mod tests {
             .await;
         let token = server
             .mock("POST", "/agents/deployments/events/token")
-            .with_status(503)
-            .with_header("content-type", "application/json")
-            .with_chunked_body(move |writer| {
-                writer.write_all(json!({"detail": "events unavailable"}).to_string().as_bytes())?;
+            .with_status_code_from_request(move |_| {
+                // The client rejects 503 from headers without consuming its body.
+                // Record receipt before returning those headers, independently
+                // of whether the client ever consumes the error body.
                 unavailable.store(true, std::sync::atomic::Ordering::Release);
-                Ok(())
+                503
             })
+            .with_header("content-type", "application/json")
+            .with_body(json!({"detail": "events unavailable"}).to_string())
             .expect(1)
             .create_async()
             .await;
@@ -4234,8 +4236,12 @@ mod tests {
                 "deployment-1",
                 &["RUNNING"],
                 &["STOPPED", "FAILED"],
-                Duration::from_secs(1),
-                Duration::from_millis(20),
+                Duration::from_secs(10),
+                // This case exercises a completed 503 response, not cancellation
+                // of an in-flight subscription by the reconciliation timer. A
+                // Keep reconciliation beyond the test deadline; the 503 retry
+                // path itself must perform the REST read that observes RUNNING.
+                Duration::from_secs(60),
             )
             .await
             .unwrap();
