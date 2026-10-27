@@ -4238,7 +4238,7 @@ mod tests {
                 &["STOPPED", "FAILED"],
                 Duration::from_secs(10),
                 // This case exercises a completed 503 response, not cancellation
-                // of an in-flight subscription by the reconciliation timer. A
+                // of an in-flight subscription by the reconciliation timer.
                 // Keep reconciliation beyond the test deadline; the 503 retry
                 // path itself must perform the REST read that observes RUNNING.
                 Duration::from_secs(60),
