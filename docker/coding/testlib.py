@@ -36,7 +36,14 @@ INSTRUCTION_FILES = {
     "pi": ".pi/agent/AGENTS.md",
 }
 INSTRUCTION_HEADING = "# AGENTS.md — HyperCLI Hosted Agent"
-INSTRUCTION_PERSONA_REFS = ("~/.hypercli/USER.md", "~/.hypercli/SOUL.md")
+INSTRUCTION_PERSONA_REFS = ("hyper user", "hyper soul", "hyper role")
+INSTRUCTION_RETIRED_MARKERS = (
+    "~/.hypercli/USER.md",
+    "~/.hypercli/SOUL.md",
+    "HYPER_AGENT_ROLE",
+    "/opt/hypercli/roles",
+    "/opt/hypercli-identities",
+)
 # Key-phrase markers only, never full copy: identity + files/skills contract.
 INSTRUCTION_MARKERS = (
     "hyper me",
@@ -342,8 +349,12 @@ payload = {
     if instructions_text is not None
     else None,
     "instructions_persona_refs": all(
-        ref in instructions_text
-        for ref in ("~/.hypercli/USER.md", "~/.hypercli/SOUL.md")
+        ref in instructions_text for ref in __INSTRUCTION_PERSONA_REFS__
+    )
+    if instructions_text is not None
+    else False,
+    "instructions_retired_markers_absent": all(
+        marker not in instructions_text for marker in __INSTRUCTION_RETIRED_MARKERS__
     )
     if instructions_text is not None
     else False,
@@ -415,6 +426,8 @@ print(json.dumps(payload))
 """
 COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_FILES__", repr(dict(INSTRUCTION_FILES)))
 COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_MARKERS__", repr(tuple(INSTRUCTION_MARKERS)))
+COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_PERSONA_REFS__", repr(tuple(INSTRUCTION_PERSONA_REFS)))
+COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_RETIRED_MARKERS__", repr(tuple(INSTRUCTION_RETIRED_MARKERS)))
 
 
 def assert_common_contract(
@@ -487,6 +500,7 @@ def assert_common_contract(
     assert payload["instructions_exists"] is True, payload
     assert payload["instructions_heading"] == INSTRUCTION_HEADING, payload
     assert payload["instructions_persona_refs"] is True, payload
+    assert payload["instructions_retired_markers_absent"] is True, payload
     assert payload["instructions_markers"] is True, payload
     assert payload["hypercli_skill_names"]
     assert all(payload["hypercli_skill_names"].values())
@@ -567,6 +581,8 @@ def assert_workspace_persistence(image: str, *, runtime: str) -> None:
         seeded_text = seeded.read_text(encoding="utf-8")
         for ref in INSTRUCTION_PERSONA_REFS:
             assert ref in seeded_text
+        for retired in INSTRUCTION_RETIRED_MARKERS:
+            assert retired not in seeded_text, retired
         for marker in INSTRUCTION_MARKERS:
             assert marker in seeded_text, marker
 

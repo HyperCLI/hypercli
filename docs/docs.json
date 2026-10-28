@@ -221,6 +221,7 @@
             "pages": [
               "cli/commands/acp",
               "cli/commands/agent",
+              "cli/commands/agent-legacy",
               "cli/commands/agents",
               "cli/commands/billing",
               "cli/commands/comfyui",

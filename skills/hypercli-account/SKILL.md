@@ -9,7 +9,7 @@ description: >
 # HyperCLI Account
 
 Load the `hypercli` and `hypercli-auth` skills before account work. This
-skill covers the two account-facing commands; `hypercli-auth` owns
+skill covers identity, profile, and credential commands; `hypercli-auth` owns
 credential precedence, environment selection, and failure diagnosis.
 Reference: `/opt/hypercli/docs/cli/configuration.mdx`.
 
@@ -18,9 +18,12 @@ Reference: `/opt/hypercli/docs/cli/configuration.mdx`.
 | Area | Command |
 | --- | --- |
 | Identity, capabilities, entitlements | `hyper me` |
-| Account profile | `hyper user --json` |
+| Account profile | `hyper user [--json] [-f <file>|-]` |
+| Agent soul | `hyper soul [--agent <id>] [-f <file>|-]` |
+| Agent role identifier | `hyper role [--agent <id>] [value]` |
+| Canonical Agent metadata | `hyper agent <id> soul`, `hyper agent <id> role [value]` |
+| Grant activation | `hyper agents activate <code>` |
 | Write the local product API key | `hyper configure` |
-| Agent onboarding and subscription | `hyper agent onboard`, `hyper agent subscribe` |
 | Balance, invoices, transactions | `hyper billing balance` |
 | API keys | `hyper keys list`, `hyper keys create` |
 | Wallet | `hyper wallet balance`, `hyper wallet topup` |
@@ -38,6 +41,14 @@ list before assuming a key may run jobs, flows, agents, or voice: a working
 identity does not prove every scope is present. Set `HYPER_API_BASE` to the dev API only when the
 user intends the dev environment, and `--json` only in private automation —
 the payload contains account and key identifiers.
+
+## Profile and Agent metadata
+
+`hyper user` and `hyper soul` print Backend-owned Markdown; use `-f <file>` or
+`-f -` to replace it. `hyper role` prints a role identifier, not a role document.
+Shorthand soul/role commands resolve one Agent through Backend key identity;
+user-scoped keys require `--agent <id>` or canonical `hyper agent <id> ...`.
+Do not substitute local USER.md, SOUL.md, or role files.
 
 ## Local credential configuration
 

@@ -8,7 +8,7 @@
       "smokes": [{ "argv": ["--help"] }, { "argv": ["attach", "--help"] }]
     },
     "core": {
-      "tests": ["argv", "help", "table", "ci-matrix", "version"],
+      "tests": ["argv", "help", "table", "ci-matrix", "version", "docs-contract"],
       "windows": true,
       "smokes": [
         { "argv": [] },

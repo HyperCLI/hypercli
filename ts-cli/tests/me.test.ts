@@ -186,6 +186,9 @@ describe('hyper me', () => {
     const client = fakeClient({
       authMe: async () => authMeFixture({ runtime: { runtime: 'agent', agentId: 'agent_123' } }),
       accessIdentity: async () => runtimeKeyIdentityFixture(),
+      subscriptionSummary: async () => summaryFixture({
+        slotInventory: { small: { granted: 1, used: 0, available: 1 } },
+      }),
     });
     const ctx = makeCtx(client, 'json');
 
@@ -200,6 +203,7 @@ describe('hyper me', () => {
     expect(payload.capabilities).toEqual(['jobs:run', 'flows:run']);
     expect(payload.agents.hasActivePlan).toBe(true);
     expect(payload.agents.activeEntitlementCount).toBe(1);
+    expect(payload.agents.slotInventory).toEqual({ small: { granted: 1, used: 0, available: 1 } });
     expect(payload.agents.entitlementItems).toHaveLength(1);
     expect(payload.agents_error).toBeUndefined();
     expect(stdout()).not.toContain(SECRET);

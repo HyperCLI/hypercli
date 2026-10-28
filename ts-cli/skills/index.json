@@ -27,15 +27,22 @@
       "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, and set up the local product API key with hyper configure. Use for who-am-I, capability, entitlement, and credential-setup questions.",
       "commands": [
         "hyper me",
-        "hyper user --json",
+        "hyper user [--json] [-f <file>|-]",
+        "hyper soul [--agent <id>] [-f <file>|-]",
+        "hyper role [--agent <id>] [value]",
+        "hyper agent <id> soul",
+        "hyper agent <id> role [value]",
+        "hyper agents activate <code>",
         "hyper configure",
-        "hyper agent onboard",
-        "hyper agent subscribe",
         "hyper billing balance",
         "hyper keys list",
         "hyper keys create",
         "hyper wallet balance",
-        "hyper wallet topup"
+        "hyper wallet topup",
+        "hyper user",
+        "hyper soul",
+        "hyper role",
+        "hyper agent <id> ..."
       ]
     },
     {

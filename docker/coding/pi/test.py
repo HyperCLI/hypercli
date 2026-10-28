@@ -9,6 +9,8 @@ CODING_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODING_DIR))
 
 from testlib import (  # noqa: E402
+    INSTRUCTION_PERSONA_REFS,
+    INSTRUCTION_RETIRED_MARKERS,
     assert_entrypoint_exit_passthrough,
     assert_workspace_persistence,
     docker,
@@ -68,7 +70,10 @@ assert not Path("AGENTS.md").exists()
 agents = Path(os.environ.get("PI_CODING_AGENT_DIR", ".pi/agent")) / "AGENTS.md"
 assert agents.is_file() and not agents.is_symlink()
 agents_text = agents.read_text(encoding="utf-8")
-assert "~/.hypercli/USER.md" in agents_text and "~/.hypercli/SOUL.md" in agents_text
+for ref in {INSTRUCTION_PERSONA_REFS!r}:
+    assert ref in agents_text, ref
+for retired in {INSTRUCTION_RETIRED_MARKERS!r}:
+    assert retired not in agents_text, retired
 version = subprocess.check_output(["node", "--version"], text=True).strip()
 assert tuple(map(int, version.lstrip("v").split("."))) >= (22, 19, 0)
 state = subprocess.check_output([

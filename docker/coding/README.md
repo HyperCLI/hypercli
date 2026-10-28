@@ -330,8 +330,9 @@ and `hyper skills export`; no static Markdown index is installed.
 At boot the shared entrypoint seeds each runtime's native instruction file
 (see "Runtime instruction roots") from the canonical
 `/opt/hypercli/share/runtime/AGENTS.md.template`. The template is
-runtime-neutral and directs the runtime to read the platform-projected persona
-files `~/.hypercli/USER.md` and `~/.hypercli/SOUL.md` at session start. The
+runtime-neutral and directs the runtime to read Backend-owned metadata with
+`hyper user`, `hyper soul`, and `hyper role` at session start. The first two
+return Markdown; role returns an identifier string, not a role document. The
 seed is written only when the target path is absent: an existing user-managed
 file, directory, or symlink always wins and is never overwritten or followed.
 There is no ACP session prompt transport to reconcile against: the wire is
@@ -370,10 +371,10 @@ the entrypoint and must receive the matching native variable separately.
 
 The relative filenames name the native instruction file the shared entrypoint
 seeds from the canonical template at boot, at the resolved native root. The
-seed carries the platform base instructions plus the persona references
-(`~/.hypercli/USER.md`, `~/.hypercli/SOUL.md` — the `default` profile in the
-SDK persona registry, `ts-sdk/src/agent-persona.ts`) and is written only when no
-user-managed file, link, or directory exists at the target. Existing config
+seed carries the platform base instructions plus the Backend metadata command
+contract (`hyper user`, `hyper soul`, and `hyper role`), with no local persona
+file or environment-based role fallback. It is written only when no user-managed
+file, link, or directory exists at the target. Existing config
 templates follow the resolved native root and retain their existing
 ownership/protection rules. Coding cwd remains `/home/node`; selecting a root
 does not update sync mounts, other state roots, or Pi adapter state at
@@ -610,9 +611,10 @@ Provider, SDK, ACP, or image changes must verify:
    fail this gate.
 6. The canonical instruction template is seeded once into each runtime's
     resolved native instruction root (workspace root only for `buzz-agent`,
-    whose home is its instruction root), carries the `~/.hypercli/USER.md` and
-    `~/.hypercli/SOUL.md` persona references, and never overwrites an existing
-      user-managed path. System instructions belong in native configuration;
+    whose home is its instruction root), carries the Backend `hyper user`,
+    `hyper soul`, and `hyper role` metadata commands (role is an identifier,
+    not a document), contains no retired local-persona markers, and never
+    overwrites an existing user-managed path. System instructions belong in native configuration;
       ACP carries ordinary user turns.
 7. The real `tini` and setup entrypoint chain terminates promptly and preserves
    the launched command's nonzero exit status.

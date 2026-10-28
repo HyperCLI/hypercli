@@ -4,7 +4,12 @@ from __future__ import annotations
 import json
 import sys
 
-from testlib import docker, image_config
+from testlib import (
+    INSTRUCTION_PERSONA_REFS,
+    INSTRUCTION_RETIRED_MARKERS,
+    docker,
+    image_config,
+)
 
 
 ROOTS = {
@@ -46,7 +51,10 @@ assert os.getcwd() == '/home/node'
 seeded = Path({expected!r}, {instructions!r})
 assert seeded.is_file() and not seeded.is_symlink()
 body = seeded.read_text(encoding='utf-8')
-assert '~/.hypercli/USER.md' in body and '~/.hypercli/SOUL.md' in body
+for ref in {INSTRUCTION_PERSONA_REFS!r}:
+    assert ref in body, ref
+for retired in {INSTRUCTION_RETIRED_MARKERS!r}:
+    assert retired not in body, retired
 assert not Path({expected!r}, {other!r}).exists()
 for name in {templates!r}:
     assert Path({expected!r}, name).is_file(), name

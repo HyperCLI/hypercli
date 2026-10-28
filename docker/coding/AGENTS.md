@@ -22,8 +22,9 @@ this repository or its build contexts.
   runtime-neutral instruction file. The shared entrypoint seeds it into each
   runtime's resolved native instruction root (per the README matrix) at boot,
   only when no user-managed file, link, or directory exists there. It must
-  keep referencing the platform-projected persona files `~/.hypercli/USER.md`
-  and `~/.hypercli/SOUL.md`.
+  direct runtimes to the Backend-backed `hyper user`, `hyper soul`, and `hyper
+  role` commands. `hyper role` returns a role identifier, not a role document;
+  retired local persona files and environment-based role resolution must stay out.
 - The private mono's `acp/hyper-acp` owns hosted ACP startup. Plain ACP launches run
   `hyper-acp` with `HYPER_ACP_AGENT_COMMAND` and `HYPER_ACP_AGENT_ARGS`.
   Buzz/Nostr launches run `hyper-acp` with Buzz credentials, which links the copied

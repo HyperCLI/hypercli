@@ -19,11 +19,14 @@ The explicit `version-ownership.json` map covers:
 | TypeScript SDK | npm manifest/lock, exported `APP_VERSION` |
 | TypeScript CLI | npm manifest/lock/local SDK entry, `--version`, MCP client identity |
 | Python SDK | pyproject, `hypercli.__version__` |
-| Python CLI | pyproject, exact SDK requirements including extras, `__version__`/`--version` |
+| Python CLI (EOL) | **Excluded** from managed projections and future syncs; retained for reference only |
 | Rust SDK | workspace version, local Cargo lock entry; `APP_VERSION` uses Cargo metadata |
 
-All projections are committed. npm packages, wheels and the Cargo package need
-neither this script nor the mono checkout to report or build their release version.
+All projections are committed. The legacy `py-cli/pyproject.toml` is classified
+`excluded:` in `version-ownership.json`; syncs must not rewrite its version or
+SDK pins, and it has no active CI/release gate. npm packages, supported wheels,
+and the Cargo package need neither this script nor the mono checkout to report
+or build their release version.
 The TS CLI's existing `file:../ts-sdk` dependency remains a source-layout packaging
 constraint; this change does not redesign npm distribution.
 

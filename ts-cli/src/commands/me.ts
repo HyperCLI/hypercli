@@ -210,6 +210,7 @@ function agentsJson(summary: HyperAgentSubscriptionSummary): Record<string, unkn
     currentEntitlementId: summary.currentEntitlementId,
     activeSubscriptionCount: summary.activeSubscriptionCount,
     activeEntitlementCount: summary.activeEntitlementCount,
+    slotInventory: summary.slotInventory,
     pooledTpmLimit: summary.pooledTpmLimit,
     pooledRpmLimit: summary.pooledRpmLimit,
     pooledTpd: summary.pooledTpd,
