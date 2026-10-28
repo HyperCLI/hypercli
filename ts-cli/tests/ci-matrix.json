@@ -21,6 +21,21 @@
       "windows": false,
       "smokes": [{ "argv": ["--help"] }]
     },
+    "role": {
+      "tests": ["metadata"],
+      "windows": true,
+      "smokes": [{ "argv": ["--help"] }]
+    },
+    "soul": {
+      "tests": ["metadata"],
+      "windows": true,
+      "smokes": [{ "argv": ["--help"] }]
+    },
+    "user": {
+      "tests": ["metadata"],
+      "windows": true,
+      "smokes": [{ "argv": ["--help"] }]
+    },
     "memory": {
       "tests": ["memory"],
       "windows": true,
@@ -84,6 +99,15 @@
         { "argv": ["routes", "list", "--help"], "hidden": true },
         { "argv": ["routes", "add", "--help"], "hidden": true },
         { "argv": ["routes", "remove", "--help"], "hidden": true }
+      ]
+    },
+    "agent": {
+      "tests": ["metadata"],
+      "windows": true,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["agent-id", "soul", "--help"] },
+        { "argv": ["agent-id", "role", "--help"] }
       ]
     },
     "routines": {

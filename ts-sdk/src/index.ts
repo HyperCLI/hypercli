@@ -135,6 +135,7 @@ export {
   type User,
   type AuthMe,
   type RuntimeIdentity,
+  type UserProfile,
   type UserProfileImage,
 } from './user.js';
 
@@ -374,7 +375,10 @@ export {
   type RuntimeAuthLoginOptions,
   type OpenClawHeartbeatConfig,
   type OpenClawRouteOptions,
+  type AgentMeta,
+  type AgentUiMeta,
   type CreateAgentOptions,
+  type UpdateAgentOptions,
   type StartAgentOptions,
   type LifecycleActionOptions,
   type AgentExecOptions,

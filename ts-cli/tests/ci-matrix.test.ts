@@ -175,6 +175,9 @@ function publicChains(groupName: string, usage: readonly string[]): Set<string> 
     if (!body) continue;
     const chain: string[] = [];
     for (const raw of body.split(/\s+/)) {
+      // Dynamic positionals are syntax, not command-chain tokens. This keeps
+      // canonical `agent <id> soul|role` smoke coverage representable.
+      if (/^<[^>]+>$/.test(raw)) continue;
       if (!/^[a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)*$/.test(raw)) break;
       if (raw.includes('|')) {
         // Alternation ('ls|list'): fork into one chain per alternative; the
@@ -209,7 +212,7 @@ describe('ci-matrix.json vs registry', () => {
       const actual = new Set(
         spec.smokes
           .filter((s) => !isBareGroupHelp(s) && s.hidden !== true && s.alias !== true)
-          .map(chainName),
+          .map((s) => group.name === 'agent' ? chainOf(s).slice(1).join(' ') : chainName(s)),
       );
       const missing = [...expected].filter((c) => !actual.has(c));
       const extra = [...actual].filter((c) => !expected.has(c));

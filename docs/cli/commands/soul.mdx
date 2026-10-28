@@ -1,0 +1,19 @@
+---
+title: hyper soul
+description: Read or update the resolved Agent soul.
+---
+
+`hyper soul` is a shorthand for `hyper agent <id> soul`.
+
+```bash
+hyper soul
+hyper soul --agent <id>
+hyper soul -f SOUL.md
+cat SOUL.md | hyper soul -f -
+```
+
+Without `--agent`, the CLI asks the Backend which single Agent the presented
+API key is bound to. A user-scoped or otherwise unbound key cannot infer an
+Agent and requires `--agent <id>`. Raw output is Markdown only; `--json`
+returns `{"agent_id":"...","soul":"..."}`. No environment-variable or
+runtime-file fallback is used.

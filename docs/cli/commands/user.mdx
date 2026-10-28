@@ -1,16 +1,19 @@
 ---
 title: hyper user
-description: Show the current authenticated user.
+description: Read or update canonical account profile Markdown.
 ---
 
-This command belongs to the legacy Python CLI (`hypercli-cli`), which is
-end-of-life. The TypeScript CLI provides `hyper me` for identity inspection.
-
-## user
+The TypeScript CLI reads and writes top-level `User.meta.profile` through the
+public Backend profile API. It does not read or write a local USER.md.
 
 ```bash
 hyper user
-hyper user --output json
+hyper user --json
+hyper user -f USER.md
+cat USER.md | hyper user -f -
 ```
 
-`hyper user` is implemented as the command group's callback, so running the group itself prints the current user record.
+Default output is only profile Markdown. Unset or empty content emits zero raw
+bytes. JSON output is `{"user_id":"...","profile":"..."}`. `-f` writes the
+file's exact UTF-8 contents, including an empty file. Profile writes require a
+user-scoped credential; an exactly bound Agent key may read its owner's profile.

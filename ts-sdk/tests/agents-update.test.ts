@@ -4,6 +4,24 @@ import { projectManagedContext, MANAGED_CONTEXT_PATHS } from '../src/index.js';
 import type { HTTPClient } from '../src/http.js';
 
 describe('Deployments.update', () => {
+  it('passes canonical soul and role through create and PATCH, including explicit null clears', async () => {
+    const id = 'c75a1d4f-9f1e-4b2e-8d3a-2f0e1a9a0001';
+    const meta = { soul: '# SOUL', role: '  Research  ', ui: { avatar: { icon_index: 2 } } };
+    const post = vi.fn().mockResolvedValue({ id, runtime: 'opencode', meta });
+    const patch = vi.fn().mockResolvedValue({ id, meta: { ui: { avatar: { icon_index: 2 } } } });
+    const deployments = new Deployments(
+      { post, patch } as unknown as HTTPClient,
+      'test',
+      'https://api.test/agents',
+    );
+    const agent = await deployments.createCodingAgent('opencode', { meta });
+    expect(post.mock.calls[0][1].meta).toEqual(meta);
+    expect(agent.meta?.soul).toBe('# SOUL');
+    expect(agent.meta?.role).toBe('  Research  ');
+    await deployments.update(id, { soul: null, role: null });
+    expect(patch).toHaveBeenCalledExactlyOnceWith(`/deployments/${id}`, { soul: null, role: null });
+  });
+
   it('creates instructions alongside avatar metadata using the existing create contract', async () => {
     const meta = { ui: { description: '# SOUL', avatar: { icon_index: 2 } } };
     const post = vi.fn().mockResolvedValue({ id: 'a', runtime: 'opencode', meta });

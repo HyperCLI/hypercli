@@ -6,6 +6,7 @@
  */
 
 import * as agents from './commands/agents.js';
+import agent from './commands/agent.js';
 import * as acp from './commands/acp.js';
 import * as configure from './commands/configure.js';
 import * as files from './commands/files.js';
@@ -15,6 +16,9 @@ import * as jobs from './commands/jobs.js';
 import * as me from './commands/me.js';
 import * as memory from './commands/memory.js';
 import * as routines from './commands/routines.js';
+import role from './commands/role.js';
+import soul from './commands/soul.js';
+import user from './commands/user.js';
 import * as skills from './commands/skills.js';
 import * as voice from './commands/voice.js';
 import * as websearch from './commands/websearch.js';
@@ -23,10 +27,14 @@ import type { CommandGroup } from './core/types.js';
 export const GROUPS: readonly CommandGroup[] = [
   acp,
   me,
+  role,
+  soul,
+  user,
   memory,
   configure,
   skills,
   agents,
+  agent,
   routines,
   jobs,
   flow,

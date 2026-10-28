@@ -5876,6 +5876,30 @@
       },
       "AgentMeta": {
         "properties": {
+          "soul": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32768
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soul"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
           "ui": {
             "anyOf": [
               {
@@ -7987,6 +8011,30 @@
       },
       "UpdateAgentRequest": {
         "properties": {
+          "soul": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32768
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soul"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
           "ui": {
             "anyOf": [
               {

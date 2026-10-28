@@ -1451,7 +1451,7 @@
           "user"
         ],
         "summary": "Update User",
-        "description": "Update your account profile (name, email, and UI profile Markdown).\n\n`ui.profile` is bounded to 32768 characters and merged into `meta.ui`.\nOmission leaves the value unchanged; null or an empty string clears it.\nUnrelated metadata is preserved. Concurrent writes to the same field are\nlast-writer-wins; malformed legacy metadata returns 409 rather than replacing it.\n\nYou can update your display name and email address. Changing your email\nwill reset the email_verified flag until you verify the new address.\n\n**Request Body:**\n```json\n{\n  \"name\": \"New Name\",\n  \"email\": \"new@example.com\"\n}\n```\n\n**SDK:**\n```python\nuser = c3.user.update(name=\"New Name\", email=\"new@example.com\")\n```\n\n**Keywords:** update, profile, settings, name, email, account",
+        "description": "Update your account profile (name, email, and canonical profile Markdown).\n\nTop-level `profile` is bounded to 32768 characters and stored at `meta.profile`.\nLegacy `ui.profile` is accepted only as a write alias and normalized to the canonical key.\nOmission preserves; null clears; an empty string stores empty content.\nUnrelated metadata is preserved. Concurrent writes to the same field are\nlast-writer-wins; malformed legacy metadata returns 409 rather than replacing it.\n\nYou can update your display name and email address. Changing your email\nwill reset the email_verified flag until you verify the new address.\n\n**Request Body:**\n```json\n{\n  \"name\": \"New Name\",\n  \"email\": \"new@example.com\"\n}\n```\n\n**SDK:**\n```python\nuser = c3.user.update(name=\"New Name\", email=\"new@example.com\")\n```\n\n**Keywords:** update, profile, settings, name, email, account",
         "operationId": "update_user_api_user_patch",
         "parameters": [
           {
@@ -6831,6 +6831,18 @@
                 "type": "null"
               }
             ]
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32768
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
           },
           "ui": {
             "anyOf": [

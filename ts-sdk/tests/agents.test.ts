@@ -1540,6 +1540,26 @@ describe('Agents SDK', () => {
     expect(identity.keyName).toBe('runtime');
   });
 
+  it('distinguishes an exactly agent-scoped key from a runtime key', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const get = vi.fn().mockResolvedValue({
+      user_id: 'user-456',
+      auth_type: 'orchestra_key',
+      agent_id: agentId,
+      tags: ['agents:self', `agent:${agentId}`],
+    });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const identity = await deployments.accessIdentity();
+
+    expect(identity.agentId).toBe(agentId);
+    expect(identity.isAgentRuntimeKey).toBe(false);
+  });
+
   it('reports no agent for a user credential through accessIdentity', async () => {
     const get = vi.fn().mockResolvedValue({
       user_id: 'user-456',

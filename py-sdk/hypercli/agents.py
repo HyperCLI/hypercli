@@ -1867,6 +1867,9 @@ class Agent:
         handle: str | None = None,
         runtime: ManagedAgentRuntime | None = None,
         reset_image: bool | None = None,
+        soul: str | None | object = _UNSET,
+        role: str | None | object = _UNSET,
+        ui: dict | None = None,
     ) -> "Agent":
         agent = self._require_deployments().update(
             self.id,
@@ -1876,6 +1879,9 @@ class Agent:
             handle=handle,
             runtime=runtime,
             reset_image=reset_image,
+            soul=soul,
+            role=role,
+            ui=ui,
         )
         self.__dict__.update(agent.__dict__)
         self._deployments = agent._deployments
@@ -2463,6 +2469,7 @@ class Deployments:
         runtime_scopes: list[str] | None = None,
         docker: dict | None | object = _UNSET,
         executor: str | None = None,
+        meta: dict = None,
         meta_ui: dict = None,
         runner: dict = None,
         dry_run: bool = False,
@@ -2522,8 +2529,10 @@ class Deployments:
             body["size"] = size
         if runtime is not None:
             body["runtime"] = runtime
+        if meta is not None:
+            body["meta"] = copy.deepcopy(meta)
         if meta_ui:
-            body["meta"] = {"ui": copy.deepcopy(meta_ui)}
+            body.setdefault("meta", {})["ui"] = copy.deepcopy(meta_ui)
         if tags:
             body["tags"] = list(tags)
         if runner is not None:
@@ -3358,8 +3367,17 @@ class Deployments:
         handle: str | None = None,
         runtime: ManagedAgentRuntime | None = None,
         reset_image: bool | None = None,
+        soul: str | None | object = _UNSET,
+        role: str | None | object = _UNSET,
+        ui: dict | None = None,
     ) -> Agent:
         body: dict[str, Any] = {}
+        if soul is not _UNSET:
+            body["soul"] = soul
+        if role is not _UNSET:
+            body["role"] = role
+        if ui is not None:
+            body["ui"] = copy.deepcopy(ui)
         if name is not None:
             body["name"] = name
         if handle is not None:

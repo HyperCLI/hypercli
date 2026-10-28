@@ -215,13 +215,10 @@ jobs:
       - name: ts-sdk vitest suite
         run: exec python3 tools/run_unit_tests.py -- npm --prefix ts-sdk test
 
-  # py-sdk + py-cli pytest, offline subset: `-k 'not integration'` drops the
-  # tests/integration trees and integration-named files (live agent lifecycle,
-  # docker wallet migration), `-m 'not integration'` drops marker-only cases.
-  # --import-mode=importlib mirrors each package's pyproject and keeps the
-  # same-named tests/test_exec_shell_dryrun.py in both trees importable.
-  py-test:
-    name: cli / py test
+  # The Python SDK remains supported. The legacy/EOL py-cli is deliberately
+  # absent: CLI verification belongs to ts-cli's unit, help, and container gates.
+  py-sdk-test:
+    name: cli / py-sdk test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -232,17 +229,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install py-sdk and py-cli (editable, dev extras)
-        # documents/wallet extras: the offline subset still imports pypdf,
-        # python-docx, ebooklib (test_memory_documents) and monkeypatches the
-        # module-level x402Client that only exists when x402 is installed
-        # (test_agent_subscribe_command).
+      - name: Install py-sdk (editable, dev extras)
         run: |
           python -m pip install --upgrade pip
           pip install -e "py-sdk[dev]"
-          pip install -e "py-cli[dev,documents,wallet]"
-      - name: pytest (charm-free subset)
-        run: exec python3 tools/run_unit_tests.py -- python3 -m pytest -q --import-mode=importlib py-sdk/tests py-cli/tests -k 'not integration' -m 'not integration'
+      - name: pytest (offline SDK subset)
+        run: exec python3 tools/run_unit_tests.py -- python3 -m pytest -q --import-mode=importlib py-sdk/tests -k 'not integration' -m 'not integration'
+
+  # Exercise the same ts-cli in the existing CI image and as the bundled
+  # runtime toolchain. No py-cli substitute or second container toolchain.
+  container:
+    name: cli / container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: HyperCLI/hypercli
+          ref: ${{ inputs.sha || 'main' }}
+      - name: Build ts-cli CI image
+        run: docker build -f docker/cli/ci.Dockerfile -t hypercli-cli-ci:${{ github.sha }} .
+      - name: Run metadata tests and offline help in the CI image
+        run: |
+          docker run --rm --entrypoint /bin/bash hypercli-cli-ci:${{ github.sha }} -lc '\
+            cd /opt/cli && \
+            python3 /opt/tools/run_unit_tests.py -- npx vitest run tests/metadata.test.ts tests/ci-matrix.test.ts && \
+            node dist/index.js agent --help >/dev/null && \
+            node dist/index.js agent agent-id soul --help >/dev/null && \
+            node dist/index.js agent agent-id role --help >/dev/null && \
+            node dist/index.js soul --help >/dev/null && \
+            node dist/index.js role --help >/dev/null && \
+            node dist/index.js user --help >/dev/null'
+      - name: Build runtime toolchain image
+        run: docker build -f docker/cli/Dockerfile -t hypercli-cli-runtime:${{ github.sha }} .
+      - name: Smoke bundled metadata help in the runtime container
+        run: |
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} agent --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} agent agent-id soul --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} agent agent-id role --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} soul --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} role --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} user --help >/dev/null
 
   # rs-sdk cargo test. rs-sdk is the only member of the repo-root workspace;
   # --locked pins the checked-in Cargo.lock.

@@ -799,13 +799,13 @@ export interface SetRoutesOptions {
 /**
  * What the presented credential is, as the Backend resolves it.
  *
- * `agentId` is set only for an Agent runtime key, which speaks for exactly one
- * Agent; it is null for an owner user credential or any other key.
+ * `agentId` is set for an Agent runtime key or a key with exactly one explicit
+ * agent binding; it is null for an owner user credential or an unbound key.
  */
 export interface AgentAccessIdentity {
   userId: string;
   authType: string;
-  /** The one Agent a runtime key speaks for; null for every other credential. */
+  /** The one Agent this key speaks for; null when no unique agent can be inferred. */
   agentId: string | null;
   tags: string[];
   capabilities: string[];
@@ -1036,6 +1036,10 @@ export interface AgentUiAvatarMeta {
 export interface AgentUiMeta {
   description?: string | null;
   avatar?: AgentUiAvatarMeta | null;
+  /** @deprecated Legacy read/write alias; canonical soul is AgentMeta.soul. */
+  soul?: string | null;
+  user?: string | null;
+  [key: string]: any;
 }
 
 /**
@@ -1048,6 +1052,10 @@ export interface AgentIntegrationMeta {
 }
 
 export interface AgentMeta {
+  /** Canonical semantic Markdown; null on write clears only this field. */
+  soul?: string | null;
+  /** Canonical nonblank role identifier, at most 64 characters; null on write clears it. */
+  role?: string | null;
   ui?: AgentUiMeta | null;
   status?: DeploymentMetaStatus | null;
   integrations?: Record<string, AgentIntegrationMeta> | null;
@@ -1162,7 +1170,11 @@ export interface LifecycleActionOptions {
 }
 
 export interface UpdateAgentOptions {
-  ui?: Pick<AgentUiMeta, 'description'>;
+  /** Omit to preserve; a string replaces; null clears canonical Agent.meta.soul. */
+  soul?: string | null;
+  /** Omit to preserve; a nonblank string <=64 chars replaces verbatim; null clears. */
+  role?: string | null;
+  ui?: Pick<AgentUiMeta, 'description' | 'soul' | 'user'>;
   name?: string;
   handle?: string | null;
   size?: string;
@@ -1476,7 +1488,11 @@ function agentAccessIdentityFromData(
     keyName: payload.key_name ? String(payload.key_name) : null,
     teamId: payload.team_id ? String(payload.team_id) : null,
     planId: payload.plan_id ? String(payload.plan_id) : null,
-    isAgentRuntimeKey: Boolean(agentId),
+    isAgentRuntimeKey: Boolean(
+      agentId
+      && (payload.tags ?? []).includes('runtime=agent')
+      && (payload.tags ?? []).includes(`runtime_agent=${agentId}`),
+    ),
   };
 }
 
@@ -3727,7 +3743,9 @@ export class Deployments {
     if (options.name) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size) body.size = options.size;
-    if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
+    if (options.meta?.soul !== undefined) body.meta = { ...body.meta, soul: options.meta.soul };
+    if (options.meta?.role !== undefined) body.meta = { ...body.meta, role: options.meta.role };
+    if (options.meta?.ui) body.meta = { ...body.meta, ui: structuredClone(options.meta.ui) };
     if (options.meta?.integrations) body.meta = { ...body.meta, integrations: structuredClone(options.meta.integrations) };
     if (options.tags?.length) body.tags = [...options.tags];
     if (options.runner) {
@@ -4538,9 +4556,11 @@ export class Deployments {
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
-    // name, handle, size, launch_config, runtime, reset_image, ui, integrations.
+    // soul, role, name, handle, size, launch_config, runtime, reset_image, ui, integrations.
     // refresh_from_lagoon/error are rejected.
     const body: Record<string, any> = {};
+    if (options.soul !== undefined) body.soul = options.soul;
+    if (options.role !== undefined) body.role = options.role;
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size !== undefined) body.size = options.size;

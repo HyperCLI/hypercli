@@ -1,0 +1,19 @@
+---
+title: hyper role
+description: Read or set the resolved Agent role identifier.
+---
+
+`hyper role` is a shorthand for `hyper agent <id> role [value]`.
+
+```bash
+hyper role
+hyper role researcher
+hyper role --agent <id> researcher
+hyper role ""
+```
+
+Role is a nonblank identifier of at most 64 characters, not Markdown or a role
+file. Valid values are preserved verbatim; an empty-string set clears it.
+Unset roles emit zero raw bytes and JSON `null`. Without `--agent`, shorthand
+resolution requires an API key bound to exactly one Agent; user-scoped keys
+must supply `--agent <id>`.

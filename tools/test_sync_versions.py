@@ -37,6 +37,7 @@ class VersionContract(unittest.TestCase):
     def test_standalone_idempotence_and_next_release(self):
         self.assertEqual(self.sync(), [])
         before = self.snapshot()
+        legacy_py_cli = (self.root / "py-cli/pyproject.toml").read_text()
         self.assertEqual(self.sync(check=False), [])
         self.assertEqual(before, self.snapshot())
         self.assertEqual(self.sync("0.9.1", check=False), [])
@@ -46,7 +47,7 @@ class VersionContract(unittest.TestCase):
             package = json.loads((self.root / name / "package.json").read_text())
             self.assertEqual(package["version"], "0.9.1")
             self.assertIn("'0.9.1'", (self.root / name / "src/version.ts").read_text())
-        self.assertIn('"hypercli-sdk[all]==0.9.1"', (self.root / "py-cli/pyproject.toml").read_text())
+        self.assertEqual((self.root / "py-cli/pyproject.toml").read_text(), legacy_py_cli)
         self.assertIn('version = "0.9.1"', (self.root / "Cargo.toml").read_text())
         self.assertIn('"@agentclientprotocol/sdk": "1.5.0"', (self.root / "ts-sdk/package.json").read_text())
 
@@ -55,7 +56,6 @@ class VersionContract(unittest.TestCase):
             ("ts-cli/package.json", '"0.8.0"', '"2026.10.6"'),
             ("ts-cli/src/version.ts", "'0.8.0'", "'0.1.0'"),
             ("ts-cli/package-lock.json", '"0.8.0"', '"0.7.0"'),
-            ("py-cli/pyproject.toml", "hypercli-sdk==0.8.0", "hypercli-sdk>=2026.6.26"),
             ("Cargo.lock", 'name = "hypercli-sdk"\nversion = "0.8.0"', 'name = "hypercli-sdk"\nversion = "0.1.0"'),
         ):
             with self.subTest(name=name):

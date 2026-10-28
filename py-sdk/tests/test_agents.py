@@ -2219,6 +2219,37 @@ def test_agents_update_and_resize(agents_client):
     assert patch_calls[1] == ("/deployments/agent-123", {"size": "large"})
 
 
+def test_agents_metadata_create_and_update_pass_canonical_fields_and_null_clears(agents_client):
+    calls = []
+
+    def fake_post(path, json=None):
+        calls.append(("POST", path, json))
+        return {"id": "agent-123", "user_id": "user-456", "state": "stopped", "meta": json.get("meta")}
+
+    def fake_patch(path, json=None):
+        calls.append(("PATCH", path, json))
+        return {"id": "agent-123", "user_id": "user-456", "state": "stopped", "meta": {}}
+
+    agents_client._post = fake_post
+    agents_client._patch = fake_patch
+    agents_client.create(meta={"soul": "# Soul", "role": "research", "ui": {"user": "U"}})
+    agents_client.update("agent-123", soul=None, role=None, ui={"user": ""})
+    agent = Agent(id="agent-123", user_id="user-456", state="stopped", _deployments=agents_client)
+    agent.update(soul="Runtime", role="self")
+
+    assert calls[0][2]["meta"] == {"soul": "# Soul", "role": "research", "ui": {"user": "U"}}
+    assert calls[1] == (
+        "PATCH",
+        "/deployments/agent-123",
+        {"soul": None, "role": None, "ui": {"user": ""}},
+    )
+    assert calls[2] == (
+        "PATCH",
+        "/deployments/agent-123",
+        {"soul": "Runtime", "role": "self"},
+    )
+
+
 def test_agents_update_sends_runtime_and_reset_image(agents_client):
     patch_calls = []
 

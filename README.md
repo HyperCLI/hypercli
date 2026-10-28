@@ -22,7 +22,7 @@ Ship the `hyper` binary and read the same `~/.hypercli` credentials.
 | Directory | Package | Status |
 |---|---|---|
 | [`ts-cli/`](ts-cli) | `@hypercli.com/cli` | Current CLI (`npm install -g @hypercli.com/cli`) |
-| [`py-cli/`](py-cli) | `hypercli-cli` | End-of-life; retained for reference and a few unported groups (billing, instances, keys, llm, wallet, workspaces) |
+| [`py-cli/`](py-cli) | `hypercli-cli` | End-of-life reference only; excluded from active CI and release projections |
 
 ## Documentation
 
