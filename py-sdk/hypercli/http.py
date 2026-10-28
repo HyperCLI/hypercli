@@ -160,10 +160,11 @@ class HTTPClient:
         )
         return _handle_response(resp)
 
-    def post(self, path: str, json: dict = None) -> Any:
+    def post(self, path: str, json: dict = None, *, retries: int = 3) -> Any:
+        """POST with a total attempt budget; retries=1 disables automatic retries."""
         resp = request_with_retry(
             "post", f"{self.base_url}{path}",
-            headers=self.headers, timeout=self.timeout, json=json
+            headers=self.headers, timeout=self.timeout, json=json, retries=retries
         )
         return _handle_response(resp)
 

@@ -98,12 +98,15 @@
     },
     {
       "name": "hypercli-flows",
-      "description": "Create, monitor, wait on, and cancel HyperCLI image and video flows, and upload reusable pipeline inputs with hyper files upload. Use for hyper flow create across the current flow types, flow list/status/wait tracking, and cancelled or failed render handling.",
+      "description": "Discover and submit managed Qwen 2.1 and LTX 2.3 image/video flows using the server catalog, exact upstream inputs and owned media file IDs. Track progress and retain failed or cancelled terminal render records.",
       "commands": [
         "hyper flow --help",
-        "hyper flow create <type> --help",
-        "hyper voice clone",
-        "hyper flow list --json"
+        "hyper flow catalog --json",
+        "hyper flow catalog --family ltx23 --json",
+        "hyper flow describe FAMILY TEMPLATE --json",
+        "hyper files upload",
+        "hyper flow list --json",
+        "hyper flow cancel RENDER_ID --yes"
       ]
     },
     {

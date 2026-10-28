@@ -65,7 +65,6 @@ class Renders:
     def __init__(self, http: "HTTPClient", auth_http: "HTTPClient" | None = None):
         self._http = http
         self._auth_http = auth_http or http
-        self._auth_me_cache: dict[str, Any] | None = None
 
     @staticmethod
     def _parse_render_timestamp(value: Any) -> float | None:
@@ -80,51 +79,30 @@ class Renders:
                 return None
         return None
 
-    def _auth_me(self) -> dict[str, Any]:
-        if self._auth_me_cache is None:
-            self._auth_me_cache = self._auth_http.get("/api/auth/me")
-        return self._auth_me_cache
-
     def catalog(self) -> dict[str, Any]:
         """Discover the same deployment catalog used by render admission."""
-        path = "/agents/flow/catalog" if self._supports_subscription_family("flows", "catalog") else "/api/renders/catalog"
-        return self._http.get(path)
+        return self._http.get("/agents/flow/catalog")
 
     def submit(self, family: str, template: str, inputs: dict[str, Any] | None = None) -> Render:
         """Submit upstream input names; media values are owned file_id bindings."""
         params = {"family": family, "template": template, "inputs": inputs or {}}
-        if self._supports_subscription_family("flows", "catalog"):
-            return Render.from_dict(self._http.post("/agents/flow/catalog", json=params))
+        if self._has_included_render():
+            return Render.from_dict(self._http.post("/agents/flow/catalog", json=params, retries=1))
         return self.create(params)
 
-    def _supports_subscription_family(self, family: str, resource: str | None = None) -> bool:
-        try:
-            auth_me = self._auth_me()
-        except APIError:
-            return False
-        capabilities = set(auth_me.get("capabilities") or [])
-        if f"{family}:*" in capabilities:
-            return True
-        if resource and f"{family}:{resource}" in capabilities:
-            return True
-        if not auth_me.get("has_active_subscription"):
-            return False
-        if auth_me.get("auth_type") == "user":
-            return True
-        return False
+    def _has_included_render(self) -> bool:
+        access = self._auth_http.get("/agents/flow/access")
+        if not isinstance(access, dict) or type(access.get("render")) is not bool:
+            raise ValueError("Invalid render entitlement response")
+        return access["render"]
 
     def _post_flow(self, flow_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        primary = f"/agents/flow/{flow_type}" if self._supports_subscription_family("flows", flow_type) else f"/api/flow/{flow_type}"
-        try:
-            return self._http.post(primary, json=payload)
-        except APIError as exc:
-            if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
-                return self._http.post(f"/api/flow/{flow_type}", json=payload)
-            raise
+        primary = f"/agents/flow/{flow_type}" if self._has_included_render() else f"/api/flow/{flow_type}"
+        return self._http.post(primary, json=payload, retries=1)
 
     def _get_render(self, render_id: str, *, status: bool = False) -> dict[str, Any]:
         suffix = "/status" if status else ""
-        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("flows") else f"/api/flow/renders/{render_id}{suffix}"
+        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._has_included_render() else f"/api/flow/renders/{render_id}{suffix}"
         try:
             return self._http.get(primary)
         except APIError as exc:
@@ -133,7 +111,7 @@ class Renders:
             raise
 
     def _delete_render(self, render_id: str) -> dict:
-        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("flows") else f"/api/flow/renders/{render_id}"
+        primary = f"/agents/flow/renders/{render_id}" if self._has_included_render() else f"/api/flow/renders/{render_id}"
         try:
             return self._http.delete(primary)
         except APIError as exc:
@@ -165,7 +143,8 @@ class Renders:
         if tags:
             params["tag"] = list(tags)
 
-        data = self._http.get("/api/renders", params=params or None)
+        path = "/agents/flow/renders" if type in (None, "comfyui") and self._has_included_render() else "/api/renders"
+        data = self._http.get(path, params=params or None)
         # Handle paginated response
         items = data.get("items", data) if isinstance(data, dict) else data
         return [Render.from_dict(r) for r in items]
@@ -198,7 +177,7 @@ class Renders:
         if tags:
             payload["tags"] = list(tags)
 
-        data = self._http.post("/api/renders", json=payload)
+        data = self._http.post("/api/renders", json=payload, retries=1)
         return Render.from_dict(data)
 
     def cancel(self, render_id: str) -> dict:

@@ -63,8 +63,14 @@ function fakeRenders(overrides: Partial<ReturnType<typeof baseRenders>> = {}) {
 
 function baseRenders() {
   return {
-    catalog: vi.fn(async () => ({ qwen21: { templates: { sample: { inputs: { prompt: { type: 'STRING' }, seed: { type: 'INT' }, enabled: { type: 'BOOLEAN' } } } } } })),
+    catalog: vi.fn(async () => ({ qwen21: { templates: { sample: { inputs: {
+      prompt: { type: 'STRING', writable: true },
+      seed: { type: 'INT', writable: true },
+      enabled: { type: 'BOOLEAN', writable: true },
+      'images.image_5_1': { type: 'IMAGE', writable: true, media: true },
+    } } } } })),
     submit: vi.fn(async (_family: string, _template: string, _inputs: Record<string, unknown>) => renderFixture()),
+    status: vi.fn(async () => ({ renderId: 'r_123', state: 'running', progress: 0 })),
     flow: vi.fn(async (type: string, params: Record<string, unknown>) => {
       void type;
       void params;
@@ -101,6 +107,24 @@ function makeCtx(client: HyperCLI, format: 'table' | 'json' = 'table'): CommandC
 // ---------- tests ----------
 
 describe('hyper flow', () => {
+  it('filters catalog and describes the server descriptor', async () => {
+    const renders = fakeRenders();
+    await flow.run(makeCtx(fakeClient(renders), 'json'), ['catalog', '--family', 'qwen21']);
+    expect(Object.keys(JSON.parse(stdout()))).toEqual(['qwen21']);
+    stdoutChunks = [];
+    await flow.run(makeCtx(fakeClient(renders), 'json'), ['describe', 'qwen21', 'sample']);
+    expect(JSON.parse(stdout()).inputs.prompt.type).toBe('STRING');
+    await expect(flow.run(makeCtx(fakeClient(renders)), ['describe', 'qwen21', 'missing'])).rejects.toThrow(UsageError);
+    await expect(flow.run(makeCtx(fakeClient(renders)), ['catalog', '--family', 'missing'])).rejects.toThrow(UsageError);
+  });
+
+  it.each(['failed', 'cancelled'])('wait retains the %s record and exits nonzero', async (state) => {
+    const record = renderFixture({ state, error: 'terminal detail' });
+    const renders = fakeRenders({ wait: vi.fn(async () => record) });
+    const error = await flow.run(makeCtx(fakeClient(renders), 'json'), ['wait', 'r_123']).catch(e => e);
+    expect(exitCodeFor(error)).toBe(1);
+    expect(JSON.parse(stdout())).toEqual(record);
+  });
   it('submits upstream names with typed values and owned media bindings', async () => {
     const renders = fakeRenders();
     await flow.run(makeCtx(fakeClient(renders)), [
@@ -146,7 +170,7 @@ describe('hyper flow', () => {
     const message = (err as Error).message;
     expect(message).toContain("'nope'");
     expect(message).toContain('text-to-image');
-    expect(message).toContain('first-last-frame-video');
+    expect(message).not.toContain('first-last-frame-video');
     expect(renders.flow).not.toHaveBeenCalled();
     expect(ctx.client).not.toHaveBeenCalled();
   });
@@ -163,19 +187,19 @@ describe('hyper flow', () => {
     expect(stderr()).toBe('');
   });
 
-  it('(d) legacy type dispatches but is absent from help text', async () => {
+  it('(d) speaking video uses owned media and is listed in help', async () => {
     const renders = fakeRenders();
 
     await flow.run(makeCtx(fakeClient(renders)), [
       'create', 'speaking-video',
       '--prompt', 'hi',
-      '--image-url', 'https://cdn.example.com/face.png',
+      '--file-ids', 'image', '--file-ids', 'audio',
       '--dry-run',
     ]);
 
     const resolved = JSON.parse(stdout());
     expect(resolved.type).toBe('speaking-video');
-    expect(resolved.params.image_url).toBe('https://cdn.example.com/face.png');
+    expect(resolved.params.file_ids).toEqual(['image', 'audio']);
     expect(renders.flow).not.toHaveBeenCalled();
 
     stdoutChunks = [];
@@ -183,7 +207,9 @@ describe('hyper flow', () => {
     const help = stdout();
     expect(help).toContain('text-to-image');
     expect(help).toContain('hyper files upload');
-    expect(help).not.toContain('speaking-video');
+    expect(help).toContain('speaking-video');
+    expect(help).not.toContain('hidream');
+    expect(help).not.toContain('first-last-frame-video');
   });
 
   it('(e) wait maps an SDK timeout to CliError naming the final state', async () => {
@@ -220,26 +246,17 @@ describe('hyper flow', () => {
     expect(stdout()).toContain('https://cdn.example.com/out.png');
   });
 
-  it('(f) status renders type, state and result URLs', async () => {
-    const renders = fakeRenders({
-      get: vi.fn(async () =>
-        renderFixture({
-          renderType: 'text-to-video',
-          state: 'completed',
-          resultUrl: 'https://cdn.example.com/out.mp4',
-          completedAt: 1770000060,
-        }),
-      ),
-    });
+  it('(f) status uses lightweight status and preserves zero progress', async () => {
+    const renders = fakeRenders();
     const ctx = makeCtx(fakeClient(renders));
 
     await flow.run(ctx, ['status', 'r_123']);
 
-    expect(renders.get).toHaveBeenCalledWith('r_123');
+    expect(renders.status).toHaveBeenCalledWith('r_123');
+    expect(renders.get).not.toHaveBeenCalled();
     const out = stdout();
-    expect(out).toContain('text-to-video');
-    expect(out).toContain('completed');
-    expect(out).toContain('https://cdn.example.com/out.mp4');
+    expect(out).toContain('running');
+    expect(out).toContain('progress  0');
     expect(stderr()).toBe('');
   });
 

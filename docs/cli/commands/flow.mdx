@@ -1,184 +1,101 @@
 ---
 title: hyper flow
-description: Recommended media generation commands, with optional x402 pay-per-use support.
+description: Discover and submit managed Qwen 2.1 and LTX 2.3 renders.
 ---
 
-`hyper flow` is the recommended CLI surface for media generation.
-
-## TypeScript CLI
+## Discover the deployment catalog
 
 ```bash
-hyper flow create text-to-image --prompt "a cinematic landscape"
-hyper flow create image-to-video --prompt "slow camera push" --image-url https://example.com/image.png
-hyper flow list
-hyper flow status <render_id>
-hyper flow wait <render_id> --timeout 600
-hyper flow cancel <render_id> --yes
+hyper flow catalog --json
+hyper flow catalog --family ltx23 --json
+hyper flow describe ltx23 video_ltx2_3_ia2v --json
 ```
 
-Use `hyper flow create --help` for supported types and typed flags. Repeated
-`--param key=value` options pass additional parameters; `--dry-run` prints the
-resolved request without submitting it. Upload local assets with
-`hyper files upload` and pass their IDs with `--file-ids`.
+Discovery reads `/agents/flow/catalog` directly without entitlement routing.
+Descriptors expose exact input names,
+types, defaults, writable flags, required media and outputs. Labels are display
+text, not alternate input names. Only writable inputs can be submitted.
 
-## Legacy Python CLI
+The standard catalog contains exactly these five templates:
 
-The remaining sections describe `hypercli-cli` only. Its shortcut commands,
-local-path uploads, `--watch`, and `--x402` flags are not implemented by the
-TypeScript CLI.
+| Family | Template | Task |
+| --- | --- | --- |
+| `qwen21` | `image_qwen_image_2_1_t2i` | Text to image |
+| `qwen21` | `image_qwen_image_2_1_image_edit` | Image editing |
+| `ltx23` | `video_ltx2_3_t2v` | Text to video |
+| `ltx23` | `video_ltx2_3_i2v` | Image to video |
+| `ltx23` | `video_ltx2_3_ia2v` | Image and audio to video |
 
-## Billing Order
+Use the live catalog for deployment availability and defaults; these are standard
+Qwen templates, not separately named distilled variants.
 
-Normal flow commands use this order automatically:
-
-1. Active subscription flow access
-2. Account balance / paid render API
-
-`x402` is never the default path. It is only used when you explicitly pass `--x402`.
-
-## Commands
+## Submit exact inputs
 
 ```bash
-hyper flow history
-hyper flow list
-hyper flow get <render_id>
-hyper flow status <render_id>
-hyper flow cancel <render_id>
-hyper flow text-to-image <prompt>
-hyper flow text-to-image-hidream <prompt>
-hyper flow text-to-video <prompt>
-hyper flow image-to-video <prompt> --image <url-or-path>
-hyper flow image-to-image <prompt> --image <url-or-path>
-hyper flow first-last-frame-video <prompt> --start <url-or-path> --end <url-or-path>
+hyper flow submit qwen21 image_qwen_image_2_1_t2i \
+  --input 'prompt=42' --input seed=0 --input switch=false --json
 ```
 
-The CLI also retains hidden compatibility commands for `speaking-video`,
-`audio-to-text`, and flow-based `text-to-speech`. They do not appear in
-`hyper flow --help`; use `hyper voice` for current speech generation and local
-transcription workflows.
+Repeat `--input NAME=VALUE` for scalar inputs. Descriptor `STRING` values remain
+strings (`prompt=42` sends `"42"`); other values use JSON types, preserving `0`
+and `false`. Dotted names are literal keys, not nested objects.
 
-## Shared Options
-
-Most flow commands support combinations of:
-
-- `--negative`, `-n`
-- `--width`, `-W`
-- `--height`, `-H`
-- `--notify`
-- `--output`, `-o`
-- `--x402`
-- `--amount`
-
-## Local Files
-
-When you pass a local path to an image or audio argument, the CLI uploads it
-automatically and sends its file ID when creating the render:
+Upload media with `hyper files upload ./source.png`, then pass the returned
+owned file ID using `--media NAME=FILE_ID`. Canonical submission accepts owned
+file bindings only, not URLs, local paths or inline media.
 
 ```bash
-hyper flow image-to-image "restyle as ink" --image ./source.png --output json
-hyper flow image-to-video "slow camera push" --image ./source.png --output json
+hyper flow submit qwen21 image_qwen_image_2_1_image_edit \
+  --input 'prompt=combine these images' \
+  --media images.image_1=OWNED_IMAGE_ID \
+  --media images.image_5_1=OWNED_FIFTH_IMAGE_ID
+
+hyper flow submit ltx23 video_ltx2_3_ia2v \
+  --input 'value=a presenter speaking naturally' \
+  --media input=OWNED_IMAGE_ID --media audio=OWNED_AUDIO_ID \
+  --input noise_seed=0 --input start_index=0 --input value_4=9
 ```
 
-Use a local path when the alternative is a private, expiring, or
-session-authenticated URL. For repeated runs, upload once and use the returned
-ID with the flow's `--file-id` option:
+For IA2V, `value` is the prompt, `input` the first frame, `audio` the audio input,
+`noise_seed` the seed, `start_index` the audio start and `value_4` the duration.
+Qwen edit's fifth image is `images.image_5_1`, not `images.image_5`.
+
+## Track the returned record
 
 ```bash
-hyper files upload ./source.png
-hyper flow image-to-video "slow camera push" --file-id <file_id> --output json
+hyper flow list --json
+hyper flow status RENDER_ID --json
+hyper flow wait RENDER_ID --timeout 600 --json
+hyper flow cancel RENDER_ID --yes
 ```
 
-The automatic upload uses the normal product API identity even when the final
-flow command has `--x402`. An inactive product key therefore fails before an
-x402 flow with a local input can be submitted.
+`status` reads the lightweight status endpoint and reports state and progress,
+including zero progress. `wait` prints the terminal render record, including its
+result URL or error. Failed and cancelled records produce a nonzero exit status.
+An accepted pending/running render is not a completed result: retain its ID.
 
-`image-to-image` accepts repeated `--image` paths/URLs or repeated `--file-id`
-values. Its help advertises a maximum of three, but the current CLI does not
-enforce that limit before submission. `first-last-frame-video` accepts
-`--start`/`--end` paths or the corresponding `--start-id`/`--end-id` values.
+The SDK's existing wait policy adds up to 1,800 seconds of queue grace and
+300 seconds of active grace to the requested timeout. `--output`/`-o` selects
+the CLI output format, not a download destination; use the returned result URL.
+Included history lists up to the latest 100 successful submission records.
 
-## x402 Usage
+An active `render` entitlement (including grants) includes all published flows.
+The credential must also delegate flow access: `flows:*` or `*:*` permits the
+catalog; restricted keys are not widened. Upload/list/delete needs separate
+files permissions, while binding existing owned ready files does not.
 
-```bash
-hyper flow text-to-image "a cyberpunk alley" --x402
-hyper flow text-to-image "a cyberpunk alley" --x402 --amount 0.10
-hyper flow list --x402
-hyper flow get <render_id> --x402
-```
+Routing uses the server's `/agents/flow/access` render decision, not client-side
+subscription or capability guesses. Discovery errors fail without submission.
+Submission POSTs are attempted once; an uncertain response must not trigger an
+automatic duplicate submission. GET transport retries remain enabled.
 
-For x402 flows:
+## Compatibility helpers
 
-- `--x402` is required
-- the CLI reads the fixed price from the flow catalog
-- `--amount` must match that fixed price exactly
-- the result includes an access key plus status and cancel URLs
+`hyper flow create TYPE` retains typed flags, `--param key=value` and `--dry-run`
+for existing callers. Prefer `catalog`, `describe` and `submit` for the exact
+current templates and inputs. Python CLI shortcut flags are a separate interface
+and are not TypeScript CLI flags.
 
-For read commands like `list`, `history`, `get`, `status`, and `cancel`, `--x402` means:
-
-- authenticate with the local wallet against `/api/auth/wallet/*`
-- use the wallet-backed HyperCLI user context
-- fetch real backend render history, not local files
-
-## Flow History
-
-Remote flow history comes from the real render API:
-
-```bash
-hyper flow history
-hyper flow history --state completed
-hyper flow list
-```
-
-`hyper flow history` and `hyper flow list` both use the remote render API. `history` is just the more natural “show me my recent flow runs” view.
-
-Examples:
-
-```bash
-hyper flow list
-hyper flow list --state completed
-hyper flow list --x402
-hyper flow history --x402
-```
-
-For new CLI usage, prefer `hyper flow list`. `history` is just a convenience view over the same remote data.
-
-Download a completed flow result directly:
-
-```bash
-hyper flow get <render_id> -o output.mp4
-```
-
-`get` assigns different meanings to its two output-related flags:
-
-```bash
-hyper flow get <render_id> --format json
-hyper flow get <render_id> --output ./result.mp4
-```
-
-- `--format`, `-f` selects `table|json` when inspecting metadata
-- `--output`, `-o` downloads the completed result to a file or directory
-- legacy `get -o json` and `get -o table` are interpreted as formats
-
-`status` uses `--output`, not `--format`:
-
-```bash
-hyper flow status <render_id> --output json
-hyper flow status <render_id> --watch
-```
-
-The interactive watcher renders a live table and does not emit structured JSON.
-For machine-readable polling, call `status --output json` repeatedly for the
-same render ID.
-
-## Submission And Terminal States
-
-Creation returns before rendering finishes. `pending` and `running` are
-successful submissions. Preserve the returned `render_id`; do not create a
-second render just because the first is not yet complete.
-
-- `completed`: inspect `result_url` or download with `flow get --output`
-- `failed`: inspect `flow get --format json` for the terminal error
-- `cancelled`: the render will not produce a result
-
-If creation itself returns `401`, fix the configured credential before retrying.
-See [Configuration](/cli/configuration#diagnosing-401-errors).
+HiDream and first/last-frame templates are not published. Remaining legacy SDK
+methods for them receive explicit server rejection; they are not substitutes
+for one of the five templates above.

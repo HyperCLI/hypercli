@@ -1,113 +1,70 @@
 ---
 title: Renders
-description: Create managed render jobs or use the higher-level flow helpers for common media tasks.
+description: Discover and submit managed renders with exact catalog inputs.
 ---
 
-## Recommended Flow Methods
-
-The flow helpers are the easiest way to generate images, video, speech, and transcription results.
-
-When the current auth context can resolve `/api/auth/me` with an active
-subscription and `flows:*`, the SDK prefers the subscription-backed
-`/agents/flow/*` routes. Otherwise it falls back to the public account-billed
-`/api/flow/*` routes automatically.
-
-### Text to Image
+## Catalog and submission
 
 ```python
 from hypercli import HyperCLI
 
 client = HyperCLI()
-
-render = client.renders.text_to_image("a cat wearing sunglasses")
-render = client.renders.text_to_image_hidream("a mystical forest at sunset")
+catalog = client.renders.catalog()
+print(catalog["ltx23"]["templates"]["video_ltx2_3_ia2v"])
+render = client.renders.submit("ltx23", "video_ltx2_3_ia2v", {
+    "value": "a presenter speaking naturally",
+    "input": {"file_id": owned_image_id},
+    "audio": {"file_id": owned_audio_id},
+    "noise_seed": 0,
+    "start_index": 0,
+    "value_4": 9,
+})
 ```
 
-### Video Generation
+Use the existing server catalog for exact names, types, defaults, writable flags
+and required media. Submit only writable inputs. Labels are display text, not
+aliases. Strings such as `"42"`, `False` and `0` retain their types. Media must
+be caller-owned file IDs obtained from file uploads, not URLs, paths or inline data.
 
-```python
-render = client.renders.text_to_video(
-    prompt="ocean waves at sunset",
-    width=832,
-    height=480,
-)
-```
+The standard catalog contains exactly five templates:
 
-### Image And Audio Conditioned Flows
+| Family | Template |
+| --- | --- |
+| `qwen21` | `image_qwen_image_2_1_t2i` |
+| `qwen21` | `image_qwen_image_2_1_image_edit` |
+| `ltx23` | `video_ltx2_3_t2v` |
+| `ltx23` | `video_ltx2_3_i2v` |
+| `ltx23` | `video_ltx2_3_ia2v` |
 
-```python
-image = client.files.upload("./character.png")
-audio = client.files.upload("./speech.wav")
+These are standard Qwen templates, not separately named distilled variants.
+IA2V uses `value` (prompt), `input` (first frame), `audio`, `noise_seed`,
+`start_index` (audio start) and `value_4` (duration). Qwen edit's fifth image
+is the literal key `"images.image_5_1"`, bound to `{"file_id": owned_file_id}`.
 
-render = client.renders.image_to_video(
-    prompt="the character is dancing",
-    image_url=image.url,
-)
+## Routing and transport
 
-render = client.renders.speaking_video(
-    prompt="A person speaking to the camera",
-    image_url=image.url,
-    audio_url=audio.url,
-)
-```
+Catalog discovery reads `/agents/flow/catalog` directly without entitlement routing.
+For submission, the authoritative `/agents/flow/access` boolean `render` selects included versus
+account submission. The SDK does not infer access from capabilities or subscription
+metadata. Discovery failure aborts submission. Included submissions use
+`/agents/flow/catalog`; account submissions use `/api/renders`. A rejected included
+submission is not retried as paid. Submission POSTs have one transport attempt;
+GET retries remain enabled. Retain the ID; do not automatically resubmit after
+an uncertain response.
 
-Available helpers:
-
-- `text_to_image`
-- `text_to_image_hidream`
-- `text_to_video`
-- `image_to_video`
-- `speaking_video`
-- `speaking_video_wan`
-- `image_to_image`
-- `first_last_frame_video`
-- `audio_to_text`
-- `text_to_speech`
-
-## Wait For Completion
-
-Use the built-in waiter when you want the SDK to poll for you.
-
-```python
-final_render = client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
-print(final_render.result_url, final_render.error)
-```
-
-## Manual Polling
-
-```python
-import time
-
-while True:
-    status = client.renders.status(render.render_id)
-    if status.state in ("completed", "failed", "cancelled"):
-        break
-    time.sleep(2)
-
-final_render = client.renders.get(render.render_id)
-print(final_render.result_url, final_render.error)
-```
-
-## Advanced: Create Render
-
-```python
-render = client.renders.create(
-    params={
-        "template": "hidream_i1_full",
-        "prompt": "a cat in space",
-        "gpu_type": "L40S",
-    },
-    render_type="comfyui",
-    notify_url="https://example.com/webhooks/render",
-)
-```
-
-## Listing, Status, And Cancellation
+## Tracking
 
 ```python
 client.renders.list(state="completed")
-client.renders.get(render.render_id)
-client.renders.status(render.render_id)
-client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
-client.renders.cancel(render.render_id)
+status = client.renders.status(render.render_id)
+print(status.state, status.progress)
+final_render = client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
+print(final_render.state, final_render.result_url, final_render.error)
+details = client.renders.get(render.render_id)
 ```
+
+`wait` returns completed, failed and cancelled records; callers must check `state`.
+Pending/running is acceptance, not completion. Cancel with
+`client.renders.cancel(render.render_id)` when requested. Legacy `create_flow` and
+named helpers remain compatibility interfaces; prefer `catalog` and `submit` for
+exact current templates. `create` is the lower-level account render API.

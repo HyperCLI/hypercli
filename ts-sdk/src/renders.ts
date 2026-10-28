@@ -24,11 +24,8 @@ export interface RenderStatus {
 }
 
 export type RenderCatalog = Record<string, {
-  image: string;
-  placement: Record<string, unknown>;
   templates: Record<string, {
-    graph_sha256: string;
-    inputs: Record<string, { type: string; label?: string; default?: unknown; writable: boolean; required?: boolean }>;
+    inputs: Record<string, { type: string; label?: string; default?: unknown; writable: boolean; required?: boolean; media?: boolean }>;
     outputs: Array<{ name: string; type: string }>;
   }>;
 }>;
@@ -61,71 +58,39 @@ export class Renders {
   static readonly DEFAULT_QUEUE_GRACE = 1800_000;
   static readonly DEFAULT_ACTIVE_GRACE = 300_000;
 
-  private authMeCache: any | null = null;
-
   constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
 
   /** The deployment's single render-owned catalog, without a client registry. */
   async catalog(): Promise<RenderCatalog> {
-    const path = await this.supportsSubscriptionFamily('flows', 'catalog')
-      ? '/agents/flow/catalog' : '/api/renders/catalog';
-    return this.http.get(path);
+    return this.http.get('/agents/flow/catalog');
   }
 
   async submit(family: string, template: string, inputs: Record<string, unknown> = {}): Promise<Render> {
     const params = { family, template, inputs };
-    if (await this.supportsSubscriptionFamily('flows', 'catalog')) {
-      return renderFromDict(await this.http.post('/agents/flow/catalog', params));
+    if (await this.hasIncludedRender()) {
+      return renderFromDict(await this.http.post('/agents/flow/catalog', params, { retries: 1 }));
     }
     return this.create(params);
   }
 
-  private async authMe(): Promise<any> {
-    if (this.authMeCache === null || this.authMeCache === undefined) {
-      this.authMeCache = await this.authHttp.get('/api/auth/me');
+  private async hasIncludedRender(): Promise<boolean> {
+    const access = await this.authHttp.get('/agents/flow/access');
+    if (!access || typeof access.render !== 'boolean') {
+      throw new Error('Invalid render entitlement response');
     }
-    return this.authMeCache;
-  }
-
-  private async supportsSubscriptionFamily(family: string, resource?: string): Promise<boolean> {
-    try {
-      const authMe = await this.authMe();
-      const capabilities = new Set(Array.isArray(authMe.capabilities) ? authMe.capabilities : []);
-      if (capabilities.has(`${family}:*`)) {
-        return true;
-      }
-      if (resource && capabilities.has(`${family}:${resource}`)) {
-        return true;
-      }
-      if (!authMe?.has_active_subscription) {
-        return false;
-      }
-      return authMe.auth_type === 'user';
-    } catch (error) {
-      if (error instanceof APIError) {
-        return false;
-      }
-      throw error;
-    }
+    return access.render;
   }
 
   private async postFlow(flowType: string, payload: Record<string, any>): Promise<any> {
-    const primary = (await this.supportsSubscriptionFamily('flows', flowType))
+    const primary = (await this.hasIncludedRender())
       ? `/agents/flow/${flowType}`
       : `/api/flow/${flowType}`;
-    try {
-      return await this.http.post(primary, payload);
-    } catch (error) {
-      if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
-        return await this.http.post(`/api/flow/${flowType}`, payload);
-      }
-      throw error;
-    }
+    return this.http.post(primary, payload, { retries: 1 });
   }
 
   private async getRender(renderId: string, status: boolean = false): Promise<any> {
     const suffix = status ? '/status' : '';
-    const primary = (await this.supportsSubscriptionFamily('flows'))
+    const primary = (await this.hasIncludedRender())
       ? `/agents/flow/renders/${renderId}${suffix}`
       : `/api/flow/renders/${renderId}${suffix}`;
     try {
@@ -139,7 +104,7 @@ export class Renders {
   }
 
   private async deleteRender(renderId: string): Promise<any> {
-    const primary = (await this.supportsSubscriptionFamily('flows'))
+    const primary = (await this.hasIncludedRender())
       ? `/agents/flow/renders/${renderId}`
       : `/api/flow/renders/${renderId}`;
     try {
@@ -169,7 +134,9 @@ export class Renders {
       (params as unknown as Record<string, string | string[]>).tag = [...options.tags];
     }
 
-    const data = await this.http.get('/api/renders', params);
+    const path = (!options?.type || options.type === 'comfyui') && await this.hasIncludedRender()
+      ? '/agents/flow/renders' : '/api/renders';
+    const data = await this.http.get(path, params);
     const items = typeof data === 'object' && data.items ? data.items : data;
     return (items || []).map(renderFromDict);
   }
@@ -202,7 +169,7 @@ export class Renders {
       payload.tags = [...tags];
     }
 
-    const data = await this.http.post('/api/renders', payload);
+    const data = await this.http.post('/api/renders', payload, { retries: 1 });
     return renderFromDict(data);
   }
 

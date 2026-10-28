@@ -1,13 +1,17 @@
 /**
  * `hyper flow` — managed AI render flows (images, video, audio, speech).
  *
+ *   hyper flow catalog [--family FAMILY]
+ *   hyper flow describe FAMILY TEMPLATE
+ *   hyper flow submit FAMILY TEMPLATE [--input NAME=VALUE] [--media NAME=FILE_ID]
  *   hyper flow create <type> [typed flags] [--param key=value ...] [--dry-run]
  *   hyper flow list [--state STATE]
  *   hyper flow status <id>
  *   hyper flow wait <id> [--timeout SECONDS]
  *   hyper flow cancel <id> [--yes]
  *
- * One create path: every flow type resolves to renders.flow(type, params).
+ * Canonical submit uses the server catalog's exact input names and types.
+ * Compatibility create resolves each flow type to renders.flow(type, params).
  * Typed flags are per-type sugar from the FLOW_TYPES table; --param key=value
  * overrides typed flags and passes arbitrary keys through. Image/audio assets
  * referenced in params are URLs or file IDs from `hyper files upload`.
@@ -47,11 +51,7 @@ const WIDTH: FlowFlag = { flag: 'width', key: 'width', kind: 'number' };
 const HEIGHT: FlowFlag = { flag: 'height', key: 'height', kind: 'number' };
 const LENGTH: FlowFlag = { flag: 'length', key: 'length', kind: 'number' };
 const NOTIFY_URL: FlowFlag = { flag: 'notify-url', key: 'notify_url', kind: 'string' };
-const IMAGE_URL: FlowFlag = { flag: 'image-url', key: 'image_url', kind: 'string' };
-const IMAGE_URLS: FlowFlag = { flag: 'image-urls', key: 'image_urls', kind: 'list' };
 const AUDIO_URL: FlowFlag = { flag: 'audio-url', key: 'audio_url', kind: 'string' };
-const START_IMAGE_URL: FlowFlag = { flag: 'start-image-url', key: 'start_image_url', kind: 'string' };
-const END_IMAGE_URL: FlowFlag = { flag: 'end-image-url', key: 'end_image_url', kind: 'string' };
 const FILE_IDS: FlowFlag = { flag: 'file-ids', key: 'file_ids', kind: 'list' };
 const MODE: FlowFlag = { flag: 'mode', key: 'mode', kind: 'string' };
 const LANGUAGE: FlowFlag = { flag: 'language', key: 'language', kind: 'string' };
@@ -70,41 +70,29 @@ const FLOW_TYPES: Record<string, FlowType> = {
     required: ['prompt'],
     flags: [PROMPT, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
   },
-  'text-to-image-hidream': {
-    summary: 'Generate an image (HiDream I1 Full)',
-    listed: true,
-    required: ['prompt'],
-    flags: [PROMPT, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
-  },
   'text-to-video': {
-    summary: 'Generate a video (Wan 2.2 14B)',
+    summary: 'Generate a video (LTX 2.3)',
     listed: true,
     required: ['prompt'],
     flags: [PROMPT, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
   },
   'image-to-video': {
-    summary: 'Animate an image (Wan 2.2 Animate)',
+    summary: 'Animate an image (LTX 2.3)',
     listed: true,
     required: ['prompt'],
-    flags: [PROMPT, IMAGE_URL, FILE_IDS, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
+    flags: [PROMPT, FILE_IDS, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
   },
   'image-to-image': {
     summary: 'Transform images (Qwen Image Edit)',
     listed: true,
     required: ['prompt'],
-    flags: [PROMPT, IMAGE_URLS, FILE_IDS, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
-  },
-  'first-last-frame-video': {
-    summary: 'Morph video between two images (Wan 2.2)',
-    listed: true,
-    required: ['prompt'],
-    flags: [PROMPT, START_IMAGE_URL, END_IMAGE_URL, FILE_IDS, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
+    flags: [PROMPT, FILE_IDS, NEGATIVE, WIDTH, HEIGHT, NOTIFY_URL],
   },
   'speaking-video': {
-    summary: 'Lip-sync video (HuMo) [legacy]',
-    listed: false,
+    summary: 'Image-and-audio video (LTX 2.3)',
+    listed: true,
     required: ['prompt'],
-    flags: [PROMPT, IMAGE_URL, AUDIO_URL, FILE_IDS, NEGATIVE, LENGTH, WIDTH, HEIGHT, NOTIFY_URL],
+    flags: [PROMPT, FILE_IDS, NEGATIVE, LENGTH, WIDTH, HEIGHT, NOTIFY_URL],
   },
   'audio-to-text': {
     summary: 'Transcribe audio/video (WhisperX) [legacy]',
@@ -125,16 +113,19 @@ const LISTED_TYPES = Object.entries(FLOW_TYPES)
   .map(([type]) => type);
 
 export const usage = [
-  'hyper flow catalog [--json]',
+  'hyper flow catalog [--family FAMILY] [--json]',
+  'hyper flow describe FAMILY TEMPLATE [--json]',
   'hyper flow submit FAMILY TEMPLATE [--input NAME=VALUE] [--media NAME=FILE_ID]',
   'hyper flow create <type> [typed flags] [--param key=value ...] [--dry-run]',
   'hyper flow list [--state STATE]',
   'hyper flow status <id> [--json]',
   'hyper flow wait <id> [--timeout SECONDS] [--json]',
   'hyper flow cancel <id> [--yes]',
-  `Flow types: ${LISTED_TYPES.join(', ')}`,
-  "Image/audio params take URLs or file IDs from 'hyper files upload'.",
-  'Typed flags differ per type; --param key=value overrides them and passes any key through (number/boolean values are coerced).',
+  `Compatibility create types: ${LISTED_TYPES.join(', ')}`,
+  "Canonical submit media takes owned file IDs from 'hyper files upload'; names and types come from describe.",
+  'submit preserves declared STRING values; other --input values use JSON types, including false and 0.',
+  'status reports state and progress; wait prints the terminal record and exits nonzero for failed/cancelled.',
+  'Named compatibility flags remain server-validated; use describe for supported generic inputs.',
 ];
 
 const UNIVERSAL_KEYS = new Set(['json', 'output', 'help', 'param', 'dry-run']);
@@ -310,8 +301,8 @@ async function cmdStatus(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args);
   const id = positional(parsed, 1, 'hyper flow status <id>');
   const client = await ctx.client();
-  const render = await client.renders.get(id);
-  ctx.output.result(render, renderDetail(render));
+  const status = await client.renders.status(id);
+  ctx.output.result(status, `id        ${status.renderId}\nstate     ${status.state}\nprogress  ${status.progress ?? 'unknown'}`);
 }
 
 async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
@@ -344,6 +335,9 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
   if (render.resultUrl) lines.push(`result: ${render.resultUrl}`);
   if (render.error) lines.push(`error: ${render.error}`);
   ctx.output.result(render, lines.join('\n'));
+  if (['failed', 'cancelled'].includes(render.state.toLowerCase())) {
+    throw new CliError(`flow ${render.renderId} ${render.state}`);
+  }
 }
 
 async function cmdCancel(ctx: CommandContext, args: string[]): Promise<void> {
@@ -368,9 +362,24 @@ async function cmdCancel(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 const COMMANDS: Record<string, (ctx: CommandContext, args: string[]) => Promise<void>> = {
-  catalog: async (ctx) => {
+  catalog: async (ctx, args) => {
+    const parsed = parseCommandArgs(args, { family: { type: 'string' } });
+    if (parsed.positionals.length > 1) throw new UsageError('hyper flow catalog [--family FAMILY]');
     const catalog = await (await ctx.client()).renders.catalog();
-    ctx.output.result(catalog, JSON.stringify(catalog, null, 2));
+    const family = parsed.values.family as string | undefined;
+    if (family !== undefined && !Object.hasOwn(catalog, family)) throw new UsageError(`unknown family '${family}'`);
+    const result = family === undefined ? catalog : { [family]: catalog[family] };
+    ctx.output.result(result, JSON.stringify(result, null, 2));
+  },
+  describe: async (ctx, args) => {
+    const parsed = parseCommandArgs(args);
+    const [, family, template, ...extra] = parsed.positionals;
+    if (!family || !template || extra.length) throw new UsageError('hyper flow describe FAMILY TEMPLATE');
+    const catalog = await (await ctx.client()).renders.catalog();
+    const descriptor = Object.hasOwn(catalog, family) && Object.hasOwn(catalog[family].templates, template)
+      ? catalog[family].templates[template] : undefined;
+    if (!descriptor) throw new UsageError(`unknown template '${family}/${template}'`);
+    ctx.output.result(descriptor, JSON.stringify(descriptor, null, 2));
   },
   submit: async (ctx, args) => {
     const parsed = parseCommandArgs(args, {
@@ -382,6 +391,9 @@ const COMMANDS: Record<string, (ctx: CommandContext, args: string[]) => Promise<
     const client = await ctx.client();
     const catalog = await client.renders.catalog();
     const inputs: Record<string, unknown> = {};
+    if (!Object.hasOwn(catalog, family) || !Object.hasOwn(catalog[family].templates, template)) {
+      throw new UsageError(`unknown template '${family}/${template}'`);
+    }
     for (const [kind, entries] of [['input', parsed.values.input], ['media', parsed.values.media]] as const) {
       for (const entry of (Array.isArray(entries) ? entries : [])) {
         const at = entry.indexOf('=');
@@ -389,7 +401,11 @@ const COMMANDS: Record<string, (ctx: CommandContext, args: string[]) => Promise<
         const key = entry.slice(0, at), value = entry.slice(at + 1);
         if (key in inputs) throw new UsageError(`duplicate input '${key}'`);
         const spec = catalog[family]?.templates[template]?.inputs[key];
-        if (kind === 'media') inputs[key] = { file_id: value };
+        if (!spec?.writable) throw new UsageError(`unknown or fixed input '${key}'`);
+        if (kind === 'media') {
+          if (!spec.media || !value) throw new UsageError(`input '${key}' requires a declared media input and owned file ID`);
+          inputs[key] = { file_id: value };
+        }
         else if (spec?.type === 'STRING') inputs[key] = value;
         else {
           try { inputs[key] = JSON.parse(value); }

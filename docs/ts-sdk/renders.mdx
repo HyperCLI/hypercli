@@ -1,130 +1,69 @@
 ---
 title: Renders And Flows
-description: Use the TypeScript SDK for managed render jobs and high-level media flow endpoints.
+description: Discover and submit managed renders with exact catalog inputs.
 ---
 
-The SDK exposes both low-level render creation and higher-level flow helpers.
-
-When the current auth context can resolve `/api/auth/me` with an active
-subscription and `flows:*`, the SDK prefers the subscription-backed
-`/agents/flow/*` routes. Otherwise it falls back to the public account-billed
-`/api/flow/*` routes automatically.
-
-## Low-Level Render API
+## Catalog and submission
 
 ```ts
-const render = await client.renders.create(
-  {
-    template: "hidream_i1_full",
-    prompt: "a product hero image",
-    gpu_type: "L40S",
-  },
-  "comfyui",
-);
+const catalog = await client.renders.catalog();
+console.log(catalog.ltx23.templates.video_ltx2_3_ia2v);
+const render = await client.renders.submit("ltx23", "video_ltx2_3_ia2v", {
+  value: "a presenter speaking naturally",
+  input: { file_id: ownedImageId },
+  audio: { file_id: ownedAudioId },
+  noise_seed: 0,
+  start_index: 0,
+  value_4: 9,
+});
 ```
 
-Core methods:
+The existing deployment catalog is authoritative for input names, types, defaults,
+writable flags and required media. Submit writable ports by exact name, not label.
+Preserve strings such as `"42"`, booleans such as `false`, and numbers such as `0`.
+Media bindings require file IDs owned by the caller, obtained from file uploads;
+URLs, local paths and inline media are not canonical submission inputs.
+
+The standard catalog contains exactly five templates:
+
+| Family | Template |
+| --- | --- |
+| `qwen21` | `image_qwen_image_2_1_t2i` |
+| `qwen21` | `image_qwen_image_2_1_image_edit` |
+| `ltx23` | `video_ltx2_3_t2v` |
+| `ltx23` | `video_ltx2_3_i2v` |
+| `ltx23` | `video_ltx2_3_ia2v` |
+
+These are standard Qwen templates, not separately named distilled variants.
+IA2V uses `value` for prompt, `input` for first frame, `audio`, `noise_seed`,
+`start_index` for audio start and `value_4` for duration. Qwen edit's fifth image
+is the literal key `"images.image_5_1"`, bound to `{ file_id: ownedFileId }`.
+
+## Routing and transport
+
+Catalog discovery reads `/agents/flow/catalog` directly, without entitlement routing.
+Submission reads the authoritative `/agents/flow/access` boolean `render` decision.
+It does not infer access from capabilities or subscription metadata. A discovery
+failure aborts submission. Included renders use `/agents/flow/catalog`; account
+renders use `/api/renders`. A rejected included submission is not retried as paid.
+Render submission POSTs have one transport attempt; GET retries remain enabled.
+Preserve the render ID and do not automatically resubmit after an uncertain response.
+
+## Track terminal records
 
 ```ts
 await client.renders.list({ state: "completed" });
-await client.renders.get(render.renderId);
-await client.renders.status(render.renderId);
-await client.renders.wait(render.renderId, { pollIntervalMs: 2_000, timeoutMs: 1_800_000 });
-await client.renders.cancel(render.renderId);
-```
-
-## Recommended Flow Helpers
-
-Use these when you do not want to manage templates or per-workflow parameter shapes yourself.
-
-### Text to Image
-
-```ts
-await client.renders.textToImage({
-  prompt: "a photo-real product shot",
-  width: 1536,
-  height: 1024,
-});
-
-await client.renders.textToImageHidream({
-  prompt: "a highly detailed fantasy landscape",
-});
-```
-
-### Video Generation
-
-```ts
-await client.renders.textToVideo({
-  prompt: "a slow drone shot over a glacier",
-  width: 832,
-  height: 480,
-});
-```
-
-### Image And Audio Conditioned Flows
-
-```ts
-const image = await client.files.upload("./face.png");
-const audio = await client.files.upload("./speech.wav");
-
-await client.renders.imageToVideo({
-  prompt: "the character waves at the camera",
-  fileIds: [image.id],
-});
-
-await client.renders.speakingVideo({
-  prompt: "a presenter speaking naturally",
-  fileIds: [image.id, audio.id],
-});
-```
-
-Available helpers:
-
-- `textToImage`
-- `textToImageHidream`
-- `textToVideo`
-- `imageToVideo`
-- `speakingVideo`
-- `speakingVideoWan`
-- `imageToImage`
-- `firstLastFrameVideo`
-- `audioToText`
-- `textToSpeech`
-
-## Wait For Completion
-
-Use the built-in waiter when you want the SDK to poll until the render finishes.
-
-```ts
+const status = await client.renders.status(render.renderId);
+console.log(status.state, status.progress);
 const finalRender = await client.renders.wait(render.renderId, {
-  pollIntervalMs: 2_000,
-  timeoutMs: 1_800_000,
+  pollIntervalMs: 2_000, timeoutMs: 1_800_000,
 });
-
-console.log(finalRender.resultUrl, finalRender.error);
+console.log(finalRender.state, finalRender.resultUrl, finalRender.error);
+const details = await client.renders.get(render.renderId);
 ```
 
-## Manual Polling
-
-```ts
-let status = await client.renders.status(render.renderId);
-
-while (!["completed", "failed", "cancelled"].includes(status.state)) {
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  status = await client.renders.status(render.renderId);
-}
-
-const finalRender = await client.renders.get(render.renderId);
-console.log(finalRender.resultUrl, finalRender.error);
-```
-
-## Webhook Notifications
-
-Most helpers accept `notifyUrl`, which the backend uses for completion callbacks.
-
-```ts
-await client.renders.textToSpeech({
-  text: "Hello from HyperCLI",
-  notifyUrl: "https://example.com/webhooks/render",
-});
-```
+`wait` returns records for completed, failed and cancelled renders; callers must
+check `state`. Pending/running means accepted, not completed. Cancellation uses
+`client.renders.cancel(render.renderId)`. Legacy `flow` and named convenience
+helpers remain compatibility interfaces; prefer `catalog` and `submit` for exact
+current templates. `create` is the lower-level account render API.
