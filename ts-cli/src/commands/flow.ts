@@ -125,6 +125,8 @@ const LISTED_TYPES = Object.entries(FLOW_TYPES)
   .map(([type]) => type);
 
 export const usage = [
+  'hyper flow catalog [--json]',
+  'hyper flow submit FAMILY TEMPLATE [--input NAME=VALUE] [--media NAME=FILE_ID]',
   'hyper flow create <type> [typed flags] [--param key=value ...] [--dry-run]',
   'hyper flow list [--state STATE]',
   'hyper flow status <id> [--json]',
@@ -366,6 +368,38 @@ async function cmdCancel(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 const COMMANDS: Record<string, (ctx: CommandContext, args: string[]) => Promise<void>> = {
+  catalog: async (ctx) => {
+    const catalog = await (await ctx.client()).renders.catalog();
+    ctx.output.result(catalog, JSON.stringify(catalog, null, 2));
+  },
+  submit: async (ctx, args) => {
+    const parsed = parseCommandArgs(args, {
+      input: { type: 'string', multiple: true },
+      media: { type: 'string', multiple: true },
+    });
+    const [, family, template, ...extra] = parsed.positionals;
+    if (!family || !template || extra.length) throw new UsageError('hyper flow submit FAMILY TEMPLATE [--input NAME=VALUE] [--media NAME=FILE_ID]');
+    const client = await ctx.client();
+    const catalog = await client.renders.catalog();
+    const inputs: Record<string, unknown> = {};
+    for (const [kind, entries] of [['input', parsed.values.input], ['media', parsed.values.media]] as const) {
+      for (const entry of (Array.isArray(entries) ? entries : [])) {
+        const at = entry.indexOf('=');
+        if (at <= 0) throw new UsageError(`--${kind} requires NAME=VALUE`);
+        const key = entry.slice(0, at), value = entry.slice(at + 1);
+        if (key in inputs) throw new UsageError(`duplicate input '${key}'`);
+        const spec = catalog[family]?.templates[template]?.inputs[key];
+        if (kind === 'media') inputs[key] = { file_id: value };
+        else if (spec?.type === 'STRING') inputs[key] = value;
+        else {
+          try { inputs[key] = JSON.parse(value); }
+          catch { throw new UsageError(`input '${key}' requires a JSON value (or a declared STRING)`); }
+        }
+      }
+    }
+    const render = await client.renders.submit(family, template, inputs);
+    ctx.output.result(render, renderDetail(render));
+  },
   create: cmdCreate,
   list: cmdList,
   status: cmdStatus,

@@ -1,5 +1,6 @@
 """hyper flow commands - simplified flow interfaces"""
 import math
+import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import typer
 from pathlib import Path
@@ -18,6 +19,40 @@ app = typer.Typer(help="Simplified render flows for images, video, speech, and t
 
 def get_client() -> HyperCLI:
     return HyperCLI()
+
+
+@app.command("catalog")
+def catalog():
+    """Discover published families and upstream callable inputs."""
+    output(get_client().renders.catalog(), "json")
+
+
+@app.command("submit")
+def submit(
+    family: str, template: str,
+    inputs: List[str] = typer.Option([], "--input", help="Upstream NAME=VALUE; non-strings use JSON"),
+    media: List[str] = typer.Option([], "--media", help="Upstream NAME=owned-file-id"),
+):
+    """Run a published template with named inputs and owned media."""
+    client = get_client()
+    catalog = client.renders.catalog()
+    specs = catalog.get(family, {}).get("templates", {}).get(template, {}).get("inputs", {})
+    values = {}
+    for kind, entries in (("input", inputs), ("media", media)):
+        for entry in entries:
+            name, separator, value = entry.partition("=")
+            if not separator or not name or name in values:
+                raise typer.BadParameter("Expected a unique NAME=VALUE")
+            if kind == "media":
+                values[name] = {"file_id": value}
+            elif specs.get(name, {}).get("type") == "STRING":
+                values[name] = value
+            else:
+                try:
+                    values[name] = json.loads(value)
+                except ValueError as exc:
+                    raise typer.BadParameter(f"{name} requires a JSON value") from exc
+    output(client.renders.submit(family, template, values), "json")
 
 
 def _get_flow_client(x402: bool = False) -> HyperCLI:

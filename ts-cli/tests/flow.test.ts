@@ -63,6 +63,8 @@ function fakeRenders(overrides: Partial<ReturnType<typeof baseRenders>> = {}) {
 
 function baseRenders() {
   return {
+    catalog: vi.fn(async () => ({ qwen21: { templates: { sample: { inputs: { prompt: { type: 'STRING' }, seed: { type: 'INT' }, enabled: { type: 'BOOLEAN' } } } } } })),
+    submit: vi.fn(async (_family: string, _template: string, _inputs: Record<string, unknown>) => renderFixture()),
     flow: vi.fn(async (type: string, params: Record<string, unknown>) => {
       void type;
       void params;
@@ -99,6 +101,16 @@ function makeCtx(client: HyperCLI, format: 'table' | 'json' = 'table'): CommandC
 // ---------- tests ----------
 
 describe('hyper flow', () => {
+  it('submits upstream names with typed values and owned media bindings', async () => {
+    const renders = fakeRenders();
+    await flow.run(makeCtx(fakeClient(renders)), [
+      'submit', 'qwen21', 'sample', '--input', 'prompt=42', '--input', 'seed=0',
+      '--input', 'enabled=false', '--media', 'images.image_5_1=owned',
+    ]);
+    expect(renders.submit).toHaveBeenCalledWith('qwen21', 'sample', {
+      prompt: '42', seed: 0, enabled: false, 'images.image_5_1': { file_id: 'owned' },
+    });
+  });
   it('(a) create merges typed flags first, then --param overrides (param wins)', async () => {
     const renders = fakeRenders();
     const ctx = makeCtx(fakeClient(renders));

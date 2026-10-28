@@ -23,6 +23,16 @@ export interface RenderStatus {
   progress: number | null;
 }
 
+export type RenderCatalog = Record<string, {
+  image: string;
+  placement: Record<string, unknown>;
+  templates: Record<string, {
+    graph_sha256: string;
+    inputs: Record<string, { type: string; label?: string; default?: unknown; writable: boolean; required?: boolean }>;
+    outputs: Array<{ name: string; type: string }>;
+  }>;
+}>;
+
 function renderFromDict(data: any): Render {
   return {
     renderId: data.id || data.render_id || '',
@@ -54,6 +64,21 @@ export class Renders {
   private authMeCache: any | null = null;
 
   constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
+
+  /** The deployment's single render-owned catalog, without a client registry. */
+  async catalog(): Promise<RenderCatalog> {
+    const path = await this.supportsSubscriptionFamily('flows', 'catalog')
+      ? '/agents/flow/catalog' : '/api/renders/catalog';
+    return this.http.get(path);
+  }
+
+  async submit(family: string, template: string, inputs: Record<string, unknown> = {}): Promise<Render> {
+    const params = { family, template, inputs };
+    if (await this.supportsSubscriptionFamily('flows', 'catalog')) {
+      return renderFromDict(await this.http.post('/agents/flow/catalog', params));
+    }
+    return this.create(params);
+  }
 
   private async authMe(): Promise<any> {
     if (this.authMeCache === null || this.authMeCache === undefined) {

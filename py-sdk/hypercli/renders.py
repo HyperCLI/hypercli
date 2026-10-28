@@ -85,6 +85,18 @@ class Renders:
             self._auth_me_cache = self._auth_http.get("/api/auth/me")
         return self._auth_me_cache
 
+    def catalog(self) -> dict[str, Any]:
+        """Discover the same deployment catalog used by render admission."""
+        path = "/agents/flow/catalog" if self._supports_subscription_family("flows", "catalog") else "/api/renders/catalog"
+        return self._http.get(path)
+
+    def submit(self, family: str, template: str, inputs: dict[str, Any] | None = None) -> Render:
+        """Submit upstream input names; media values are owned file_id bindings."""
+        params = {"family": family, "template": template, "inputs": inputs or {}}
+        if self._supports_subscription_family("flows", "catalog"):
+            return Render.from_dict(self._http.post("/agents/flow/catalog", json=params))
+        return self.create(params)
+
     def _supports_subscription_family(self, family: str, resource: str | None = None) -> bool:
         try:
             auth_me = self._auth_me()
