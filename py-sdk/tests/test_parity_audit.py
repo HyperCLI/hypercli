@@ -7,6 +7,7 @@ import pytest
 from hypercli.agents import Deployments
 from hypercli.billing import Billing
 from hypercli.keys import ApiKey
+from hypercli.http import APIError
 from hypercli.renders import Renders
 from hypercli.user import AuthMe, RuntimeIdentity, UserAPI
 from hypercli.workspaces import WorkspacesAPI
@@ -16,16 +17,21 @@ from hypercli.x402 import X402Client
 class DummyHTTP:
     def __init__(self):
         self.calls = []
-        self.auth_me = {"auth_type": "user", "capabilities": [], "has_active_subscription": True}
+        self.access = {"render": False}
+        self.post_error = None
 
     def get(self, path, params=None):
         self.calls.append(("get", path, params))
-        if path == "/api/auth/me":
-            return self.auth_me
-        return {"id": "render-123", "state": "queued"}
+        assert path == "/agents/flow/access"
+        if isinstance(self.access, Exception):
+            raise self.access
+        return self.access
 
-    def post(self, path, json=None):
+    def post(self, path, json=None, *, retries):
+        assert retries == 1
         self.calls.append(("post", path, json))
+        if self.post_error:
+            raise self.post_error
         return {"id": "render-123", "state": "queued"}
 
     def patch(self, path, json=None):
@@ -39,7 +45,6 @@ class DummyHTTP:
 
 def make_renders():
     http = DummyHTTP()
-    http.auth_me = {"auth_type": "api_key", "capabilities": [], "has_active_subscription": False}
     return Renders(http), http
 
 
@@ -67,15 +72,42 @@ def test_text_to_speech_routes_through_flow_transport():
 
 def test_audio_to_text_uses_subscription_route_when_supported():
     renders, http = make_renders()
-    http.auth_me = {
-        "auth_type": "orchestra_key",
-        "capabilities": ["flows:*"],
-        "has_active_subscription": True,
-    }
+    http.access = {"render": True}
 
     renders.audio_to_text(audio_url="https://example.com/a.mp3")
 
-    assert ("post", "/agents/flow/audio-to-text", {"audio_url": "https://example.com/a.mp3"}) in http.calls
+    assert http.calls == [
+        ("get", "/agents/flow/access", None),
+        ("post", "/agents/flow/audio-to-text", {"audio_url": "https://example.com/a.mp3"}),
+    ]
+
+
+def test_media_flow_rechecks_entitlement_without_billing_or_account_scopes():
+    renders, http = make_renders()
+    http.access = {"render": True}
+    renders.text_to_speech("hello")
+    # A restricted/revoked credential must fail, not reuse cached access or pay.
+    http.access = APIError(403, "Flow access denied")
+    with pytest.raises(APIError):
+        renders.text_to_speech("again")
+    assert [(method, path) for method, path, _ in http.calls] == [
+        ("get", "/agents/flow/access"),
+        ("post", "/agents/flow/text-to-speech"),
+        ("get", "/agents/flow/access"),
+    ]
+
+
+@pytest.mark.parametrize("status", [403, 404, 503])
+def test_media_rejection_never_silently_falls_back_to_paid_route(status):
+    renders, http = make_renders()
+    http.access = {"render": True}
+    http.post_error = APIError(status, "Rejected")
+    with pytest.raises(APIError):
+        renders.audio_to_text(audio_url="https://example.com/a.mp3")
+    assert http.calls == [
+        ("get", "/agents/flow/access", None),
+        ("post", "/agents/flow/audio-to-text", {"audio_url": "https://example.com/a.mp3"}),
+    ]
 
 
 def test_speaking_video_wan_removed():

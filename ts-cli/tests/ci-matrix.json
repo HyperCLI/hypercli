@@ -145,6 +145,7 @@
       "smokes": [
         { "argv": ["--help"] },
         { "argv": ["catalog", "--help"] },
+        { "argv": ["describe", "--help"] },
         { "argv": ["submit", "--help"] },
         { "argv": ["create", "--help"] },
         { "argv": ["list", "--help"] },

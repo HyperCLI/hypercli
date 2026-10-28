@@ -85,6 +85,7 @@ describe('CLI single-base request routing', () => {
       '/agents/subscriptions/summary': {},
       '/agents/deployments/auth/me': {},
       '/api/jobs': [],
+      '/agents/flow/access': { render: false },
       '/api/renders': [],
       '/api/files/synthetic-file': { file_id: 'synthetic-file' },
       '/workspaces': [],
@@ -123,6 +124,24 @@ describe('CLI single-base request routing', () => {
     expect(requests).toEqual([
       ...Object.keys(responses), '/agents/voice/clone',
     ].map((path) => `${testCase.base}${path}`));
+
+    // Fresh Pro entitlement routes a flows-only credential without account or
+    // billing requests; a later scope rejection must not fall back to paid.
+    requests.length = 0;
+    responses['/agents/flow/access'] = { render: true };
+    responses['/agents/flow/renders'] = [];
+    await client.renders.list();
+    expect(requests).toEqual([
+      `${testCase.base}/agents/flow/access`,
+      `${testCase.base}/agents/flow/renders`,
+    ]);
+    requests.length = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      requests.push(String(input));
+      return new Response(JSON.stringify({ detail: 'Flow access denied' }), { status: 403 });
+    }));
+    await expect(client.renders.list()).rejects.toThrow();
+    expect(requests).toEqual([`${testCase.base}/agents/flow/access`]);
   });
 
   it.each([
