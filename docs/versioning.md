@@ -1,6 +1,6 @@
 # One app release version
 
-`versions.json` contains exactly one value: `appVersion`, currently `0.8.0`.
+`versions.json` contains exactly one value: `appVersion`.
 This deliberately resets the formerly calendar-versioned Python and TypeScript
 packages to the app's version. There are no per-package release exceptions.
 
