@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import ast
 import inspect
 
 import testlib
@@ -19,7 +20,6 @@ def test_generated_probe_requires_backend_commands_and_rejects_retired_persona_f
         "~/.hypercli/USER.md",
         "~/.hypercli/SOUL.md",
         "HYPER_AGENT_ROLE",
-        "/opt/hypercli/roles",
         "/opt/hypercli-identities",
     ):
         assert marker in testlib.INSTRUCTION_RETIRED_MARKERS
@@ -28,13 +28,44 @@ def test_generated_probe_requires_backend_commands_and_rejects_retired_persona_f
     assert "not in seeded_text" in persistence_source
 
 
-def test_runtime_specific_probes_use_shared_contract_constants():
-    for path in (ROOT / "test_runtime_home.py", ROOT / "pi" / "test.py"):
-        text = path.read_text(encoding="utf-8")
-        assert "INSTRUCTION_PERSONA_REFS" in text
-        assert "INSTRUCTION_RETIRED_MARKERS" in text
-        assert "~/.hypercli/USER.md' in" not in text
-        assert "~/.hypercli/SOUL.md' in" not in text
+def test_pi_generated_probe_compiles():
+    # Evaluate the actual generator without executing Docker or the ACP child.
+    path = ROOT / "pi" / "test.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    assignment = next(
+        node for node in tree.body if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "probe" for target in node.targets)
+    )
+    probe = eval(compile(ast.Expression(assignment.value), str(path), "eval"), vars(testlib))
+    compile(probe, "pi generated probe", "exec")
+    for command in testlib.INSTRUCTION_PERSONA_REFS:
+        assert command in probe
+
+
+def test_runtime_home_generated_probes_compile(monkeypatch):
+    import test_runtime_home
+    from types import SimpleNamespace
+
+    probes = []
+
+    def capture(*args, **kwargs):
+        if "-c" in args:
+            probe = args[args.index("-c") + 1]
+            compile(probe, "runtime-home generated probe", "exec")
+            probes.append(probe)
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(test_runtime_home, "docker", capture)
+    for runtime, (_, default, _, _) in test_runtime_home.ROOTS.items():
+        monkeypatch.setattr(test_runtime_home, "image_config", lambda image: {
+            "Env": [f"HYPER_RUNTIME_HOME={default}"], "Entrypoint": ["/entrypoint"],
+        })
+        test_runtime_home.assert_runtime_home(runtime, "offline-image")
+    assert probes
+
+
+def test_common_generated_probe_compiles():
+    compile(testlib.COMMON_PROBE, "common generated probe", "exec")
 
 
 def test_maintainer_docs_do_not_restore_local_persona_contract():

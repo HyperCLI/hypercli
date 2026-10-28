@@ -50,7 +50,10 @@ assert "--ws-url" in run(image, ["hyper-acp", "--help"]).stdout
 
 # All probes run in disposable container homes with networking disabled. Keep
 # stdin open until initialize responds: pi-acp exits immediately on stdin EOF.
-probe = r'''
+probe = (
+    f"INSTRUCTION_PERSONA_REFS = {INSTRUCTION_PERSONA_REFS!r}\n"
+    f"INSTRUCTION_RETIRED_MARKERS = {INSTRUCTION_RETIRED_MARKERS!r}\n"
+) + r'''
 import json
 import os
 import selectors
@@ -70,9 +73,9 @@ assert not Path("AGENTS.md").exists()
 agents = Path(os.environ.get("PI_CODING_AGENT_DIR", ".pi/agent")) / "AGENTS.md"
 assert agents.is_file() and not agents.is_symlink()
 agents_text = agents.read_text(encoding="utf-8")
-for ref in {INSTRUCTION_PERSONA_REFS!r}:
+for ref in INSTRUCTION_PERSONA_REFS:
     assert ref in agents_text, ref
-for retired in {INSTRUCTION_RETIRED_MARKERS!r}:
+for retired in INSTRUCTION_RETIRED_MARKERS:
     assert retired not in agents_text, retired
 version = subprocess.check_output(["node", "--version"], text=True).strip()
 assert tuple(map(int, version.lstrip("v").split("."))) >= (22, 19, 0)

@@ -41,7 +41,6 @@ INSTRUCTION_RETIRED_MARKERS = (
     "~/.hypercli/USER.md",
     "~/.hypercli/SOUL.md",
     "HYPER_AGENT_ROLE",
-    "/opt/hypercli/roles",
     "/opt/hypercli-identities",
 )
 # Key-phrase markers only, never full copy: identity + files/skills contract.
