@@ -144,6 +144,8 @@
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
+        { "argv": ["catalog", "--help"] },
+        { "argv": ["submit", "--help"] },
         { "argv": ["create", "--help"] },
         { "argv": ["list", "--help"] },
         { "argv": ["status", "--help"] },
