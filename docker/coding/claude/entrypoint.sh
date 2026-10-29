@@ -51,7 +51,7 @@ case "${inference_mode}" in
     rm -f "${settings_marker}"
     ;;
   hypercli)
-    model=${BUZZ_ACP_MODEL:-coding-anthropic}
+    model=${BUZZ_ACP_MODEL:-default-anthropic}
     if [ -L "${settings_marker}" ]; then
       # Replace the link itself; never follow persisted user-controlled links.
       rm -f "${settings_marker}"

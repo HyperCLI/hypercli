@@ -1117,7 +1117,7 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
 
 def _preferred_agent_models(models: list[dict]) -> list[dict]:
     """Return the recommended agent models in priority order."""
-    preferred = ["coding-anthropic", "default-anthropic", "kimi-k3-anthropic"]
+    preferred = ["default-anthropic", "coding-anthropic", "kimi-k3-anthropic"]
     picked = [
         model for model_id in preferred for model in models if model["id"] == model_id
     ]
@@ -1237,9 +1237,9 @@ def _config_openclaw(
 
     def _openclaw_model_order(model: dict) -> tuple[int, str]:
         suffix = _model_suffix(model.get("id", ""))
-        if suffix == "coding-anthropic":
-            return (0, suffix)
         if suffix == "default-anthropic":
+            return (0, suffix)
+        if suffix == "coding-anthropic":
             return (1, suffix)
         if "kimi" in suffix:
             return (1, suffix)

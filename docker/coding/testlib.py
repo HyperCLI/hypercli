@@ -466,7 +466,7 @@ def assert_common_contract(
     assert env.get("HYPER_ACP_AGENT_ARGS") == agent_args
     if runtime == "buzz-agent":
         assert env.get("BUZZ_AGENT_PROVIDER") == "openai"
-        assert env.get("BUZZ_AGENT_MODEL") == "coding-anthropic"
+        assert env.get("BUZZ_AGENT_MODEL") == "default-anthropic"
         assert env.get("OPENAI_COMPAT_API") == "chat"
         assert "OPENAI_COMPAT_API_KEY" not in env
         assert "OPENAI_COMPAT_BASE_URL" not in env

@@ -177,9 +177,9 @@ containers. Today the image aliases resolve as:
 
 | Alias | Current target | Notes |
 | --- | --- | --- |
-| `default-anthropic` | `kimi-k3-anthropic` | Image default, Anthropic Messages route |
-| `coding-anthropic` | `kimi-k3-anthropic` | Stable coding alias, Anthropic Messages route |
-| `kimi-k3-anthropic` | `kimi-k3-anthropic` | Pinned Kimi K3 Anthropic Messages route |
+| `default-anthropic` | `qwen35-anthropic` | Image default, Anthropic Messages route |
+| `coding-anthropic` | `kimi-k31-pro-anthropic` | Stable coding alias, Anthropic Messages route |
+| `kimi-k3-anthropic` | `kimi-k31-pro-anthropic` | Compatibility Kimi alias, Anthropic Messages route |
 
 The authoritative alias map lives in
 `pulumi/pulumi-agents-k8s/gpus.yaml`, in the parent deployment repository.
@@ -190,7 +190,7 @@ For agent runtimes and tool-calling workloads, prefer `-anthropic` aliases.
 They use the Anthropic Messages route and are the expected surface for the best
 tool-calling behavior.
 
-OpenCode boots with `coding-anthropic`, and its seeded config includes
+OpenCode boots with `default-anthropic`, and its seeded config includes
 both route families: `default`, `coding`, `kimi-k3`, and the matching
 `-anthropic` aliases. Keep the `-anthropic` aliases as the
 default path for hosted coding work; the non-suffixed names remain available

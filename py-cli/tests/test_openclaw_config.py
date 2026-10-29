@@ -1,4 +1,4 @@
-from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config
+from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config, _preferred_agent_models
 
 
 def test_config_openclaw_limits_runtime_models_to_supported_set():
@@ -6,6 +6,7 @@ def test_config_openclaw_limits_runtime_models_to_supported_set():
     api_base = "https://api.agents.hypercli.com"
     models = [
         {"id": "coding-anthropic", "name": "coding", "reasoning": True},
+        {"id": "default-anthropic", "name": "default", "reasoning": True},
         {"id": "kimi-k3-anthropic", "name": "Kimi K3", "reasoning": True},
         {
             "id": "qwen3-embedding-4b",
@@ -23,12 +24,14 @@ def test_config_openclaw_limits_runtime_models_to_supported_set():
     assert set(providers) == {"hypercli"}
     assert providers["hypercli"]["authHeader"] is True
     assert [m["id"] for m in providers["hypercli"]["models"]] == [
+        "default-anthropic",
         "coding-anthropic",
         "kimi-k3-anthropic",
     ]
 
     defaults = config["agents"]["defaults"]
-    assert defaults["model"]["primary"] == "hypercli/coding-anthropic"
+    assert defaults["model"]["primary"] == "hypercli/default-anthropic"
+    assert _preferred_agent_models(models)[0]["id"] == "default-anthropic"
     assert "memorySearch" not in defaults
     memory_search = config["memory"]["search"]
     assert memory_search["provider"] == "openai"

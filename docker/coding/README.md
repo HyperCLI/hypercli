@@ -273,7 +273,7 @@ for launch configs not yet migrated.
 
 Goose ships a HyperCLI custom provider and advertises both OpenAI-compatible
 aliases (`default`, `coding`, `kimi-k3`) and the
-matching Anthropic Messages aliases. It boots on `coding-anthropic`, enables
+matching Anthropic Messages aliases. It boots on `default-anthropic`, enables
 Goose's built-in `developer` and `memory` extensions, and enables the native
 platform `skills` extension. Buzz Agent remains native Sprig: it uses
 upstream's OpenAI-compatible Chat Completions provider, receives a single bare
@@ -416,7 +416,7 @@ zero-login HyperCLI runtimes. The shared entrypoint maps native Buzz's values to
 upstream's OpenAI-compatible Chat Completions env (`OPENAI_COMPAT_*`) without
 persisting the credential, preserving explicit overrides including empty values.
 Its image supplies `BUZZ_AGENT_PROVIDER=openai`,
-`BUZZ_AGENT_MODEL=coding-anthropic`, and `OPENAI_COMPAT_API=chat`.
+`BUZZ_AGENT_MODEL=default-anthropic`, and `OPENAI_COMPAT_API=chat`.
 Claude Code, Codex, and Kimi Code are native-first:
 missing `HYPERCLI_RUNTIME_INFERENCE` means the child receives no implicit
 HyperCLI model, URL, or credential overlay.
