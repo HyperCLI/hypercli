@@ -5,6 +5,7 @@
  */
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
+import { buildSessionMcpServers } from './mcp.js';
 import { sessionMessageMetaFromWire } from './sessions.js';
 import {
   DEFAULT_PERSONA_SOUL_PATH,
@@ -2854,6 +2855,7 @@ export class Agent {
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options,
+        mcpServers: deployments.sessionMcpServers(options.mcpServers),
         resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id, { signal: options.signal })).cwd),
       },
     );
@@ -3527,6 +3529,8 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
 export type CodingAgent = Agent;
 
 export class Deployments {
+  private readonly productBase: string;
+  private readonly productKey: string;
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
@@ -3539,6 +3543,8 @@ export class Deployments {
     agentsWsUrl?: string,
     requestTimeout?: number,
   ) {
+    this.productBase = http.base;
+    this.productKey = http.credential;
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl(), true);
     this.agentsWsUrl = agentsWsUrl || defaultAgentsWsUrl(this.apiBase);
@@ -3548,6 +3554,11 @@ export class Deployments {
 
   get agentApiKey(): string {
     return this.apiKey;
+  }
+
+  /** Product MCP uses the product client's canonical base and credential. */
+  sessionMcpServers(additions: NonNullable<CodingAgentAcpConnectOptions['mcpServers']> = []) {
+    return buildSessionMcpServers(this.productBase, this.productKey, additions);
   }
 
   get agentApiBase(): string {

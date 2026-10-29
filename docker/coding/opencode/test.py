@@ -62,7 +62,7 @@ entrypoint_env = run(
         "HYPER_AGENTS_API_KEY": "runtime-injected-key",
     },
 )
-# MCP credentials are resolved by the host, not projected into native config.
+# Product MCP credentials arrive in standard SDK session setup.
 assert entrypoint_env.stdout == ""
 
 runtime_env = run(

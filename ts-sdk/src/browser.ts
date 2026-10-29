@@ -12,7 +12,7 @@ import { WorkspacesAPI } from './workspaces.js';
 import { SessionsAPI } from './sessions.js';
 export * from './sessions.js';
 export * from './chat-integrations.js';
-export { buildAdditionalMcpEnv } from './mcp.js';
+export { buildAdditionalMcpEnv, buildSessionMcpServers } from './mcp.js';
 export { DEFAULT_RUNNER_CONTROL_URL, defaultRunnerControlUrl } from './agent-urls.js';
 export { BrowserJobs } from './browser-jobs.js';
 export {

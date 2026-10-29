@@ -5,11 +5,12 @@ import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import { CodingAgentAcpConnectionError, CodingAgentSessionStartupError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
-import { buildAdditionalMcpEnv } from '../src/mcp.js';
+import { buildAdditionalMcpEnv, buildSessionMcpServers } from '../src/mcp.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
 
 type Frame = { jsonrpc: string; id?: number | string; method?: string; params?: any; result?: any; error?: any };
 const cleanup: Array<() => void | Promise<void>> = [];
+const platformServers = buildSessionMcpServers('https://product.example.test', 'product-key');
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 afterEach(() => vi.useRealTimers());
 
@@ -44,7 +45,7 @@ async function fixture() {
   });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const runtimePaths = vi.fn(async () => ({ cwd: '/platform' }));
-  const deployments = new Deployments({ get: runtimePaths } as unknown as HTTPClient, 'test-token', base);
+  const deployments = new Deployments({ base: 'https://product.example.test', credential: 'product-key', get: runtimePaths } as unknown as HTTPClient, 'test-token', base);
   const agent = Agent.fromDict({ id: 'agent', runtime: 'opencode', state: 'RUNNING', user_id: 'owner' });
   agent._deployments = deployments;
   const connect = async (options: CodingAgentAcpConnectOptions = {}) => {
@@ -61,9 +62,9 @@ it('constructs exact v1 initialize/new/prompt/resume requests with no private wi
   expect(await client.prompt(sessionId, blocks)).toEqual({ stopReason: 'end_turn' });
   await client.resumeSession(sessionId);
   expect(f.calls('initialize')[0].params).toEqual({ protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'hypercli-ts-sdk', version: '' } });
-  expect(f.calls('session/new')[0].params).toEqual({ cwd: '/platform', mcpServers: [] });
+  expect(f.calls('session/new')[0].params).toEqual({ cwd: '/platform', mcpServers: platformServers });
   expect(f.calls('session/prompt')[0].params).toEqual({ sessionId, prompt: blocks });
-  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: [] });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: platformServers });
   expect(client.negotiatedProtocolVersion).toBe(1);
   expect(client.initializeResponse?.agentInfo?.name).toBe('fixture');
   expect(f.urls[0].pathname).toBe('/ws/acp');
@@ -342,7 +343,7 @@ it('rejects uncertain prompt on disconnect, resumes exact session without histor
   const pending = client.prompt(sessionId, 'original'), rejected = expect(pending).rejects.toThrow();
   await vi.waitFor(() => expect(f.calls('session/prompt')).toHaveLength(1)); f.peers[0].terminate(); await rejected;
   await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(1), { timeout: 3000 }); await client.waitConnected();
-  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/original', mcpServers: [] });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/original', mcpServers: platformServers });
   expect(f.calls('session/load')).toHaveLength(0); expect(f.calls('session/new')).toHaveLength(1);
   expect(f.calls('session/prompt')).toHaveLength(1);
   f.hooks.delete('session/prompt'); await client.prompt(sessionId, 'caller resubmission');

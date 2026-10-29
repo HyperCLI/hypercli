@@ -454,7 +454,7 @@ export {
   type SessionSnapshot,
 } from './acp.js';
 export { CodingAgentAcpPool, type AcpLease } from './acp-pool.js';
-export { buildAdditionalMcpEnv } from './mcp.js';
+export { buildAdditionalMcpEnv, buildSessionMcpServers } from './mcp.js';
 export { defaultAcpProxyWsUrl } from './agent-urls.js';
 export {
   SessionsAPI,

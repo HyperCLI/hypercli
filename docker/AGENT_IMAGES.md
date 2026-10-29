@@ -196,12 +196,11 @@ both route families: `default`, `coding`, `kimi-k3`, and the matching
 default path for hosted coding work; the non-suffixed names remain available
 for OpenCode flows that expect the OpenAI-compatible model names.
 
-OpenCode's active Hyper-ACP host supplies product tools, docs and local chat
-through standard per-session MCP setup, together with app-saved launch additions
-and caller entries. New image seeds contain no ambient product/docs MCP entries.
-Credential precedence, the retained explicit URL override and the required
-manual cutover for persisted native configurations are documented in
-[`coding/README.md`](coding/README.md#acp-websocket).
+The SDK supplies HyperCLI product MCP, docs and caller additions through standard
+session setup, using its product base and caller credential. Images do not seed
+these entries. Hyper-ACP adds only its local `hyper-chat` server using the existing
+runtime credential. Model inference retains its independent canonical credential
+resolution. Existing user-managed OpenCode configuration is preserved.
 
 OpenClaw exposes vector-backed memory search as `memorySearch`, using the
 HyperCLI embeddings route `qwen3-embedding-4b` at
