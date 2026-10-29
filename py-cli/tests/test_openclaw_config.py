@@ -1,4 +1,4 @@
-from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config, _preferred_agent_models
+from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config
 
 
 def test_config_openclaw_limits_runtime_models_to_supported_set():
@@ -31,7 +31,6 @@ def test_config_openclaw_limits_runtime_models_to_supported_set():
 
     defaults = config["agents"]["defaults"]
     assert defaults["model"]["primary"] == "hypercli/default-anthropic"
-    assert _preferred_agent_models(models)[0]["id"] == "default-anthropic"
     assert "memorySearch" not in defaults
     memory_search = config["memory"]["search"]
     assert memory_search["provider"] == "openai"
