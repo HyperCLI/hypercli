@@ -505,9 +505,24 @@ Kubernetes startup override is needed. HyperACP owns connect/reconnect and the
 generic ACP wire protocol.
 
 Native `buzz-agent` is a stdio ACP child, distinct from `hyper-acp` with Buzz credentials.
-Generic clients supply tools through standard `session/new.mcpServers`, which
-hyper-acp forwards verbatim (the HyperACP MCP registry is removed). The hosted
-Buzz connector submits an empty MCP server list and publishes completed
+Generic clients supply tools through standard ACP `mcpServers`. For OpenCode,
+the active Hyper-ACP MCP host composes `hyper-chat`, `hypercli`, `hypercli-docs`
+and the app-saved `HYPER_ADDITIONAL_MCP_SERVERS` launch list on new/load/resume,
+preserving caller entries. Identical entries deduplicate; conflicting names or
+invalid setup fail explicitly. Other runtimes retain their existing native
+configuration behavior until additive coexistence is verified.
+
+Product MCP uses canonical `HYPER_API_BASE` plus `/api/mcp`, with an explicit
+`HYPER_MCP_API_KEY` or the canonical API key/runtime-key fallback. The existing
+explicit `HYPER_OPENCODE_MCP_URL` override remains supported for migration;
+new configuration should use the canonical product base. Docs is unauthenticated.
+These entries are no longer seeded into new native OpenCode configuration.
+Existing persisted configuration is never rewritten: deployment cutover requires
+explicitly approved targeted removal of legacy `hypercli`/`hypercli-docs` entries,
+reviewing modified definitions and preserving unrelated user configuration.
+Do not assume an old persisted configuration is duplicate-free.
+
+The hosted Buzz connector submits an empty MCP server list and publishes completed
 assistant text locally.
 
 ## Messages, Mentions, And Replies

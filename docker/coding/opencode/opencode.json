@@ -118,26 +118,6 @@
   "skills": {
     "paths": ["/opt/hypercli/skills"]
   },
-  "mcp": {
-    "hypercli": {
-      "type": "remote",
-      "url": "{env:HYPER_OPENCODE_MCP_URL}",
-      "headers": {
-        "Authorization": "Bearer {env:HYPER_MCP_API_KEY}",
-        "X-API-KEY": "{env:HYPER_MCP_API_KEY}"
-      },
-      "oauth": false,
-      "enabled": true,
-      "timeout": 30000
-    },
-    "hypercli-docs": {
-      "type": "remote",
-      "url": "https://docs.hypercli.com/mcp",
-      "oauth": false,
-      "enabled": true,
-      "timeout": 30000
-    }
-  },
   "permission": {
     "skill": {
       "*": "allow"

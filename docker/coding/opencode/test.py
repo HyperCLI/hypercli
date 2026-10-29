@@ -48,7 +48,7 @@ assert_models(
 assert_user_config_preserved(
     image,
     relative_path=".config/opencode/opencode.json",
-    generated_contains="https://docs.hypercli.com/mcp",
+    generated_contains="hypercli/default-anthropic",
     user_content=json.dumps({"userManaged": True, "agent": {
         "personal": {"mode": "primary", "permission": {"*": "ask"}}
     }}) + "\n",
@@ -62,15 +62,15 @@ entrypoint_env = run(
         "HYPER_AGENTS_API_KEY": "runtime-injected-key",
     },
 )
-# The canonical key wins; the legacy key is only a final fallback.
-assert entrypoint_env.stdout == "long-term-user-key"
+# MCP credentials are resolved by the host, not projected into native config.
+assert entrypoint_env.stdout == ""
 
 runtime_env = run(
     image,
     ["sh", "-c", "printf '%s' \"${HYPER_MCP_API_KEY}\""],
     env={"HYPER_AGENTS_API_KEY": "runtime-injected-key"},
 )
-assert runtime_env.stdout == "runtime-injected-key"
+assert runtime_env.stdout == ""
 
 explicit_mcp = run(
     image,

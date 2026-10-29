@@ -196,14 +196,12 @@ both route families: `default`, `coding`, `kimi-k3`, and the matching
 default path for hosted coding work; the non-suffixed names remain available
 for OpenCode flows that expect the OpenAI-compatible model names.
 
-OpenCode also seeds remote MCP servers for HyperCLI product tools and
-Mintlify docs search. The image entrypoint sets `HYPER_MCP_API_KEY` from
-`HYPER_API_KEY` when a user supplies a long-term key, otherwise from the
-backend-injected `HYPER_AGENTS_API_KEY`. The OpenCode config uses
-`HYPER_MCP_API_KEY` only for MCP headers. Model inference resolves the canonical
-credential before using `HYPER_AGENTS_API_KEY` as its final fallback. The product MCP URL defaults to
-`${HYPER_API_BASE}/api/mcp` and can be overridden with
-`HYPER_OPENCODE_MCP_URL`.
+OpenCode's active Hyper-ACP host supplies product tools, docs and local chat
+through standard per-session MCP setup, together with app-saved launch additions
+and caller entries. New image seeds contain no ambient product/docs MCP entries.
+Credential precedence, the retained explicit URL override and the required
+manual cutover for persisted native configurations are documented in
+[`coding/README.md`](coding/README.md#acp-websocket).
 
 OpenClaw exposes vector-backed memory search as `memorySearch`, using the
 HyperCLI embeddings route `qwen3-embedding-4b` at
