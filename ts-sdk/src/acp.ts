@@ -90,6 +90,8 @@ function callObserver<T>(observer: ((value: T) => void) | undefined, value: T): 
 export interface CodingAgentAcpConnectOptions {
   /** Disable automatic reconnect/resume for explicitly opened app attachments. */
   reconnect?: boolean;
+  /** Opt-in product keepalive for an explicitly selected Backend proxy; never native ACP. */
+  productHeartbeat?: boolean;
   onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void;
   resolveDefaultCwd?: () => Promise<string>;
   signal?: AbortSignal;
@@ -145,6 +147,7 @@ export class CodingAgentAcpClient {
   private failures = 0;
   private generation = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stopHeartbeat: (() => void) | null = null;
   private nextDiagnosticOperation = 0;
   private readonly onAbort = () => this.close();
 
@@ -329,6 +332,7 @@ export class CodingAgentAcpClient {
     ++this.generation;
     this.options.signal?.removeEventListener('abort', this.onAbort);
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    this.stopHeartbeat?.();
     const error = this.terminalError ?? new CodingAgentAcpConnectionError('ACP client closed; pending delivery is unresolved');
     this.pendingConnection?.close(error);
     this.connection?.close(error);
@@ -341,6 +345,14 @@ export class CodingAgentAcpClient {
   }
   private async open(reconnecting = false): Promise<void> {
     const generation = this.generation;
+    const heartbeatEnabled = this.options.productHeartbeat === true && this.options.transport === 'proxy';
+    let socket: WebSocketLike | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const stopHeartbeat = () => {
+      if (heartbeat !== undefined) clearInterval(heartbeat);
+      heartbeat = undefined;
+      if (this.stopHeartbeat === stopHeartbeat) this.stopHeartbeat = null;
+    };
     const closeInfo: { code?: number; reason: string } = { reason: '' };
     let socketOpened!: () => void;
     let socketFailed!: (error: Error) => void;
@@ -351,7 +363,9 @@ export class CodingAgentAcpClient {
     const TrackedSocket = class {
       constructor(url: string, protocols?: string | string[], options?: { headers?: Record<string, string> }) {
         const ws = new WebSocketImpl(url, protocols, options) as WebSocketLike;
+        socket = ws;
         const closed = (code?: number, reason = '') => {
+          stopHeartbeat();
           closeInfo.code = code; closeInfo.reason = reason;
           socketFailed(new CodingAgentAcpConnectionError('ACP socket closed before opening', { code }));
           diagnostic({ stage: 'transport', phase: 'closed', timestamp: Date.now(), code: code ?? null, reasonPresent: reason.length > 0 });
@@ -399,6 +413,8 @@ export class CodingAgentAcpClient {
         // Upstream's active-session router validates an exhaustive update union.
         // Forward notifications untouched; RPCs/callbacks remain SDK-owned.
         readable: stream.readable.pipeThrough(new globalThis.TransformStream({ transform(frame, controller) {
+          if (heartbeatEnabled && frame && typeof frame === 'object'
+              && Object.keys(frame).length === 1 && 'event' in frame && frame.event === 'pong') return;
           if (frame && typeof frame === 'object' && 'type' in frame && frame.type === 'sessionStartupError') {
             const failure = frame as unknown as { requestId?: unknown; error?: { code?: unknown; message?: unknown } };
             if ((typeof failure.requestId === 'string' || typeof failure.requestId === 'number')
@@ -437,6 +453,7 @@ export class CodingAgentAcpClient {
     });
     this.pendingConnection = connection;
     void connection.closed.then(() => {
+      stopHeartbeat();
       if (this.closedFlag || this.connection !== connection) return;
       this.connection = null;
       this.ready = false;
@@ -451,6 +468,15 @@ export class CodingAgentAcpClient {
       if (this.closedFlag || generation !== this.generation) throw new CodingAgentAcpConnectionError('ACP connect aborted');
       this.initializeValue = response;
       this.connection = connection;
+      if (heartbeatEnabled) {
+        this.stopHeartbeat?.();
+        this.stopHeartbeat = stopHeartbeat;
+        heartbeat = setInterval(() => {
+          if (this.closedFlag || this.connection !== connection || socket?.readyState !== 1) return;
+          try { socket.send('{"event":"ping"}'); }
+          catch { /* A send/close race never authorizes socket recycling. */ }
+        }, 15_000);
+      }
       if (!reconnecting) this.markReady();
     } catch (error) { connection.close(error instanceof Error ? error : undefined); throw error; }
     finally { if (this.pendingConnection === connection) this.pendingConnection = null; }

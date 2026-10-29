@@ -11,6 +11,7 @@ import type { McpServer } from '@agentclientprotocol/sdk';
 type Frame = { jsonrpc: string; id?: number | string; method?: string; params?: any; result?: any; error?: any };
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+afterEach(() => vi.useRealTimers());
 
 // Raw loopback peer: transport/lifecycle assertions are independent of a backend.
 async function fixture() {
@@ -75,6 +76,54 @@ it('keeps source in the platform query only', async () => {
   await client.newSession();
   expect(f.urls[0].searchParams.get('source')).toBe('future client/slack');
   for (const frame of f.frames) { expect(frame.params).not.toHaveProperty('_meta'); expect(frame.params).not.toHaveProperty('source'); }
+});
+
+it('owns one proxy product heartbeat per socket, consumes pong, and never times out missing pong', async () => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const onClose = vi.fn();
+  const client = await f.connect({ transport: 'proxy', productHeartbeat: true, reconnect: false, onClose });
+  const products = () => f.frames.filter(frame => 'event' in frame);
+  expect(vi.getTimerCount()).toBe(1);
+  await vi.advanceTimersByTimeAsync(14_999);
+  await client.listSessions();
+  expect(products()).toEqual([]);
+  await vi.advanceTimersByTimeAsync(1);
+  await client.listSessions();
+  expect(products()).toEqual([{ event: 'ping' }]);
+  f.peers[0].send('{"event":"pong"}');
+  expect(await client.listSessions()).toEqual({ sessions: [] });
+  // No pong for subsequent intervals: keepalive is not a liveness deadline.
+  await vi.advanceTimersByTimeAsync(60_000);
+  await client.listSessions();
+  expect(products()).toHaveLength(5);
+  expect(client.connected).toBe(true);
+  const closed = new Promise<void>(resolve => client.addCloseListener(() => resolve()));
+  f.peers[0].terminate();
+  await closed;
+  expect(onClose).toHaveBeenCalledWith({ code: 1006, reason: '' });
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(f.peers).toHaveLength(1);
+  const replacement = await f.connect({ transport: 'proxy', productHeartbeat: true, reconnect: false });
+  expect(vi.getTimerCount()).toBe(1);
+  replacement.close();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([
+  {},
+  { transport: 'proxy' as const },
+  { productHeartbeat: true },
+  { transport: 'direct' as const, productHeartbeat: true },
+])('keeps unspecified and direct transports heartbeat-free: %j', async options => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const client = await f.connect(options);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(60_000);
+  await client.listSessions();
+  expect(f.frames.every(frame => frame.jsonrpc === '2.0')).toBe(true);
 });
 
 it.each([
