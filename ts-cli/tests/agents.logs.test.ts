@@ -16,7 +16,7 @@ const snapshot = (text: string, file = 'one', truncated = false) => ({ event: 'c
     capture: { state: 'capturing', dropped_bytes: 0 }, diagnostics_dropped: 0,
     runner_version: '0.8.5', runner_revision: null, executable_sha256: null }] });
 
-async function runLogs(args: string[], frames: unknown[]) {
+async function runLogs(args: string[], frames: unknown[], followOutput?: RegExp) {
   const home = await mkdtemp(join(tmpdir(), 'hyper-logs-'));
   let base = '', socketUrl = '';
   const server = createServer((req, res) => {
@@ -33,7 +33,6 @@ async function runLogs(args: string[], frames: unknown[]) {
     frames.forEach((frame, index) => timers.push(setTimeout(() => {
       if (socket.readyState === 1) socket.send(JSON.stringify(frame));
     }, 25 * (index + 1))));
-    if (args.includes('--follow')) timers.push(setTimeout(() => child!.kill('SIGINT'), 25 * frames.length + 200));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -44,7 +43,16 @@ async function runLogs(args: string[], frames: unknown[]) {
         HYPER_API_KEY: 'test-only', HYPER_API_BASE: base, HYPER_AGENTS_API_BASE: base }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '', stderr = '';
-    child.stdout!.on('data', data => { stdout += data; });
+    let interrupted = false;
+    child.stdout!.on('data', data => {
+      stdout += data;
+      // Observe consumption of the final snapshot before interrupting. Sending
+      // frames plus a fixed delay does not establish that the CLI printed them.
+      if (!interrupted && followOutput?.test(stdout)) {
+        interrupted = true;
+        child!.kill('SIGINT');
+      }
+    });
     child.stderr!.on('data', data => { stderr += data; });
     timers.push(setTimeout(() => child!.kill('SIGKILL'), 4000));
     const [code] = await once(child, 'close');
@@ -67,7 +75,7 @@ it('preserves capture bytes and metadata in one-shot JSON without history_end', 
 
 it('does not append whole replacement tails during human follow', async () => {
   const result = await runLogs(['--follow'], [snapshot('first\n'), snapshot('first\n'),
-    snapshot('first\nsecond\n'), snapshot('second\nthird\n', 'one', true), snapshot('rotated\n', 'two')]);
+    snapshot('first\nsecond\n'), snapshot('second\nthird\n', 'one', true), snapshot('rotated\n', 'two')], /rotated\n/);
   expect(result.code, result.stderr).toBe(130);
   expect(result.stdout).toBe('first\nsecond\nrotated\n');
   expect(result.stderr).toContain('continuity unavailable');
@@ -75,7 +83,7 @@ it('does not append whole replacement tails during human follow', async () => {
 });
 
 it('streams distinct JSON replacement snapshots with metadata', async () => {
-  const result = await runLogs(['--follow', '--json'], [snapshot('a'), snapshot('a'), snapshot('ab')]);
+  const result = await runLogs(['--follow', '--json'], [snapshot('a'), snapshot('a'), snapshot('ab')], /"logs":\s*"ab"/);
   expect(result.code, result.stderr).toBe(130);
   const values = result.stdout.trim().split('\n').map(line => JSON.parse(line));
   expect(values.map(value => value.logs)).toEqual(['a', 'ab']);
