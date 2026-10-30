@@ -2635,6 +2635,59 @@
         }
       }
     },
+    "/agents/deployments/{agent_id}/runtime-paths": {
+      "get": {
+        "tags": [
+          "deployments"
+        ],
+        "summary": "Get Agent Runtime Paths",
+        "description": "Read the deployment's runtime-owned workspace without connecting ACP.",
+        "operationId": "get_agent_runtime_paths_agents_deployments__agent_id__runtime_paths_get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRuntimePathsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/deployments/{agent_id}/keys": {
       "post": {
         "tags": [
@@ -3467,59 +3520,6 @@
         }
       }
     },
-    "/agents/deployments/{agent_id}/acp-ws-token": {
-      "post": {
-        "tags": [
-          "deployments"
-        ],
-        "summary": "Create Agent Acp Ws Token",
-        "description": "Mint a very short-lived WS ticket for the ACP session proxy (/ws/acp).\n\nThe ticket is scoped to purpose ``acp`` and this agent; the dial passes it\nas ``/ws/acp?agent_id=\u2026&token=<ticket>``. The proxy still accepts raw app\nJWTs and API keys on the same query param for server-side consumers, so\nthis endpoint is strictly additive.",
-        "operationId": "create_agent_acp_ws_token_agents_deployments__agent_id__acp_ws_token_post",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Agent Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentAcpWsTokenResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/agents/deployments/{agent_id}/metrics/token": {
       "post": {
         "tags": [
@@ -3951,6 +3951,59 @@
             }
           },
           {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "stdout",
+                "stderr",
+                "both"
+              ],
+              "type": "string",
+              "default": "both",
+              "title": "Source"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "current",
+                "previous"
+              ],
+              "type": "string",
+              "default": "current",
+              "title": "Generation"
+            }
+          },
+          {
+            "name": "max_bytes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 65536,
+              "minimum": 1,
+              "default": 65536,
+              "title": "Max Bytes"
+            }
+          },
+          {
+            "name": "max_lines",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 1000,
+              "title": "Max Lines"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4008,6 +4061,377 @@
                 "schema": {}
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/search": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Search Session Transcripts",
+        "description": "Keyset-paged full-text transcript search, newest session activity first.",
+        "operationId": "search_session_transcripts_agents_sessions_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptSearchPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/messages/around": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Messages Around",
+        "description": "One ascending window of durable transcript messages centered on `seq`.\n\nFor landing a search jump when the client has not loaded that part of the\nhistory. Never advances the caller's read receipt (unlike the history\npage): a jump is not a read-to-here.",
+        "operationId": "get_session_messages_around_agents_sessions__session_id__messages_around_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "seq",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Seq"
+            }
+          },
+          {
+            "name": "radius",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 0,
+              "default": 10,
+              "title": "Radius"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagesAroundWindow"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/import": {
+      "post": {
+        "summary": "Import Session",
+        "operationId": "import_session_agents_sessions_import_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBinding"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/discovery": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Discovery",
+        "operationId": "get_session_discovery_agents_sessions_discovery_get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDiscoveryStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Request Session Discovery",
+        "operationId": "request_session_discovery_agents_sessions_discovery_post",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDiscoveryStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/import": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Request Session Import",
+        "description": "Accept one background native reconciliation, never input or replacement.",
+        "operationId": "request_session_import_agents_sessions__session_id__import_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -4116,7 +4540,7 @@
           "sessions"
         ],
         "summary": "List Session Messages",
-        "description": "Keyset-paged message history, backwards-from-last (seq descending).",
+        "description": "Keyset-paged message history, backwards-from-last (seq descending).\n\nApp, SDK and diagnostics read retained transcripts here, independently of\nnative ACP v1 session attachment.",
         "operationId": "list_session_messages_agents_sessions__session_id__messages_get",
         "parameters": [
           {
@@ -4191,7 +4615,200 @@
         }
       }
     },
+    "/agents/sessions/{session_id}/messages/{seq}/resubmit": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Resubmit Session Message",
+        "description": "User retry / resume-confirm (FIXES.md D2): tick one durable user row\nback to ``queued`` with a ``delivery_resubmitted`` evidence frame, then\nre-arm the live leg when one exists. Owner-scoped (backend-service\nidentities pass, mirroring the read surface). Deliberately NOT built on\nthe messages-GET helpers \u2014 no read-receipt side effect (S8).",
+        "operationId": "resubmit_session_message_agents_sessions__session_id__messages__seq__resubmit_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "seq",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Seq"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMessageResubmit"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/capabilities": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Prompt Capabilities",
+        "description": "Observe the selected session/agent leg without any native operation.",
+        "operationId": "get_session_prompt_capabilities_agents_sessions__session_id__capabilities_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPromptCapabilities"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Metadata",
+        "description": "Session metadata plus platform history state (last_message_id,\nmessage_count, head_seq, receipts): 404 unknown, 403 not a participant,\n422 invalid UUID.\n\nNo runtime access or participant binding. Serving the detail advances the\nreader's user read receipt to the session head, best-effort (read-cursor\ntracking is backend-owned, \u00a715).",
+        "operationId": "get_session_metadata_agents_sessions__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "tags": [
           "sessions"
@@ -4236,7 +4853,432 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionListItem"
+                  "$ref": "#/components/schemas/SessionUpdateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Set Session Title",
+        "description": "Set or clear the caller-visible session label (the rename pencil).\n\nBackend-owned until ACP grows a client\u2192agent rename; ``session/list``\nserves the stored label verbatim (null when unset). Participant scoping\nmatches the messages read: 404 unknown, 403 not a participant.",
+        "operationId": "set_session_title_agents_sessions__session_id__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTitlePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUpdateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/summary": {
+      "get": {
+        "tags": [
+          "session-memory"
+        ],
+        "summary": "Get Summary",
+        "description": "Current derived summary plus queue position for this session.\n\n``pending`` is worker-queue state only: true while this session is queued\nor building. When the memory worker is disabled (``SESSION_MEMORY_ENABLED``\nunset) ``pending`` stays false and ``POST summary/rebuild`` answers 503.\nSearch over already-indexed history is independent of worker availability.",
+        "operationId": "get_summary_agents_sessions__session_id__summary_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/chunks": {
+      "get": {
+        "tags": [
+          "session-memory"
+        ],
+        "summary": "Get Chunks",
+        "operationId": "get_chunks_agents_sessions__session_id__chunks_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/tail": {
+      "get": {
+        "tags": [
+          "session-memory"
+        ],
+        "summary": "Get Tail",
+        "operationId": "get_tail_agents_sessions__session_id__tail_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "N"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{session_id}/summary/rebuild": {
+      "post": {
+        "tags": [
+          "session-memory"
+        ],
+        "summary": "Rebuild",
+        "operationId": "rebuild_agents_sessions__session_id__summary_rebuild_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/memory/search": {
+      "get": {
+        "tags": [
+          "session-memory"
+        ],
+        "summary": "Search",
+        "operationId": "search_agents_memory_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 10,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
                 }
               }
             }
@@ -4376,13 +5418,91 @@
         }
       }
     },
-    "/agents/flow/text-to-image": {
+    "/agents/flow/access": {
+      "get": {
+        "tags": [
+          "capabilities"
+        ],
+        "summary": "Agents Flow Access",
+        "operationId": "agents_flow_access_agents_flow_access_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/flow/catalog": {
+      "get": {
+        "tags": [
+          "capabilities"
+        ],
+        "summary": "Agents Comfy Catalog",
+        "operationId": "agents_comfy_catalog_agents_flow_catalog_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "capabilities"
         ],
-        "summary": "Agents Flow Text To Image",
-        "operationId": "agents_flow_text_to_image_agents_flow_text_to_image_post",
+        "summary": "Agents Comfy Submit",
+        "operationId": "agents_comfy_submit_agents_flow_catalog_post",
         "parameters": [
           {
             "name": "authorization",
@@ -4399,7 +5519,9 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TextPromptRequest"
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Body"
               }
             }
           }
@@ -4426,13 +5548,13 @@
         }
       }
     },
-    "/agents/flow/text-to-image-hidream": {
+    "/agents/flow/text-to-image": {
       "post": {
         "tags": [
           "capabilities"
         ],
-        "summary": "Agents Flow Text To Image Hidream",
-        "operationId": "agents_flow_text_to_image_hidream_agents_flow_text_to_image_hidream_post",
+        "summary": "Agents Flow Text To Image",
+        "operationId": "agents_flow_text_to_image_agents_flow_text_to_image_post",
         "parameters": [
           {
             "name": "authorization",
@@ -4676,14 +5798,81 @@
         }
       }
     },
-    "/agents/flow/first-last-frame-video": {
-      "post": {
+    "/agents/flow/renders": {
+      "get": {
         "tags": [
           "capabilities"
         ],
-        "summary": "Agents Flow First Last Frame Video",
-        "operationId": "agents_flow_first_last_frame_video_agents_flow_first_last_frame_video_post",
+        "summary": "Agents Flow List Renders",
+        "operationId": "agents_flow_list_renders_agents_flow_renders_get",
         "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Template"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -4694,16 +5883,6 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FirstLastFrameVideoRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5140,6 +6319,244 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/deployments/{agent_id}/files/stream": {
+      "put": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Write Runner Stream",
+        "operationId": "write_runner_stream_agents_deployments__agent_id__files_stream_put",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "title": "Path"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Read Runner Stream",
+        "operationId": "read_runner_stream_agents_deployments__agent_id__files_stream_get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "title": "Path"
+            }
+          },
+          {
+            "name": "max_bytes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 52428800,
+              "minimum": 0,
+              "default": 52428800,
+              "title": "Max Bytes"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/deployments/{agent_id}/files/transfer": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Write Runner Chunk",
+        "operationId": "write_runner_chunk_agents_deployments__agent_id__files_transfer_post",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "transfer_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transfer Id"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "open_write",
+                "write",
+                "commit",
+                "abort"
+              ],
+              "type": "string",
+              "title": "Action"
+            }
+          },
+          {
+            "name": "total",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 52428800,
+              "minimum": 0,
+              "title": "Total"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 52428800,
+              "minimum": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 4096,
+              "default": "",
+              "title": "Path"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5726,24 +7143,6 @@
         ],
         "title": "AgentAccessIdentityResponse"
       },
-      "AgentAcpWsTokenResponse": {
-        "properties": {
-          "token": {
-            "type": "string",
-            "title": "Token"
-          },
-          "expires_at": {
-            "type": "string",
-            "title": "Expires At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "token",
-          "expires_at"
-        ],
-        "title": "AgentAcpWsTokenResponse"
-      },
       "AgentEnvironmentResponse": {
         "properties": {
           "agent_id": {
@@ -6043,6 +7442,20 @@
           "route_statuses"
         ],
         "title": "AgentRoutesResponse"
+      },
+      "AgentRuntimePathsResponse": {
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "title": "Cwd",
+            "description": "Absolute working directory on the runtime host"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cwd"
+        ],
+        "title": "AgentRuntimePathsResponse"
       },
       "AgentSecretNamesResponse": {
         "properties": {
@@ -6562,6 +7975,74 @@
         "type": "object",
         "title": "BillingProfileUpdate"
       },
+      "ChunkPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "ChunkPage"
+      },
+      "ChunkResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "seq_start": {
+            "type": "integer",
+            "title": "Seq Start"
+          },
+          "seq_end": {
+            "type": "integer",
+            "title": "Seq End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "seq_start",
+          "seq_end",
+          "text"
+        ],
+        "title": "ChunkResponse"
+      },
       "CreateAgentRequest": {
         "properties": {
           "name": {
@@ -6702,6 +8183,18 @@
               }
             ],
             "title": "Sync Root"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd",
+            "description": "Optional absolute Runner-host workspace; omitted/null uses the placement default"
           },
           "sync_include": {
             "anyOf": [
@@ -6948,10 +8441,10 @@
           },
           "max_bytes": {
             "type": "integer",
-            "maximum": 104857600.0,
+            "maximum": 52428800.0,
             "minimum": 0.0,
             "title": "Max Bytes",
-            "default": 104857600
+            "default": 52428800
           }
         },
         "additionalProperties": false,
@@ -6971,7 +8464,7 @@
           },
           "content_base64": {
             "type": "string",
-            "maxLength": 349528,
+            "maxLength": 69905068,
             "title": "Content Base64"
           }
         },
@@ -6982,99 +8475,6 @@
           "content_base64"
         ],
         "title": "FileWriteBody"
-      },
-      "FirstLastFrameVideoRequest": {
-        "properties": {
-          "prompt": {
-            "type": "string",
-            "title": "Prompt"
-          },
-          "negative": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Negative"
-          },
-          "start_image_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Image Url"
-          },
-          "end_image_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Image Url"
-          },
-          "file_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File Ids"
-          },
-          "width": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Width"
-          },
-          "height": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Height"
-          },
-          "notify_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notify Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "prompt"
-        ],
-        "title": "FirstLastFrameVideoRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7256,6 +8656,95 @@
         ],
         "title": "ImageToVideoRequest"
       },
+      "ImportOutcome": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "retained",
+              "empty",
+              "filtered",
+              "unsupported",
+              "malformed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "const": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Generation",
+            "default": 0
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "observed_updates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Observed Updates",
+            "default": 0
+          },
+          "valid_updates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Valid Updates",
+            "default": 0
+          },
+          "filtered_updates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Filtered Updates",
+            "default": 0
+          },
+          "invalid_updates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Invalid Updates",
+            "default": 0
+          },
+          "foreign_updates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Foreign Updates",
+            "default": 0
+          },
+          "retained_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retained Rows",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ImportOutcome",
+        "description": "Content-free evidence for one completed import attempt, outside ACP."
+      },
       "LifecycleActionRequest": {
         "properties": {
           "dry_run": {
@@ -7268,6 +8757,77 @@
         "additionalProperties": false,
         "type": "object",
         "title": "LifecycleActionRequest"
+      },
+      "MessageMeta": {
+        "properties": {
+          "reactions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReactionGroup"
+            },
+            "type": "object",
+            "title": "Reactions"
+          },
+          "reactionSupport": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unknown"
+            ],
+            "title": "Reactionsupport"
+          },
+          "reactionsComplete": {
+            "type": "boolean",
+            "title": "Reactionscomplete"
+          },
+          "reactionUpdatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reactionupdatedat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reactions",
+          "reactionSupport",
+          "reactionsComplete"
+        ],
+        "title": "MessageMeta"
+      },
+      "MessagesAroundWindow": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "focus_seq": {
+            "type": "integer",
+            "title": "Focus Seq"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "focus_seq",
+          "items"
+        ],
+        "title": "MessagesAroundWindow"
       },
       "PutAgentRouteRequest": {
         "properties": {
@@ -7314,6 +8874,89 @@
           "port"
         ],
         "title": "PutAgentRouteRequest"
+      },
+      "ReactionGroup": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1.8446744073709552e+19,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "actors": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReactionMember"
+            },
+            "type": "object",
+            "title": "Actors"
+          },
+          "actorsComplete": {
+            "type": "boolean",
+            "title": "Actorscomplete"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "count",
+          "actors",
+          "actorsComplete"
+        ],
+        "title": "ReactionGroup"
+      },
+      "ReactionMember": {
+        "properties": {
+          "isBot": {
+            "type": "boolean",
+            "title": "Isbot"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "isBot",
+          "receipt"
+        ],
+        "title": "ReactionMember"
+      },
+      "RebuildResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "RebuildResponse"
       },
       "RedeemGrantRequest": {
         "properties": {
@@ -7411,7 +9054,14 @@
       "RunnerRegisterBody": {
         "properties": {
           "runner_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Runner Id"
           },
           "name": {
@@ -7441,7 +9091,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "runner_id",
           "name",
           "version",
           "platform"
@@ -7473,7 +9122,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RunnerTargetSpec",
-        "description": "Self-hosted runner placement (acp/hyper-runner/RUNNER.md)."
+        "description": "Self-hosted runner placement (docs/RUNNERS.md)."
       },
       "RunnerUiAvatarMeta": {
         "properties": {
@@ -7546,12 +9195,334 @@
         "type": "object",
         "title": "RunnerUiMeta"
       },
+      "SearchHit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "seq_start": {
+            "type": "integer",
+            "title": "Seq Start"
+          },
+          "seq_end": {
+            "type": "integer",
+            "title": "Seq End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "summary_keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Keywords"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "seq_start",
+          "seq_end",
+          "text",
+          "score"
+        ],
+        "title": "SearchHit"
+      },
+      "SearchResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "SearchResponse"
+      },
+      "SessionBinding": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "participant_id": {
+            "type": "string",
+            "title": "Participant Id"
+          },
+          "native_session_id": {
+            "type": "string",
+            "title": "Native Session Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "participant_id",
+          "native_session_id",
+          "type"
+        ],
+        "title": "SessionBinding"
+      },
+      "SessionDiscoveryStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "complete",
+              "error",
+              "unsupported"
+            ],
+            "title": "Status"
+          },
+          "history_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "supported",
+              "unsupported"
+            ],
+            "title": "History Status",
+            "default": "unknown"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "runtime_unavailable",
+                  "discovery_failed",
+                  "catalog_unsupported"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "discovered_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovered Count"
+          },
+          "queued_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Queued Count",
+            "default": 0
+          },
+          "failed_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Count",
+            "default": 0
+          },
+          "importing_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Importing Count",
+            "default": 0
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "SessionDiscoveryStatus",
+        "description": "Allowlisted projection of the process-local native catalog discovery."
+      },
+      "SessionImport": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Session Id"
+          },
+          "cwd": {
+            "type": "string",
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Cwd"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Type"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "cwd",
+          "type"
+        ],
+        "title": "SessionImport"
+      },
       "SessionListItem": {
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid",
             "title": "Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
           },
           "summary_text": {
             "anyOf": [
@@ -7594,6 +9565,16 @@
             },
             "type": "array",
             "title": "Participants"
+          },
+          "import_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -7650,6 +9631,17 @@
             "type": "integer",
             "title": "Seq"
           },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
           "role": {
             "type": "string",
             "enum": [
@@ -7690,6 +9682,9 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Acp"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MessageMeta"
           },
           "stop_reason": {
             "anyOf": [
@@ -7766,6 +9761,27 @@
           "has_more": {
             "type": "boolean",
             "title": "Has More"
+          },
+          "import_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "head_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Seq"
           }
         },
         "additionalProperties": false,
@@ -7775,6 +9791,44 @@
           "has_more"
         ],
         "title": "SessionMessagePage"
+      },
+      "SessionMessageResubmit": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "queued",
+            "title": "State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "seq",
+          "state"
+        ],
+        "title": "SessionMessageResubmit",
+        "description": "The D2 user retry/resume-confirm result: the row is queued again."
       },
       "SessionParticipant": {
         "properties": {
@@ -7802,10 +9856,33 @@
             ],
             "title": "Internal Session Id"
           },
+          "last_message_sha1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message Sha1"
+          },
           "cursor_pos": {
             "type": "integer",
             "title": "Cursor Pos",
             "default": 0
+          },
+          "native_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Config"
           }
         },
         "additionalProperties": false,
@@ -7815,6 +9892,280 @@
           "participant_id"
         ],
         "title": "SessionParticipant"
+      },
+      "SessionPromptCapabilities": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agent Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "observed"
+            ],
+            "title": "Status"
+          },
+          "leg_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leg Id"
+          },
+          "prompt_capabilities": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Capabilities"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "agent_id",
+          "status"
+        ],
+        "title": "SessionPromptCapabilities",
+        "description": "Request-local evidence, not a durable capability promise or ACP extension."
+      },
+      "SessionReceipt": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "delivered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "role",
+          "created_at"
+        ],
+        "title": "SessionReceipt",
+        "description": "One logical message's lifecycle markers for the session detail read:\nreplay-parity identity within its author participant (first\ncreated_at; first delivery, latest assistant completion)."
+      },
+      "SessionStateDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "summary_keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Keywords"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/SessionParticipant"
+            },
+            "type": "array",
+            "title": "Participants"
+          },
+          "import_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message Id"
+          },
+          "message_count": {
+            "type": "integer",
+            "title": "Message Count",
+            "default": 0
+          },
+          "head_seq": {
+            "type": "integer",
+            "title": "Head Seq",
+            "default": 0
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/SessionReceipt"
+            },
+            "type": "array",
+            "title": "Receipts",
+            "default": []
+          },
+          "agentState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "live",
+                  "archived",
+                  "deleted"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agentstate"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ask",
+                  "auto",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "participants"
+        ],
+        "title": "SessionStateDetail",
+        "description": "Platform catalog metadata, transcript head and per-message receipts.\n\nTranscript content uses the separate paginated REST messages endpoint;\nnative ACP attachment does not serve platform history."
       },
       "SessionTitlePatch": {
         "properties": {
@@ -7828,12 +10179,136 @@
               }
             ],
             "title": "Title"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ask",
+                  "auto",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "SessionTitlePatch",
-        "description": "PATCH body for the backend-owned session label (rename pencil).\n\nWhitespace-only clears the label; REST and the proxy's ``session/list``\nserve the stored label verbatim (null when unset \u2014 there is no\nruntime-title merge)."
+        "description": "PATCH body for the backend-owned session label (rename pencil).\n\nWhitespace-only clears the label; REST and the proxy's ``session/list``\nserve the stored label. Native title projection fills only SQL NULL;\nclearing allows a subsequent native title to fill it again."
+      },
+      "SessionUpdateResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "summary_keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Keywords"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/SessionParticipant"
+            },
+            "type": "array",
+            "title": "Participants"
+          },
+          "import_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ask",
+                  "auto",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "participants"
+        ],
+        "title": "SessionUpdateResponse"
       },
       "SpeakingVideoRequest": {
         "properties": {
@@ -7952,6 +10427,173 @@
         "type": "object",
         "title": "StartAgentRequest"
       },
+      "SummaryResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "summary_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Cursor"
+          },
+          "summarized_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summarized At"
+          },
+          "imported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imported At"
+          },
+          "summary_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary State"
+          },
+          "summary_failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Failure Reason"
+          },
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "title",
+          "summary_text",
+          "summary_cursor",
+          "summarized_at",
+          "imported_at",
+          "summary_state",
+          "summary_failure_reason",
+          "pending"
+        ],
+        "title": "SummaryResponse"
+      },
+      "TailMessage": {
+        "properties": {
+          "seq_start": {
+            "type": "integer",
+            "title": "Seq Start"
+          },
+          "seq_end": {
+            "type": "integer",
+            "title": "Seq End"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq_start",
+          "seq_end",
+          "role",
+          "text",
+          "participant_id"
+        ],
+        "title": "TailMessage"
+      },
+      "TailResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TailMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "items"
+        ],
+        "title": "TailResponse"
+      },
       "TextPromptRequest": {
         "properties": {
           "prompt": {
@@ -8008,6 +10650,114 @@
           "prompt"
         ],
         "title": "TextPromptRequest"
+      },
+      "TranscriptSearchHit": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "excerpt": {
+            "type": "string",
+            "title": "Excerpt"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_id",
+          "seq",
+          "role",
+          "excerpt"
+        ],
+        "title": "TranscriptSearchHit"
+      },
+      "TranscriptSearchPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSearchHit"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "TranscriptSearchPage"
       },
       "UpdateAgentRequest": {
         "properties": {

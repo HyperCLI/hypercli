@@ -75,7 +75,7 @@ pub use openclaw::{
     OPENCLAW_SYNC_EXCLUDE, OPENCLAW_SYNC_ROOT, OPENCLAW_TRUSTED_PROXIES_ENV,
 };
 pub use renders::{
-    AudioToTextRequest, CreateRenderRequest, FirstLastFrameVideoRequest, ImageToImageRequest,
+    AudioToTextRequest, CreateRenderRequest, ImageToImageRequest,
     ImageToVideoRequest, Render, RenderListFilters, RenderStatus, RendersClient,
     SpeakingVideoRequest, TextToImageRequest, TextToSpeechRequest, TextToVideoRequest,
 };

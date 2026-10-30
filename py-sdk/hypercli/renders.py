@@ -251,7 +251,7 @@ class Renders:
         height: int = None,
         notify_url: str = None,
     ) -> Render:
-        """Generate an image using Qwen-Image (great for text in images).
+        """Generate an image using Qwen Image 2.1.
 
         Args:
             prompt: Text description of the image
@@ -265,28 +265,6 @@ class Renders:
         """
         return self.create_flow("text-to-image", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
-    def text_to_image_hidream(
-        self,
-        prompt: str,
-        negative: str = None,
-        width: int = None,
-        height: int = None,
-        notify_url: str = None,
-    ) -> Render:
-        """Generate an image using HiDream I1 Full (highest quality).
-
-        Args:
-            prompt: Text description of the image
-            negative: Optional negative prompt (things to avoid)
-            width: Optional output width
-            height: Optional output height
-            notify_url: Optional webhook URL for completion notification
-
-        Example:
-            render = client.renders.text_to_image_hidream("a mystical forest")
-        """
-        return self.create_flow("text-to-image-hidream", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
-
     def text_to_video(
         self,
         prompt: str,
@@ -295,7 +273,7 @@ class Renders:
         height: int = None,
         notify_url: str = None,
     ) -> Render:
-        """Generate a video using Wan 2.2 14B.
+        """Generate a video using LTX 2.3.
 
         Args:
             prompt: Text description of the video
@@ -319,7 +297,7 @@ class Renders:
         height: int = None,
         notify_url: str = None,
     ) -> Render:
-        """Animate an image using Wan 2.2 Animate.
+        """Animate an image using LTX 2.3.
 
         Args:
             prompt: Description of the motion/animation
@@ -347,7 +325,7 @@ class Renders:
         height: int = None,
         notify_url: str = None,
     ) -> Render:
-        """Generate a lip-sync video using HuMo.
+        """Generate an image-and-audio-driven video using LTX 2.3.
 
         Provide inputs as URLs or pre-uploaded file IDs:
         - URLs: image_url + audio_url
@@ -383,7 +361,7 @@ class Renders:
         height: int = None,
         notify_url: str = None,
     ) -> Render:
-        """Transform images using Qwen Image Edit with 1-3 input images.
+        """Transform images using Qwen Image 2.1 Edit.
 
         Args:
             prompt: Description of the transformation
@@ -401,38 +379,6 @@ class Renders:
             )
         """
         return self.create_flow("image-to-image", prompt=prompt, image_urls=image_urls, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
-
-    def first_last_frame_video(
-        self,
-        prompt: str,
-        start_image_url: str = None,
-        end_image_url: str = None,
-        file_ids: List[str] = None,
-        negative: str = None,
-        width: int = None,
-        height: int = None,
-        notify_url: str = None,
-    ) -> Render:
-        """Generate video morphing between two images using Wan 2.2.
-
-        Args:
-            prompt: Description of the transition/motion
-            start_image_url: URL of the starting frame
-            end_image_url: URL of the ending frame
-            file_ids: Pre-uploaded file IDs [start_image_id, end_image_id]
-            negative: Optional negative prompt (things to avoid)
-            width: Optional video width
-            height: Optional video height
-            notify_url: Optional webhook URL for completion notification
-
-        Example:
-            render = client.renders.first_last_frame_video(
-                "smooth transition from day to night",
-                start_image_url="https://example.com/day.png",
-                end_image_url="https://example.com/night.png"
-            )
-        """
-        return self.create_flow("first-last-frame-video", prompt=prompt, start_image_url=start_image_url, end_image_url=end_image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def audio_to_text(
         self,

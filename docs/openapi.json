@@ -1451,7 +1451,7 @@
           "user"
         ],
         "summary": "Update User",
-        "description": "Update your account profile (name, email, and canonical profile Markdown).\n\nTop-level `profile` is bounded to 32768 characters and stored at `meta.profile`.\nLegacy `ui.profile` is accepted only as a write alias and normalized to the canonical key.\nOmission preserves; null clears; an empty string stores empty content.\nUnrelated metadata is preserved. Concurrent writes to the same field are\nlast-writer-wins; malformed legacy metadata returns 409 rather than replacing it.\n\nYou can update your display name and email address. Changing your email\nwill reset the email_verified flag until you verify the new address.\n\n**Request Body:**\n```json\n{\n  \"name\": \"New Name\",\n  \"email\": \"new@example.com\"\n}\n```\n\n**SDK:**\n```python\nuser = c3.user.update(name=\"New Name\", email=\"new@example.com\")\n```\n\n**Keywords:** update, profile, settings, name, email, account",
+        "description": "Update your account profile (name, email, and canonical profile Markdown).\n\nTop-level `profile` is bounded to 32768 characters and stored at `meta.profile`.\nLegacy `ui.profile` is accepted only as a write alias and normalized to the\ncanonical key. Omission preserves; null clears; an empty string stores empty\ncontent. Unrelated metadata is preserved. Concurrent writes to the same field are\nlast-writer-wins; malformed legacy metadata returns 409 rather than replacing it.\n\nYou can update your display name and email address. Changing your email\nwill reset the email_verified flag until you verify the new address.\n\n**Request Body:**\n```json\n{\n  \"name\": \"New Name\",\n  \"email\": \"new@example.com\"\n}\n```\n\n**SDK:**\n```python\nuser = c3.user.update(name=\"New Name\", email=\"new@example.com\")\n```\n\n**Keywords:** update, profile, settings, name, email, account",
         "operationId": "update_user_api_user_patch",
         "parameters": [
           {
@@ -2180,13 +2180,62 @@
         }
       }
     },
+    "/api/renders/catalog": {
+      "get": {
+        "tags": [
+          "renders"
+        ],
+        "summary": "Get Comfy Catalog",
+        "operationId": "get_comfy_catalog_api_renders_catalog_get",
+        "parameters": [
+          {
+            "name": "X-API-KEY",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/renders": {
       "post": {
         "tags": [
           "renders"
         ],
         "summary": "Create Render",
-        "description": "Create a new image or video render using GPU-accelerated templates.\n\nRuns a render job using pre-configured templates. Funds are reserved from\nyour balance and charged on completion.\n\n**Request Body:**\n```json\n{\n  \"type\": \"comfyui\",\n  \"params\": {\n    \"template\": \"video_wan2_2_14B_t2v\",\n    \"prompt\": \"a cat in space\",\n    \"width\": 720,\n    \"height\": 720,\n    \"gpu_type\": \"rtxpro6000\"\n  },\n  \"notify_url\": \"https://myapp.com/webhook\"\n}\n```\n\n**Required Params:**\n- `template`: Template name (see Available Templates below)\n- `prompt`: Text prompt for generation\n\n**Available Templates:**\n- Image: hidream_i1_full, hidream_i1_fast, flux_schnell, flux_dev\n- Video: video_wan2_2_14B_t2v, video_wan2_2_1_3B_t2v, video_hunyuan\n\n**Available GPU Types** (case-insensitive):\n- rtxpro6000, rtx6000ada, a6000, l40s, l4, a100_40, a100_80, h100, h200, b200, b300\n- See /instances/gpus for current pricing\n\n**Optional Params:**\n- `width` / `height`: Image/video dimensions\n- `steps`: Inference steps (default: 50)\n- `cfg`: CFG scale (default: 5.0)\n- `gpu_type`: GPU model (default: l40s)\n- `region`: Region code (kr, fi, va)\n- `notify_url`: Webhook URL for completion notification\n\n**SDK:**\n```python\nrender = c3.renders.create(\n    params={\n        \"template\": \"video_wan2_2_14B_t2v\",\n        \"prompt\": \"a cat in space\",\n        \"gpu_type\": \"rtxpro6000\",\n    }\n)\nprint(f\"Render ID: {render.id}\")\n```\n\n**CLI:**\n```bash\nc3 renders create video_wan2_2_14B_t2v -p \"a cat in space\" --gpu rtxpro6000\n```\n\n**Keywords:** render, image, video, generate, create, AI art, ComfyUI, HiDream, Flux, Wan, Hunyuan",
+        "description": "Create a new image or video render using GPU-accelerated templates.\n\nRuns a render job using pre-configured templates. Funds are reserved from\nyour balance and charged on completion.\n\n**Request Body:**\n```json\n{\n  \"type\": \"comfyui\",\n  \"params\": {\n    \"family\": \"qwen21\",\n    \"template\": \"image_qwen_image_2_1_t2i\",\n    \"inputs\": {\"prompt\": \"a cat in space\", \"width\": 512, \"height\": 512}\n  },\n  \"notify_url\": \"https://myapp.com/webhook\"\n}\n```\n\n**Required Params:**\n- `family`: Published family from `GET /api/renders/catalog`\n- `template`: Template name within that family\n- `inputs`: Writable inputs from the template's published interface\n\n**Available Templates:**\n- Qwen 2.1: text-to-image and image editing\n- LTX 2.3: text-to-video, image-to-video and image-and-audio-to-video\n- Discover exact names and inputs through `GET /api/renders/catalog`.\n- Model, worker and GPU placement are server-owned, not request parameters.\n\n**Optional Params:**\n- Omitted inputs retain published template defaults.\n- Media inputs require uploaded, ready, account-owned file IDs.\n- `notify_url`: Webhook URL for completion notification\n\n**SDK:**\n```python\nrender = client.renders.submit(\n    \"qwen21\", \"image_qwen_image_2_1_t2i\",\n    {\"prompt\": \"a cat in space\", \"width\": 512, \"height\": 512},\n)\nprint(f\"Render ID: {render.id}\")\n```\n\n**CLI:**\n```bash\nhyper flow submit qwen21 image_qwen_image_2_1_t2i --input prompt=\"a cat in space\"\n```\n\n**Keywords:** render, image, video, generate, create, AI art, ComfyUI, Qwen, LTX",
         "operationId": "create_render_api_renders_post",
         "parameters": [
           {
@@ -2246,7 +2295,7 @@
           "renders"
         ],
         "summary": "List Renders",
-        "description": "List all your renders with optional filters.\n\nReturns a paginated list of your render jobs, optionally filtered\nby state, template, or type.\n\n**Query Parameters:**\n- `state`: Filter by render state\n- `template`: Filter by template name (e.g., video_wan2_2_14B_t2v, hidream_i1_full)\n- `type`: Filter by render type (e.g., comfyui)\n\n**SDK:**\n```python\n# List all renders\nrenders = c3.renders.list()\n\n# List only completed renders\nrenders = c3.renders.list(state=\"completed\")\n\n# List renders for a specific template\nrenders = c3.renders.list(template=\"video_wan2_2_14B_t2v\")\n```\n\n**CLI:**\n```bash\nc3 renders list\nc3 renders list --state completed\n```\n\n**Keywords:** list, renders, history, images, gallery, all",
+        "description": "List all your renders with optional filters.\n\nReturns a paginated list of your render jobs, optionally filtered\nby state, template, or type.\n\n**Query Parameters:**\n- `state`: Filter by render state\n- `template`: Filter by template name (e.g., image_qwen_image_2_1_t2i, video_ltx2_3_t2v)\n- `type`: Filter by render type (e.g., comfyui)\n\n**SDK:**\n```python\n# List all renders\nrenders = c3.renders.list()\n\n# List only completed renders\nrenders = c3.renders.list(state=\"completed\")\n\n# List renders for a specific template\nrenders = c3.renders.list(template=\"video_ltx2_3_t2v\")\n```\n\n**CLI:**\n```bash\nc3 renders list\nc3 renders list --state completed\n```\n\n**Keywords:** list, renders, history, images, gallery, all",
         "operationId": "list_renders_api_renders_get",
         "parameters": [
           {
@@ -2548,15 +2597,24 @@
         }
       }
     },
-    "/api/flow/text-to-image": {
+    "/api/flow/media/resolve": {
       "post": {
         "tags": [
           "flow"
         ],
-        "summary": "Flow Text To Image",
-        "description": "Generate an image from a text prompt using Qwen-Image.\n\nSimple one-prompt interface. Uses optimized defaults:\n- Model: Qwen-Image (excellent text rendering)\n- GPU: L40S in Korea\n- Size: 1328x1328\n\n**Request:** `{\"prompt\": \"a cat wearing sunglasses\", \"width\": 1024, \"height\": 1024, \"notify_url\": \"https://...\"}`\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** image, generate, text-to-image, t2i, qwen, picture",
-        "operationId": "flow_text_to_image_api_flow_text_to_image_post",
+        "summary": "Resolve Flow Media",
+        "description": "Internal ownership-only resolution for an entitled subscription flow.\n\nAgents checks subscription entitlement. Both the service credential and the\noriginal account credential are required here; no render or charge is made.",
+        "operationId": "resolve_flow_media_api_flow_media_resolve_post",
         "parameters": [
+          {
+            "name": "X-BACKEND-API-KEY",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "X-Backend-Api-Key"
+            }
+          },
           {
             "name": "X-API-KEY",
             "in": "header",
@@ -2581,7 +2639,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TextPromptRequest"
+                "$ref": "#/components/schemas/FlowMediaResolveRequest"
               }
             }
           }
@@ -2591,9 +2649,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlowRenderResponse"
-                }
+                "schema": {}
               }
             }
           },
@@ -2610,14 +2666,14 @@
         }
       }
     },
-    "/api/flow/text-to-image-hidream": {
+    "/api/flow/text-to-image": {
       "post": {
         "tags": [
           "flow"
         ],
-        "summary": "Flow Text To Image Hidream",
-        "description": "Generate an image from a text prompt using HiDream I1 Full.\n\nSimple one-prompt interface. Uses optimized defaults:\n- Model: HiDream I1 Full (highest quality, 50 steps)\n- GPU: L40S in Korea\n- Size: 1024x1024\n\n**Request:** `{\"prompt\": \"a mystical forest at sunset\", \"width\": 1024, \"height\": 1024, \"notify_url\": \"https://...\"}`\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** image, generate, text-to-image, t2i, hidream, picture, art",
-        "operationId": "flow_text_to_image_hidream_api_flow_text_to_image_hidream_post",
+        "summary": "Flow Text To Image",
+        "description": "Generate an image from a text prompt using published Qwen 2.1.\n\nSimple one-prompt interface. Uses optimized defaults:\n- Model: Qwen-Image (excellent text rendering)\n- GPU: L40S in Korea\n- Size: 1328x1328\n\n**Request:** `{\"prompt\": \"a cat wearing sunglasses\", \"width\": 1024, \"height\": 1024, \"notify_url\": \"https://...\"}`\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** image, generate, text-to-image, t2i, qwen, picture",
+        "operationId": "flow_text_to_image_api_flow_text_to_image_post",
         "parameters": [
           {
             "name": "X-API-KEY",
@@ -2678,7 +2734,7 @@
           "flow"
         ],
         "summary": "Flow Text To Video",
-        "description": "Generate a video from a text prompt using Wan 2.2.\n\nSimple one-prompt interface. Uses optimized defaults:\n- Model: Wan 2.2 14B Text-to-Video\n- GPU: RTX PRO 6000 in Finland\n- Size: 640x640, 81 frames\n\n**Request:** `{\"prompt\": \"a cat walking through a garden\", \"width\": 1024, \"height\": 1024, \"notify_url\": \"https://...\"}`\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** video, generate, text-to-video, t2v, wan, animation",
+        "description": "Generate a video from a text prompt using published LTX 2.3.\n\nSimple one-prompt interface. Uses optimized defaults:\n- Model: LTX 2.3 text-to-video\n- Placement and defaults: authoritative render catalog\n\n**Request:** `{\"prompt\": \"a cat walking through a garden\", \"width\": 1024, \"height\": 1024, \"notify_url\": \"https://...\"}`\n\n**Returns:** Render object with `id` to poll for status.\n\nNegative prompts are not published for this flow.\n**Keywords:** video, generate, text-to-video, t2v, ltx, animation",
         "operationId": "flow_text_to_video_api_flow_text_to_video_post",
         "parameters": [
           {
@@ -2740,7 +2796,7 @@
           "flow"
         ],
         "summary": "Flow Image To Video",
-        "description": "Animate an image into a video using Wan 2.2 Animate.\n\nSimple interface for image-to-video. Uses optimized defaults:\n- Model: Wan 2.2 14B Animate\n- GPU: RTX PRO 6000 in Finland\n\n**Request:**\n```json\n{\n    \"prompt\": \"the character is dancing\",\n    \"image_url\": \"https://example.com/character.png\",\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** video, animate, image-to-video, i2v, wan, motion",
+        "description": "Animate an owned uploaded image using published LTX 2.3.\n\nSimple interface for image-to-video. Uses optimized defaults:\n- Model: LTX 2.3 image-to-video\n- Placement and defaults: authoritative render catalog\n\n**Request:**\n```json\n{\n    \"prompt\": \"the character is dancing\",\n    \"file_ids\": [\"uploaded-image-id\"],\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\nDirect media URLs and negative prompts are not published for this flow.\n**Keywords:** video, animate, image-to-video, i2v, ltx, motion",
         "operationId": "flow_image_to_video_api_flow_image_to_video_post",
         "parameters": [
           {
@@ -2802,7 +2858,7 @@
           "flow"
         ],
         "summary": "Flow Speaking Video",
-        "description": "Generate a speaking/lip-sync video using HuMo.\n\nCreates a video with synchronized lip movements from an image and audio.\nUses optimized defaults:\n- Model: HuMo 17B (audio-driven lip sync)\n- GPU: RTX PRO 6000 in Finland\n\n**Request:**\n```json\n{\n    \"prompt\": \"A person speaking to the camera\",\n    \"image_url\": \"https://example.com/face.png\",\n    \"audio_url\": \"https://example.com/speech.mp3\",\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** video, speaking, lip-sync, audio, humo, talking head",
+        "description": "Generate a video from an owned image and audio using published LTX 2.3.\n\nCreates a video with synchronized lip movements from an image and audio.\nUses optimized defaults:\n- Model: LTX 2.3 image-and-audio-to-video\n- Placement and defaults: authoritative render catalog\n\n**Request:**\n```json\n{\n    \"prompt\": \"A person speaking to the camera\",\n    \"file_ids\": [\"uploaded-image-id\", \"uploaded-audio-id\"],\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\nDirect media URLs and negative prompts are not published for this flow.\n**Keywords:** video, speaking, audio, ltx, talking head",
         "operationId": "flow_speaking_video_api_flow_speaking_video_post",
         "parameters": [
           {
@@ -2864,7 +2920,7 @@
           "flow"
         ],
         "summary": "Flow Image To Image",
-        "description": "Transform images using Qwen Image Edit with 1-3 input images.\n\nAccepts 1-3 images for editing, style transfer, or guided generation.\nUses optimized defaults:\n- Model: Qwen Image Edit 2509\n- GPU: L40S in Korea\n\n**Request:**\n```json\n{\n    \"prompt\": \"Apply the artistic style from the references\",\n    \"image_urls\": [\n        \"https://example.com/subject.jpg\",\n        \"https://example.com/style1.jpg\",\n        \"https://example.com/style2.jpg\"\n    ],\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** image, edit, style transfer, transform, qwen",
+        "description": "Transform images using Qwen Image Edit with 1-3 input images.\n\nAccepts 1-3 images for editing, style transfer, or guided generation.\nUses optimized defaults:\n- Model: Qwen 2.1 standard image edit\n- Placement and defaults: authoritative render catalog\n\n**Request:**\n```json\n{\n    \"prompt\": \"Apply the artistic style from the references\",\n    \"file_ids\": [\"uploaded-subject-id\", \"uploaded-reference-id\"],\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** image, edit, style transfer, transform, qwen",
         "operationId": "flow_image_to_image_api_flow_image_to_image_post",
         "parameters": [
           {
@@ -2892,68 +2948,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ImageToImageRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlowRenderResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/flow/first-last-frame-video": {
-      "post": {
-        "tags": [
-          "flow"
-        ],
-        "summary": "Flow First Last Frame Video",
-        "description": "Generate a video morphing between two images using Wan 2.2.\n\nCreates smooth transitions between start and end frames.\nUses optimized defaults:\n- Model: Wan 2.2 14B First/Last Frame\n- GPU: RTX PRO 6000 in Finland\n\n**Request:**\n```json\n{\n    \"prompt\": \"smooth transition from day to night\",\n    \"start_image_url\": \"https://example.com/day.png\",\n    \"end_image_url\": \"https://example.com/night.png\",\n    \"notify_url\": \"https://...\"\n}\n```\n\n**Returns:** Render object with `id` to poll for status.\n\n**Keywords:** video, morph, transition, first-last-frame, wan",
-        "operationId": "flow_first_last_frame_video_api_flow_first_last_frame_video_post",
-        "parameters": [
-          {
-            "name": "X-API-KEY",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "X-Api-Key"
-            }
-          },
-          {
-            "name": "Authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FirstLastFrameVideoRequest"
               }
             }
           }
@@ -4363,104 +4357,27 @@
         "title": "FileState",
         "description": "File upload states"
       },
-      "FirstLastFrameVideoRequest": {
+      "FlowMediaResolveRequest": {
         "properties": {
-          "prompt": {
+          "flow_type": {
             "type": "string",
-            "title": "Prompt"
+            "title": "Flow Type"
           },
-          "negative": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Negative"
-          },
-          "start_image_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Image Url"
-          },
-          "end_image_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Image Url"
-          },
-          "file_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File Ids"
-          },
-          "width": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Width"
-          },
-          "height": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Height"
-          },
-          "notify_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notify Url"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "title": "Dry Run",
-            "default": false
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Files"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
-          "prompt"
+          "flow_type",
+          "files"
         ],
-        "title": "FirstLastFrameVideoRequest",
-        "description": "First/last frame video request - morph between two images"
+        "title": "FlowMediaResolveRequest"
       },
       "FlowRenderCancelResponse": {
         "properties": {
@@ -4852,7 +4769,7 @@
           "prompt"
         ],
         "title": "ImageToVideoRequest",
-        "description": "Image-to-video request with prompt and image URL or file ID"
+        "description": "Image-to-video request; media must use an owned uploaded file ID."
       },
       "InvoiceListResponse": {
         "properties": {
@@ -6050,7 +5967,7 @@
           "prompt"
         ],
         "title": "SpeakingVideoRequest",
-        "description": "Speaking video request with prompt, image, and audio URLs or file IDs"
+        "description": "Speaking video request with owned image and audio file IDs."
       },
       "SystemMetrics": {
         "properties": {

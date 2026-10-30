@@ -265,7 +265,7 @@ export class Renders {
   }
 
   /**
-   * Generate an image using Qwen-Image
+   * Generate an image using Qwen Image 2.1
    */
   async textToImage(options: {
     prompt: string;
@@ -284,26 +284,7 @@ export class Renders {
   }
 
   /**
-   * Generate an image using HiDream I1 Full
-   */
-  async textToImageHidream(options: {
-    prompt: string;
-    negative?: string;
-    width?: number;
-    height?: number;
-    notifyUrl?: string;
-  }): Promise<Render> {
-    return this.flow('text-to-image-hidream', {
-      prompt: options.prompt,
-      negative: options.negative,
-      width: options.width,
-      height: options.height,
-      notify_url: options.notifyUrl,
-    });
-  }
-
-  /**
-   * Generate a video using Wan 2.2 14B
+   * Generate a video using LTX 2.3
    */
   async textToVideo(options: {
     prompt: string;
@@ -322,7 +303,7 @@ export class Renders {
   }
 
   /**
-   * Animate an image using Wan 2.2 Animate
+   * Animate an image using LTX 2.3
    */
   async imageToVideo(options: {
     prompt: string;
@@ -345,7 +326,7 @@ export class Renders {
   }
 
   /**
-   * Generate a lip-sync video using HuMo
+   * Generate an image-and-audio-driven video using LTX 2.3
    */
   async speakingVideo(options: {
     prompt: string;
@@ -372,30 +353,7 @@ export class Renders {
   }
 
   /**
-   * Generate an audio-driven video using Wan 2.2 S2V
-   */
-  async speakingVideoWan(options: {
-    prompt: string;
-    imageUrl: string;
-    audioUrl: string;
-    negative?: string;
-    width?: number;
-    height?: number;
-    notifyUrl?: string;
-  }): Promise<Render> {
-    return this.flow('speaking-video-wan', {
-      prompt: options.prompt,
-      image_url: options.imageUrl,
-      audio_url: options.audioUrl,
-      negative: options.negative,
-      width: options.width,
-      height: options.height,
-      notify_url: options.notifyUrl,
-    });
-  }
-
-  /**
-   * Transform images using Qwen Image Edit
+   * Transform images using Qwen Image 2.1 Edit
    */
   async imageToImage(options: {
     prompt: string;
@@ -409,31 +367,6 @@ export class Renders {
     return this.flow('image-to-image', {
       prompt: options.prompt,
       image_urls: options.imageUrls,
-      file_ids: options.fileIds,
-      negative: options.negative,
-      width: options.width,
-      height: options.height,
-      notify_url: options.notifyUrl,
-    });
-  }
-
-  /**
-   * Generate video morphing between two images using Wan 2.2
-   */
-  async firstLastFrameVideo(options: {
-    prompt: string;
-    startImageUrl?: string;
-    endImageUrl?: string;
-    fileIds?: string[];
-    negative?: string;
-    width?: number;
-    height?: number;
-    notifyUrl?: string;
-  }): Promise<Render> {
-    return this.flow('first-last-frame-video', {
-      prompt: options.prompt,
-      start_image_url: options.startImageUrl,
-      end_image_url: options.endImageUrl,
       file_ids: options.fileIds,
       negative: options.negative,
       width: options.width,

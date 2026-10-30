@@ -245,17 +245,6 @@ flow_request!(SpeakingVideoRequest {
     notify_url: String,
 });
 
-flow_request!(FirstLastFrameVideoRequest {
-    prompt: String,
-    start_image_url: String,
-    end_image_url: String,
-    file_ids: Vec<String>,
-    negative: String,
-    width: u32,
-    height: u32,
-    notify_url: String,
-});
-
 flow_request!(AudioToTextRequest {
     audio_url: String,
     file_ids: Vec<String>,
@@ -570,37 +559,29 @@ impl RendersClient<'_> {
         Render::from_value(&data)
     }
 
-    /// Qwen-Image text-to-image render.
+    /// Qwen Image 2.1 text-to-image render.
     pub fn text_to_image(&self, request: &TextToImageRequest) -> Result<Render, HyperCliError> {
         self.create_flow("text-to-image", request)
     }
 
-    /// Wan 2.2 14B text-to-video render.
+    /// LTX 2.3 text-to-video render.
     pub fn text_to_video(&self, request: &TextToVideoRequest) -> Result<Render, HyperCliError> {
         self.create_flow("text-to-video", request)
     }
 
-    /// Wan 2.2 Animate image-to-video render.
+    /// LTX 2.3 image-to-video render.
     pub fn image_to_video(&self, request: &ImageToVideoRequest) -> Result<Render, HyperCliError> {
         self.create_flow("image-to-video", request)
     }
 
-    /// Qwen Image Edit with 1-3 input images.
+    /// Qwen Image 2.1 image editing.
     pub fn image_to_image(&self, request: &ImageToImageRequest) -> Result<Render, HyperCliError> {
         self.create_flow("image-to-image", request)
     }
 
-    /// HuMo lip-sync speaking video.
+    /// LTX 2.3 image-and-audio-driven video.
     pub fn speaking_video(&self, request: &SpeakingVideoRequest) -> Result<Render, HyperCliError> {
         self.create_flow("speaking-video", request)
-    }
-
-    /// Wan 2.2 first/last-frame video.
-    pub fn first_last_frame_video(
-        &self,
-        request: &FirstLastFrameVideoRequest,
-    ) -> Result<Render, HyperCliError> {
-        self.create_flow("first-last-frame-video", request)
     }
 
     /// WhisperX transcription.

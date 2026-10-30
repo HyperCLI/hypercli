@@ -189,7 +189,7 @@ def load_template(template_id: str) -> dict:
     Load workflow template from comfyui-workflow-templates package.
 
     Args:
-        template_id: Template name (e.g., "video_wan2_2_14B_t2v")
+        template_id: Template name (e.g., "video_ltx2_3_t2v")
 
     Returns:
         Workflow in graph format (nodes array, links array)

@@ -1,5 +1,4 @@
 """hyper flow commands - simplified flow interfaces"""
-import math
 import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import typer
@@ -10,7 +9,6 @@ from urllib.parse import urlparse
 from hypercli import HyperCLI, X402Client
 from .output import output, console, spinner, success
 
-HUMO_FPS = 25  # HuMo video_humo template frame rate
 USDC_ATOMIC_UNITS = Decimal("1000000")
 
 
@@ -63,18 +61,6 @@ def _get_flow_client(x402: bool = False) -> HyperCLI:
 
     require_wallet_deps()
     return HyperCLI(api_key=get_wallet_auth_token())
-
-
-def get_audio_duration(file_path: str) -> float | None:
-    """Get audio duration in seconds using mutagen. Returns None on failure."""
-    try:
-        from mutagen import File as MutagenFile
-        audio = MutagenFile(file_path)
-        if audio is not None and audio.info is not None:
-            return audio.info.length
-    except Exception:
-        pass
-    return None
 
 
 def resolve_input(client: HyperCLI, value: str, label: str = "file") -> tuple[str | None, str | None]:
@@ -377,28 +363,6 @@ def text_to_image(
     print_render_result(render, fmt, x402_result)
 
 
-@app.command("text-to-image-hidream")
-def text_to_image_hidream(
-    prompt: str = typer.Argument(..., help="Text description of the image"),
-    negative: Optional[str] = OPT_NEGATIVE,
-    width: Optional[int] = OPT_WIDTH,
-    height: Optional[int] = OPT_HEIGHT,
-    notify_url: Optional[str] = OPT_NOTIFY,
-    x402: bool = OPT_X402,
-    amount: Optional[float] = OPT_AMOUNT,
-    fmt: str = OPT_FMT,
-):
-    payload = {
-        "prompt": prompt,
-        "negative": negative,
-        "width": width,
-        "height": height,
-        "notify_url": notify_url,
-    }
-    render, x402_result = _create_flow_render("text-to-image-hidream", payload, x402, amount)
-    print_render_result(render, fmt, x402_result)
-
-
 @app.command("text-to-video")
 def text_to_video(
     prompt: str = typer.Argument(..., help="Text description of the video"),
@@ -489,15 +453,9 @@ def speaking_video(
         raise typer.Exit(1)
 
     audio_url, audio_file_id = None, None
-    length = None
     if audio_id:
         audio_file_id = audio_id
     elif audio:
-        if not audio.startswith(("http://", "https://")):
-            duration = get_audio_duration(audio)
-            if duration:
-                length = math.ceil(duration * HUMO_FPS) + 1
-                console.print(f"[dim]Audio: {duration:.1f}s -> {length} frames[/dim]")
         audio_url, audio_file_id = resolve_input(client, audio, "audio")
     else:
         console.print("[red]Error:[/red] --audio/-a or --audio-id is required")
@@ -517,9 +475,6 @@ def speaking_video(
         "height": height,
         "notify_url": notify_url,
     }
-    if length is not None:
-        payload["length"] = length
-
     render, x402_result = _create_flow_render("speaking-video", payload, x402, amount)
     print_render_result(render, fmt, x402_result)
 
@@ -565,59 +520,6 @@ def image_to_image(
         "notify_url": notify_url,
     }
     render, x402_result = _create_flow_render("image-to-image", payload, x402, amount)
-    print_render_result(render, fmt, x402_result)
-
-
-@app.command("first-last-frame-video")
-def first_last_frame_video(
-    prompt: str = typer.Argument(..., help="Description of the transition/motion"),
-    start_image: Optional[str] = typer.Option(None, "--start", "-s", help="Start frame URL or local file path"),
-    end_image: Optional[str] = typer.Option(None, "--end", "-e", help="End frame URL or local file path"),
-    start_id: Optional[str] = typer.Option(None, "--start-id", help="Pre-uploaded start frame file ID"),
-    end_id: Optional[str] = typer.Option(None, "--end-id", help="Pre-uploaded end frame file ID"),
-    negative: Optional[str] = OPT_NEGATIVE,
-    width: Optional[int] = OPT_WIDTH,
-    height: Optional[int] = OPT_HEIGHT,
-    notify_url: Optional[str] = OPT_NOTIFY,
-    x402: bool = OPT_X402,
-    amount: Optional[float] = OPT_AMOUNT,
-    fmt: str = OPT_FMT,
-):
-    client = get_client()
-
-    start_url, start_file_id = None, None
-    if start_id:
-        start_file_id = start_id
-    elif start_image:
-        start_url, start_file_id = resolve_input(client, start_image, "start image")
-    else:
-        console.print("[red]Error:[/red] --start/-s or --start-id is required")
-        raise typer.Exit(1)
-
-    end_url, end_file_id = None, None
-    if end_id:
-        end_file_id = end_id
-    elif end_image:
-        end_url, end_file_id = resolve_input(client, end_image, "end image")
-    else:
-        console.print("[red]Error:[/red] --end/-e or --end-id is required")
-        raise typer.Exit(1)
-
-    file_ids = None
-    if start_file_id or end_file_id:
-        file_ids = [fid for fid in [start_file_id, end_file_id] if fid]
-
-    payload = {
-        "prompt": prompt,
-        "start_image_url": start_url,
-        "end_image_url": end_url,
-        "file_ids": file_ids,
-        "negative": negative,
-        "width": width,
-        "height": height,
-        "notify_url": notify_url,
-    }
-    render, x402_result = _create_flow_render("first-last-frame-video", payload, x402, amount)
     print_render_result(render, fmt, x402_result)
 
 

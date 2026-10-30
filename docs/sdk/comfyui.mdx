@@ -20,7 +20,7 @@ client = HyperCLI()
 
 job = ComfyUIJob.create_for_template(
     client,
-    "flux_schnell",
+    "image_qwen_image_2_1_t2i",
     gpu_type="l40s",
     lb=8188,
 )
@@ -28,11 +28,10 @@ job = ComfyUIJob.create_for_template(
 job.wait_ready()
 
 history = job.run_template(
-    "flux_schnell",
+    "image_qwen_image_2_1_t2i",
     prompt="a beautiful sunset over mountains",
     width=1024,
     height=1024,
-    steps=4,
 )
 ```
 
@@ -74,7 +73,7 @@ from hypercli import (
 ### Apply Common Parameters
 
 ```python
-graph = load_template("flux_schnell")
+graph = load_template("image_qwen_image_2_1_t2i")
 workflow = graph_to_api(graph)
 
 apply_params(
@@ -92,11 +91,14 @@ apply_params(
 ### Enable Or Bypass Nodes
 
 ```python
-graph = load_template("image_qwen_image_edit_2509")
+import json
+from pathlib import Path
+
+graph = json.loads(Path("my-workflow.json").read_text())
 
 apply_graph_modes(graph, {
-    "106": {"enabled": True},
-    "108": {"mode": 4},
+    reference_node_id: {"enabled": True},
+    unused_node_id: {"mode": 4},
 })
 ```
 

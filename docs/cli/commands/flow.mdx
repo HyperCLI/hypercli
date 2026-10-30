@@ -96,6 +96,6 @@ for existing callers. Prefer `catalog`, `describe` and `submit` for the exact
 current templates and inputs. Python CLI shortcut flags are a separate interface
 and are not TypeScript CLI flags.
 
-HiDream and first/last-frame templates are not published. Remaining legacy SDK
-methods for them receive explicit server rejection; they are not substitutes
-for one of the five templates above.
+HiDream and first/last-frame routes and convenience helpers have been removed.
+Use one of the five published templates above. Existing render IDs remain
+available through the tracking and cancellation interfaces.
