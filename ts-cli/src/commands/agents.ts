@@ -1146,28 +1146,26 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-// Debug note: the Reef file API behind Deployments.cpTo/cpFrom only accepts
+// The hosted Reef file API behind Deployments.cpTo/cpFrom only accepts
 // paths relative to the agent's sync root (ts-sdk resolveSyncRootFilePath
-// rejects a leading '/'). Pod-side absolute paths and '~' therefore ride the
-// exec channel instead: base64 piped through sh, chunked well under exec's
+// rejects a leading '/'). Hosted absolute paths therefore ride the exec
+// channel: base64 piped through sh, chunked well under exec's
 // 65_536-byte argv cap, with the local mode re-applied via chmod.
 
-/** '~' on the pod expands to the conventional coding/openclaw home. */
-const CP_POD_HOME = '/home/node';
 /** Raw bytes per exec chunk: 24 KiB -> 32_768 base64 chars, far under the argv cap. */
 const CP_EXEC_CHUNK_BYTES = 24 * 1024;
 /** File transfers may outlive the interactive 30s exec default; use the exec max. */
 const CP_EXEC_TIMEOUT = 300;
 
-/** Pod-side paths the sync-root-relative Reef file API cannot serve. */
+/** Absolute paths the sync-root-relative Reef file API cannot serve. */
 function needsExecTransfer(podPath: string): boolean {
-  return podPath.startsWith('/') || podPath === '~' || podPath.startsWith('~/');
+  return podPath.startsWith('/');
 }
 
-function expandPodPath(podPath: string): string {
-  if (podPath === '~') return CP_POD_HOME;
-  if (podPath.startsWith('~/')) return `${CP_POD_HOME}/${podPath.slice(2)}`;
-  return podPath;
+function validateRemotePath(podPath: string): void {
+  if (podPath.startsWith('~')) {
+    throw new UsageError('Remote home is not established; use an absolute remote path instead of ~');
+  }
 }
 
 /** POSIX-shell single-quote of one argument. */
@@ -1190,7 +1188,7 @@ async function execOrThrow(d: Deployments, id: string, argv: string[], what: str
 
 /** Upload via exec: mkdir -p, chunked base64 decode appends, chmod preserved. */
 async function cpUpViaExec(d: Deployments, id: string, localPath: string, podPath: string): Promise<void> {
-  const remote = expandPodPath(podPath);
+  const remote = podPath;
   const content = readFileSync(localPath);
   let mode: number | undefined;
   try {
@@ -1217,7 +1215,7 @@ async function cpUpViaExec(d: Deployments, id: string, localPath: string, podPat
 
 /** Download via exec: base64 the pod file into exec stdout, decode locally. */
 async function cpDownViaExec(d: Deployments, id: string, podPath: string, localPath: string): Promise<string> {
-  const remote = expandPodPath(podPath);
+  const remote = podPath;
   const result = await api('copy down', () =>
     d.exec(id, ['sh', '-c', `base64 < ${shQuote(remote)}`], { timeout: CP_EXEC_TIMEOUT }));
   if (result.exitCode !== 0) {
@@ -1243,6 +1241,8 @@ async function cmdCp(ctx: CommandContext, args: string[]): Promise<void> {
     throw new UsageError('exactly one side of cp must be remote (<id>:<path>)');
   }
 
+  // A runtime cwd is not its home, and an image family does not establish HOME.
+  validateRemotePath(dst.agentRef ? dst.path : src.path);
   const { d } = await adopt(ctx);
   if (dst.agentRef) {
     const id = await resolveAgentRef(d, dst.agentRef);
@@ -1266,9 +1266,21 @@ async function cmdCp(ctx: CommandContext, args: string[]): Promise<void> {
   }
 
   const id = await resolveAgentRef(d, src.agentRef as string);
-  const destination = needsExecTransfer(src.path)
-    ? await cpDownViaExec(d, id, src.path, dst.path)
-    : await api('copy down', () => d.cpFrom(id, src.path, dst.path));
+  let destination: string;
+  if (needsExecTransfer(src.path)) {
+    const agent = await api('get agent', () => d.get(id));
+    if (agent.launchConfig?.executor === 'process') {
+      const content = await api('copy down', () => d.fileReadBytes(id, src.path));
+      // Local filenames are filesystem paths, not file URLs (notably # and ?).
+      mkdirSync(dirname(dst.path), { recursive: true });
+      writeFileSync(dst.path, content);
+      destination = dst.path;
+    } else {
+      destination = await cpDownViaExec(d, id, src.path, dst.path);
+    }
+  } else {
+    destination = await api('copy down', () => d.cpFrom(id, src.path, dst.path));
+  }
   let bytes = 0;
   try {
     bytes = statSync(destination).size;

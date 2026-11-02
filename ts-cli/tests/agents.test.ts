@@ -1028,7 +1028,7 @@ describe('hyper agents cp', () => {
     }
   });
 
-  it('upload to ~ expands to /home/node on the pod', async () => {
+  it('upload to ~ requires an explicit remote path without guessing home', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
     const local = join(tmp, 'f.txt');
     writeFileSync(local, 'hi');
@@ -1041,11 +1041,12 @@ describe('hyper agents cp', () => {
     });
     const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
     try {
-      await agents.run(ctx, ['cp', local, 'aa:~/.claude/x.json']);
+      const error = await runErr(ctx, ['cp', local, 'aa:~/.claude/x.json']);
 
+      expect(error).toBeInstanceOf(UsageError);
+      expect((error as Error).message).toContain('absolute remote path');
       expect(d.cpTo).not.toHaveBeenCalled();
-      expect(execCalls[0]).toEqual(['mkdir', '-p', '/home/node/.claude']);
-      expect(execCalls[1][2]).toContain(`base64 -d > '/home/node/.claude/x.json'`);
+      expect(execCalls).toEqual([]);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -1107,6 +1108,48 @@ describe('hyper agents cp', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it('PROCESS absolute downloads use Files and preserve relative local # filenames', async () => {
+    const payload = Buffer.from('%PDF-1.7\nuser report\n');
+    const fileReadBytes = vi.fn(async () => payload);
+    const d = createMockDeploymentsApi([agentFixture({ launchConfig: { executor: 'process' } })], { fileReadBytes });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    const tmp = mkdtempSync('.hyper-cp-');
+    const dest = join(tmp, 'out', 'report#1.pdf');
+    try {
+      await agents.run(ctx, ['cp', 'aa:/home/user/dev/report.pdf', dest]);
+      expect(fileReadBytes).toHaveBeenCalledWith(ID_A, '/home/user/dev/report.pdf');
+      expect(d.exec).not.toHaveBeenCalled();
+      expect(d.cpFrom).not.toHaveBeenCalled();
+      expect(readFileSync(dest)).toEqual(payload);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('does not fall back to exec when PROCESS Files refuses a read', async () => {
+    const fileReadBytes = vi.fn(async () => { throw new APIError(403, 'read denied'); });
+    const d = createMockDeploymentsApi([agentFixture({ launchConfig: { executor: 'process' } })], { fileReadBytes });
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    const tmp = mkdtempSync(join(tmpdir(), 'hyper-cp-'));
+    const dest = join(tmp, 'report.pdf');
+    try {
+      const error = await runErr(ctx, ['cp', 'aa:/home/user/report.pdf', dest]);
+      expect(error).toBeInstanceOf(Error);
+      expect(d.exec).not.toHaveBeenCalled();
+      expect(() => readFileSync(dest)).toThrow();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['~', '~/report.pdf', '~other/report.pdf'])('rejects unresolved remote home %s before transfer', async (path) => {
+    const d = createMockDeploymentsApi([agentFixture({ launchConfig: { executor: 'process' } })]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+    expect(await runErr(ctx, ['cp', `aa:${path}`, 'unused.pdf'])).toBeInstanceOf(UsageError);
+    expect(d.exec).not.toHaveBeenCalled();
+    expect(d.cpFrom).not.toHaveBeenCalled();
   });
 });
 
