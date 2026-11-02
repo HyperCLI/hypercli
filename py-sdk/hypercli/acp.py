@@ -318,7 +318,11 @@ class ACPClient:
                     return entry.cwd
             cursor = page.next_cursor
             if not cursor:
-                raise ACPUnavailableError("session/resume", "the original session cwd is unavailable from the standard catalog")
+                raise ACPUnavailableError(
+                    "session/resume",
+                    f"session {session_id!r} was not found in the available session catalog; "
+                    "cannot resolve its original cwd. Check the session ID and saved session setup",
+                )
             if cursor in seen:
                 raise ACPUnavailableError("session/list", "catalog repeated a pagination cursor")
             seen.add(cursor)

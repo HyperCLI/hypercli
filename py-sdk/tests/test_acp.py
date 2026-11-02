@@ -16,7 +16,7 @@ from websockets.exceptions import ConnectionClosed
 
 from hypercli.acp import (
     ACPClient, ACPClosedError, ACPError, ACPRequestError, ACPTerminalCloseError,
-    AmbiguousDeliveryError, RetryableACPError, ACP_TERMINAL_CLOSE_CODES,
+    AmbiguousDeliveryError, RetryableACPError, ACPUnavailableError, ACP_TERMINAL_CLOSE_CODES,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -64,6 +64,7 @@ class Peer:
         self.early_close = None
         self.close_on_upgrade = False
         self.version = 1
+        self.catalog_cwd = "/original/project"
 
     async def initialize(self, **kwargs):
         if self.early_close:
@@ -84,7 +85,7 @@ class Peer:
 
     async def list_sessions(self, **kwargs):
         return schema.ListSessionsResponse.model_validate({"sessions": [
-            {"sessionId": "opaque/runtime:id", "cwd": "/original/project"},
+            {"sessionId": "opaque/runtime:id", "cwd": self.catalog_cwd},
         ]})
 
     async def close_session(self, **kwargs):
@@ -304,6 +305,33 @@ async def test_fresh_resume_uses_original_catalog_cwd_without_launch_resolution(
         inbound = [f for direction, f in peer.frames if direction == "in"]
         assert [f["method"] for f in inbound] == ["initialize", "session/list", "session/resume"]
         assert inbound[-1]["params"] == {"sessionId": "opaque/runtime:id", "cwd": "/original/project", "mcpServers": []}
+
+
+@pytest.mark.parametrize("session_id", ["resuscitator", "pr-watch", "builder-watch", "missing-session"])
+async def test_unknown_session_reports_catalog_lookup_not_filesystem_failure(session_id):
+    async def forbidden_launch_resolution():
+        pytest.fail("an unknown binding must not be replaced with the launch cwd")
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_default_cwd=forbidden_launch_resolution) as client:
+        with pytest.raises(ACPUnavailableError, match="not found in the available session catalog") as error:
+            await client.resume_session(session_id)
+        assert session_id in str(error.value)
+        assert [f["method"] for direction, f in peer.frames if direction == "in"] == ["initialize", "session/list"]
+
+
+@pytest.mark.parametrize("cwd", [r"C:\Users\old-runner\project", "/home/alice/project", "/home/node/shared"])
+async def test_old_session_preserves_original_catalog_cwd_and_runtime_refusal(cwd):
+    async def forbidden_launch_resolution():
+        pytest.fail("resume must preserve the original cwd, including legacy paths")
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_default_cwd=forbidden_launch_resolution) as client:
+        peer.catalog_cwd = cwd
+        peer.reject_resume = True
+        with pytest.raises(ACPRequestError, match="unsupported setup"):
+            await client.resume_session("opaque/runtime:id")
+        inbound = [f for direction, f in peer.frames if direction == "in"]
+        assert [f["method"] for f in inbound] == ["initialize", "session/list", "session/resume"]
+        assert inbound[-1]["params"]["cwd"] == cwd
 
 
 async def test_foreground_waits_for_terminal_result_and_preserves_media():
