@@ -8,15 +8,22 @@ import json
 from contextlib import asynccontextmanager
 
 import pytest
-from acp.exceptions import RequestError
 from acp import schema
 from acp.agent import AgentSideConnection
+from acp.exceptions import RequestError
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
 
 from hypercli.acp import (
-    ACPClient, ACPClosedError, ACPError, ACPRequestError, ACPTerminalCloseError,
-    AmbiguousDeliveryError, RetryableACPError, ACPUnavailableError, ACP_TERMINAL_CLOSE_CODES,
+    ACP_TERMINAL_CLOSE_CODES,
+    ACPClient,
+    ACPClosedError,
+    ACPError,
+    ACPRequestError,
+    ACPTerminalCloseError,
+    ACPUnavailableError,
+    AmbiguousDeliveryError,
+    RetryableACPError,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -272,6 +279,7 @@ async def test_default_creation_and_tracked_resume_do_not_re_resolve_launch_cwd(
 async def test_agent_connect_wires_lazy_runtime_default_without_caller_paths(monkeypatch):
     from types import SimpleNamespace
     from urllib.parse import parse_qs, urlsplit
+
     from hypercli.agents import Deployments
 
     async with server() as (peer, url):
