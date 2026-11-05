@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { AvailableGPU, HyperCLI, Job } from '@hypercli.com/sdk';
 import * as jobs from '../src/commands/jobs.js';
 import { exitCodeFor, printError } from '../src/core/errors.js';
@@ -195,6 +198,47 @@ describe('hyper jobs', () => {
       tags: { name: 'train' },
     });
     expect(JSON.parse(stdout()).jobId).toBe(ID_FULL);
+  });
+
+  it('create -f reads the Dockerfile and submits it base64-encoded', async () => {
+    const create = vi.fn(async () => jobFixture());
+    const ctx = makeCtx(fakeClient({ create }), 'json');
+    const df = path.join(os.tmpdir(), `hypercli-dockerfile-test-${process.pid}`);
+    fs.writeFileSync(df, 'FROM img:1\nRUN echo built\n');
+
+    try {
+      await jobs.run(ctx, [
+        'create', '--image', 'img:1', '--gpu', 'h100', '-f', df, '--json', '--', 'serve',
+      ]);
+    } finally {
+      fs.unlinkSync(df);
+    }
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      image: 'img:1',
+      command: 'serve',
+      dockerfile: Buffer.from('FROM img:1\nRUN echo built\n').toString('base64'),
+    }));
+  });
+
+  it('Dockerfile dry-run encodes locally and empty files fail before client access', async () => {
+    const ctx = makeCtx(fakeClient(), 'json');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hyper-dockerfile-'));
+    const df = path.join(dir, 'Dockerfile');
+    try {
+      fs.writeFileSync(df, 'FROM scratch\n');
+      await jobs.run(ctx, ['create', '--image', 'build', '--dockerfile', df, '--dry-run', '--', 'true']);
+      expect(JSON.parse(stdout()).dockerfile).toBe(Buffer.from('FROM scratch\n').toString('base64'));
+      fs.writeFileSync(df, '');
+      await expect(jobs.run(ctx, ['create', '--image', 'build', '-f', df, '--', 'true']))
+        .rejects.toThrow('Dockerfile must not be empty');
+      fs.unlinkSync(df);
+      await expect(jobs.run(ctx, ['create', '--image', 'build', '-f', df, '--', 'true']))
+        .rejects.toThrow('ENOENT');
+      expect(ctx.client).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("create without '--' is a UsageError (exit 2) showing an example", async () => {

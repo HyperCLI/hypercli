@@ -15,6 +15,15 @@ hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 --gpu l40s -- n
 
 Use `--dry-run` to validate a create request without launching a job.
 
+Pass `-f PATH` (or `--dockerfile PATH`) to build a Dockerfile on the job host:
+
+```bash
+hyper jobs create --image local-build -f Dockerfile --gpu rtxpro6000 --region va -- nvidia-smi
+```
+
+`--image` is still required by the API; the built image overrides it. Only the
+Dockerfile is uploaded, not a local build context.
+
 ## list
 
 ```bash

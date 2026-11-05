@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline/promises';
+import { readFileSync } from 'node:fs';
 import {
   APIError,
   isUuid,
@@ -16,7 +17,7 @@ export const name = 'jobs';
 export const summary = 'Run and manage GPU jobs.';
 export const usage = [
   'hyper jobs gpus [--json]',
-  'hyper jobs create --image IMG [--runtime SEC] [--gpu T] [--region R] [--count N] [--name N] [--env K=V ...] [--constraint K=V ...] [--cpu-vendor V] [--dry-run] -- CMD...',
+  'hyper jobs create --image IMG [--runtime SEC] [--gpu T] [--region R] [--count N] [--name N] [--env K=V ...] [--constraint K=V ...] [--cpu-vendor V] [-f PATH] [--dry-run] -- CMD...',
   'hyper jobs list [--state S] [--json]',
   'hyper jobs get <id> [--json]',
   'hyper jobs logs <id> [-f|--follow] [--tail N]',
@@ -194,6 +195,7 @@ async function create(ctx: CommandContext, args: string[]): Promise<void> {
     env: { type: 'string', short: 'e', multiple: true },
     constraint: { type: 'string', multiple: true },
     'cpu-vendor': { type: 'string' },
+    dockerfile: { type: 'string', short: 'f' },
     'dry-run': { type: 'boolean', default: false },
   });
   if (parsed.help) return printHelp();
@@ -224,6 +226,11 @@ async function create(ctx: CommandContext, args: string[]): Promise<void> {
   if (constraints) options.constraints = constraints;
   const jobTag = str(parsed.values.name);
   if (jobTag) options.tags = { name: jobTag };
+  const dockerfile = str(parsed.values.dockerfile);
+  if (dockerfile !== undefined) {
+    options.dockerfile = readFileSync(dockerfile, 'base64');
+    if (!options.dockerfile) throw new UsageError('Dockerfile must not be empty');
+  }
 
   if (parsed.values['dry-run'] === true) {
     ctx.output.result(options, JSON.stringify(options, null, 2));

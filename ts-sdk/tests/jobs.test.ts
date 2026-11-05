@@ -54,6 +54,19 @@ describe('Jobs API', () => {
     wsMock.MockWebSocket.instances = [];
   });
 
+  it('forwards an encoded Dockerfile unchanged in the create payload', async () => {
+    const post = vi.fn().mockResolvedValue({ job_id: 'job-1', state: 'queued' });
+    const jobs = new Jobs({ post } as unknown as HTTPClient);
+    const dockerfile = Buffer.from('FROM scratch\n').toString('base64');
+
+    await jobs.create({ image: 'local-build', dockerfile, command: 'true', region: 'va' });
+
+    expect(post).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({
+      docker_image: 'local-build', dockerfile, region: 'va',
+      command: Buffer.from('true').toString('base64'),
+    }));
+  });
+
   it('forwards exact exec argv without shell parsing', async () => {
     const post = vi.fn().mockResolvedValue({
       job_id: 'job-1',
