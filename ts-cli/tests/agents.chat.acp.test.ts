@@ -9,6 +9,9 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 
 const id = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const savedSetup = { cwd: '/original-workspace', mcpServers: [
+  { name: 'retained-tool', command: 'fixture-tool', args: [], env: [] },
+] };
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 async function exercise(args: string[], mode = 'reply') {
@@ -27,6 +30,10 @@ async function exercise(args: string[], mode = 'reply') {
   const server = createServer((req, res) => {
     requests.push(req.url!);
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET' && req.url === `/agents/sessions/public-session/setup?agent_id=${id}`) {
+      res.end(JSON.stringify({ session_id: 'public-session', agent_id: id, setup: savedSetup }));
+      return;
+    }
     if (req.method === 'POST' && req.url === '/agents/sessions/public-session') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
@@ -209,7 +216,10 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.code, run.stderr).toBe(0);
     expect(JSON.parse(run.stdout).session).toEqual({ id: 'public-session', resumed: true });
     expect(run.stderr).toContain('Hello');
-    expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/list', 'session/resume', 'session/prompt']);
+    expect(run.requests).toContain(`/agents/sessions/public-session/setup?agent_id=${id}`);
+    expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/resume', 'session/prompt']);
+    expect(run.frames.find(f => f.method === 'session/resume').params)
+      .toEqual({ sessionId: 'public-session', ...savedSetup });
     expect(run.modeWrites).toEqual([]);
     expect(run.connectionPaths).toEqual(['/ws/acp']);
   });
