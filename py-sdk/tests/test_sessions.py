@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from hypercli import HyperCLI, SessionRecord
+from hypercli import HyperCLI, SessionRecord, SessionSetup
 from hypercli.agents import Deployments
 from hypercli.http import APIError, HTTPClient
 
@@ -27,6 +27,46 @@ def test_catalog_decodes_source_and_keeps_pagination(source):
 
 def test_old_server_missing_source_is_null():
     assert SessionRecord.from_dict({"id": "old-session"}).source is None
+
+
+def test_setup_type_distinguishes_unknown_and_copies_nested_setup():
+    payload = {"session_id": "session", "agent_id": "agent", "setup": None}
+    assert SessionSetup.from_dict(payload).setup is None
+    payload["setup"] = {"cwd": "/project", "mcpServers": [
+        {"name": "mcp", "command": "tool", "args": ["serve"], "env": []},
+    ]}
+    parsed = SessionSetup.from_dict(payload)
+    payload["setup"]["mcpServers"][0]["args"].append("changed")
+    assert parsed.setup["mcpServers"][0]["args"] == ["serve"]
+
+
+@pytest.mark.parametrize("payload", [None, {},
+    {"session_id": "session", "agent_id": "agent"},
+    {"session_id": "session", "agent_id": "agent", "setup": {}},
+    {"session_id": "session", "agent_id": "agent", "setup": []},
+    {"session_id": "session", "agent_id": "agent", "setup": {"cwd": "/saved", "mcpServers": [42]}},
+    {"session_id": "other", "agent_id": "agent", "setup": None},
+    {"session_id": "session", "agent_id": "other", "setup": None},
+])
+def test_setup_helper_rejects_malformed_or_mismatched_response(payload):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "test"
+    api = Deployments(http, api_base="https://example.com/agents")
+    api._get = MagicMock(return_value=payload)
+    with pytest.raises(ValueError):
+        api.get_session_setup("session", agent_id="agent")
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 422, 500])
+def test_setup_propagates_http_errors(monkeypatch, status):
+    def send(self, request, **kwargs):
+        return httpx.Response(status, json={"detail": "setup unavailable"}, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
+    with pytest.raises(APIError) as caught:
+        api.get_session_setup("session", agent_id="agent")
+    assert caught.value.status_code == status
 
 
 @pytest.mark.parametrize("agent_state", ["live", "archived", "deleted", "future-state"])

@@ -6,7 +6,9 @@ import asyncio
 import gc
 import json
 from contextlib import asynccontextmanager
+from copy import deepcopy
 
+import httpx
 import pytest
 from acp import schema
 from acp.agent import AgentSideConnection
@@ -28,6 +30,15 @@ from hypercli.acp import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+RECOVERED_SETUP = {"cwd": "/saved/project", "mcpServers": [
+    {"name": "local", "command": "mcp-tool", "args": ["serve"],
+     "env": [{"name": "MODE", "value": "test"}]},
+    {"name": "remote", "type": "http", "url": "https://mcp.example.com/api",
+     "headers": [{"name": "X-Test", "value": "test"}]},
+    {"name": "events", "type": "sse", "url": "https://mcp.example.com/events",
+     "headers": []},
+]}
 
 
 async def until(predicate):
@@ -165,6 +176,140 @@ async def test_v1_handshake_source_and_setup_use_standard_shapes():
         assert not any("source" in f.get("params", {}) for f in inbound)
         for frame, model in zip(inbound, [schema.InitializeRequest, schema.NewSessionRequest, schema.ResumeSessionRequest], strict=True):
             model.model_validate(frame["params"])
+
+
+async def test_platform_factory_recovers_memoryless_setup_through_authenticated_rest(monkeypatch):
+    from hypercli import HyperCLI
+    from hypercli.agents import Deployments
+
+    requests = []
+    agent_id = "3f6c9a20-1b4d-4e5f-8a7c-2d0e9f1b3a45"
+    sid = "opaque/runtime:id"
+
+    def send(self, request, **kwargs):
+        requests.append(request)
+        return httpx.Response(200, json={
+            "session_id": sid, "agent_id": agent_id, "setup": RECOVERED_SETUP,
+        }, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
+    async with server() as (peer, url):
+        monkeypatch.setattr(Deployments, "acp_ws_url", property(lambda self: url))
+        async with await api.acp_connect(agent_id) as client:
+            await client.resume_session(sid)
+        assert len(requests) == 1
+        assert str(requests[0].url) == (
+            f"https://example.com/agents/sessions/opaque%2Fruntime%3Aid/setup?agent_id={agent_id}"
+        )
+        assert requests[0].headers["Authorization"] == "Bearer caller-key"
+        assert requests[0].method == "GET"
+        inbound = [f for direction, f in peer.frames if direction == "in"]
+        assert [f["method"] for f in inbound] == ["initialize", "session/resume"]
+        assert inbound[-1]["params"] == {"sessionId": sid, **RECOVERED_SETUP}
+        schema.ResumeSessionRequest.model_validate(inbound[-1]["params"])
+
+
+async def test_recovered_setup_is_copied_and_only_cached_after_native_success():
+    saved = deepcopy(RECOVERED_SETUP)
+    calls = []
+
+    async def resolve(sid):
+        calls.append(sid)
+        return saved
+
+    sid = "opaque/runtime:id"
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_session_setup=resolve) as client:
+        peer.reject_resume = True
+        with pytest.raises(ACPRequestError):
+            await client.resume_session(sid)
+        assert sid not in client._session_setups
+        peer.reject_resume = False
+        await client.resume_session(sid)
+        saved["mcpServers"][0]["env"][0]["value"] = "changed"
+        saved["cwd"] = "/changed"
+        await client.resume_session(sid)
+        assert calls == [sid, sid]
+        frames = [f for direction, f in peer.frames if direction == "in" and f["method"] == "session/resume"]
+        assert all(f["params"] == {"sessionId": sid, **RECOVERED_SETUP} for f in frames)
+
+
+@pytest.mark.parametrize("status,payload", [
+    (403, {"detail": "denied"}), (500, {"detail": "unavailable"}),
+    (200, {"session_id": "opaque/runtime:id", "agent_id": "agent"}),
+    (200, {"session_id": "wrong", "agent_id": "agent", "setup": None}),
+])
+async def test_factory_recovery_failure_prevents_native_resume(monkeypatch, status, payload):
+    from hypercli import HyperCLI
+    from hypercli.agents import Deployments
+    from hypercli.http import APIError
+
+    def send(self, request, **kwargs):
+        return httpx.Response(status, json=payload, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
+    async with server() as (peer, url):
+        monkeypatch.setattr(Deployments, "acp_ws_url", property(lambda self: url))
+        async with await api.acp_connect("agent") as client:
+            with pytest.raises(APIError if status >= 400 else ValueError):
+                await client.resume_session("opaque/runtime:id")
+        assert [f["method"] for direction, f in peer.frames if direction == "in"] == ["initialize"]
+
+
+@pytest.mark.parametrize("servers", [[], RECOVERED_SETUP["mcpServers"]])
+async def test_explicit_mcp_list_bypasses_recovery(servers):
+    def forbidden(sid):
+        pytest.fail("an explicit list must bypass platform recovery")
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_session_setup=forbidden) as client:
+        await client.resume_session("opaque/runtime:id", mcp_servers=servers)
+        await client.resume_session("opaque/runtime:id")
+        frames = [f for direction, f in peer.frames if direction == "in" and f["method"] == "session/resume"]
+        assert [f["params"]["mcpServers"] for f in frames] == [servers, servers]
+
+
+@pytest.mark.parametrize("recovered", [{}, {"cwd": "/saved"},
+    {"cwd": "/saved", "mcpServers": None}, {"cwd": "/saved", "mcpServers": [42]}, []])
+async def test_malformed_recovery_never_sends_resume(recovered):
+    async with server() as (peer, url), await ACPClient.connect(
+        url, resolve_session_setup=lambda sid: recovered,
+    ) as client:
+        with pytest.raises(ValueError):
+            await client.resume_session("opaque/runtime:id", cwd="/override")
+        assert [f["method"] for direction, f in peer.frames if direction == "in"] == ["initialize"]
+
+
+@pytest.mark.parametrize("error", [httpx.TimeoutException("timeout"), RuntimeError("denied")])
+async def test_recovery_errors_propagate_before_resume(error):
+    async def resolve(sid):
+        raise error
+
+    async with server() as (peer, url), await ACPClient.connect(url, resolve_session_setup=resolve) as client:
+        with pytest.raises(type(error)) as caught:
+            await client.resume_session("opaque/runtime:id")
+        assert caught.value is error
+        assert [f["method"] for direction, f in peer.frames if direction == "in"] == ["initialize"]
+
+
+async def test_unknown_setup_keeps_catalog_fallback_and_explicit_cwd_wins():
+    async with server() as (peer, url), await ACPClient.connect(
+        url, resolve_session_setup=lambda sid: None,
+    ) as client:
+        await client.resume_session("opaque/runtime:id")
+        frames = [f for direction, f in peer.frames if direction == "in"]
+        assert [f["method"] for f in frames] == ["initialize", "session/list", "session/resume"]
+        assert frames[-1]["params"] == {
+            "sessionId": "opaque/runtime:id", "cwd": peer.catalog_cwd, "mcpServers": [],
+        }
+    async with server() as (peer, url), await ACPClient.connect(
+        url, resolve_session_setup=lambda sid: RECOVERED_SETUP,
+    ) as client:
+        await client.resume_session("opaque/runtime:id", cwd="/override")
+        frames = [f for direction, f in peer.frames if direction == "in"]
+        assert frames[-1]["params"] == {
+            "sessionId": "opaque/runtime:id", **RECOVERED_SETUP, "cwd": "/override",
+        }
 
 
 async def test_v2_initialize_answer_is_not_a_supported_execution_profile():

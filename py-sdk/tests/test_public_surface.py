@@ -142,6 +142,7 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "RuntimeLoginSession",
         "SessionPage",
         "SessionRecord",
+        "SessionSetup",
         "ShellSession",
         "User",
         "UserAPI",

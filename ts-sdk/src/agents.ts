@@ -6,7 +6,7 @@
 import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
 import { buildSessionMcpServers } from './mcp.js';
-import { sessionMessageMetaFromWire } from './sessions.js';
+import { SessionsAPI, sessionMessageMetaFromWire } from './sessions.js';
 import {
   DEFAULT_PERSONA_SOUL_PATH,
   DEFAULT_PERSONA_USER_PATH,
@@ -2855,7 +2855,13 @@ export class Agent {
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options,
-        mcpServers: deployments.sessionMcpServers(options.mcpServers),
+        // Explicit connection additions retain their composed default semantics;
+        // generated product defaults alone must not shadow durable resume setup.
+        mcpServers: options.mcpServers === undefined ? undefined : deployments.sessionMcpServers(options.mcpServers),
+        defaultMcpServers: deployments.sessionMcpServers(),
+        resolveSessionSetup: options.resolveSessionSetup ?? (transport === 'proxy'
+          ? async sessionId => (await deployments.sessionSetup(sessionId, this.id)).setup
+          : undefined),
         resolveDefaultCwd: options.resolveDefaultCwd ?? (async () => (await deployments.runtimePaths(this.id, { signal: options.signal })).cwd),
       },
     );
@@ -3563,6 +3569,11 @@ export class Deployments {
 
   get agentApiBase(): string {
     return this.apiBase;
+  }
+
+  /** Stored setup scoped to the authenticated platform session and agent leg. */
+  sessionSetup(sessionId: string, agentId: string) {
+    return new SessionsAPI(this.agentHttp).getSetup(sessionId, agentId);
   }
 
   /** Authoritative runtime-host launch directory, resolved by the platform. */

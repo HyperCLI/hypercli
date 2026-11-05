@@ -21,6 +21,8 @@ from pydantic import ValidationError
 from websockets.asyncio.client import connect as websocket_connect
 from websockets.exceptions import WebSocketException
 
+from .sessions import _parse_session_setup
+
 logger = logging.getLogger("hypercli.acp")
 ACP_PROTOCOL_VERSION = 1
 # Transport capacity, not content admission: 25,000,000 decoded image bytes
@@ -173,7 +175,8 @@ class _Transport:
 
 class ACPClient:
     """One connection using the pinned upstream v1 SDK runtime."""
-    def __init__(self, transport, *, on_update=None, resolve_default_cwd=None):
+    def __init__(self, transport, *, on_update=None, resolve_default_cwd=None,
+                 resolve_session_setup=None):
         self._closed = False
         self._disconnected = False
         self._transport_error = None
@@ -181,6 +184,7 @@ class ACPClient:
         self._update_listeners = [on_update] if on_update else []
         self._request_listeners = {}
         self._resolve_default_cwd = resolve_default_cwd
+        self._resolve_session_setup = resolve_session_setup
         self._session_setups: dict[str, dict[str, Any]] = {}
         self._session_config_options: dict[str, list[dict[str, Any]]] = {}
         self._transport = _Transport(transport, self)
@@ -189,7 +193,7 @@ class ACPClient:
     @classmethod
     async def connect(cls, url, *, token=None, open_timeout=DEFAULT_OPEN_TIMEOUT, source=None,
                       client_info=None, client_capabilities=None, on_update=None,
-                      resolve_default_cwd=None):
+                      resolve_default_cwd=None, resolve_session_setup=None):
         """Connect with caller-declared capabilities (empty by default).
 
         Callers advertising filesystem or terminal support must register the
@@ -206,7 +210,8 @@ class ACPClient:
         except (TimeoutError, WebSocketException, OSError) as exc:
             raise RetryableACPError(f"ACP connect failed: {exc}") from exc
         client = cls(transport, on_update=on_update,
-                     resolve_default_cwd=resolve_default_cwd)
+                     resolve_default_cwd=resolve_default_cwd,
+                     resolve_session_setup=resolve_session_setup)
         try:
             request = schema.InitializeRequest(protocol_version=ACP_PROTOCOL_VERSION,
                 client_info=schema.Implementation.model_validate(client_info or DEFAULT_CLIENT_INFO),
@@ -374,8 +379,17 @@ class ACPClient:
 
     async def resume_session(self, session_id, *, cwd=_UNSET_CWD, mcp_servers=None):
         """Resume the exact identity with its original catalog/stored setup."""
-        cwd = await self._original_session_cwd(session_id) if cwd is _UNSET_CWD else cwd
         previous = self._session_setups.get(session_id, {})
+        if mcp_servers is None and not previous and self._resolve_session_setup is not None:
+            recovered = self._resolve_session_setup(session_id)
+            if inspect.isawaitable(recovered):
+                recovered = await recovered
+            if recovered is not None:
+                # Typed standard setup parsing; resolver failures must not turn
+                # an unknown intended MCP list into an explicit empty override.
+                previous = _parse_session_setup(recovered)
+        if cwd is _UNSET_CWD:
+            cwd = previous["cwd"] if previous else await self._original_session_cwd(session_id)
         setup = {"cwd": cwd, "mcpServers": deepcopy(mcp_servers if mcp_servers is not None else previous.get("mcpServers", []))}
         params = {"sessionId": session_id, **setup}
         result = await self.request("session/resume", params)

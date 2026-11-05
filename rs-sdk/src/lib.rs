@@ -92,7 +92,7 @@ pub use sessions::{
     SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions, SessionMessage,
     SessionMessagePage, SessionMessagesOptions, SessionMessagesWindow, SessionPage,
     SessionParticipant, SessionReceipt, SessionRecord, SessionSearchHit, SessionSearchOptions,
-    SessionsClient,
+    SessionSetup, SessionSetupResponse, SessionsClient,
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,

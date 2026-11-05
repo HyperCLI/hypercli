@@ -458,6 +458,7 @@ export { buildAdditionalMcpEnv, buildSessionMcpServers } from './mcp.js';
 export { defaultAcpProxyWsUrl } from './agent-urls.js';
 export {
   SessionsAPI,
+  type AcpSessionSetup,
   type AcpSessionListOptions,
   type AcpSessionMessage,
   type SessionMessageMeta,

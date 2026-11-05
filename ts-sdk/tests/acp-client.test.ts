@@ -3,7 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
-import { CodingAgentAcpConnectionError, CodingAgentSessionStartupError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
+import { CodingAgentAcpClient, CodingAgentAcpConnectionError, CodingAgentSessionStartupError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
 import { buildAdditionalMcpEnv, buildSessionMcpServers } from '../src/mcp.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
@@ -45,15 +45,106 @@ async function fixture() {
   });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const runtimePaths = vi.fn(async () => ({ cwd: '/platform' }));
-  const deployments = new Deployments({ base: 'https://product.example.test', credential: 'product-key', get: runtimePaths } as unknown as HTTPClient, 'test-token', base);
+  const sessionSetup = vi.fn(async (sessionId: string): Promise<any> => ({ session_id: sessionId, agent_id: 'agent', setup: null }));
+  const get = vi.fn((path: string) => path.endsWith('/setup')
+    ? sessionSetup(decodeURIComponent(path.split('/')[2])) : runtimePaths());
+  const deployments = new Deployments({ base: 'https://product.example.test', credential: 'product-key', get } as unknown as HTTPClient, 'test-token', base);
   const agent = Agent.fromDict({ id: 'agent', runtime: 'opencode', state: 'RUNNING', user_id: 'owner' });
   agent._deployments = deployments;
   const connect = async (options: CodingAgentAcpConnectOptions = {}) => {
     const client = await agent.acpConnect(options); cleanup.push(() => client.close()); return client;
   };
-  return { peers, frames, urls, hooks, send, result, sessions, connect, agent, runtimePaths,
+  return { peers, frames, urls, hooks, send, result, sessions, connect, agent, runtimePaths, sessionSetup, get, base,
     calls: (method: string) => frames.filter(f => f.method === method) };
 }
+
+it('recovers full stored setup on a memoryless platform attachment and reuses an isolated accepted copy on reconnect', async () => {
+  const f = await fixture();
+  const stored = { cwd: '/stored', mcpServers: [...structuredClone(platformServers),
+    { name: 'custom', command: '/tool', args: ['original'], env: [{ name: 'KEY', value: 'stored' }] }] };
+  const expected = structuredClone(stored);
+  f.sessionSetup.mockResolvedValue({ session_id: 'existing', agent_id: 'agent', setup: stored });
+  const client = await f.connect({ sessionId: 'existing' });
+  expect(f.get).toHaveBeenCalledWith('/sessions/existing/setup', { agent_id: 'agent' });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId: 'existing', ...expected });
+  expect(f.calls('session/list')).toHaveLength(0);
+  stored.mcpServers[0].name = 'mutated';
+  stored.cwd = '/mutated';
+  await client.resumeSession('existing');
+  f.peers[0].terminate();
+  await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(3), { timeout: 4000 });
+  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', ...expected });
+  expect(f.sessionSetup).toHaveBeenCalledTimes(1);
+});
+
+it.each([{ mcpServers: [] }, { mcpServers: [{ name: 'explicit', command: '/explicit', args: [], env: [] }] }])(
+  'explicit per-resume MCP list bypasses recovery verbatim: %j', async ({ mcpServers }) => {
+    const f = await fixture(), client = await f.connect();
+    f.sessionSetup.mockRejectedValue(new Error('must not fetch'));
+    await client.resumeSession('existing', { cwd: '/explicit', mcpServers });
+    expect(f.sessionSetup).not.toHaveBeenCalled();
+    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(mcpServers);
+  },
+);
+
+it.each([{ mcpServers: [] }, { mcpServers: [{ name: 'addition', command: '/tool', args: [], env: [] }] }])(
+  'keeps explicit platform connection additions ahead of recovery: %j', async ({ mcpServers }) => {
+    const f = await fixture(), client = await f.connect({ cwd: '/explicit', mcpServers });
+    await client.resumeSession('existing');
+    expect(f.sessionSetup).not.toHaveBeenCalled();
+    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(
+      buildSessionMcpServers('https://product.example.test', 'product-key', mcpServers));
+  },
+);
+
+it.each([new Error('403 denied'), new Error('503 unavailable'), new Error('network failed')])(
+  'propagates setup lookup errors without native resume or remembered state: %s', async error => {
+    const f = await fixture(), client = await f.connect({ cwd: '/fallback' });
+    f.sessionSetup.mockRejectedValueOnce(error);
+    await expect(client.resumeSession('existing')).rejects.toBe(error);
+    expect(f.calls('session/resume')).toHaveLength(0);
+    expect(client.sessionIds).toEqual([]);
+    expect(client.connected).toBe(true);
+    await client.resumeSession('existing');
+    expect(f.sessionSetup).toHaveBeenCalledTimes(2);
+    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(platformServers);
+  },
+);
+
+it('does not remember recovered setup until native success, or replace it on refusal', async () => {
+  const f = await fixture(), client = await f.connect();
+  const setup = { cwd: '/stored', mcpServers: [{ name: 'stored', command: '/tool', args: [], env: [] }] };
+  f.sessionSetup.mockResolvedValue({ session_id: 'existing', agent_id: 'agent', setup });
+  f.hooks.set('session/resume', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32602, message: 'refused' } }));
+  await expect(client.resumeSession('existing')).rejects.toMatchObject({ code: -32602 });
+  expect(client.sessionIds).toEqual([]);
+  f.hooks.delete('session/resume');
+  await client.resumeSession('existing');
+  expect(f.sessionSetup).toHaveBeenCalledTimes(2);
+  f.hooks.set('session/resume', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32602, message: 'refused' } }));
+  await expect(client.resumeSession('existing', { cwd: '/wrong', mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+  f.hooks.delete('session/resume');
+  await client.resumeSession('existing');
+  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', ...setup });
+});
+
+it('direct platform and standalone ACP clients do not infer a setup API', async () => {
+  const f = await fixture();
+  const direct = await f.connect({ transport: 'direct', cwd: '/direct' });
+  await direct.resumeSession('direct');
+  expect(f.sessionSetup).not.toHaveBeenCalled();
+  const standalone = await CodingAgentAcpClient.connect({ url: f.base.replace('http:', 'ws:'), token: '' }, { cwd: '/standalone' });
+  cleanup.push(() => standalone.close());
+  await standalone.resumeSession('standalone');
+  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'standalone', cwd: '/standalone', mcpServers: [] });
+});
+
+it('malformed platform setup fails before native resume', async () => {
+  const f = await fixture(), client = await f.connect({ cwd: '/fallback' });
+  f.sessionSetup.mockResolvedValue({ session_id: 'existing', agent_id: 'agent', setup: {} });
+  await expect(client.resumeSession('existing')).rejects.toThrow('Invalid session setup response');
+  expect(f.calls('session/resume')).toHaveLength(0);
+});
 
 it('constructs exact v1 initialize/new/prompt/resume requests with no private window fields', async () => {
   const f = await fixture(), client = await f.connect();

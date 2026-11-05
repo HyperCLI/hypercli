@@ -17,6 +17,14 @@
  * `(updated_at, id)`.
  */
 import type { HTTPClient } from './http.js';
+import type { McpServer } from '@agentclientprotocol/sdk';
+
+/** Stored standard setup for one platform session's agent leg. */
+export interface AcpSessionSetup {
+  session_id: string;
+  agent_id: string;
+  setup: { cwd: string; mcpServers: McpServer[]; [key: string]: unknown } | null;
+}
 
 /** Native catalog discovery, independent of active conversation/turn state. */
 export interface SessionDiscoveryStatus {
@@ -415,6 +423,19 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
  */
 export class SessionsAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>) {}
+
+  /** Unknown setup is null; lookup failures and malformed replies remain errors. */
+  async getSetup(sessionId: string, agentId: string): Promise<AcpSessionSetup> {
+    const payload = await this.http.get<AcpSessionSetup>(
+      `/sessions/${encodeURIComponent(sessionId)}/setup`, { agent_id: agentId },
+    );
+    if (!payload || payload.session_id !== sessionId || payload.agent_id !== agentId ||
+        (payload.setup !== null && (!payload.setup || typeof payload.setup !== 'object' || Array.isArray(payload.setup) ||
+          typeof payload.setup.cwd !== 'string' || !Array.isArray(payload.setup.mcpServers)))) {
+      throw new TypeError('Invalid session setup response');
+    }
+    return structuredClone(payload);
+  }
 
   /** Read discovery evidence; an empty stored catalog alone is not discovery success. */
   async getDiscoveryStatus(agentId: string): Promise<SessionDiscoveryStatus> {

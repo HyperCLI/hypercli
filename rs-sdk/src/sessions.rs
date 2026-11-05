@@ -7,6 +7,69 @@ use secrecy::ExposeSecret;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+/// Original standard ACP setup retained by the platform.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSetup {
+    pub cwd: String,
+    pub mcp_servers: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SessionSetupResponse {
+    pub session_id: String,
+    pub agent_id: String,
+    // Required even when null: a missing field is not an unknown setup.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub setup: Option<SessionSetup>,
+}
+
+pub(crate) struct SessionSetupContext {
+    http: reqwest::Client,
+    base: url::Url,
+    key: secrecy::SecretString,
+    agent_id: String,
+}
+
+impl SessionSetupContext {
+    pub(crate) fn new(client: &HyperCliClient, agent_id: &str) -> Self {
+        Self {
+            http: client.async_http.clone(),
+            base: client.api_base.clone(),
+            key: client.api_key.clone(),
+            agent_id: agent_id.to_owned(),
+        }
+    }
+
+    pub(crate) async fn get(&self, session_id: &str) -> Result<SessionSetupResponse, HyperCliError> {
+        if matches!(session_id, "" | "." | "..") {
+            return Err(HyperCliError::InvalidResponse(
+                "invalid session path segment".into(),
+            ));
+        }
+        let mut url = self.base.clone();
+        url.set_query(None);
+        url.set_fragment(None);
+        url.path_segments_mut()
+            .map_err(|_| HyperCliError::InvalidResponse("invalid agents API base".into()))?
+            .pop_if_empty()
+            .extend(["sessions", session_id, "setup"]);
+        let response: SessionSetupResponse = SessionsClient::read(
+            self.http
+                .get(url)
+                .bearer_auth(self.key.expose_secret())
+                .query(&[("agent_id", &self.agent_id)]),
+        )
+        .await?;
+        if response.session_id != session_id || response.agent_id != self.agent_id {
+            return Err(HyperCliError::InvalidResponse(
+                "session setup identity mismatch".into(),
+            ));
+        }
+        Ok(response)
+    }
+}
+
 fn null_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -176,6 +239,17 @@ impl HyperCliClient {
 }
 
 impl SessionsClient<'_> {
+    /// Read original setup for this exact session and agent; null means unknown.
+    pub async fn get_setup(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<SessionSetupResponse, HyperCliError> {
+        SessionSetupContext::new(self.client, agent_id)
+            .get(session_id)
+            .await
+    }
+
     fn request(
         &self,
         method: Method,

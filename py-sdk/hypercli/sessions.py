@@ -1,7 +1,42 @@
 """Backend session catalog types. Source is descriptive, forward-open provenance."""
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
+
+from acp import schema
+
+
+def _parse_session_setup(setup: Any) -> dict[str, Any]:
+    if not isinstance(setup, dict) or not isinstance(setup.get("mcpServers"), list):
+        raise ValueError("Invalid session setup: expected an object with mcpServers")
+    parsed = schema.NewSessionRequest.model_validate(setup)
+    # Upstream's forward-compatible parser drops invalid list entries. Recovery
+    # must preserve the entire intended list or fail, never silently shorten it.
+    if len(parsed.mcp_servers) != len(setup["mcpServers"]):
+        raise ValueError("Invalid session setup MCP server entry")
+    return deepcopy(setup)
+
+
+@dataclass
+class SessionSetup:
+    """Platform-retained standard ACP setup for one session/agent pair."""
+
+    session_id: str
+    agent_id: str
+    setup: dict[str, Any] | None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SessionSetup":
+        if (not isinstance(data, dict)
+                or not isinstance(data.get("session_id"), str)
+                or not isinstance(data.get("agent_id"), str)
+                or "setup" not in data):
+            raise ValueError("Invalid session setup response")
+        setup = data["setup"]
+        if setup is not None:
+            setup = _parse_session_setup(setup)
+        return cls(data["session_id"], data["agent_id"], setup)
 
 
 @dataclass

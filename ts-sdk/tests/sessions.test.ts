@@ -1,6 +1,37 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
 import { SessionsAPI, type AcpSessionState, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
+import { Deployments } from '../src/agents.js';
+import { HTTPClient } from '../src/http.js';
+
+describe('stored session setup', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('uses the authenticated agents API for both session and deployment helpers', async () => {
+    const payload = { session_id: 's', agent_id: 'agent', setup: null };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const deployments = new Deployments(new HTTPClient('https://product.example.test', 'product-key'),
+      'agents-key', 'https://agents.example.test/agents');
+    expect(await deployments.sessionSetup('s', 'agent')).toEqual(payload);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('https://agents.example.test/agents/sessions/s/setup?agent_id=agent', {
+      method: 'GET', headers: { Authorization: 'Bearer agents-key', 'Content-Type': 'application/json' },
+      body: undefined, signal: expect.any(AbortSignal),
+    });
+  });
+  it.each([null, { cwd: '/original', mcpServers: [] }])('reads scoped setup without losing null: %j', async setup => {
+    const payload = { session_id: 'session/id', agent_id: 'agent', setup };
+    const get = vi.fn().mockResolvedValue(payload);
+    expect(await new SessionsAPI({ get }).getSetup('session/id', 'agent')).toEqual(payload);
+    expect(get).toHaveBeenCalledExactlyOnceWith('/sessions/session%2Fid/setup', { agent_id: 'agent' });
+  });
+  it.each([null, {}, { session_id: 'other', agent_id: 'agent', setup: null },
+    { session_id: 's', agent_id: 'other', setup: null },
+    ...[undefined, {}, [], { cwd: '/a' }, { cwd: 1, mcpServers: [] }, { cwd: '/a', mcpServers: null }]
+      .map(setup => ({ session_id: 's', agent_id: 'agent', setup }))])('rejects malformed or mismatched setup: %j', async payload => {
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue(payload) });
+    await expect(api.getSetup('s', 'agent')).rejects.toThrow('Invalid session setup response');
+  });
+});
 
 describe('external session references', () => {
   it.each(['  opaque:Thread/%2f?x=A+B#片  ', '', null, undefined])(

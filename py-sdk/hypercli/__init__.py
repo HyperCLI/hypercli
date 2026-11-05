@@ -53,7 +53,7 @@ from .workspaces import (
     WorkspacesAPI,
 )
 from .routines import Routine, RoutinesAPI
-from .sessions import SessionPage, SessionRecord
+from .sessions import SessionPage, SessionRecord, SessionSetup
 from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
 from .files import File
@@ -158,13 +158,14 @@ from .acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
-__version__ = "0.10.3"
+__version__ = "0.10.4"
 __all__ = [
     "CHAT_INTEGRATIONS",
     "build_chat_integration_config",
     "HyperCLI",
     "SessionPage",
     "SessionRecord",
+    "SessionSetup",
     "configure",
     "get_api_key",
     "get_agent_api_key",

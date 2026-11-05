@@ -35,6 +35,25 @@ fn client(server: &mockito::ServerGuard) -> HyperCliClient {
 }
 
 #[test]
+fn setup_reads_exact_agent_and_session_and_requires_complete_known_setup() {
+    let mut server = mockito::Server::new();
+    let setup = server.mock("GET", "/agents/sessions/s%2Fid/setup")
+        .match_query(Matcher::UrlEncoded("agent_id".into(), "a".into()))
+        .match_header("authorization", "Bearer test-key")
+        .match_header("x-caller-transport", "injected")
+        .with_body(json!({"session_id":"s/id", "agent_id":"a", "setup":{"cwd":"/original", "mcpServers":[]}}).to_string())
+        .create();
+    let client = client(&server);
+    let result = tokio::runtime::Runtime::new().unwrap()
+        .block_on(client.sessions().get_setup("s/id", "a")).unwrap();
+    assert_eq!(result.setup.unwrap().cwd, "/original");
+    setup.assert();
+    for invalid in [json!([]), json!({}), json!({"cwd":"/x"}), json!({"cwd":"/x", "mcpServers":null}), json!({"cwd":1,"mcpServers":[]})] {
+        assert!(serde_json::from_value::<hypercli_sdk::SessionSetupResponse>(json!({"session_id":"s", "agent_id":"a", "setup":invalid})).is_err());
+    }
+}
+
+#[test]
 fn list_and_detail_preserve_opaque_external_references() {
     for fields in [
         json!({"external_url": "  opaque:Thread/%2f?x=A+B#片  "}),

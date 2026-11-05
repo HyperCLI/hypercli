@@ -136,6 +136,7 @@ class FakeAcpProxy {
 function acpAgent(proxy: FakeAcpProxy): Agent {
   const deployments = new Deployments(
     { base: 'https://product.example.test/prefix/', credential: 'product-key', get: async (path: string) => {
+      if (path.endsWith('/setup')) return { session_id: decodeURIComponent(path.split('/')[2]), agent_id: AGENT_ID, setup: null };
       expect(path).toBe(`/deployments/${AGENT_ID}/runtime-paths`);
       return { cwd: '/runtime/workspace' };
     } } as unknown as HTTPClient,

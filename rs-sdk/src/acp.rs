@@ -73,6 +73,19 @@ pub enum AcpSetupError {
 }
 
 impl HyperCliClient {
+    /// Dial a platform ACP bridge with authenticated, lazy session-setup recovery.
+    /// The bridge URL/token are supplied by the caller; initialization is explicit.
+    pub async fn connect_acp(
+        &self,
+        url: &str,
+        token: &str,
+        agent_id: &str,
+    ) -> Result<AcpClient, AcpError> {
+        let mut client = AcpClient::connect(url, token).await?;
+        client.setup_context = Some(crate::sessions::SessionSetupContext::new(self, agent_id));
+        Ok(client)
+    }
+
     /// Read the runtime-owned launch cwd through the existing platform API.
     /// The value is opaque to the SDK; no local path resolution is performed.
     pub async fn deployment_runtime_cwd(
@@ -130,6 +143,9 @@ type AcpStream = SplitStream<AcpSocket>;
 /// `Protocol`).
 #[derive(Debug, Error)]
 pub enum AcpError {
+    /// Platform setup recovery failed before the ACP request was sent.
+    #[error(transparent)]
+    Setup(#[from] HyperCliError),
     /// Pre-prompt failure: connect, handshake, `initialize`, or session setup.
     /// No `session/prompt` frame was ever sent, so restarting the whole
     /// operation from scratch cannot duplicate agent work.
@@ -314,6 +330,7 @@ pub struct AcpClient {
     initialize_response: Mutex<Value>,
     initialize_started: AtomicBool,
     session_setups: Mutex<HashMap<String, (String, Vec<Value>)>>,
+    setup_context: Option<crate::sessions::SessionSetupContext>,
     updates: Mutex<Option<AcpUpdateReceiver>>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -378,6 +395,7 @@ impl AcpClient {
             initialize_response: Mutex::new(Value::Null),
             initialize_started: AtomicBool::new(false),
             session_setups: Mutex::new(HashMap::new()),
+            setup_context: None,
             updates: Mutex::new(Some(updates_rx)),
             reader: Mutex::new(Some(reader)),
         })
@@ -508,7 +526,9 @@ impl AcpClient {
             .await
     }
 
-    /// None retains successful setup; Some(&[]) explicitly clears MCP entries.
+    /// None reuses accepted setup or recovers it on platform connections.
+    /// Some(&[]) sends an empty requested list and bypasses recovery; native
+    /// removal of previously registered servers is harness-dependent.
     pub async fn resume_session_with_mcp_servers(
         &self,
         cwd: &str,
@@ -516,7 +536,7 @@ impl AcpClient {
         mcp_servers: Option<&[Value]>,
     ) -> Result<Value, AcpError> {
         self.require_connection()?;
-        let servers = self.session_mcp_servers(session_id, mcp_servers);
+        let servers = self.session_mcp_servers(session_id, mcp_servers).await?;
         let params = json!({"sessionId":session_id, "cwd":cwd, "mcpServers":servers});
         let response = self.request("session/resume", params).await?;
         self.session_setups
@@ -526,15 +546,24 @@ impl AcpClient {
         Ok(response)
     }
 
-    fn session_mcp_servers(&self, session_id: &str, explicit: Option<&[Value]>) -> Vec<Value> {
-        explicit.map(<[Value]>::to_vec).unwrap_or_else(|| {
-            self.session_setups
-                .lock()
-                .unwrap()
-                .get(session_id)
-                .map(|(_, servers)| servers.clone())
-                .unwrap_or_default()
-        })
+    async fn session_mcp_servers(
+        &self,
+        session_id: &str,
+        explicit: Option<&[Value]>,
+    ) -> Result<Vec<Value>, AcpError> {
+        if let Some(servers) = explicit {
+            return Ok(servers.to_vec());
+        }
+        let stored = self.session_setups.lock().unwrap().get(session_id).cloned();
+        if let Some((_, servers)) = stored {
+            return Ok(servers);
+        }
+        if let Some(context) = &self.setup_context {
+            if let Some(setup) = context.get(session_id).await?.setup {
+                return Ok(setup.mcp_servers);
+            }
+        }
+        Ok(Vec::new())
     }
 
     /// Resume the exact session using setup retained by successful typed helpers,
@@ -967,6 +996,89 @@ mod tests {
     use tokio_tungstenite::accept_async;
 
     type TestSocket = WebSocketStream<TcpStream>;
+
+    #[test]
+    fn platform_factory_recovers_mcp_before_resume_and_fails_closed() {
+        let entries = json!([
+            {"name":"stdio", "command":"tool", "args":[], "env":[]},
+            {"name":"http", "type":"http", "url":"https://example.test/mcp", "headers":[]},
+            {"name":"sse", "type":"sse", "url":"https://example.test/events", "headers":[]}
+        ]);
+        let known = json!({"session_id":"s", "agent_id":"agent", "setup":{"cwd":"/original", "mcpServers":entries}});
+        for (body, status, explicit, direct, fails) in [
+            (known.clone(), 200, None, false, false),
+            (known.clone(), 200, Some(vec![]), false, false),
+            (known.clone(), 200, Some(vec![json!({"name":"override"})]), false, false),
+            (known.clone(), 503, None, false, true),
+            (json!({"session_id":"s", "agent_id":"agent", "setup":null}), 200, None, false, false),
+            (json!({"session_id":"s", "agent_id":"agent"}), 200, None, false, true),
+            (json!({"session_id":"s", "agent_id":"agent", "setup":{}}), 200, None, false, true),
+            (json!({"session_id":"wrong", "agent_id":"agent", "setup":null}), 200, None, false, true),
+            (known.clone(), 200, None, true, false),
+        ] {
+            let reject_first = !fails && !direct && explicit.is_none() && body["setup"].is_object();
+            let mut http = mockito::Server::new();
+            let setup = http.mock("GET", "/agents/sessions/s/setup")
+                .match_query(mockito::Matcher::UrlEncoded("agent_id".into(), "agent".into()))
+                .match_header("authorization", "Bearer test-key")
+                .match_header("x-caller-transport", "injected")
+                .with_status(status).with_body(body.to_string())
+                .expect(if direct || explicit.is_some() { 0 } else if reject_first { 2 } else { 1 }).create();
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("x-caller-transport", reqwest::header::HeaderValue::from_static("injected"));
+            let platform = HyperCliClient::with_http_clients(
+                crate::ClientConfig {
+                    api_base: Url::parse(&format!("{}/agents", http.url())).unwrap(),
+                    api_key: secrecy::SecretString::from("test-key"), trace_file: None, timeout: None,
+                }, Url::parse(&http.url()).unwrap(),
+                reqwest::blocking::Client::builder().no_proxy().build().unwrap(),
+                reqwest::Client::builder().no_proxy().default_headers(headers).build().unwrap(),
+            ).unwrap();
+            let expected = explicit.clone().map(Value::Array).unwrap_or_else(|| {
+                if direct || body["setup"].is_null() { json!([]) } else { entries.clone() }
+            });
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let (url, server) = start_server(move |mut socket| async move {
+                    if reject_first {
+                        let frame = read_frame(&mut socket).await;
+                        assert_eq!(frame["method"], "session/resume");
+                        assert_eq!(frame["params"]["mcpServers"], expected);
+                        send_frame(&mut socket, json!({"jsonrpc":"2.0", "id":frame["id"], "error":{"code":-32602,"message":"refused"}})).await;
+                    }
+                    // A raw probe follows each attempt. On recovery failure it must
+                    // be the very first frame: no native resume may escape.
+                    if !fails {
+                        for _ in 0..2 {
+                            let frame = read_frame(&mut socket).await;
+                            assert_eq!(frame["method"], "session/resume");
+                            assert_eq!(frame["params"], json!({"sessionId":"s", "cwd":"/explicit", "mcpServers":expected}));
+                            send_frame(&mut socket, respond(frame["id"].as_u64().unwrap(), json!({}))).await;
+                        }
+                    }
+                    let frame = read_frame(&mut socket).await;
+                    assert_eq!(frame["method"], "session/list");
+                    send_frame(&mut socket, respond(frame["id"].as_u64().unwrap(), json!({"sessions":[]}))).await;
+                }).await;
+                let client = if direct { AcpClient::connect(&url, "").await.unwrap() }
+                    else { platform.connect_acp(&url, "", "agent").await.unwrap() };
+                if reject_first {
+                    assert!(matches!(client.resume_session("/explicit", "s").await, Err(AcpError::Request { .. })));
+                    assert!(client.session_setups.lock().unwrap().is_empty());
+                }
+                let result = client.resume_session_with_mcp_servers("/explicit", "s", explicit.as_deref()).await;
+                if fails { assert!(matches!(result, Err(AcpError::Setup(_)))); }
+                else {
+                    result.unwrap();
+                    // Successful setup is reused without a second HTTP read.
+                    client.resume_session("/explicit", "s").await.unwrap();
+                }
+                client.request("session/list", json!({})).await.unwrap();
+                server.await.unwrap();
+                client.close();
+            });
+            setup.assert();
+        }
+    }
 
     #[tokio::test]
     async fn mcp_setup_preserves_standard_entries_empty_overrides_and_refusals() {

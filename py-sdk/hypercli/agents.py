@@ -45,7 +45,7 @@ from .config import (
     _default_agents_ws_url,
 )
 from .http import HTTPClient, APIError
-from .sessions import SessionPage, SessionRecord
+from .sessions import SessionPage, SessionRecord, SessionSetup
 
 
 AGENTS_API_PREFIX = "/deployments"
@@ -3652,18 +3652,33 @@ class Deployments:
         return self._get(f"{AGENTS_API_PREFIX}/{quote(agent_id, safe='')}/runtime-paths")
 
     async def acp_connect(self, agent_id: str, **options):
-        """Connect without caller cwd configuration; resolve only at session/new."""
+        """Connect with authenticated runtime-path and saved-setup resolvers."""
         from .acp import ACPClient
 
         async def default_cwd():
             return (await asyncio.to_thread(self.runtime_paths, agent_id))["cwd"]
+
+        async def session_setup(session_id):
+            return (await asyncio.to_thread(
+                self.get_session_setup, session_id, agent_id=agent_id,
+            )).setup
 
         parts = urlsplit(self.acp_ws_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["agent_id"] = agent_id
         options.setdefault("token", self._api_key)
         options.setdefault("resolve_default_cwd", default_cwd)
+        options.setdefault("resolve_session_setup", session_setup)
         return await ACPClient.connect(urlunsplit(parts._replace(query=urlencode(query))), **options)
+
+    def get_session_setup(self, session_id: str, *, agent_id: str) -> SessionSetup:
+        """Read retained setup for the exact session/agent pair; null means unknown."""
+        result = SessionSetup.from_dict(self._get(
+            f"/sessions/{quote(session_id, safe='')}/setup", params={"agent_id": agent_id},
+        ))
+        if result.session_id != session_id or result.agent_id != agent_id:
+            raise ValueError("Session setup response does not match the requested session/agent")
+        return result
 
     def get_session(self, platform_session_id: str) -> SessionRecord:
         """Read stored metadata by platform session ID, never a runtime/leg ID.
