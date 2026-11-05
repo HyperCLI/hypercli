@@ -126,7 +126,7 @@ type AcpStream = SplitStream<AcpSocket>;
 ///
 /// Use [`AcpError::is_retryable`] and [`AcpError::is_ambiguous`] to decide
 /// whether an operation may be restarted from scratch. Both are false for
-/// terminal protocol failures (`Request`, `Unavailable`, `Closed`,
+/// terminal protocol failures (`Startup`, `Request`, `Unavailable`, `Closed`,
 /// `Protocol`).
 #[derive(Debug, Error)]
 pub enum AcpError {
@@ -162,6 +162,15 @@ pub enum AcpError {
         message: String,
         /// Opaque peer error data, including an explicitly supplied null.
         data: Option<Value>,
+    },
+    /// Product session-startup refusal (`sessionStartupError` product frame,
+    /// not a JSON-RPC response): the host refused to start the session behind
+    /// the request, the operation was not forwarded, and the connection
+    /// remains open.
+    #[error("ACP session startup was refused (unavailable): {message}")]
+    Startup {
+        /// Host-reported refusal message.
+        message: String,
     },
     /// A capability-gated helper hit an agent that does not advertise it.
     #[error("{capability} is not available: {detail}")]
@@ -239,7 +248,12 @@ enum Failure {
     Transport(String),
     /// Explicit client close.
     Closed,
-    /// Malformed frame from the bridge.
+    /// Malformed frame from the bridge. No longer raised by the read loop
+    /// (undecodable frames are skipped and logged since they are outlier
+    /// noise, not connection death); the classification is retained so
+    /// [`fail_pending`] keeps its complete prompt/other mapping for any
+    /// future fatal frame-flow violation.
+    #[allow(dead_code)]
     Protocol(String),
 }
 
@@ -779,17 +793,19 @@ async fn read_loop(
         match stream.next().await {
             Some(Ok(Message::Text(text))) => match serde_json::from_str::<Value>(&text) {
                 Ok(frame) => dispatch_message(&frame, &state, &outbound, &updates),
+                // One undecodable frame is outlier noise, not connection death:
+                // skip it and keep reading (mirrors the Python/TS clients).
+                // Pending calls stay pending until their real response or a
+                // genuine connection failure settles them.
                 Err(error) => {
-                    break Failure::Protocol(format!("ACP bridge returned invalid JSON: {error}"));
+                    eprintln!("hypercli-sdk: warning: skipping undecodable ACP text frame: {error}");
                 }
             },
             Some(Ok(Message::Binary(bytes))) => {
                 match serde_json::from_str::<Value>(&String::from_utf8_lossy(&bytes)) {
                     Ok(frame) => dispatch_message(&frame, &state, &outbound, &updates),
                     Err(error) => {
-                        break Failure::Protocol(format!(
-                            "ACP bridge returned invalid JSON: {error}"
-                        ));
+                        eprintln!("hypercli-sdk: warning: skipping undecodable ACP binary frame: {error}");
                     }
                 }
             }
@@ -844,6 +860,15 @@ fn dispatch_frame(
     outbound: &mpsc::UnboundedSender<Message>,
     updates: &mpsc::UnboundedSender<Value>,
 ) {
+    // Product session-startup refusal: the host reports capacity refusals as a
+    // product frame echoing the request id, not a JSON-RPC response, and keeps
+    // the connection open. Consume it here so the pending request settles
+    // instead of waiting forever; invalid shapes are ignored (no fabricated
+    // errors). Precedence mirrors the in-tree hyper-acp buzz client.
+    if frame.get("type").and_then(Value::as_str) == Some("sessionStartupError") {
+        settle_startup_refusal(frame, state);
+        return;
+    }
     let id = frame_id(frame);
     if let Some(id) = id.filter(|_| {
         frame.get("method").is_none()
@@ -902,6 +927,36 @@ fn frame_id(frame: &Value) -> Option<u64> {
         id.as_u64()
             .or_else(|| id.as_i64().and_then(|value| u64::try_from(value).ok()))
     })
+}
+
+/// Settle the pending request a `sessionStartupError` product frame refuses.
+/// `requestId` may be the pending integer id or its string spelling; unknown
+/// or invalid shapes settle nothing.
+fn settle_startup_refusal(frame: &Value, state: &ConnState) {
+    let Some(id) = frame
+        .get("requestId")
+        .and_then(|request_id| match request_id {
+            Value::Number(_) => request_id.as_u64(),
+            Value::String(text) => text.parse::<u64>().ok(),
+            _ => None,
+        })
+    else {
+        return;
+    };
+    let refusal = frame.get("error").and_then(|error| {
+        match error.get("code").and_then(Value::as_str) {
+            Some("unavailable") => error.get("message").and_then(Value::as_str),
+            _ => None,
+        }
+    });
+    let Some(message) = refusal else {
+        return;
+    };
+    if let Some(pending) = state.pending.lock().unwrap().remove(&id) {
+        let _ = pending.tx.send(Err(AcpError::Startup {
+            message: message.to_owned(),
+        }));
+    }
 }
 
 #[cfg(test)]
@@ -1302,9 +1357,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn undecodable_or_uncorrelated_frames_do_not_complete_pending_input() {
+    async fn uncorrelated_frames_do_not_complete_pending_input() {
         for malformed in [
-            "{",
             "[]",
             r#"{"jsonrpc":"1.0","id":1,"result":{}}"#,
             r#"{"jsonrpc":"2.0","id":{},"result":{}}"#,
@@ -1330,6 +1384,8 @@ mod tests {
                 .await;
             // The input was already written: fail loudly while retaining
             // uncertainty about execution, rather than calling it unsent.
+            // (The server dropped the socket after the uncorrelated frame;
+            // that disconnect, not the frame itself, settles the pending.)
             assert!(
                 matches!(result, Err(AcpError::AmbiguousDelivery { .. })),
                 "{malformed}: {result:?}"
@@ -1342,6 +1398,215 @@ mod tests {
             client.close();
             server.await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn undecodable_frames_never_fabricate_a_settlement() {
+        let garbage = [
+            Message::Text("{".into()),
+            Message::Binary(vec![0xff, 0xfe, 0x00].into()),
+        ];
+        let mut clock_frozen = false;
+        for garbage in garbage {
+            let (seen_tx, mut seen_rx) = mpsc::unbounded_channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            let (finish_tx, finish_rx) = oneshot::channel();
+            let (url, server) = start_server(move |mut socket| async move {
+                let init = read_frame(&mut socket).await;
+                send_frame(
+                    &mut socket,
+                    respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+                )
+                .await;
+                let prompt = read_frame(&mut socket).await;
+                assert_eq!(prompt["method"], "session/prompt");
+                seen_tx.send(()).unwrap();
+                socket.send(garbage).await.unwrap();
+                release_rx.await.unwrap();
+                send_frame(
+                    &mut socket,
+                    json!({"jsonrpc": "2.0", "id":prompt["id"],
+                    "result":{"stopReason":"end_turn"}}),
+                )
+                .await;
+                finish_rx.await.unwrap();
+            })
+            .await;
+            let client = Arc::new(AcpClient::connect(&url, "").await.unwrap());
+            client.initialize().await.unwrap();
+            let mut updates = client.take_updates().unwrap();
+            let pending_client = Arc::clone(&client);
+            let pending = tokio::spawn(async move {
+                pending_client
+                    .submit_prompt("s", vec![json!({"type":"text", "text":"once"})])
+                    .await
+            });
+            seen_rx.recv().await.unwrap();
+            // Only the test clock advances: a skipped frame must not settle,
+            // kill, or classify anything while the connection is merely noisy.
+            // (Pause once; the clock stays frozen for the rest of the test.)
+            if !clock_frozen {
+                tokio::time::pause();
+                clock_frozen = true;
+            }
+            tokio::time::advance(Duration::from_secs(366 * 24 * 60 * 60)).await;
+            assert!(!pending.is_finished());
+            assert!(updates.try_recv().is_err());
+            assert!(!client.is_down());
+            release_tx.send(()).unwrap();
+            assert_eq!(
+                pending.await.unwrap().unwrap().stop_reason.as_deref(),
+                Some("end_turn")
+            );
+            assert!(!client.is_down());
+            finish_tx.send(()).unwrap();
+            server.await.unwrap();
+            client.close();
+        }
+    }
+
+    #[tokio::test]
+    async fn undecodable_frame_is_skipped_and_the_connection_stays_usable() {
+        let (finish_tx, finish_rx) = oneshot::channel();
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
+            let prompt = read_frame(&mut socket).await;
+            assert_eq!(prompt["method"], "session/prompt");
+            socket
+                .send(Message::Text("{ this is not JSON".into()))
+                .await
+                .unwrap();
+            send_frame(
+                &mut socket,
+                json!({"jsonrpc": "2.0", "method":"session/update",
+                "params":{"sessionId":"s", "update":{"sessionUpdate":"agent_message_chunk",
+                    "content":{"type":"text", "text":"past the noise"}}}}),
+            )
+            .await;
+            send_frame(
+                &mut socket,
+                json!({"jsonrpc": "2.0", "id":prompt["id"],
+                "result":{"stopReason":"end_turn"}}),
+            )
+            .await;
+            let follow_up = read_frame(&mut socket).await;
+            assert_eq!(follow_up["method"], "session/list");
+            send_frame(
+                &mut socket,
+                respond(follow_up["id"].as_u64().unwrap(), json!({"sessions":[]})),
+            )
+            .await;
+            finish_rx.await.unwrap();
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        let mut updates = client.take_updates().unwrap();
+        assert_eq!(
+            client
+                .submit_prompt("s", vec![json!({"type":"text", "text":"once"})])
+                .await
+                .unwrap()
+                .stop_reason
+                .as_deref(),
+            Some("end_turn")
+        );
+        assert_eq!(
+            updates.recv().await.unwrap()["update"]["content"]["text"],
+            "past the noise"
+        );
+        assert!(!client.is_down());
+        assert_eq!(
+            client.list_sessions(None, None).await.unwrap()["sessions"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        assert!(!client.is_down());
+        finish_tx.send(()).unwrap();
+        server.await.unwrap();
+        client.close();
+    }
+
+    #[tokio::test]
+    async fn session_startup_refusal_settles_only_its_pending_request() {
+        let (finish_tx, finish_rx) = oneshot::channel();
+        let (url, server) = start_server(|mut socket| async move {
+            let init = read_frame(&mut socket).await;
+            send_frame(
+                &mut socket,
+                respond(init["id"].as_u64().unwrap(), initialize_result(true)),
+            )
+            .await;
+            // Numeric product requestId: refused before native forwarding.
+            let first = read_frame(&mut socket).await;
+            assert_eq!(first["method"], "session/new");
+            send_frame(
+                &mut socket,
+                json!({"type":"sessionStartupError", "requestId":first["id"],
+                    "error":{"code":"unavailable", "message":"All worker slots are occupied"}}),
+            )
+            .await;
+            // String requestId spelling of the pending id still matches.
+            let second = read_frame(&mut socket).await;
+            assert_eq!(second["method"], "session/new");
+            send_frame(
+                &mut socket,
+                json!({"type":"sessionStartupError",
+                    "requestId":second["id"].as_u64().unwrap().to_string(),
+                    "error":{"code":"unavailable", "message":"still occupied"}}),
+            )
+            .await;
+            // Invalid shapes are consumed without fabricating an error...
+            let third = read_frame(&mut socket).await;
+            assert_eq!(third["method"], "session/new");
+            send_frame(
+                &mut socket,
+                json!({"type":"sessionStartupError", "requestId":third["id"],
+                    "error":{"code":"busy", "message":"wrong code"}}),
+            )
+            .await;
+            send_frame(
+                &mut socket,
+                json!({"type":"sessionStartupError", "requestId":"not-a-number",
+                    "error":{"code":"unavailable", "message":"unparseable id"}}),
+            )
+            .await;
+            // ...so the request settles on its real JSON-RPC response.
+            send_frame(
+                &mut socket,
+                respond(third["id"].as_u64().unwrap(), json!({"sessionId":"opaque/runtime:id"})),
+            )
+            .await;
+            finish_rx.await.unwrap();
+        })
+        .await;
+        let client = AcpClient::connect(&url, "").await.unwrap();
+        client.initialize().await.unwrap();
+        match client.new_session("/workspace").await {
+            Err(AcpError::Startup { message }) => assert_eq!(message, "All worker slots are occupied"),
+            other => panic!("numeric refusal: {other:?}"),
+        }
+        assert!(!client.is_down(), "refusal must not kill the open connection");
+        match client.new_session("/workspace").await {
+            Err(AcpError::Startup { message }) => assert_eq!(message, "still occupied"),
+            other => panic!("string refusal: {other:?}"),
+        }
+        assert!(!client.is_down());
+        // The connection stays usable after refusals and past invalid shapes.
+        assert_eq!(
+            client.new_session("/workspace").await.unwrap(),
+            "opaque/runtime:id"
+        );
+        assert!(!client.is_down());
+        finish_tx.send(()).unwrap();
+        server.await.unwrap();
+        client.close();
     }
 
     fn respond(id: u64, result: Value) -> Value {
