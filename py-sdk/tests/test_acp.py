@@ -20,6 +20,7 @@ from hypercli.acp import (
     ACPClosedError,
     ACPError,
     ACPRequestError,
+    ACPStartupError,
     ACPTerminalCloseError,
     ACPUnavailableError,
     AmbiguousDeliveryError,
@@ -67,6 +68,7 @@ class Peer:
         self.reject_prompt = False
         self.reject_resume = False
         self.hold_initialize = False
+        self.hold_new = False
         self.hold_close = False
         self.early_close = None
         self.close_on_upgrade = False
@@ -82,6 +84,8 @@ class Peer:
             "agentInfo": {"name": "fixture", "version": "1"}, "agentCapabilities": {"sessionCapabilities": {"resume": {}}}})
 
     async def new_session(self, **kwargs):
+        if self.hold_new:
+            await self.release.wait()
         return schema.NewSessionResponse(session_id="opaque/runtime:id")
 
     async def resume_session(self, session_id, **kwargs):
@@ -804,3 +808,104 @@ async def test_reader_failure_racing_write_does_not_leak_duplicate_future_error(
         assert not diagnostics
     finally:
         loop.set_exception_handler(previous)
+
+
+def inbound(peer, method):
+    return next(f for d, f in peer.frames if d == "in" and f.get("method") == method)
+
+
+def inbound_seen(peer, method):
+    return any(d == "in" and f.get("method") == method for d, f in peer.frames)
+
+
+async def test_session_startup_refusal_settles_pending_request_and_keeps_connection_usable():
+    """A product sessionStartupError settles only its request; the socket lives on."""
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        peer.hold_new = True
+
+        async def refuse_startup():
+            await until(lambda: inbound_seen(peer, "session/new"))
+            request = inbound(peer, "session/new")
+            await peer.socket.send(json.dumps({"type": "sessionStartupError", "requestId": request["id"],
+                "error": {"code": "unavailable", "message": "All worker slots are occupied"}}))
+
+        peer.tasks.add(asyncio.create_task(refuse_startup()))
+        with pytest.raises(ACPStartupError, match="All worker slots are occupied"):
+            async with asyncio.timeout(5):
+                await client.new_session(cwd="/workspace")
+        # The peer's blocked session/new answer arrives late for a request that
+        # already settled; the connection must keep reading past both frames.
+        refused_id = inbound(peer, "session/new")["id"]
+        peer.release.set()
+        await until(lambda: any(d == "out" and f.get("id") == refused_id for d, f in peer.frames))
+        async with asyncio.timeout(5):
+            assert await client.new_session(cwd="/workspace") == "opaque/runtime:id"
+
+
+async def test_malformed_or_foreign_startup_frames_do_not_settle_pending_requests():
+    """Invalid product shapes are not answered with fabricated request errors."""
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        peer.hold_new = True
+
+        async def send_startup_frames():
+            await until(lambda: inbound_seen(peer, "session/new"))
+            request = inbound(peer, "session/new")
+            for frame in (
+                {"type": "sessionStartupError", "requestId": request["id"],
+                 "error": {"code": "busy", "message": "wrong code"}},
+                {"type": "sessionStartupError", "requestId": "foreign-id",
+                 "error": {"code": "unavailable", "message": "foreign id"}},
+                {"type": "sessionStartupError", "requestId": True,
+                 "error": {"code": "unavailable", "message": "bool id"}},
+                {"type": "unrelatedProductFrame"},
+            ):
+                await peer.socket.send(json.dumps(frame))
+
+        peer.tasks.add(asyncio.create_task(send_startup_frames()))
+        pending = asyncio.create_task(client.new_session(cwd="/workspace"))
+        await asyncio.sleep(0.05)
+        assert not pending.done(), "invalid product frames must not settle the pending request"
+        peer.release.set()
+        assert await asyncio.wait_for(pending, 5) == "opaque/runtime:id"
+
+
+async def test_session_startup_refusal_without_pending_seam_fails_closed_instead_of_hanging():
+    """Without a dict ``_pending`` seam the refusal still fails the caller, closed."""
+
+    class NonDictPending:
+        # Upstream-shaped request map that defeats the isinstance(dict) seam
+        # while keeping the installed Connection's own bookkeeping working.
+        def __init__(self):
+            self.entries = {}
+
+        def __setitem__(self, request_id, future):
+            self.entries[request_id] = future
+
+        def pop(self, request_id, *default):
+            return self.entries.pop(request_id, *default)
+
+        def values(self):
+            return self.entries.values()
+
+        def clear(self):
+            self.entries.clear()
+
+    async with server() as (peer, url), await ACPClient.connect(url) as client:
+        client._connection._pending = NonDictPending()
+        peer.hold_new = True
+
+        async def refuse_startup():
+            await until(lambda: inbound_seen(peer, "session/new"))
+            request = inbound(peer, "session/new")
+            await peer.socket.send(json.dumps({"type": "sessionStartupError", "requestId": request["id"],
+                "error": {"code": "unavailable", "message": "All worker slots are occupied"}}))
+
+        peer.tasks.add(asyncio.create_task(refuse_startup()))
+        with pytest.raises(ACPStartupError, match="All worker slots are occupied") as refusal:
+            async with asyncio.timeout(5):
+                await client.new_session(cwd="/workspace")
+        # The caller saw the recorded typed error rather than a hang, and the
+        # fallback closed the transport and marked the connection dead.
+        assert refusal.value is client._transport_error
+        assert client._disconnected
+        assert client._transport.transport._ws.close_code is not None

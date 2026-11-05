@@ -20,6 +20,7 @@ EXPECTED_PUBLIC_SURFACE = frozenset(
         "ACPError",
         "ACPPromptResult",
         "ACPRequestError",
+        "ACPStartupError",
         "ACPTerminalCloseError",
         "ACPUnavailableError",
         "ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE",

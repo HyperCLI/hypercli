@@ -82,6 +82,16 @@ class ACPUnavailableError(ACPError):
         super().__init__(f"{capability} is not available: {detail}")
 
 
+class ACPStartupError(ACPError):
+    """Product capacity refusal before native startup; not a native JSON-RPC error."""
+
+    code = "unavailable"
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(f"ACP session startup was refused (unavailable): {message}")
+
+
 @dataclass(frozen=True)
 class ACPPromptResult:
     """Native terminal prompt result, without a platform receipt dependency."""
@@ -102,18 +112,53 @@ class _Transport:
             await self.transport.send(message)
 
     async def receive(self):
-        try:
-            message = await self.transport.receive()
-        except Exception:
-            async with self.writing:
-                self.owner._disconnect()
-            raise
-        if message is None:
-            # The pinned SDK transport owns the socket. Preserve its public
-            # WebSocket close classification at this one transport boundary.
-            async with self.writing:
-                self._observe_close()
-        return message
+        while True:
+            try:
+                message = await self.transport.receive()
+            except Exception:
+                async with self.writing:
+                    self.owner._disconnect()
+                raise
+            if message is None:
+                # The pinned SDK transport owns the socket. Preserve its public
+                # WebSocket close classification at this one transport boundary.
+                async with self.writing:
+                    self._observe_close()
+                return None
+            if isinstance(message, dict) and message.get("type") == "sessionStartupError" \
+                    and await self._refuse_startup(message):
+                # Product capacity refusal consumed here; the JSON-RPC reader
+                # keeps reading the still-open connection.
+                continue
+            return message
+
+    async def _refuse_startup(self, message):
+        """Settle the pending request a product ``sessionStartupError`` refuses.
+
+        The host reports session-startup capacity refusals as a product frame,
+        not a JSON-RPC response, and keeps the connection open; the upstream
+        connection would otherwise leave the request pending forever. Returns
+        True when the frame is consumed here.
+        """
+        error = message.get("error")
+        request_id = message.get("requestId")
+        if (not isinstance(request_id, (str, int)) or isinstance(request_id, bool)
+                or not isinstance(error, dict) or error.get("code") != "unavailable"
+                or not isinstance(error.get("message"), str)):
+            return False
+        pending = getattr(self.owner._connection, "_pending", None)
+        if isinstance(pending, dict):
+            future = pending.pop(request_id, None)
+            if future is not None and not future.done():
+                future.set_exception(ACPStartupError(error["message"]))
+            return True
+        # The upstream pending-request seam is absent in this installed version.
+        # Fail the connection with the refusal instead of leaving the request
+        # pending forever on an open socket.
+        logger.warning("ACP sessionStartupError cannot reach the upstream pending map; closing the connection")
+        self.owner._disconnect(ACPStartupError(error["message"]))
+        await self.close()
+        return True
 
     async def close(self):
         await self.transport.close()
