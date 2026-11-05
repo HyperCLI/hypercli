@@ -20,6 +20,7 @@ it.each([
     if (frame.method === 'initialize') result = { protocolVersion: 1, agentCapabilities: {} };
     if (frame.method === 'session/new') result = { sessionId: 'native-session' };
     if (frame.method === 'session/set_config_option') result = { configOptions: options };
+    if (frame.method === 'session/list') result = { sessions: [] };
     if (frame.method === method) {
       socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
         sessionId: 'native-session', update: { sessionUpdate: 'config_option_update', configOptions: options } } }));

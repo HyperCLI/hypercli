@@ -263,6 +263,34 @@ it('uses original catalog cwd after a fresh connection, never a replacement laun
   expect(resolveDefaultCwd).not.toHaveBeenCalled();
 });
 
+it('a configured connection default never shadows the catalog cwd for untracked sessions', async () => {
+  const f = await fixture();
+  // Foreign sessions exist in the peer catalog but are not tracked here.
+  f.hooks.set('session/list', (frame, socket) => f.result(socket, frame,
+    { sessions: [{ sessionId: 'foreign-a', cwd: '/original/a' }, { sessionId: 'foreign-b', cwd: '/original/b' }] }));
+  f.hooks.set('session/fork', (frame, socket) => f.result(socket, frame, { sessionId: 'fork-1' }));
+  const client = await f.connect({ cwd: '/connection-default' });
+  await client.resumeSession('foreign-a');
+  expect(f.calls('session/list')).toHaveLength(1);
+  expect(f.calls('session/resume')[0].params).toMatchObject({ sessionId: 'foreign-a', cwd: '/original/a' });
+  await client.unstableForkSession('foreign-b');
+  expect(f.calls('session/list')).toHaveLength(2);
+  expect(f.calls('session/fork')[0].params).toMatchObject({ sessionId: 'foreign-b', cwd: '/original/b' });
+  expect(client.connected).toBe(true);
+});
+
+it('falls back to the connection default only when the catalog cannot resolve the session', async () => {
+  const f = await fixture(), client = await f.connect({ cwd: '/connection-default' });
+  // The default fixture catalog holds only sessions this client created.
+  await client.resumeSession('missing');
+  expect(f.calls('session/list')).toHaveLength(1);
+  expect(f.calls('session/resume')[0].params.cwd).toBe('/connection-default');
+  // Catalog errors still propagate; the default is not an error mask.
+  f.hooks.set('session/list', (frame, socket) => f.send(socket, { id: frame.id, error: { code: -32000, message: 'Not authorized' } }));
+  await expect(client.resumeSession('missing-2')).rejects.toThrow('Not authorized');
+  expect(f.calls('session/list')).toHaveLength(2);
+});
+
 it('exposes exact session cwd from tracked state or paginated catalog, never a connection default', async () => {
   const f = await fixture(), client = await f.connect({ cwd: '/not-the-selected-session' });
   const { sessionId } = await client.newSession({ cwd: '/original/tracked' });

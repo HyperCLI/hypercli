@@ -239,8 +239,22 @@ export class CodingAgentAcpClient {
   async listSessions(options: { cwd?: string | null; cursor?: string | null } = {}): Promise<acp.ListSessionsResponse> {
     return this.observe('list', () => this.request('session/list', options));
   }
+  /** Original cwd for resume/fork of a session: the tracked setup, then the
+   *  peer catalog (`session/list` walk), and only as a last resort — when the
+   *  catalog cannot resolve the session — the connection default. A configured
+   *  default must never shadow the catalog: sessions not created by this
+   *  client still resolve to their original cwd. */
   private async originalSessionCwd(sessionId: string): Promise<string> {
-    return this.sessions.get(sessionId)?.cwd ?? this.options.cwd ?? this.sessionCwd(sessionId);
+    const tracked = this.sessions.get(sessionId)?.cwd;
+    if (tracked !== undefined) return tracked;
+    try {
+      return await this.sessionCwd(sessionId);
+    } catch (error) {
+      // sessionCwd keeps its exact semantics (it throws when untracked and
+      // absent from the catalog); only that miss falls back to the default.
+      if (this.options.cwd === undefined || !(error instanceof CodingAgentAcpUnavailableError)) throw error;
+      return this.options.cwd;
+    }
   }
   /** Exact tracked/catalog session cwd, without a launch/connection default fallback. */
   async sessionCwd(sessionId: string): Promise<string> {
