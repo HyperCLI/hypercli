@@ -68,7 +68,7 @@ else if (op === 'ls') {
     if (!['RUNNING','STARTING','STOPPING','STOPPED'].includes(row.state)) fail({text:'error: HTTP 409: cannot stop'});
     row.state = 'STOPPING'; row.states = ['STOPPING','STOPPED']; reply(row);
   } else if (op === 'delete') {
-    if (!['STOPPED','ARCHIVED'].includes(row.state)) fail({text:'error: HTTP 409: cannot delete'});
+    if (!['STOPPED','ARCHIVED','FAILED','NO_NAMESPACE'].includes(row.state)) fail({text:'error: HTTP 409: cannot delete'});
     s.agents = s.agents.filter(x => x !== row); reply({ok:true});
   } else if (op === 'start') {
     if (row.state !== 'STOPPED') fail({text:'error: HTTP 409: cannot start'});
@@ -318,27 +318,35 @@ t('presweep stops a STARTING agent but never one the backend would 409', async (
   assert.deepEqual(r.agents, []);
 });
 
-t('a FAILED agent is reported as unreclaimable and does not abort the sweep', async () => {
+t('a FAILED agent is reclaimed by the admitted delete and does not abort the sweep', async () => {
   const r = await sweep({agents:[old('FAILED'), foreign(otherId,'STOPPED','leftover')]});
   assert.equal(r.status, 0, r.stderr);
-  // No stop/delete is even attempted on FAILED: it has no legal exit.
-  assert.deepEqual(mutations(r).map(c=>[c.argv[1],c.argv[2]]), [['delete', otherId]]);
-  assert.match(r.stderr, new RegExp(`SWEEP_UNRECLAIMABLE id=${oldId} .*state=FAILED reason=no-legal-exit-from-FAILED`));
+  assert.deepEqual(mutations(r).map(c=>[c.argv[1],c.argv[2]]), [['delete', oldId], ['delete', otherId]]);
+  assert.deepEqual(r.agents, []);
+});
+
+t('a FAILED agent whose delete the API rejects is residue, not an abort', async () => {
+  const r = await sweep({agents:[
+    old('FAILED'),
+    foreign(otherId,'STOPPED','leftover'),
+  ], failures:{delete:{text:'error: HTTP 409: Failed Agent still holds its namespace', id:oldId}}});
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, new RegExp(`SWEEP_UNRECLAIMABLE id=${oldId} .*state=FAILED reason=delete-rejected-http-409`));
   assert.match(r.stderr, new RegExp(`SWEEP_RESIDUE id=${oldId} .*state=FAILED`));
   assert.deepEqual(r.agents.map(a=>a.id), [oldId]);
 });
 
 t('unreclaimable residue that leaves no slot fails fast with ids and states', async () => {
-  const r = await sweep({agents:[old('FAILED'), foreign(otherId,'FAILED','stuck-two')]}, {HYPERCLI_AGENT_CAP:'2'});
+  const r = await sweep({agents:[old('FAILED'), foreign(otherId,'FAILED','stuck-two')], failures:{delete:{text:'error: HTTP 409: Failed Agent still holds its namespace'}}}, {HYPERCLI_AGENT_CAP:'2'});
   assert.equal(r.status, 1);
-  assert.equal(mutations(r).length, 0);
+  assert.equal(mutations(r).length, 2);
   assert.match(r.stderr, /could not free a slot: 2 agent\(s\) remain, cap is 2/);
   assert.match(r.stderr, new RegExp(`SWEEP_RESIDUE id=${oldId} .*state=FAILED`));
   assert.match(r.stderr, new RegExp(`SWEEP_RESIDUE id=${otherId} .*state=FAILED`));
 });
 
 t('residue that still leaves a slot is reported but does not fail the sweep', async () => {
-  const r = await sweep({agents:[old('FAILED')]}, {HYPERCLI_AGENT_CAP:'2'});
+  const r = await sweep({agents:[old('FAILED')], failures:{delete:{text:'error: HTTP 409: Failed Agent still holds its namespace'}}}, {HYPERCLI_AGENT_CAP:'2'});
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /SWEEP_UNRECLAIMABLE/);
 });

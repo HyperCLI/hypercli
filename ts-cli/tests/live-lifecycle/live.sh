@@ -38,10 +38,10 @@ step() { echo "==> $*"; }
 #   STOP    only from STARTING|RUNNING   (CREATING/RESTORING/ARCHIVING/
 #                                         ARCHIVED/FAILED -> 409)
 #   ARCHIVE only from STOPPED|ARCHIVING  (FAILED -> 409)
-#   DELETE  only from STOPPED|ARCHIVED   (FAILED -> 409)
-# FAILED therefore has NO legal exit through the user API. The sweep reports
-# such agents as unreclaimable residue, counts them, and keeps going; it
-# never blindly stop-then-deletes and swallows the 409s.
+#   DELETE  from STOPPED|ARCHIVED/FAILED/NO_NAMESPACE; a FAILED row still
+#           holding its namespace 409s until an operator clears it.
+# The sweep reports API-rejected rows as unreclaimable residue, counts them,
+# and keeps going; it never blindly stop-then-deletes and swallows the 409s.
 #
 # Nothing here echoes raw CLI stderr (it can carry the API key's error
 # context); only the parsed HTTP status is logged.
@@ -144,8 +144,10 @@ sweep_agent() {
         stops=$((stops + 1))
         sweep_cli agents wait "${id}" --state STOPPED --timeout 120 --interval 5 || true
         ;;
-      STOPPED|ARCHIVED)
-        # The only two states DELETE is admitted from.
+      # Backend admits DELETE from STOPPED/ARCHIVED/FAILED/NO_NAMESPACE; a
+      # FAILED row still holding its namespace rejects with 409 and stays
+      # unreclaimable, reported below.
+      STOPPED|ARCHIVED|FAILED)
         if [ "${deletes}" -ge 1 ]; then
           sweep_unreclaimable "${id}" "${name}" "${state}" "survived-delete"; return 1
         fi
@@ -155,9 +157,6 @@ sweep_agent() {
         fi
         deletes=$((deletes + 1))
         ;;
-      FAILED)
-        # Spec-mandated dead end: STOP, ARCHIVE and DELETE all 409 from here.
-        sweep_unreclaimable "${id}" "${name}" FAILED "no-legal-exit-from-FAILED"; return 1 ;;
       CREATING|STOPPING|RESTORING|ARCHIVING|UPGRADING)
         : ;; # Transient: observe, never interrupt a storage operation.
       *)
