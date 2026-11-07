@@ -353,6 +353,18 @@ t('a NO_NAMESPACE agent is reclaimed by the row-only delete', async () => {
   assert.deepEqual(r.agents, []);
 });
 
+t('retained-history fixtures are preserved even in a deletable state', async () => {
+  const fixtureId = '66666666-6666-4666-8666-666666666666';
+  const r = await sweep({agents:[
+    foreign(fixtureId,'FAILED','acp-history-muy4nqh3'),
+    old('FAILED'),
+  ]});
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /preserving retained fixture acp-history-muy4nqh3/);
+  assert.ok(!mutations(r).some(c=>c.argv[2]===fixtureId), 'no mutation may target the fixture');
+  assert.deepEqual(r.agents.map(a=>a.id), [fixtureId]);
+});
+
 t('unreclaimable residue that leaves no slot fails fast with ids and states', async () => {
   const r = await sweep({agents:[old('FAILED'), foreign(otherId,'FAILED','stuck-two')], failures:{delete:{text:'error: HTTP 409: Failed Agent still holds its namespace'}}}, {HYPERCLI_AGENT_CAP:'2'});
   assert.equal(r.status, 1);

@@ -204,9 +204,15 @@ JS
   total="$(wc -l <"${SWEEP_DIR}/inventory.tsv" | tr -d "[:space:]")"
   step "presweep: ${total} agent(s) visible to this account; deleting all of them"
   SWEEP_STUCK=0
-  # A single unreclaimable agent must not abort the sweep.
+  # A single undeleted row must not abort the sweep.
   while IFS=$'\t' read -r id name state; do
-    sweep_agent "${id}" "${name}" "${state}" || true
+    # Retained-history fixtures live on this account permanently
+    # (.github/fixtures/hypercli/acp-history-dev.json); deleting the
+    # fixture agent removes the session from the key's read scope.
+    case "${name}" in
+      acp-history-*) step "presweep: preserving retained fixture ${name} (${id})" ;;
+      *) sweep_agent "${id}" "${name}" "${state}" || true ;;
+    esac
   done <"${SWEEP_DIR}/inventory.tsv"
 
   sweep_inventory || return 1
