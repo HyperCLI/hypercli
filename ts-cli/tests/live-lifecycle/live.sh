@@ -222,7 +222,7 @@ sweep_require_capacity() {
   local need="${1:-1}"
   if [ "$((SWEEP_REMAINING + need))" -gt "${SWEEP_CAP}" ]; then
     echo "error: presweep could not free a slot: ${SWEEP_REMAINING} agent(s) remain, cap is ${SWEEP_CAP}, this job needs ${need}." >&2
-    echo "error: stuck agents (id name state) are listed above as SWEEP_RESIDUE; FAILED agents have no user-API exit and need an operator." >&2
+    echo "error: stuck agents (id name state) are listed above as SWEEP_RESIDUE; rows whose delete the API rejects (e.g. a FAILED agent still holding its namespace) need an operator." >&2
     return 1
   fi
   step "presweep: ${SWEEP_REMAINING}/${SWEEP_CAP} slots used; ${need} create(s) can proceed"
