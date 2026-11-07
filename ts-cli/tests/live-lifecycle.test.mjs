@@ -137,30 +137,31 @@ t('empty inventory runs the complete lifecycle with two checked replies', async 
   assert.equal(r.calls[1].argv[1], 'ls');
 });
 
-for (const state of ['RUNNING','STOPPED','ARCHIVED','CREATING','STARTING','STOPPING','RESTORING','ARCHIVING','UPGRADING','DELETED']) {
+for (const state of ['RUNNING','STOPPED','ARCHIVED','CREATING','STARTING','STOPPING','RESTORING','ARCHIVING','NO_NAMESPACE','DELETED']) {
   t(`presweep handles ${state} through observed legal states before create`, async () => {
     const stable = state === 'STARTING' ? 'RUNNING' : state === 'ARCHIVING' ? 'ARCHIVED' : 'STOPPED';
-    const transition = ['CREATING','STARTING','STOPPING','RESTORING','ARCHIVING','UPGRADING'].includes(state);
+    const transition = ['CREATING','STARTING','STOPPING','RESTORING','ARCHIVING'].includes(state);
     const r = await run({agents:[old(state, transition ? {states:[state,stable]} : {})]});
     assert.equal(r.status, 0, r.stderr);
     const oldCalls = mutations(r).filter(c=>c.argv[2]===oldId);
     assert.deepEqual(oldCalls.map(c=>c.argv[1]), state === 'DELETED' ? [] :
       (state === 'RUNNING' || state === 'STARTING') ? ['stop','delete'] : ['delete']);
-    assert.ok(oldCalls.every(c=>c.argv[1] !== 'stop' || c.state === 'RUNNING'));
+    assert.ok(oldCalls.every(c=>c.argv[1] !== 'stop' || ['RUNNING','STARTING'].includes(c.state)));
     const create = r.calls.findIndex(c=>c.argv[1]==='create');
     assert.ok(oldCalls.every(c=>r.calls.indexOf(c)<create));
   });
 }
 
-t('FAILED is an actionable blocker; other removable inventory is still cleaned', async () => {
+t('FAILED is reclaimed by the admitted delete; CREATE proceeds', async () => {
   const r = await run({agents:[old('FAILED'), old('STOPPED',{id:otherId,name:'hypercli-ci-lifecycle-abcdef1-1',tags:[`agent:${otherId}`]})]});
-  assert.equal(r.status, 1);
-  assert.deepEqual(mutations(r).map(c=>[c.argv[1],c.argv[2]]), [['delete',otherId]]);
-  assert.match(r.stderr, new RegExp(`id=${oldId}.*state=FAILED.*admin-inspect`));
-  assert.match(r.stderr, /CREATE not attempted/);
+  assert.equal(r.status, 0, r.stderr);
+  const deletes = mutations(r).filter(c=>c.argv[1]==='delete').map(c=>c.argv[2]);
+  assert.ok(deletes.includes(oldId) && deletes.includes(otherId), r.stderr);
+  assert.ok(!/admin-inspect/.test(r.stderr));
+  assert.deepEqual(r.agents, []);
 });
 
-for (const state of ['CREATING','STARTING','STOPPING','RESTORING','ARCHIVING','UPGRADING']) {
+for (const state of ['CREATING','STOPPING','RESTORING','ARCHIVING']) {
   t(`stalled ${state} times out without a stop/delete/create`, async () => {
     const r = await run({agents:[old(state)]}, {LIFECYCLE_CLEANUP_SECONDS:'0'});
     assert.equal(r.status, 1);
@@ -168,6 +169,14 @@ for (const state of ['CREATING','STARTING','STOPPING','RESTORING','ARCHIVING','U
     assert.match(r.stderr, new RegExp(`state=${state}.*admin-inspect`));
   });
 }
+
+t('a stalled STARTING row is stopped from the admitted state, then deleted', async () => {
+  const r = await run({agents:[old('STARTING')]});
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(mutations(r).filter(c=>c.argv[2]===oldId).map(c=>[c.argv[1],c.state]),
+    [['stop','STARTING'],['delete','STOPPED']]);
+  assert.deepEqual(r.agents, []);
+});
 
 t('missing agent during cleanup is reconciled as absence', async () => {
   const r = await run({agents:[old('RUNNING',{vanish:true})]});
@@ -334,6 +343,14 @@ t('a FAILED agent whose delete the API rejects is residue, not an abort', async 
   assert.match(r.stderr, new RegExp(`SWEEP_UNRECLAIMABLE id=${oldId} .*state=FAILED reason=delete-rejected-http-409`));
   assert.match(r.stderr, new RegExp(`SWEEP_RESIDUE id=${oldId} .*state=FAILED`));
   assert.deepEqual(r.agents.map(a=>a.id), [oldId]);
+});
+
+t('a NO_NAMESPACE agent is reclaimed by the row-only delete', async () => {
+  const r = await sweep({agents:[old('NO_NAMESPACE'), foreign(otherId,'NO_NAMESPACE','row-only-two')]});
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(mutations(r).map(c=>[c.argv[1],c.argv[2]]), [['delete', oldId], ['delete', otherId]]);
+  assert.ok(mutations(r).every(c=>c.argv[1]!=='stop'));
+  assert.deepEqual(r.agents, []);
 });
 
 t('unreclaimable residue that leaves no slot fails fast with ids and states', async () => {

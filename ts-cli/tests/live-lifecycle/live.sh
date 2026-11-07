@@ -35,8 +35,9 @@ step() { echo "==> $*"; }
 # saved-agent quota.
 #
 # Admission rules the sweep must respect (agents/SPEC.md, user API only):
-#   STOP    only from STARTING|RUNNING   (CREATING/RESTORING/ARCHIVING/
-#                                         ARCHIVED/FAILED -> 409)
+#   STOP    only from STARTING|RUNNING   (STOPPING/STOPPED converge;
+#                                         FAILED settles when its namespace
+#                                         is present, else 409)
 #   ARCHIVE only from STOPPED|ARCHIVING  (FAILED -> 409)
 #   DELETE  from STOPPED|ARCHIVED/FAILED/NO_NAMESPACE; a FAILED row still
 #           holding its namespace 409s until an operator clears it.
@@ -147,7 +148,7 @@ sweep_agent() {
       # Backend admits DELETE from STOPPED/ARCHIVED/FAILED/NO_NAMESPACE; a
       # FAILED row still holding its namespace rejects with 409 and stays
       # unreclaimable, reported below.
-      STOPPED|ARCHIVED|FAILED)
+      STOPPED|ARCHIVED|FAILED|NO_NAMESPACE)
         if [ "${deletes}" -ge 1 ]; then
           sweep_unreclaimable "${id}" "${name}" "${state}" "survived-delete"; return 1
         fi
@@ -157,7 +158,7 @@ sweep_agent() {
         fi
         deletes=$((deletes + 1))
         ;;
-      CREATING|STOPPING|RESTORING|ARCHIVING|UPGRADING)
+      CREATING|STOPPING|RESTORING|ARCHIVING)
         : ;; # Transient: observe, never interrupt a storage operation.
       *)
         sweep_unreclaimable "${id}" "${name}" "${state}" "unhandled-state"; return 1 ;;

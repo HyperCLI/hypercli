@@ -12,7 +12,7 @@ const [file, mode, owner, id, name] = process.argv.slice(2);
 const fail = code => { console.error(`LIFECYCLE_INVALID ${code}`); process.exit(1); };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ciName = /^hypercli-ci-lifecycle-(?:[0-9a-f]{7}-[1-9][0-9]{0,2}|[0-9a-f]{10})$/;
-const states = new Set('CREATING STARTING RESTORING RUNNING STOPPING STOPPED UPGRADING ARCHIVING ARCHIVED FAILED DELETED'.split(' '));
+const states = new Set('CREATING STARTING RESTORING RUNNING STOPPING STOPPED NO_NAMESPACE ARCHIVING ARCHIVED FAILED DELETED'.split(' '));
 let data;
 try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { fail('json'); }
 function owned(row) {
@@ -39,8 +39,8 @@ if (mode === 'identity') {
   console.error(`LIFECYCLE_INVENTORY owned=${rows.length} outside_scope=${data.length - rows.length}`);
   for (const row of rows) if (row.state !== 'DELETED') console.log(`${row.id}\t${row.name}\t${row.state}`);
 } else if (mode === 'capacity') {
-  // The owned sweep can only remove rows it owns; foreign or FAILED rows still
-  // occupy the account's saved-agent quota. Refuse CREATE rather than feeding
+  // The owned sweep can only remove rows it owns; foreign rows, or rows whose
+  // delete the API rejects, still occupy the account's saved-agent quota. Refuse CREATE rather than feeding
   // the backend a request that can only come back 429.
   if (!Array.isArray(data)) fail('inventory_shape');
   const cap = Number(id);
@@ -108,20 +108,22 @@ lc_clean_agent() {
     state="$(lc_state "$id" "$name")" || { lc_leftover "$id" "$name" unreadable; return 1; }
     case "$state" in
       MISSING|DELETED) return 0 ;;
-      FAILED) lc_leftover "$id" "$name" FAILED; return 1 ;;
-      RUNNING)
+      RUNNING|STARTING)
         if [ "$stopped" = 0 ] && [ "$deleted" = 0 ]; then
           lc_cli agents stop "$id" --yes --json || { lc_leftover "$id" "$name" "$state"; return 1; }
           stopped=1
           continue
         fi ;;
-      STOPPED|ARCHIVED)
+      # Backend admits DELETE from STOPPED/ARCHIVED/FAILED/NO_NAMESPACE; a
+      # FAILED row still holding its namespace rejects with 409 and is
+      # reported as a leftover by the error branch below.
+      STOPPED|ARCHIVED|FAILED|NO_NAMESPACE)
         if [ "$deleted" = 0 ]; then
           lc_cli agents delete "$id" --yes --json || { lc_leftover "$id" "$name" "$state"; return 1; }
           deleted=1
           continue
         fi ;;
-      CREATING|STARTING|STOPPING|RESTORING|ARCHIVING|UPGRADING) ;; # Observe; never interrupt a storage operation.
+      CREATING|STOPPING|RESTORING|ARCHIVING) ;; # Observe; never interrupt a storage operation.
       *) lc_leftover "$id" "$name" unknown; return 1 ;;
     esac
     if [ "$SECONDS" -ge "$LC_DEADLINE" ]; then
