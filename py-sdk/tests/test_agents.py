@@ -890,7 +890,7 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
 
 @pytest.mark.parametrize(
     "failed_state",
-    ["STOPPED", "ARCHIVED", "DELETED", "FAILED"],
+    ["STOPPED", "ARCHIVED", "DELETED", "FAILED", "NO_NAMESPACE"],
 )
 def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
     http = MagicMock(spec=HTTPClient)
@@ -1047,16 +1047,18 @@ def test_agent_lifecycle_state_classification_is_forward_open():
         "ARCHIVING",
         "ARCHIVED",
         "FAILED",
+        "NO_NAMESPACE",
         "DELETED",
     )
     assert AGENT_TRANSITIONAL_STATES == frozenset(
         {"CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"}
     )
     assert AGENT_RUNTIME_INACTIVE_STATES == frozenset(
-        {"STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"}
+        {"STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "NO_NAMESPACE", "DELETED"}
     )
     assert is_agent_transitional_state("archiving") is True
     assert is_agent_runtime_inactive_state("archived") is True
+    assert is_agent_runtime_inactive_state("NO_NAMESPACE") is True
     assert is_agent_transitional_state("future_server_state") is False
 
 

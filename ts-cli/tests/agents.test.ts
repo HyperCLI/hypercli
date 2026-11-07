@@ -422,7 +422,7 @@ describe('hyper agents wait', () => {
       ID_A,
       ['ARCHIVED'],
       12_000,
-      ['FAILED', 'DELETED'],
+      ['FAILED', 'DELETED', 'NO_NAMESPACE'],
       undefined,
       500,
     );

@@ -1688,6 +1688,7 @@ pub const CANONICAL_AGENT_STATES: &[&str] = &[
     "ARCHIVING",
     "ARCHIVED",
     "FAILED",
+    "NO_NAMESPACE",
     "DELETED",
 ];
 
@@ -1695,7 +1696,7 @@ pub const AGENT_TRANSITIONAL_STATES: &[&str] =
     &["CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"];
 
 pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] =
-    &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"];
+    &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "NO_NAMESPACE", "DELETED"];
 
 pub fn is_agent_transitional_state(state: &str) -> bool {
     AGENT_TRANSITIONAL_STATES
@@ -2646,6 +2647,7 @@ mod tests {
                 "ARCHIVING",
                 "ARCHIVED",
                 "FAILED",
+                "NO_NAMESPACE",
                 "DELETED",
             ]
         );
@@ -2655,10 +2657,11 @@ mod tests {
         );
         assert_eq!(
             AGENT_RUNTIME_INACTIVE_STATES,
-            &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"]
+            &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "NO_NAMESPACE", "DELETED"]
         );
         assert!(is_agent_transitional_state("archiving"));
         assert!(is_agent_runtime_inactive_state("archived"));
+        assert!(is_agent_runtime_inactive_state("NO_NAMESPACE"));
         assert!(!is_agent_transitional_state("future_server_state"));
 
         let deployment = |state: &str| Deployment {

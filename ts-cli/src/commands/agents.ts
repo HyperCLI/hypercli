@@ -483,7 +483,7 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
         id,
         [target],
         timeoutMs,
-        (['FAILED', 'DELETED'] as AgentState[]).filter((s) => s !== target),
+        (['FAILED', 'DELETED', 'NO_NAMESPACE'] as AgentState[]).filter((s) => s !== target),
         undefined,
         intervalMs,
       );
@@ -740,7 +740,7 @@ async function cmdStart(ctx: CommandContext, args: string[]): Promise<void> {
  * runtime change is only safe while the agent is fully at rest.
  */
 const ACTIVE_OPERATION_STATES: ReadonlySet<string> = new Set([
-  'CREATING', 'STARTING', 'RUNNING', 'STOPPING', 'RESTORING', 'UPGRADING',
+  'CREATING', 'STARTING', 'RUNNING', 'STOPPING', 'RESTORING',
 ]);
 
 /** The actionable stop/set/start recovery sequence for a running-agent refusal. */

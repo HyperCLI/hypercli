@@ -2135,7 +2135,7 @@ impl HyperCliClient {
         self.wait_deployment_state(
             deployment_id,
             &["running"],
-            &["stopped", "archived", "deleted", "failed"],
+            &["stopped", "archived", "deleted", "failed", "no_namespace"],
             timeout,
         )
         .await
@@ -4109,8 +4109,10 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn wait_deployment_running_fails_promptly_when_already_stopped() {
+    async fn assert_wait_deployment_running_fails_promptly_from_state(
+        state: &'static str,
+        message: &'static str,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
@@ -4129,8 +4131,8 @@ mod tests {
             .with_body(
                 json!({
                     "id": "deployment-1",
-                    "state": "STOPPED",
-                    "message": "Runtime stopped before becoming ready"
+                    "state": state,
+                    "message": message
                 })
                 .to_string(),
             )
@@ -4164,7 +4166,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.to_string().contains("entered STOPPED"));
+        assert!(error.to_string().contains(&format!("entered {state}")));
         websocket.abort();
         stopped.assert_async().await;
         assert!(!token.matched_async().await);
@@ -4176,6 +4178,24 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_running_fails_promptly_when_already_stopped() {
+        assert_wait_deployment_running_fails_promptly_from_state(
+            "STOPPED",
+            "Runtime stopped before becoming ready",
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_running_fails_promptly_when_no_namespace() {
+        assert_wait_deployment_running_fails_promptly_from_state(
+            "NO_NAMESPACE",
+            "Workspace namespace never became ready",
+        )
+        .await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
