@@ -174,7 +174,7 @@ initialize response advertises standard terminal authentication when the client
 supports it. Existing supported V1 configuration remains compatible.
 
 The image-owned OpenCode config seed supplies native context accounting:
-`default-anthropic` routes to GLM Flash with a 131,072-token context; `default`,
+`default-anthropic` routes to GLM Flash with a 1,048,576-token context; `default`,
 `coding`, `coding-anthropic`, `kimi-k3`, and `kimi-k3-anthropic` route to Kimi
 with a 262,144-token context. This split follows the gateway's
 `model_group_aliases` and serving `context_length`/`--max-model-len` in the

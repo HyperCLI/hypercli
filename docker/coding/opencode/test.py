@@ -46,7 +46,7 @@ assert_models(
     agent_args="acp",
 )
 
-# The gateway deliberately routes default-anthropic to 128k GLM Flash,
+# The gateway deliberately routes default-anthropic to 1M GLM Flash,
 # while the other image aliases route to 256k Kimi. Check the actual COPY
 # and first-boot seed path, not just the source JSON. These native limits
 # drive context accounting/compaction before a request reaches the gateway.
@@ -64,7 +64,7 @@ assert seeded['model'] == 'hypercli/default-anthropic'
 models = seeded['provider']['hypercli']['models']
 expected_context = {
     'default': 262144,
-    'default-anthropic': 131072,
+    'default-anthropic': 1048576,
     'coding': 262144,
     'coding-anthropic': 262144,
     'kimi-k3': 262144,

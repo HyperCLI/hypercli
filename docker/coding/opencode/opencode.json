@@ -35,7 +35,7 @@
             "Low": { "effort": "low" }
           },
           "limit": {
-            "context": 131072,
+            "context": 1048576,
             "output": 65536
           },
           "modalities": {
