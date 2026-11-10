@@ -1518,7 +1518,6 @@ mod tests {
             Message::Text("{".into()),
             Message::Binary(vec![0xff, 0xfe, 0x00].into()),
         ];
-        let mut clock_frozen = false;
         for garbage in garbage {
             let (seen_tx, mut seen_rx) = mpsc::unbounded_channel();
             let (release_tx, release_rx) = oneshot::channel();
@@ -1556,15 +1555,12 @@ mod tests {
             seen_rx.recv().await.unwrap();
             // Only the test clock advances: a skipped frame must not settle,
             // kill, or classify anything while the connection is merely noisy.
-            // (Pause once; the clock stays frozen for the rest of the test.)
-            if !clock_frozen {
-                tokio::time::pause();
-                clock_frozen = true;
-            }
+            tokio::time::pause();
             tokio::time::advance(Duration::from_secs(366 * 24 * 60 * 60)).await;
             assert!(!pending.is_finished());
             assert!(updates.try_recv().is_err());
             assert!(!client.is_down());
+            tokio::time::resume();
             release_tx.send(()).unwrap();
             assert_eq!(
                 pending.await.unwrap().unwrap().stop_reason.as_deref(),
