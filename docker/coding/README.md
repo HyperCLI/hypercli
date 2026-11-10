@@ -173,6 +173,16 @@ The OpenCode image installs the pinned V2 `@opencode/cli` npm package. Its ACP
 initialize response advertises standard terminal authentication when the client
 supports it. Existing supported V1 configuration remains compatible.
 
+The image-owned OpenCode config seed supplies native context accounting:
+`default-anthropic` routes to GLM Flash with a 131,072-token context; `default`,
+`coding`, `coding-anthropic`, `kimi-k3`, and `kimi-k3-anthropic` route to Kimi
+with a 262,144-token context. This split follows the gateway's
+`model_group_aliases` and serving `context_length`/`--max-model-len` in the
+private mono's `pulumi/pulumi-agents-k8s/gpus.yaml`. The seed retains a
+65,536-token output budget. Update the seed and image contract test together
+when routing limits change. These defaults apply to newly seeded configuration;
+persisted user-managed configuration is not migrated.
+
 Buzz provider launches use:
 
 | Property | Value |

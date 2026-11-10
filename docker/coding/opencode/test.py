@@ -45,13 +45,47 @@ assert_models(
     agent_command="/opt/hypercli/bin/opencode",
     agent_args="acp",
 )
+
+# The gateway deliberately routes default-anthropic to 128k GLM Flash,
+# while the other image aliases route to 256k Kimi. Check the actual COPY
+# and first-boot seed path, not just the source JSON. These native limits
+# drive context accounting/compaction before a request reaches the gateway.
+run(
+    image,
+    ["python3", "-c", """
+import json
+import os
+from pathlib import Path
+
+baked = json.loads(Path('/opt/hypercli/share/runtime/opencode.json').read_text())
+seeded = json.loads((Path(os.environ['OPENCODE_CONFIG_DIR']) / 'opencode.json').read_text())
+assert seeded == baked
+assert seeded['model'] == 'hypercli/default-anthropic'
+models = seeded['provider']['hypercli']['models']
+expected_context = {
+    'default': 262144,
+    'default-anthropic': 131072,
+    'coding': 262144,
+    'coding-anthropic': 262144,
+    'kimi-k3': 262144,
+    'kimi-k3-anthropic': 262144,
+}
+assert set(models) == set(expected_context)
+for alias, context in expected_context.items():
+    assert models[alias]['limit'] == {'context': context, 'output': 65536}, alias
+"""],
+)
 assert_user_config_preserved(
     image,
     relative_path=".config/opencode/opencode.json",
     generated_contains="hypercli/default-anthropic",
-    user_content=json.dumps({"userManaged": True, "agent": {
-        "personal": {"mode": "primary", "permission": {"*": "ask"}}
-    }}) + "\n",
+    user_content=json.dumps({
+        "userManaged": True,
+        "agent": {"personal": {"mode": "primary", "permission": {"*": "ask"}}},
+        "provider": {"hypercli": {"models": {
+            "default-anthropic": {"limit": {"context": 262144, "output": 32768}}
+        }}},
+    }) + "\n",
 )
 
 entrypoint_env = run(
