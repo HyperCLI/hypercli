@@ -115,6 +115,10 @@ pub struct SessionImportOutcome {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct SessionRecord {
     pub id: String,
+    /// Client JSON object, separate from message metadata; empty on older servers.
+    #[serde(default)]
+    pub meta: serde_json::Map<String, Value>,
+    pub mode: Option<String>,
     pub source: Option<String>,
     /// Opaque external reference, independent of source; absent on older servers.
     pub external_url: Option<String>,
@@ -188,6 +192,19 @@ pub struct SessionListOptions {
     pub cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+}
+
+/// Omitted fields preserve stored values. Metadata merges top-level keys;
+/// null values delete keys and nested values replace (16 KiB stored UTF-8 JSON).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SessionUpdate {
+    /// None omits; Some(None) explicitly clears the title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -297,6 +314,12 @@ impl SessionsClient<'_> {
     /// Detail reads best-effort advance the caller's user read receipt to the head.
     pub async fn get_session(&self, session_id: &str) -> Result<SessionRecord, HyperCliError> {
         Self::read(self.request(Method::GET, &[session_id])?).await
+    }
+
+    pub async fn update_session(
+        &self, session_id: &str, patch: &SessionUpdate,
+    ) -> Result<SessionRecord, HyperCliError> {
+        Self::read(self.request(Method::PATCH, &[session_id])?.json(patch)).await
     }
 
     pub async fn list_sessions(

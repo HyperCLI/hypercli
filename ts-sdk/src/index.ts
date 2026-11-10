@@ -460,6 +460,7 @@ export {
   SessionsAPI,
   type AcpSessionSetup,
   type AcpSessionListOptions,
+  type AcpSessionUpdate,
   type AcpSessionMessage,
   type SessionMessageMeta,
   type SessionReactionGroup,

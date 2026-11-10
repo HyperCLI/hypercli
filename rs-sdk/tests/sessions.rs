@@ -35,6 +35,41 @@ fn client(server: &mockito::ServerGuard) -> HyperCliClient {
 }
 
 #[test]
+fn session_meta_update_omission_and_read_contract() {
+    use hypercli_sdk::SessionUpdate;
+    assert_eq!(serde_json::to_value(SessionUpdate::default()).unwrap(), json!({}));
+    assert_eq!(serde_json::to_value(SessionUpdate {
+        meta: Some(serde_json::Map::new()), ..Default::default()
+    }).unwrap(), json!({"meta": {}}));
+    let patch = SessionUpdate {
+        title: Some(None), mode: Some("auto".into()),
+        meta: Some(json!({"resolved": ["a"], "remove": null}).as_object().unwrap().clone()),
+    };
+    let mut server = mockito::Server::new();
+    let row = json!({"id": "s/id", "meta": {"resolved": ["a"]}, "mode": "auto"});
+    let update = server.mock("PATCH", "/agents/sessions/s%2Fid")
+        .match_header("authorization", "Bearer test-key")
+        .match_body(Matcher::Json(json!({"title": null, "mode": "auto", "meta": {"resolved": ["a"], "remove": null}})))
+        .with_body(row.to_string()).create();
+    let detail = server.mock("GET", "/agents/sessions/s%2Fid").with_body(row.to_string()).create();
+    let list = server.mock("GET", "/agents/sessions")
+        .with_body(json!({"items": [row], "has_more": false}).to_string()).create();
+    let client = client(&server);
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let updated = client.sessions().update_session("s/id", &patch).await.unwrap();
+        assert_eq!(updated.meta["resolved"], json!(["a"]));
+        assert_eq!(client.sessions().get_session("s/id").await.unwrap(), updated);
+        assert_eq!(client.sessions().list_sessions(&SessionListOptions::default()).await.unwrap().items, vec![updated]);
+    });
+    update.assert(); detail.assert(); list.assert();
+    let old: SessionRecord = serde_json::from_value(json!({"id":"old"})).unwrap();
+    assert!(old.meta.is_empty());
+    for invalid in [json!(null), json!([]), json!(1)] {
+        assert!(serde_json::from_value::<SessionRecord>(json!({"id":"s", "meta": invalid})).is_err());
+    }
+}
+
+#[test]
 fn setup_reads_exact_agent_and_session_and_requires_complete_known_setup() {
     let mut server = mockito::Server::new();
     let setup = server.mock("GET", "/agents/sessions/s%2Fid/setup")

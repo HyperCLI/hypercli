@@ -70,6 +70,8 @@ export interface AcpSessionParticipant {
 /** One `agent_sessions` row as the catalog sees it (backend `SessionListItem`). summaryText doubles as the display title. */
 export interface AcpSessionRecord {
   id: string;
+  /** Client JSON object; defaults empty on older servers. Not message reaction metadata. */
+  meta?: Record<string, unknown>;
   /** Persisted product permission mode; distinct from native ACP session modes. */
   mode?: 'ask' | 'auto' | 'none' | null;
   /** Descriptive creation provenance; unknown values are preserved. */
@@ -281,6 +283,13 @@ export interface AcpSessionListOptions {
   limit?: number;
 }
 
+export interface AcpSessionUpdate {
+  title?: string | null;
+  mode?: 'ask' | 'auto' | 'none';
+  /** Top-level merge; null values delete keys. Nested values replace. Stored limit: 16 KiB UTF-8 JSON. */
+  meta?: Record<string, unknown>;
+}
+
 export interface AcpSessionMessagesOptions {
   /** Opaque cursor from a previous page's nextCursor; omitted starts at the newest message. */
   cursor?: string | null;
@@ -342,6 +351,7 @@ function sessionFromWire(row: Record<string, unknown>): AcpSessionRecord {
   const participants = row.participants;
   return {
     id: String(row.id ?? ''),
+    meta: (row.meta ?? {}) as Record<string, unknown>,
     ...(row.mode !== undefined ? { mode: row.mode as AcpSessionRecord['mode'] } : {}),
     source: typeof row.source === 'string' ? row.source : null,
     externalUrl: pick<string>(row, 'external_url', 'externalUrl') ?? null,
@@ -465,6 +475,15 @@ export class SessionsAPI {
     if (!this.http.post) throw new Error('Session mode updates require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(platformSessionId)}`, { mode },
+    );
+    return sessionFromWire(payload);
+  }
+
+  /** Update stored session fields; omitted fields are preserved. Whole-meta null is rejected by the server. */
+  async updateSession(platformSessionId: string, patch: AcpSessionUpdate): Promise<AcpSessionRecord> {
+    if (!this.http.post) throw new Error('Session updates require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(platformSessionId)}`, patch,
     );
     return sessionFromWire(payload);
   }

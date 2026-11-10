@@ -9497,6 +9497,11 @@
       },
       "SessionListItem": {
         "properties": {
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -10015,6 +10020,11 @@
       },
       "SessionStateDetail": {
         "properties": {
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -10169,6 +10179,11 @@
       },
       "SessionTitlePatch": {
         "properties": {
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          },
           "title": {
             "anyOf": [
               {
@@ -10204,6 +10219,11 @@
       },
       "SessionUpdateResponse": {
         "properties": {
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          },
           "id": {
             "type": "string",
             "format": "uuid",

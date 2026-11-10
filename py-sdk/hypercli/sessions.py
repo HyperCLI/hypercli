@@ -55,12 +55,16 @@ class SessionRecord:
     receipts: list[dict[str, Any]] = field(default_factory=list)
     agent_state: str | None = None  # computed per request ("live"|"archived"|"deleted"); None on old servers
     external_url: str | None = None  # opaque external reference, independent of source
+    meta: dict[str, Any] = field(default_factory=dict)
+    mode: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SessionRecord":
         agent_state = data.get("agentState", data.get("agent_state"))
         return cls(
             id=str(data["id"]),
+            meta=deepcopy(data.get("meta", {})),
+            mode=data.get("mode"),
             source=data.get("source") if isinstance(data.get("source"), str) else None,
             external_url=data.get("external_url"),
             summary_text=data.get("summary_text"),

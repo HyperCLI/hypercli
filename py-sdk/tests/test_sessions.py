@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+import json
 
 import httpx
 import pytest
@@ -27,6 +28,41 @@ def test_catalog_decodes_source_and_keeps_pagination(source):
 
 def test_old_server_missing_source_is_null():
     assert SessionRecord.from_dict({"id": "old-session"}).source is None
+    assert SessionRecord.from_dict({"id": "old-session"}).meta == {}
+
+
+@pytest.mark.parametrize("patch", [{}, {"meta": {}}, {"meta": {"resolved": ["a"], "remove": None}},
+                                  {"title": None, "mode": "auto", "meta": {"nested": {"x": None}}},
+                                  {"meta": None}])
+def test_session_update_wire_and_read_meta(monkeypatch, patch):
+    requests = []
+    row = {"id": "s/id", "meta": {"resolved": ["a"], "nested": {"x": None}}, "mode": "auto"}
+
+    def send(self, request, **kwargs):
+        requests.append(request)
+        payload = {"items": [row]} if request.url.path == "/agents/sessions" else row
+        return httpx.Response(200, json=payload, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
+    updated = api.update_session("s/id", **patch)
+    assert requests[0].method == "POST"
+    assert str(requests[0].url) == "https://example.com/agents/sessions/s%2Fid"
+    assert requests[0].headers["Authorization"] == "Bearer caller-key"
+    assert json.loads(requests[0].content) == patch
+    assert updated.meta == row["meta"] and updated.mode == "auto"
+    assert api.get_session("s/id").meta == updated.meta
+    assert api.list_sessions().items[0].meta == updated.meta
+
+
+def test_session_update_propagates_rejection(monkeypatch):
+    def send(self, request, **kwargs):
+        return httpx.Response(422, json={"detail": "meta must be an object"}, request=request)
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
+    with pytest.raises(APIError) as exc:
+        api.update_session("s", meta=None)
+    assert exc.value.status_code == 422
 
 
 def test_setup_type_distinguishes_unknown_and_copies_nested_setup():

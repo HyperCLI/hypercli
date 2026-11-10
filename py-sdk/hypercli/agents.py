@@ -3696,6 +3696,21 @@ class Deployments:
             self._get(f"/sessions/{quote(platform_session_id, safe='')}")
         )
 
+    def update_session(
+        self, platform_session_id: str, *, title: str | None | object = _UNSET,
+        mode: str | object = _UNSET, meta: dict[str, Any] | object = _UNSET,
+    ) -> SessionRecord:
+        """Update stored fields. Omission preserves; meta merges top-level keys.
+
+        Null meta values delete keys, nested values replace. Whole-meta null is
+        rejected by the server; stored compact UTF-8 JSON is limited to 16 KiB.
+        """
+        body = {key: value for key, value in {"title": title, "mode": mode, "meta": meta}.items()
+                if value is not _UNSET}
+        return SessionRecord.from_dict(
+            self._post(f"/sessions/{quote(platform_session_id, safe='')}", json=body)
+        )
+
     def list_sessions(
         self, *, agent_id: str | None = None, cursor: str | None = None, limit: int = 50,
     ) -> SessionPage:

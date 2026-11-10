@@ -4,6 +4,33 @@ import { SessionsAPI, type AcpSessionState, type SessionDiscoveryStatus, type Se
 import { Deployments } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
 
+describe('client session metadata', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it.each([{}, { meta: {} }, { meta: { resolved: ['a'], remove: null } },
+    { title: null, mode: 'auto' as const, meta: { nested: { x: null } } }])(
+    'preserves update omission and explicit values over HTTP: %j', async patch => {
+      const row = { id: 's/id', meta: { resolved: ['a'], nested: { x: null } }, mode: 'auto' };
+      const fetch = vi.fn().mockImplementation(async (url: string) => new Response(
+        JSON.stringify(url.endsWith('/sessions') ? { items: [row] } : row), { status: 200 }));
+      vi.stubGlobal('fetch', fetch);
+      const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'caller-key'));
+      const updated = await api.updateSession('s/id', patch);
+      expect(fetch).toHaveBeenNthCalledWith(1, 'https://example.test/agents/sessions/s%2Fid', {
+        method: 'POST', headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch), signal: expect.any(AbortSignal),
+      });
+      expect(updated.meta).toEqual(row.meta);
+      expect((await api.getSession('s/id')).meta).toEqual(row.meta);
+      expect((await api.listSessions()).items[0].meta).toEqual(row.meta);
+    });
+  it('defaults old-server metadata and propagates update errors', async () => {
+    const api = new SessionsAPI({ get: vi.fn().mockResolvedValue({ id: 'old' }),
+      post: vi.fn().mockRejectedValue(new Error('422 rejected')) });
+    expect((await api.getSession('old')).meta).toEqual({});
+    await expect(api.updateSession('old', { meta: {} })).rejects.toThrow('422 rejected');
+  });
+});
+
 describe('stored session setup', () => {
   afterEach(() => vi.unstubAllGlobals());
   it('uses the authenticated agents API for both session and deployment helpers', async () => {
@@ -190,6 +217,7 @@ describe('session detail HTTP contract', () => {
       signal: expect.any(AbortSignal),
     });
     const record: AcpSessionRecord = {
+      meta: {},
       importOutcome: null,
       externalUrl: null,
       id: SESSION_ID, source,
@@ -217,6 +245,7 @@ describe('session detail HTTP contract', () => {
     expect(fetch.mock.calls[0][0]).toBe('https://example.com/agents/sessions/platform%2Fodd%20id%3F%23%25');
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(detail).toEqual({
+      meta: {},
       importOutcome: null,
       externalUrl: null,
       id: SESSION_ID, source: null, summaryText: null, summaryKeywords: [],
@@ -393,6 +422,7 @@ describe('SessionsAPI (§15)', () => {
     expect(page.hasMore).toBe(true);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toEqual({
+      meta: {},
       importOutcome: null,
       externalUrl: null,
       id: SESSION_ID,

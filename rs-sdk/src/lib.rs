@@ -89,7 +89,7 @@ pub use runtime_auth::{
     RuntimeLoginResult, RuntimeLoginSession, RuntimeShellToken,
 };
 pub use sessions::{
-    SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions, SessionMessage,
+    SessionDiscoveryStatus, SessionImportOutcome, SessionListOptions, SessionMessage, SessionUpdate,
     SessionMessagePage, SessionMessagesOptions, SessionMessagesWindow, SessionPage,
     SessionParticipant, SessionReceipt, SessionRecord, SessionSearchHit, SessionSearchOptions,
     SessionSetup, SessionSetupResponse, SessionsClient,
