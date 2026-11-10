@@ -144,6 +144,8 @@ import os
 from pathlib import Path
 
 provider = json.loads(Path('/opt/hypercli/share/runtime/goose-provider.json').read_text())
+seeded_provider = Path(os.environ['GOOSE_PATH_ROOT']) / 'config/custom_providers/hypercli.json'
+assert json.loads(seeded_provider.read_text()) == provider
 models = {model['name']: model for model in provider['models']}
 config_text = Path('/opt/hypercli/share/runtime/goose-config.yaml').read_text()
 print(json.dumps({
@@ -175,7 +177,14 @@ assert provider_contract["model_names"] == [
     "kimi-k3",
     "kimi-k3-anthropic",
 ]
-assert set(provider_contract["context_limits"].values()) == {262144}
+assert provider_contract["context_limits"] == {
+    "default-anthropic": 1048576,
+    "default": 262144,
+    "coding-anthropic": 262144,
+    "coding": 262144,
+    "kimi-k3-anthropic": 262144,
+    "kimi-k3": 262144,
+}
 assert set(provider_contract["reasoning"].values()) == {True}
 config_text = provider_contract["config_text"]
 for expected_config in [

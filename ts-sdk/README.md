@@ -386,7 +386,7 @@ explicit managed runtime
 discriminators while retaining the standard HyperCLI launch behavior: API-base
 env injection, workspace boot sync, and persistent `/home/node` storage. They
 do not receive an OpenClaw gateway token. OpenCode and Goose default to the
-Anthropic-native `default-anthropic` route (currently `kimi-k3-anthropic`); Kimi Code uses Moonshot's
+Anthropic-native `default-anthropic` route; Kimi Code uses Moonshot's
 upstream login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility

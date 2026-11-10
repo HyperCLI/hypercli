@@ -241,7 +241,7 @@ Native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code use
 canonical managed-runtime images.
 They have no public runtime port: lifecycle, exec, shell, workspace sync, and
 authentication all use the existing authenticated deployment APIs. OpenCode
-and Goose default to HyperCLI's Anthropic-native `default-anthropic` route (currently `kimi-k3-anthropic`).
+and Goose default to HyperCLI's Anthropic-native `default-anthropic` route.
 Kimi Code keeps Moonshot's upstream device login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility

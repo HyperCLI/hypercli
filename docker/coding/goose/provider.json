@@ -16,7 +16,7 @@
   "models": [
     {
       "name": "default-anthropic",
-      "context_limit": 262144,
+      "context_limit": 1048576,
       "reasoning": true
     },
     {

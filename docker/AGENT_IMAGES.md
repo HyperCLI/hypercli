@@ -177,7 +177,7 @@ containers. Today the image aliases resolve as:
 
 | Alias | Current target | Notes |
 | --- | --- | --- |
-| `default-anthropic` | `qwen35-anthropic` | Image default, Anthropic Messages route |
+| `default-anthropic` | `glm53-flash-anthropic` | Image default, Anthropic Messages route |
 | `coding-anthropic` | `kimi-k31-pro-anthropic` | Stable coding alias, Anthropic Messages route |
 | `kimi-k3-anthropic` | `kimi-k31-pro-anthropic` | Compatibility Kimi alias, Anthropic Messages route |
 
