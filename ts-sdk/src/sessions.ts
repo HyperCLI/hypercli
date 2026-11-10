@@ -473,10 +473,7 @@ export class SessionsAPI {
   /** Persist product permission mode. A 503 can follow persistence; GET reads it back. */
   async setMode(platformSessionId: string, mode: 'ask' | 'auto' | 'none'): Promise<AcpSessionRecord> {
     if (!this.http.post) throw new Error('Session mode updates require a writable HTTP client');
-    const payload = await this.http.post<Record<string, unknown>>(
-      `/sessions/${encodeURIComponent(platformSessionId)}`, { mode },
-    );
-    return sessionFromWire(payload);
+    return this.updateSession(platformSessionId, { mode });
   }
 
   /** Update stored session fields; omitted fields are preserved. Whole-meta null is rejected by the server. */

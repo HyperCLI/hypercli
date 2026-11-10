@@ -102,6 +102,14 @@ describe('durable session import evidence', () => {
 });
 
 describe('product session mode over HTTP', () => {
+  it('preserves each public method’s read-only client error', async () => {
+    const get = vi.fn();
+    const api = new SessionsAPI({ get });
+    await expect(api.setMode('s', 'auto')).rejects.toThrow('Session mode updates require a writable HTTP client');
+    await expect(api.updateSession('s', { mode: 'auto' })).rejects.toThrow('Session updates require a writable HTTP client');
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it.each(['ask', 'auto', 'none'] as const)('posts and reads persisted %s', async mode => {
     const row = { id: 'session/id', summary_text: 'Title', mode };
     const post = vi.fn().mockResolvedValue(row);
