@@ -409,7 +409,7 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
             console.print("[yellow]⚠[/yellow] OpenClaw not detected (no ~/.openclaw/openclaw.json)")
             console.print(f"  Configure manually later:\n")
             console.print(f"  Base URL: {api_base} (OpenClaw uses /v1/messages)")
-            console.print(f"  API Key:  {api_key}")
+            console.print("  Use your saved HyperCLI API key.")
         _mark_step(state, "configure", {"status": "complete", "openclaw_detected": False})
         return state
 

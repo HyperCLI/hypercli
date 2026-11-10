@@ -1015,9 +1015,9 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
                 if type(value) is int and value > 0:
                     model[target] = value
             models.append(model)
-    except Exception as e:
-        console.print(f"[red]Could not fetch models from API: {e}[/red]")
-        raise typer.Exit(1) from e
+    except Exception:
+        console.print("[red]Could not fetch models from API. Configuration was not changed.[/red]")
+        raise typer.Exit(1) from None
 
     console.print(
         "[yellow]The model API does not expose reasoning or input capabilities; "
@@ -1086,7 +1086,7 @@ def openclaw_setup(
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
     providers = (snippet.get("models") or {}).get("providers") or {}
     for provider_id, provider_cfg in providers.items():
-        console.print(f"   provider: {provider_id}  key: {api_key[:16]}...")
+        console.print(f"   provider: {provider_id}")
         for m in provider_cfg.get("models") or []:
             console.print(f"   model: {provider_id}/{m['id']}")
     primary = (

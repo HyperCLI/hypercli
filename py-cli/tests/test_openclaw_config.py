@@ -1,8 +1,10 @@
 import json
+import traceback
 
 import httpx
 import pytest
 import typer
+from typer.testing import CliRunner
 
 from hypercli_cli import agent, onboard
 from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config, fetch_models
@@ -277,3 +279,67 @@ def test_generation_preserves_explicit_settings(monkeypatch, tmp_path, entrypoin
     assert result["agents"]["defaults"]["models"]["hypercli/glm-5"] == {"alias": "custom"}
     assert result["agents"]["defaults"]["contextTokens"] == 98765
     assert result["memory"] == original["memory"]
+
+
+@pytest.fixture
+def setup_cli(monkeypatch, tmp_path):
+    key = "synthetic-private-key-for-cli-regression"
+    config_path = tmp_path / "openclaw.json"
+    config_path.write_text('{"agents":{"defaults":{"contextTokens":98765}}}\n')
+    key_path = tmp_path / "key.json"
+    key_path.write_text(json.dumps({"key": key}))
+    monkeypatch.setattr(agent, "AGENT_KEY_PATH", key_path)
+    monkeypatch.setattr(agent, "OPENCLAW_CONFIG_PATH", config_path)
+    monkeypatch.setattr(agent, "_resolve_api_base", lambda: "https://gateway.test")
+    monkeypatch.setattr(onboard, "OPENCLAW_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboard, "ONBOARD_DIR", tmp_path)
+    monkeypatch.setattr(onboard, "STATE_PATH", tmp_path / "state.json")
+    monkeypatch.setattr(onboard, "get_api_url", lambda: "https://gateway.test")
+    monkeypatch.setattr(onboard, "_require_deps", lambda: None)
+    monkeypatch.setattr(onboard, "_load_state", lambda: {"steps": {"subscribe": {"key": key}}})
+    for step in ("step_wallet", "step_fund", "step_plan", "step_subscribe", "step_verify"):
+        monkeypatch.setattr(onboard, step, lambda state, *args, **kwargs: state)
+    return config_path, key
+
+
+@pytest.mark.parametrize("command", ["openclaw-setup", "onboard"])
+def test_cli_catalog_failure_does_not_leak_diagnostics(monkeypatch, setup_cli, command):
+    config_path, key = setup_cli
+    original = config_path.read_bytes()
+    diagnostic = f"https://private-gateway.test/v1/models?token={key} transport-private-detail"
+
+    def fail(*args, **kwargs):
+        raise httpx.ConnectError(diagnostic)
+
+    monkeypatch.setattr(httpx, "get", fail)
+    result = CliRunner().invoke(agent.app, [command])
+    assert result.exit_code == 1
+    assert "Could not fetch models from API" in result.output
+    rendered = result.output + "".join(traceback.format_exception(*result.exc_info))
+    for private in (key, key[:16], "private-gateway.test", "token=", "transport-private-detail"):
+        assert private not in rendered
+    assert config_path.read_bytes() == original
+    assert not (config_path.parent / "state.json").exists()
+
+
+def test_setup_cli_success_does_not_print_key(monkeypatch, setup_cli):
+    config_path, key = setup_cli
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: httpx.Response(
+        200, json={"data": [{"id": "chat-model", "mode": "chat"}]},
+        request=httpx.Request("GET", url),
+    ))
+    result = CliRunner().invoke(agent.app, ["openclaw-setup"])
+    assert result.exit_code == 0
+    assert "provider: hypercli" in result.output
+    assert key[:16] not in result.output
+    assert json.loads(config_path.read_text())["models"]["providers"]["hypercli"]["apiKey"] == key
+
+
+def test_onboard_cli_without_config_does_not_print_key(setup_cli):
+    config_path, key = setup_cli
+    config_path.unlink()
+    result = CliRunner().invoke(agent.app, ["onboard"])
+    assert result.exit_code == 0
+    assert "OpenClaw not detected" in result.output
+    assert key[:16] not in result.output
+    assert not config_path.exists()
