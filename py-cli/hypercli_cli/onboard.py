@@ -34,10 +34,6 @@ USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 TOTAL_STEPS = 6
 
 
-def _legacy_openclaw_provider_id() -> str:
-    return "hyper" + "claw"
-
-
 def _require_deps():
     """Check wallet/x402 deps are available."""
     try:
@@ -422,9 +418,12 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
         console.print("Detected OpenClaw config at ~/.openclaw/openclaw.json")
         console.print("Fetching available models... ", end="")
 
-    from .agent import fetch_models
+    from .agent import _merge_openclaw_config, fetch_models
     models = fetch_models(api_key, api_base)
-    chat_models = [m for m in models if m.get("mode") != "embedding"]
+    chat_models = [
+        {key: value for key, value in m.items() if key != "mode"}
+        for m in models if m.get("mode") in (None, "chat")
+    ]
 
     if not json_mode:
         console.print("[green]✓[/green]")
@@ -438,13 +437,13 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
 
     # Patch
     config.setdefault("models", {}).setdefault("providers", {})
-    config["models"]["providers"].pop(_legacy_openclaw_provider_id(), None)
-    config["models"]["providers"]["hypercli"] = {
+    provider = {
         "baseUrl": api_base,
         "apiKey": api_key,
         "api": "anthropic-messages",
         "models": chat_models,
     }
+    config = _merge_openclaw_config(config, {"models": {"providers": {"hypercli": provider}}})
 
     if not json_mode:
         console.print("Patching config... [green]✓[/green]")
@@ -453,7 +452,7 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
     set_default = False
     if chat_models:
         if json_mode:
-            set_default = True
+            set_default = not ((config.get("agents") or {}).get("defaults") or {}).get("model")
         else:
             set_default = typer.confirm("Set as default model?", default=True)
 

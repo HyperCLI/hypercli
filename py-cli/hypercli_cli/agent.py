@@ -990,143 +990,46 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
     """Fetch available models from LiteLLM /v1/models (served by HyperCLI)."""
     import httpx
 
-    def _infer_mode(model_id: str) -> str | None:
-        normalized = (model_id or "").strip().lower()
-        if "embedding" in normalized:
-            return "embedding"
-        return None
-
-    def _meta_for_model(model_id: str) -> dict:
-        normalized = (model_id or "").strip().lower()
-        aliases = {
-            "kimi-k2.5": {
-                "name": "Kimi K2.5",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "kimi-k2.5-anthropic": {
-                "name": "Kimi K2.5 Anthropic",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "kimi-k2.6": {
-                "name": "Kimi K2.6",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "kimi-k2.6-anthropic": {
-                "name": "Kimi K2.6 Anthropic",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "moonshotai/kimi-k2.5": {
-                "name": "Kimi K2.5",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "moonshotai/kimi-k2.5-anthropic": {
-                "name": "Kimi K2.5 Anthropic",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "moonshotai/kimi-k2.6": {
-                "name": "Kimi K2.6",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "moonshotai/kimi-k2.6-anthropic": {
-                "name": "Kimi K2.6 Anthropic",
-                "reasoning": True,
-                "contextWindow": 262144,
-            },
-            "qwen3-embedding-4b": {
-                "name": "Qwen3 Embedding 4B",
-                "reasoning": False,
-                "contextWindow": 32768,
-                "mode": "embedding",
-                "input": ["text"],
-            },
-        }
-        if normalized in aliases:
-            return aliases[normalized]
-        suffix = normalized.rsplit("/", 1)[-1]
-        return aliases.get(suffix, {})
-
     try:
         resp = httpx.get(
-            f"{api_base}/v1/models",
+            f"{api_base.rstrip('/')}/v1/models",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json().get("data", [])
-        return [
-            {
-                "id": m["id"],
-                "name": _meta_for_model(m["id"]).get(
-                    "name", m["id"].replace("-", " ").title()
-                ),
-                "reasoning": _meta_for_model(m["id"]).get("reasoning", False),
-                "input": _meta_for_model(m["id"]).get("input", ["text", "image"]),
-                "contextWindow": _meta_for_model(m["id"]).get("contextWindow", 200000),
-                **(
-                    {
-                        "mode": m.get("mode")
-                        or _meta_for_model(m["id"]).get("mode")
-                        or _infer_mode(m["id"])
-                    }
-                    if (
-                        m.get("mode")
-                        or _meta_for_model(m["id"]).get("mode")
-                        or _infer_mode(m["id"])
-                    )
-                    else {}
-                ),
-            }
-            for m in data
-            if m.get("id")
-        ]
+        data = resp.json()["data"]
+        if not isinstance(data, list) or not data:
+            raise ValueError("/v1/models returned no model list")
+        models = []
+        for row in data:
+            if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
+                raise ValueError("/v1/models returned a model without an id")
+            model = {"id": row["id"], "name": row["id"]}
+            if isinstance(row.get("mode"), str):
+                model["mode"] = row["mode"]
+            for source, target in (
+                ("max_input_tokens", "contextWindow"),
+                ("max_output_tokens", "maxTokens"),
+            ):
+                value = row.get(source)
+                if type(value) is int and value > 0:
+                    model[target] = value
+            models.append(model)
     except Exception as e:
-        console.print(f"[yellow]⚠ Could not fetch models from API: {e}[/yellow]")
-        console.print("[yellow]  Using fallback model list[/yellow]")
-        return [
-            {
-                "id": "kimi-k3",
-                "name": "Kimi K3",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 262144,
-            },
-            {
-                "id": "kimi-k3-anthropic",
-                "name": "Kimi K3 Anthropic",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 262144,
-            },
-            {
-                "id": "qwen3-embedding-4b",
-                "name": "Qwen3 Embedding 4B",
-                "reasoning": False,
-                "input": ["text"],
-                "contextWindow": 32768,
-                "mode": "embedding",
-            },
-        ]
+        console.print(f"[red]Could not fetch models from API: {e}[/red]")
+        raise typer.Exit(1) from e
 
-
-def _preferred_agent_models(models: list[dict]) -> list[dict]:
-    """Return the recommended agent models in priority order."""
-    preferred = ["default-anthropic", "coding-anthropic", "kimi-k3-anthropic"]
-    picked = [
-        model for model_id in preferred for model in models if model["id"] == model_id
-    ]
-    if picked:
-        return picked
-    anthropic = [model for model in models if model["id"].endswith("-anthropic")]
-    if anthropic:
-        return anthropic
-    return models[:1]
+    console.print(
+        "[yellow]The model API does not expose reasoning or input capabilities; "
+        "these are omitted. OpenClaw uses existing settings or native defaults.[/yellow]"
+    )
+    missing = [m["id"] for m in models if "contextWindow" not in m or "maxTokens" not in m]
+    if missing:
+        console.print(
+            "[yellow]Missing token limits (omitted; OpenClaw uses existing settings "
+            f"or native defaults): {', '.join(missing)}[/yellow]"
+        )
+    return models
 
 
 @app.command("openclaw-setup")
@@ -1134,7 +1037,7 @@ def openclaw_setup(
     default: bool = typer.Option(
         False,
         "--default",
-        help="Set hypercli/kimi-k2.6-anthropic as the default model",
+        help="Set the first available chat model as the default model",
     ),
 ):
     """Patch OpenClaw config with your HyperCLI API key.
@@ -1226,54 +1129,17 @@ def _config_openclaw(
 ) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM only)."""
 
-    def _model_suffix(model_id: str) -> str:
-        return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
-
-    def _is_supported_openclaw_model(model: dict) -> bool:
-        suffix = _model_suffix(model.get("id", ""))
-        return "kimi" in suffix or "coding" in suffix or "default" in suffix or "embedding" in suffix
-
     api_base = api_base.rstrip("/")
-
-    def _openclaw_model_order(model: dict) -> tuple[int, str]:
-        suffix = _model_suffix(model.get("id", ""))
-        if suffix == "default-anthropic":
-            return (0, suffix)
-        if suffix == "coding-anthropic":
-            return (1, suffix)
-        if "kimi" in suffix:
-            return (1, suffix)
-        if "embedding" in suffix:
-            return (3, suffix)
-        return (2, suffix)
-
-    supported_models = sorted(
-        [m for m in models if _is_supported_openclaw_model(m)],
-        key=_openclaw_model_order,
-    )
-    embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
-    chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
-    kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
-    alias_models = [
-        m
-        for m in chat_models
-        if _model_suffix(m.get("id", "")) in {"coding-anthropic", "default-anthropic"}
+    embedding_models = [m for m in models if m.get("mode") == "embedding"]
+    # `mode` belongs to the gateway catalog, not OpenClaw's strict model schema.
+    provider_models = [
+        {key: value for key, value in m.items() if key != "mode"}
+        for m in models
+        if m.get("mode") in (None, "chat")
     ]
-    other_chat_models = [
-        m for m in chat_models if m not in kimi_models and m not in alias_models
-    ]
-    provider_models = alias_models + kimi_models + other_chat_models
     embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
-        f"hypercli/{alias_models[0]['id']}"
-        if alias_models
-        else (
-            f"hypercli/{kimi_models[0]['id']}"
-            if kimi_models
-            else (
-                f"hypercli/{other_chat_models[0]['id']}" if other_chat_models else None
-            )
-        )
+        f"hypercli/{provider_models[0]['id']}" if provider_models else None
     )
     config_api_key = f"${{{placeholder_env}}}" if placeholder_env else api_key
     return {
@@ -1294,12 +1160,7 @@ def _config_openclaw(
             "defaults": {
                 **({"model": {"primary": primary_model}} if primary_model else {}),
                 "models": {
-                    **{f"hypercli/{m['id']}": {"alias": m["id"].split("-")[0]} for m in alias_models},
-                    **{f"hypercli/{m['id']}": {"alias": "kimi"} for m in kimi_models},
-                    **{
-                        f"hypercli/{m['id']}": {"alias": m["id"].split("-")[0]}
-                        for m in other_chat_models
-                    },
+                    f"hypercli/{m['id']}": {} for m in provider_models
                 },
             }
         },
@@ -1359,30 +1220,22 @@ def _deep_merge(base: dict, overlay: dict):
 
 
 def _merge_openclaw_config(existing: dict, snippet: dict) -> dict:
-    """Merge OpenClaw config while replacing generated provider/model sections exactly."""
-    merged = dict(existing)
+    """Refresh generated configuration while retaining explicit model overrides."""
+    from copy import deepcopy
+
+    merged = deepcopy(existing)
+    snippet = deepcopy(snippet)
+    providers = (existing.get("models") or {}).get("providers") or {}
+    for provider_id, provider in ((snippet.get("models") or {}).get("providers") or {}).items():
+        old_models = {m["id"]: m for m in providers.get(provider_id, {}).get("models", [])}
+        new_models = {m["id"]: m for m in provider.get("models", [])}
+        provider["models"] = [
+            {**model, **old_models.get(model_id, {})}
+            for model_id, model in new_models.items()
+        ] + [model for model_id, model in old_models.items() if model_id not in new_models]
+    if (snippet.get("memory") or {}).get("search") and (existing.get("memory") or {}).get("search"):
+        snippet["memory"]["search"] = deepcopy(existing["memory"]["search"])
     _deep_merge(merged, snippet)
-
-    snippet_models = (snippet.get("models") or {}).get("providers") or {}
-    if snippet_models:
-        merged.setdefault("models", {})
-        merged["models"]["providers"] = snippet_models
-
-    snippet_defaults = ((snippet.get("agents") or {}).get("defaults") or {}).get(
-        "models"
-    ) or {}
-    if snippet_defaults:
-        merged.setdefault("agents", {})
-        merged["agents"].setdefault("defaults", {})
-        merged["agents"]["defaults"]["models"] = snippet_defaults
-
-    snippet_model_config = ((snippet.get("agents") or {}).get("defaults") or {}).get(
-        "model"
-    ) or {}
-    if snippet_model_config:
-        merged.setdefault("agents", {})
-        merged["agents"].setdefault("defaults", {})
-        merged["agents"]["defaults"]["model"] = snippet_model_config
 
     # The pinned gateway rejects the legacy agents.defaults.memorySearch and
     # top-level memorySearch keys outright; once the canonical memory.search is
