@@ -2,7 +2,7 @@
 name: hypercli
 description: >
   Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed
-  agents with the hyper CLI. Use as the router for identity, credentials,
+  agents with the `hyper` CLI. Use as the router for identity, credentials,
   agents, compute, flows, files, and voice operations.
 ---
 
@@ -14,9 +14,10 @@ Use the bundled `hyper` command. Run `hyper --help` and
 
 For credential resolution or coding-harness login, load the `hypercli-auth`
 skill. For identity and entitlements load `hypercli-account`. For media
-generation load `hypercli-flows`. For GPU jobs load `hypercli-compute`. For
-managed runtimes load `hypercli-agents`. For text-to-speech load
-`hypercli-voice`.
+generation load `hypercli-flows`. For files, workspaces, or memory import
+load `hypercli-knowledge`. For GPU jobs load `hypercli-compute`. For
+managed runtimes load `hypercli-agents`. For voice synthesis and
+transcription load `hypercli-voice`.
 
 ## Root surface
 
@@ -30,21 +31,16 @@ The v1 command tree is deliberately small:
   `hyper files`, `hyper voice`, `hyper websearch`, `hyper llm chat`,
   `hyper llm image`.
 
-Every command accepts `--json`; mutations accept `--dry-run` for preflight
-validation. Select product/inference with `HYPER_API_BASE` and direct Agent
-control independently with `HYPER_AGENTS_API_BASE` in environment/config.
-Without an Agents base, Agent endpoints derive from the product base.
-Public CLIs do not support `--dev` or `--prod`; those
-flags belong to admin tooling. Change the base only when the user intends it.
+Every command accepts `--json`, and create-style submissions accept
+`--dry-run` for preflight validation. API-base selection —
+`HYPER_API_BASE`, `HYPER_AGENTS_API_BASE` — is owned by the `hypercli-auth`
+skill; change a base only when the user intends it.
 
 ## Authentication
 
-The shared SDK/CLI client first uses an explicit canonical credential where
-supported, then environment `HYPER_API_KEY`, then
-the canonical key saved by `hyper configure` in the active config file
-(`$HYPER_HOME/config`, or `~/.hypercli/config`). Environment
-`HYPER_AGENTS_API_KEY` is only the final fallback, after all canonical
-sources. Load `hypercli-auth` before changing any of these sources.
+Credential resolution — `HYPER_API_KEY` and `HYPER_AGENTS_API_KEY`, plus
+keys saved by `hyper configure` — is owned by the `hypercli-auth` skill;
+load it before changing any credential source.
 
 Never print, paste, or send a credential. Before a costly or mutating
 operation, validate the intended identity:
@@ -60,24 +56,9 @@ server detail, then follow the `hypercli-auth` skill. See
 
 ## Remote Agents
 
-Start with table output:
-
-```bash
-hyper agents ls
-hyper agents status <agent>
-hyper agents logs <agent>
-```
-
-Add `-f` to follow logs, and use `hyper agents wait <agent> --state <state>`
-when the next step depends on a target state. For lifecycle, routines,
-container access, and runtime configuration, load the `hypercli-agents`
-skill.
-
-Do not paste raw `ls --json` output: it can contain launch environment
-secrets. Treat log, exec, shell, file-copy, token, config, and routine
-output as sensitive. Get approval before `exec`, `shell`, `cp` to a remote
-destination, `agents config` changes, lifecycle mutations, or archive and
-restore, and dry-run mutations first. Read
+`hyper agents` is owned by the `hypercli-agents` skill. Load it for
+observation, lifecycle, logs, container access, routines, and runtime
+configuration; its secret-output and approval rules apply there. Read
 [agents.mdx](/opt/hypercli/docs/cli/commands/agents.mdx).
 
 ## Reference Map

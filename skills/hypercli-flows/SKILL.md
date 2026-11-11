@@ -1,15 +1,33 @@
 ---
 name: hypercli-flows
 description: >
-  Discover and submit managed Qwen 2.1 and LTX 2.3 image/video flows using
-  the server catalog, exact upstream inputs and owned media file IDs.
-  Track progress and retain failed or cancelled terminal render records.
+  Generate images and videos with managed media flows (Qwen 2.1 and LTX 2.3
+  families today). Use for hyper flow catalog and describe discovery,
+  hyper files upload for owned render-input media IDs, exact-input
+  submit-once rendering, and tracking renders with status, wait, get,
+  list, and gated cancel to completed, failed, or cancelled terminal
+  states. Not for durable file storage or shared knowledge workspaces;
+  that is the hypercli-knowledge surface.
 ---
 
 # HyperCLI Flows
 
 Load `hypercli-auth` first for authentication and API-base checks. Read
 `/opt/hypercli/docs/cli/commands/flow.mdx` and use `hyper flow --help`.
+Use `hyper files upload` here only to obtain an owned render-input file ID;
+when a file outlives the render — durable storage, inspection, deletion, or
+shared knowledge — load the `hypercli-knowledge` skill.
+
+## Complete command map
+
+| Area | Commands |
+| --- | --- |
+| Discover | `hyper flow catalog`, `hyper flow describe` |
+| Submit | `hyper flow submit` |
+| Track | `hyper flow status`, `hyper flow wait`, `hyper flow get`, `hyper flow list` |
+| Control | `hyper flow cancel` |
+| Render inputs | `hyper files upload` (owned media IDs for submission) |
+| Compatibility | `hyper flow create` (typed flags, `--param`, `--dry-run`) |
 
 ## Discover before submitting
 
@@ -19,7 +37,7 @@ types, defaults, writable flags, required media and outputs from that catalog.
 Discovery reads `/agents/flow/catalog` directly without entitlement routing.
 Do not create a local registry or infer entitlement from subscription metadata.
 
-The standard catalog has exactly five templates:
+The standard catalog currently publishes five templates:
 
 | Family | Template |
 | --- | --- |
@@ -56,10 +74,29 @@ IA2V uses `value` (prompt), `input` (first frame), `audio`, `noise_seed`,
 `start_index` (audio start) and `value_4` (duration). Qwen edit's fifth image
 is `images.image_5_1`, not `images.image_5`.
 
-Retain the returned render ID. `status` reports progress; `wait` retains the
-terminal record and exits nonzero for failed/cancelled renders. Inspect its
-result URL or error. Submission POSTs are attempted once: do not automatically
-resubmit after an uncertain response. Discovery failure is not paid fallback.
-Use `hyper flow list --json` for history and `hyper flow cancel RENDER_ID --yes`
-only when cancellation is requested. Legacy `create` helpers remain compatibility
-interfaces; prefer catalog submission for current templates.
+Retain the returned render ID. `status` reports progress; pending and running
+are transitional — an accepted render is a successful submission, never a
+reason to create another. Terminal states are `completed`, `failed` and
+`cancelled`: `wait` retains the terminal record and exits nonzero for
+failed/cancelled renders, and a failed or cancelled render produces no
+result. Inspect its result URL or error. Submission POSTs are attempted once:
+do not automatically resubmit after an uncertain response. Discovery failure
+is not paid fallback. Use `hyper flow list --json` for history and
+`hyper flow cancel RENDER_ID --yes` only when cancellation is requested;
+after a cancel, confirm the terminal state with `status`. Legacy `create`
+helpers remain compatibility interfaces; prefer catalog submission for current
+templates.
+
+## Failures
+
+- Auth rejection (`401`): stop; do not retry or guess alternates. Route to
+  `hypercli-auth`.
+- Capability missing (`403`): restricted keys are not widened. Re-read
+  capabilities with `hyper me`; never swap credentials unbidden.
+- Transport ambiguity after submit: verify with `hyper flow list --json`
+  under the same auth context before any retry — one duplicate submission
+  can bill twice.
+- State confusion: an accepted pending/running render is not a result;
+  confirm with `status` or `wait` before acting on it.
+- Version drift: when `hyper flow --help` or the managed reference
+  contradicts this skill, follow the help, act, and report the drift.

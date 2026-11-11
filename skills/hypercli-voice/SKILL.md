@@ -1,10 +1,12 @@
 ---
 name: hypercli-voice
 description: >
-  Generate speech with HyperCLI reference voice cloning,
-  save audio with --out, and handle voice API errors and identity checks.
-  Use for CLI speech generation, clone reference handling, and
-  voice-capability validation.
+  Generate speech by cloning a reference voice with hyper voice clone
+  (--file or --url reference audio, saved with --out), transcribe audio
+  with hyper voice transcribe, and preflight the voice capability with
+  hyper me. Use for CLI speech generation, voice cloning, and
+  speech-to-text; preset TTS and VoiceDesign commands are removed.
+  Credential rules are owned by hypercli-auth.
 ---
 
 # HyperCLI Voice
@@ -18,6 +20,22 @@ CLI before relying on remembered options.
 Synthesis requires real reference audio. Preset TTS and VoiceDesign commands
 have been removed; do not fabricate a reference or substitute a named preset.
 
+## Complete command map
+
+| Area | Command |
+| --- | --- |
+| Reference voice cloning | `hyper voice clone` |
+| Speech-to-text | `hyper voice transcribe` |
+
+## Preflight
+
+1. Confirm the inputs, destination path, and that the user expects a remote
+   voice call.
+2. Validate the identity and voice capability with `hyper me`; a valid
+   account without the voice capability will fail.
+3. Treat synthesis text, clone reference audio, and transcription audio as
+   remote disclosure, matching the rules in `hypercli-auth`.
+
 ## Voice Clone
 
 ```bash
@@ -30,21 +48,22 @@ client-side HTTPS download before the SDK sends reference bytes. Use `--out` in
 automated work and whenever `--json` is requested. Treat clone reference audio as
 remote disclosure.
 
-## Preflight
+## Voice Transcribe
 
-1. Confirm the text, destination path, and that the user expects a remote
-   voice call.
-2. Validate the identity and voice capability with `hyper me`; a valid
-   account without the voice capability will fail.
-3. Treat synthesis text and clone reference audio as remote disclosure,
-   matching the rules in `hypercli-auth`.
+```bash
+hyper voice transcribe speech.wav --language en --out transcript.txt
+```
+
+Transcription turns existing audio into text and needs no reference audio.
+`--rest` posts to `/agents/voice/transcribe` instead of the agents WebSocket.
 
 ## Failure handling
 
-- Missing credentials: run `hyper configure` or set `HYPER_API_KEY`; do not
-  search for, print, or substitute another key.
-- `401` or `403`: stop and report the status and server detail. Retries do
-  not repair authorization — follow `hypercli-auth`.
+- Missing credentials: stop; follow `hypercli-auth` for credential resolution.
+  Do not search for, print, or substitute another key.
+- `401` or `403`: stop and report the status and server detail. For `403`,
+  re-check the voice capability with `hyper me`. Retries do not repair
+  authorization — follow `hypercli-auth`.
 - Failed remote call: report whether the destination is absent, complete,
   or partial before retrying; the server may have completed work after the
   client lost the response, so do not blindly resubmit.

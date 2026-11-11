@@ -2,11 +2,13 @@
 name: hypercli-agents
 description: >
   Create, run, inspect, and control managed HyperCLI agents across the
-  openclaw, hermes, goose, opencode, and buzz runtimes. Use for hyper
-  agents lifecycle and wait, logs, exec, shell, file copies, routines,
-  grant activation with hyper agents activate, dynamic routes, archive and
-  restore, and OpenClaw-only configuration through the hidden hyper agents
-  config and hyper agents models commands.
+  openclaw, hermes, goose, opencode, and buzz runtimes. Use for
+  `hyper agents` lifecycle and wait, logs, exec, shell, file copies,
+  routines, grant activation with `hyper agents activate`, dynamic
+  routes, archive and restore, and OpenClaw-only configuration through
+  the hidden `hyper agents config` and `hyper agents models` commands.
+  Credential precedence and API-base selection are owned by
+  `hypercli-auth`.
 ---
 
 # HyperCLI Agents
@@ -28,10 +30,9 @@ options matter; hidden power commands appear only in the reference docs.
 | Grants | `activate` |
 | Hidden power | `token`, `routes`, `config get/set` (OpenClaw only), `models` (OpenClaw only), `archive`, `restore`, `routines update` |
 
-Select product/inference with `HYPER_API_BASE` and direct Agent control
-independently with `HYPER_AGENTS_API_BASE` in environment/config. Without an
-Agents base, Agent endpoints derive from the product base. Change either only
-when the user explicitly intends it. Public `hyper` has no `--dev`/`--prod` flags.
+API-base selection — `HYPER_API_BASE` for product/inference and
+`HYPER_AGENTS_API_BASE` for direct Agent control — is owned by the
+`hypercli-auth` skill; load it before changing either.
 
 ## Inspect before changing
 
@@ -168,6 +169,10 @@ the exact target and get approval first.
   by guesswork.
 - On `401`/`403`, load the `hypercli-auth` skill; do not rotate tokens or
   keys as an automatic retry.
+- A timeout or lost response after `create` or `routines create` is
+  ambiguous: stop, verify with `hyper agents ls` or `hyper agents routines
+  list` under the same auth context, and only then decide — submissions are
+  once-only; a blind resubmit can create a duplicate.
 - Preserve remote exec exit status and stderr. Do not describe partial
   output as command success.
 - A stop acknowledgement means cleanup was accepted, not that the slot is

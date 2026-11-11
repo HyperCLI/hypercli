@@ -5,7 +5,8 @@ description: >
   and authenticate hosted Buzz coding-runtime harnesses. Use when choosing
   between HYPER_API_KEY and HYPER_AGENTS_API_KEY, running hyper me safely,
   applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex,
-  or Kimi Code into a hosted runtime.
+  or Kimi Code into a hosted runtime. This skill owns credential
+  precedence, API-base selection, and harness sign-in rules.
 ---
 
 # HyperCLI Authentication

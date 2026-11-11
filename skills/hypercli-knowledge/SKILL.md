@@ -4,14 +4,18 @@ description: >
   Upload and inspect platform files, manage durable HyperCLI shared knowledge
   workspaces, search/sync/download Markdown projections, control grants, and
   convert captions or documents into local OpenClaw memory. Use for hyper
-  files, hyper workspaces, and hyper memory commands.
+  files, hyper workspaces, and hyper memory commands. When a file exists only
+  as an input to media rendering, use the hypercli-flows skill instead; this
+  skill owns durable knowledge, not render inputs.
 ---
 
 # HyperCLI Knowledge
 
 Load the `hypercli` and `hypercli-auth` skills before remote operations. Load
 the `hypercli-flows` skill when a file is only an input to media rendering.
-Managed image references are:
+Confirm exact flags with each command's `--help` when exactness matters; when
+help and this skill disagree, follow help and report the drift. Managed image
+references are:
 
 - `/opt/hypercli/docs/cli/commands/files.mdx`
 - `/opt/hypercli/docs/cli/commands/workspaces.mdx`
