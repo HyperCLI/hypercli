@@ -30,6 +30,9 @@ if models or embedding_models:
             oss.setdefault("llm", {}).setdefault("config", {})["model"] = models[0]
         if embedding_models:
             embedder = oss.setdefault("embedder", {}).setdefault("config", {})
+            # mem0's factory splats this dict into BaseEmbedderConfig(**config);
+            # only the singular `model` key exists there. A plural `models` key
+            # made every OSSBackend construction fail with an unexpected-kwarg
+            # TypeError (hermes-memory matrix cell).
             embedder["model"] = embedding_models[0]
-            embedder["models"] = embedding_models
         path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
