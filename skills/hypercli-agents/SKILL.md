@@ -9,6 +9,21 @@ description: >
   the hidden `hyper agents config` and `hyper agents models` commands.
   Credential precedence and API-base selection are owned by
   `hypercli-auth`.
+commands:
+  - hyper agents --help
+  - hyper agents ls
+  - hyper agents status <agent>
+  - hyper agents create <name> --runtime openclaw --dry-run
+  - hyper agents wait <agent> --state running
+  - hyper agents exec <agent> -- uname -a
+  - hyper agents cp <agent>:/workspace/result.txt ./result.txt
+  - hyper agents token <agent>
+  - hyper agents routines create --cron "0 9 * * *" --prompt <text> --agent <agent>
+  - hyper agents activate <code>
+  - hyper agents config set <agent>
+  - hyper agents routes add <agent> <name> --port N
+  - hyper agents archive <agent>
+  - hyper agents restore <agent>
 ---
 
 # HyperCLI Agents

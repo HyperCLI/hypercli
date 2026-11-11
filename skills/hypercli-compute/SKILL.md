@@ -8,6 +8,16 @@ description: >
   hypercli-jobs, for its former breadth across hyper jobs and the retired
   hyper instances group. Not for media renders (hypercli-flows) or managed
   agent runtimes (hypercli-agents).
+commands:
+  - hyper jobs --help
+  - hyper jobs gpus
+  - hyper jobs create --dry-run
+  - hyper jobs list
+  - hyper jobs get <job>
+  - hyper jobs logs <job>
+  - hyper jobs cancel <job> --yes
+  - hyper jobs extend <job> --seconds N
+  - hyper jobs exec <job> -- nvidia-smi
 ---
 
 # HyperCLI Compute

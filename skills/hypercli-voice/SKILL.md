@@ -7,6 +7,12 @@ description: >
   hyper me. Use for CLI speech generation, voice cloning, and
   speech-to-text; preset TTS and VoiceDesign commands are removed.
   Credential rules are owned by hypercli-auth.
+commands:
+  - hyper voice clone --help
+  - hyper me
+  - hyper voice clone "Hello world" --file reference.wav --out cloned.mp3
+  - hyper voice clone "Hello world" --url https://example.com/reference.wav --out cloned.mp3
+  - hyper voice transcribe speech.wav --language en --out transcript.txt
 ---
 
 # HyperCLI Voice

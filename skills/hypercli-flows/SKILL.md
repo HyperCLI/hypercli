@@ -8,6 +8,17 @@ description: >
   list, and gated cancel to completed, failed, or cancelled terminal
   states. Not for durable file storage or shared knowledge workspaces;
   that is the hypercli-knowledge surface.
+commands:
+  - hyper flow --help
+  - hyper flow catalog --json
+  - hyper flow describe FAMILY TEMPLATE --json
+  - hyper flow submit qwen21 image_qwen_image_2_1_t2i --input 'prompt=42' --input seed=0 --json
+  - hyper files upload ./frame.png
+  - hyper flow submit ltx23 video_ltx2_3_ia2v --input 'value=a presenter speaking' --media input=OWNED_IMAGE_ID --media audio=OWNED_AUDIO_ID --json
+  - hyper flow status RENDER_ID --json
+  - hyper flow wait RENDER_ID --timeout 600 --json
+  - hyper flow list --json
+  - hyper flow cancel RENDER_ID --yes
 ---
 
 # HyperCLI Flows

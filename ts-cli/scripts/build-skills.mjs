@@ -53,8 +53,9 @@ export const SKILLS = [
 ];
 
 /**
- * Parse YAML-ish frontmatter. Returns { data: Record<string,string>, body }.
- * Only scalar 'key: value' lines and '>' / '|' block scalars are understood.
+ * Parse YAML-ish frontmatter. Returns { data: Record<string,string|string[]>, body }.
+ * Only scalar 'key: value' lines, '>' / '|' block scalars, and simple
+ * '  - item' list blocks (the commands index) are understood.
  */
 export function parseFrontmatter(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -71,7 +72,14 @@ export function parseFrontmatter(text) {
     const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
     if (!match) continue;
     const [, key, rawValue] = match;
-    if (rawValue === '>' || rawValue === '|') {
+    if (rawValue === '' && i + 1 < lines.length && /^\s+-\s/.test(lines[i + 1])) {
+      const items = [];
+      while (i + 1 < lines.length && /^\s+-\s/.test(lines[i + 1])) {
+        i++;
+        items.push(lines[i].replace(/^\s+-\s*/, '').trim());
+      }
+      data[key] = items;
+    } else if (rawValue === '>' || rawValue === '|') {
       const block = [];
       while (i + 1 < lines.length) {
         const next = lines[i + 1];
@@ -118,11 +126,16 @@ export function buildSkill(source) {
   const { data, body } = parseFrontmatter(source);
   const name = data.name || '';
   if (!name) throw new Error('SKILL.md frontmatter missing name');
+  // The explicit frontmatter commands list is the curated index; body
+  // backticks are the compatibility fallback for skills that predate it.
+  const commands = Array.isArray(data.commands) && data.commands.length > 0
+    ? data.commands
+    : scrapeCommands(body);
   return {
     name,
     description: data.description || '',
     markdown: source.replace(/\r\n/g, '\n').trimEnd(),
-    commands: scrapeCommands(body),
+    commands,
   };
 }
 

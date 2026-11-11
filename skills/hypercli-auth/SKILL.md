@@ -7,6 +7,11 @@ description: >
   applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex,
   or Kimi Code into a hosted runtime. This skill owns credential
   precedence, API-base selection, and harness sign-in rules.
+commands:
+  - hyper configure
+  - hyper me
+  - hyper me --json
+  - hyper agents shell <agent>
 ---
 
 # HyperCLI Authentication

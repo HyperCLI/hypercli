@@ -4,6 +4,13 @@ description: >
   Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed
   agents with the `hyper` CLI. Use as the router for identity, credentials,
   agents, compute, flows, files, and voice operations.
+commands:
+  - hyper --help
+  - hyper me
+  - hyper configure
+  - hyper skills
+  - hyper llm chat
+  - hyper llm image
 ---
 
 # HyperCLI

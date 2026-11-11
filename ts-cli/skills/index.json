@@ -2,132 +2,117 @@
   "skills": [
     {
       "name": "hypercli",
-      "description": "Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed agents with the hyper CLI. Use as the router for identity, credentials, agents, compute, flows, files, and voice operations.",
+      "description": "Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed agents with the `hyper` CLI. Use as the router for identity, credentials, agents, compute, flows, files, and voice operations.",
       "commands": [
-        "hyper",
         "hyper --help",
-        "hyper <group> --help",
         "hyper me",
         "hyper configure",
         "hyper skills",
-        "hyper agents",
-        "hyper routines",
-        "hyper jobs",
-        "hyper flow",
-        "hyper files",
-        "hyper voice",
-        "hyper websearch",
         "hyper llm chat",
-        "hyper llm image",
-        "hyper agents wait <agent> --state <state>"
+        "hyper llm image"
       ]
     },
     {
       "name": "hypercli-account",
-      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, and set up the local product API key with hyper configure. Use for who-am-I, capability, entitlement, and credential-setup questions.",
+      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, manage the account profile and Agent soul or role metadata with hyper user and hyper soul, write the local product API key with hyper configure, and check billing balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet. Use for who-am-I, capability, entitlement, profile, and balance questions; hypercli-auth owns credential precedence and auth failure diagnosis, and grant-code redemption belongs to hypercli-agents.",
       "commands": [
         "hyper me",
-        "hyper user [--json] [-f <file>|-]",
-        "hyper soul [--agent <id>] [-f <file>|-]",
-        "hyper role [--agent <id>] [value]",
+        "hyper me --json",
+        "hyper user",
         "hyper agent <id> soul",
-        "hyper agent <id> role [value]",
-        "hyper agents activate <code>",
         "hyper configure",
         "hyper billing balance",
         "hyper keys list",
-        "hyper keys create",
-        "hyper wallet balance",
-        "hyper wallet topup",
-        "hyper user",
-        "hyper soul",
-        "hyper role",
-        "hyper agent <id> ..."
+        "hyper wallet balance"
       ]
     },
     {
       "name": "hypercli-agents",
-      "description": "Create, run, inspect, and control managed HyperCLI agents across the openclaw, hermes, goose, opencode, and buzz runtimes. Use for hyper agents lifecycle and wait, logs, exec, shell, file copies, routines, grant activation with hyper agents activate, dynamic routes, archive and restore, and OpenClaw-only configuration through the hidden hyper agents config and hyper agents models commands.",
+      "description": "Create, run, inspect, and control managed HyperCLI agents across the openclaw, hermes, goose, opencode, and buzz runtimes. Use for `hyper agents` lifecycle and wait, logs, exec, shell, file copies, routines, grant activation with `hyper agents activate`, dynamic routes, archive and restore, and OpenClaw-only configuration through the hidden `hyper agents config` and `hyper agents models` commands. Credential precedence and API-base selection are owned by `hypercli-auth`.",
       "commands": [
         "hyper agents --help",
-        "hyper agents <command> --help",
-        "hyper",
-        "hyper agents wait <agent>",
+        "hyper agents ls",
+        "hyper agents status <agent>",
+        "hyper agents create <name> --runtime openclaw --dry-run",
+        "hyper agents wait <agent> --state running",
+        "hyper agents exec <agent> -- uname -a",
+        "hyper agents cp <agent>:/workspace/result.txt ./result.txt",
         "hyper agents token <agent>",
-        "hyper agents routines create --help",
-        "hyper agents routines update",
-        "hyper me",
-        "hyper agents create <name> --runtime openclaw",
+        "hyper agents routines create --cron \"0 9 * * *\" --prompt <text> --agent <agent>",
+        "hyper agents activate <code>",
         "hyper agents config set <agent>",
-        "hyper agents routes list <agent>",
         "hyper agents routes add <agent> <name> --port N",
-        "hyper agents routes remove <agent> <name>",
         "hyper agents archive <agent>",
-        "hyper agents restore <agent>",
-        "hyper agents ls"
+        "hyper agents restore <agent>"
       ]
     },
     {
       "name": "hypercli-auth",
-      "description": "Diagnose and configure HyperCLI credentials, API bases, and inactive keys, and authenticate hosted Buzz coding-runtime harnesses. Use when choosing between HYPER_API_KEY and HYPER_AGENTS_API_KEY, running hyper me safely, applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex, or Kimi Code into a hosted runtime.",
+      "description": "Diagnose and configure HyperCLI credentials, API bases, and inactive keys, and authenticate hosted Buzz coding-runtime harnesses. Use when choosing between HYPER_API_KEY and HYPER_AGENTS_API_KEY, running hyper me safely, applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex, or Kimi Code into a hosted runtime. This skill owns credential precedence, API-base selection, and harness sign-in rules.",
       "commands": [
         "hyper configure",
         "hyper me",
         "hyper me --json",
-        "hyper agents ls --json"
+        "hyper agents shell <agent>"
       ]
     },
     {
       "name": "hypercli-compute",
-      "description": "Browse the live HyperCLI GPU catalog and create, inspect, and control GPU jobs. Use for hyper jobs gpus inventory, job submission preflighted with --dry-run, job list/get/logs, cancellation, and the hidden extend and exec power commands.",
+      "description": "Browse the live GPU catalog and create, inspect, and control GPU compute with hyper jobs. Use for hyper jobs gpus inventory, job submission preflighted with --dry-run, job list/get/logs, cancellation, and the hidden extend and exec power commands. Named hypercli-compute, not hypercli-jobs, for its former breadth across hyper jobs and the retired hyper instances group. Not for media renders (hypercli-flows) or managed agent runtimes (hypercli-agents).",
       "commands": [
         "hyper jobs --help",
         "hyper jobs gpus",
-        "hyper jobs create",
+        "hyper jobs create --dry-run",
         "hyper jobs list",
-        "hyper jobs get",
-        "hyper jobs logs",
-        "hyper jobs cancel",
-        "hyper jobs extend",
-        "hyper jobs exec",
-        "hyper instances gpus",
-        "hyper instances launch",
-        "hyper launch <image>",
-        "hyper jobs get <job>"
+        "hyper jobs get <job>",
+        "hyper jobs logs <job>",
+        "hyper jobs cancel <job> --yes",
+        "hyper jobs extend <job> --seconds N",
+        "hyper jobs exec <job> -- nvidia-smi"
       ]
     },
     {
       "name": "hypercli-flows",
-      "description": "Discover and submit managed Qwen 2.1 and LTX 2.3 image/video flows using the server catalog, exact upstream inputs and owned media file IDs. Track progress and retain failed or cancelled terminal render records.",
+      "description": "Generate images and videos with managed media flows (Qwen 2.1 and LTX 2.3 families today). Use for hyper flow catalog and describe discovery, hyper files upload for owned render-input media IDs, exact-input submit-once rendering, and tracking renders with status, wait, get, list, and gated cancel to completed, failed, or cancelled terminal states. Not for durable file storage or shared knowledge workspaces; that is the hypercli-knowledge surface.",
       "commands": [
         "hyper flow --help",
         "hyper flow catalog --json",
-        "hyper flow catalog --family ltx23 --json",
         "hyper flow describe FAMILY TEMPLATE --json",
-        "hyper files upload",
+        "hyper flow submit qwen21 image_qwen_image_2_1_t2i --input 'prompt=42' --input seed=0 --json",
+        "hyper files upload ./frame.png",
+        "hyper flow submit ltx23 video_ltx2_3_ia2v --input 'value=a presenter speaking' --media input=OWNED_IMAGE_ID --media audio=OWNED_AUDIO_ID --json",
+        "hyper flow status RENDER_ID --json",
+        "hyper flow wait RENDER_ID --timeout 600 --json",
         "hyper flow list --json",
         "hyper flow cancel RENDER_ID --yes"
       ]
     },
     {
       "name": "hypercli-knowledge",
-      "description": "Upload and inspect platform files, manage durable HyperCLI shared knowledge workspaces, search/sync/download Markdown projections, control grants, and convert captions or documents into local OpenClaw memory. Use for hyper files, hyper workspaces, and hyper memory commands.",
+      "description": "Upload and inspect platform files, manage durable HyperCLI shared knowledge workspaces, search/sync/download Markdown projections, control grants, and convert captions or documents into local OpenClaw memory. Use for hyper files, hyper workspaces, and hyper memory commands. When a file exists only as an input to media rendering, use the hypercli-flows skill instead; this skill owns durable knowledge, not render inputs.",
       "commands": [
-        "hyper files",
-        "hyper workspaces",
-        "hyper memory import",
-        "hyper workspaces <command>",
+        "hyper files upload ./reference.png",
+        "hyper files get <file-id>",
+        "hyper workspaces create \"Team Knowledge\" --slug team-knowledge --output json",
         "hyper workspaces list",
-        "hyper memory"
+        "hyper workspaces search \"launch notes\" --output json",
+        "hyper workspaces upload team-knowledge ./report.pdf --path projects/acme/report.pdf --output json",
+        "hyper workspaces wait-until-processed team-knowledge projects/acme/report.pdf --timeout 300 --poll-interval 2",
+        "hyper workspaces sync team-knowledge --output-dir ~/workspaces",
+        "hyper workspaces grant team-knowledge --agent-id <agent> --role viewer",
+        "hyper workspaces revoke-grant team-knowledge <grant-id>",
+        "hyper memory import ./notes --collection research --workspace ~/.openclaw/workspace"
       ]
     },
     {
       "name": "hypercli-voice",
-      "description": "Generate speech with HyperCLI reference voice cloning, save audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation, clone reference handling, and voice-capability validation.",
+      "description": "Generate speech by cloning a reference voice with hyper voice clone (--file or --url reference audio, saved with --out), transcribe audio with hyper voice transcribe, and preflight the voice capability with hyper me. Use for CLI speech generation, voice cloning, and speech-to-text; preset TTS and VoiceDesign commands are removed. Credential rules are owned by hypercli-auth.",
       "commands": [
         "hyper voice clone --help",
         "hyper me",
-        "hyper configure"
+        "hyper voice clone \"Hello world\" --file reference.wav --out cloned.mp3",
+        "hyper voice clone \"Hello world\" --url https://example.com/reference.wav --out cloned.mp3",
+        "hyper voice transcribe speech.wav --language en --out transcript.txt"
       ]
     }
   ]

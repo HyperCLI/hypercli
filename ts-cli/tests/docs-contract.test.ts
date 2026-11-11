@@ -32,10 +32,15 @@ describe('TS CLI documentation and generated skill contract', () => {
     expect(canonical).not.toContain('hyper agent subscribe');
     const generated = JSON.parse(read('ts-cli/skills/hypercli-account.json'));
     expect(generated.commands).toEqual(expect.arrayContaining([
-      'hyper soul [--agent <id>] [-f <file>|-]',
-      'hyper role [--agent <id>] [value]',
-      'hyper agents activate <code>',
+      'hyper agent <id> soul',
+      'hyper configure',
+      'hyper wallet balance',
     ]));
+    // Grant-code redemption moved to the agents family skill; the account
+    // bundle must not carry it.
+    expect(generated.commands).not.toContain('hyper agents activate <code>');
+    const agentsGenerated = JSON.parse(read('ts-cli/skills/hypercli-agents.json'));
+    expect(agentsGenerated.commands).toContain('hyper agents activate <code>');
   });
 
   it('keeps legacy references separate and avoids dead embed links', () => {

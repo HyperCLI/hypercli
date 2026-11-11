@@ -7,6 +7,18 @@ description: >
   files, hyper workspaces, and hyper memory commands. When a file exists only
   as an input to media rendering, use the hypercli-flows skill instead; this
   skill owns durable knowledge, not render inputs.
+commands:
+  - hyper files upload ./reference.png
+  - hyper files get <file-id>
+  - hyper workspaces create "Team Knowledge" --slug team-knowledge --output json
+  - hyper workspaces list
+  - hyper workspaces search "launch notes" --output json
+  - hyper workspaces upload team-knowledge ./report.pdf --path projects/acme/report.pdf --output json
+  - hyper workspaces wait-until-processed team-knowledge projects/acme/report.pdf --timeout 300 --poll-interval 2
+  - hyper workspaces sync team-knowledge --output-dir ~/workspaces
+  - hyper workspaces grant team-knowledge --agent-id <agent> --role viewer
+  - hyper workspaces revoke-grant team-knowledge <grant-id>
+  - hyper memory import ./notes --collection research --workspace ~/.openclaw/workspace
 ---
 
 # HyperCLI Knowledge

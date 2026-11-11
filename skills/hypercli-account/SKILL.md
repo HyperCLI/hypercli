@@ -9,6 +9,15 @@ description: >
   entitlement, profile, and balance questions; hypercli-auth owns credential
   precedence and auth failure diagnosis, and grant-code redemption belongs
   to hypercli-agents.
+commands:
+  - hyper me
+  - hyper me --json
+  - hyper user
+  - hyper agent <id> soul
+  - hyper configure
+  - hyper billing balance
+  - hyper keys list
+  - hyper wallet balance
 ---
 
 # HyperCLI Account
