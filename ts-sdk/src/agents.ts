@@ -983,11 +983,6 @@ export interface OpenClawRouteOptions {
 }
 
 export const OPENCLAW_TRUSTED_PROXIES_ENV = 'OPENCLAW_TRUSTED_PROXIES';
-const DEFAULT_OPENCLAW_MODEL_ENV = Object.freeze({
-  HYPER_MODELS: 'default-anthropic',
-  HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
-});
-const DEFAULT_HERMES_MODEL_ENV = DEFAULT_OPENCLAW_MODEL_ENV;
 
 export function buildOpenClawTrustedProxiesEnv(trustedProxies: readonly string[] | null | undefined): Record<string, string> {
   const proxies = (trustedProxies ?? []).map((proxy) => proxy.trim()).filter(Boolean);
@@ -3383,8 +3378,6 @@ interface AcpRuntimeRow {
    */
   agentCommand: readonly string[];
 
-  /** Static env defaults applied before caller env (caller wins). */
-  env?: Record<string, string>;
   /** Cron env builder for this family, driven by options.cronEnabled. */
   cronEnv?: (enabled: boolean | null) => Record<string, string>;
   /** Default sync_exclude when the caller passes neither sync policy key. */
@@ -3412,7 +3405,6 @@ const OPENCLAW_ACP_ROW: AcpRuntimeRow = {
   // Mirrors the openclaw image ENV (`openclaw` resolves via PATH on the
   // runner host; the image pins it in ENV for the container instead).
   agentCommand: ['openclaw', 'acp'],
-  env: DEFAULT_OPENCLAW_MODEL_ENV,
   cronEnv: buildOpenClawCronEnv,
   syncExclude: DEFAULT_OPENCLAW_SYNC_EXCLUDE,
   workspacesSyncEnv: true,
@@ -3446,7 +3438,6 @@ const ACP_RUNTIME_TABLE: Record<Exclude<ManagedAgentRuntime, 'generic'>, AcpRunt
     // The hermes image ENV pins the venv absolute path; on the runner host
     // the hermes-acp binary resolves via PATH instead.
     agentCommand: ['hermes-acp'],
-    env: DEFAULT_HERMES_MODEL_ENV,
     cronEnv: buildHermesCronEnv,
     syncExclude: DEFAULT_HERMES_AGENT_SYNC_EXCLUDE,
     resetFiles: ['.hermes/config.yaml', '.hermes/mem0.json'],
@@ -3851,7 +3842,9 @@ export class Deployments {
       ...(family.workspacesSyncEnv ? buildWorkspacesSyncEnv(options.workspacesSync ?? null) : null),
       ...(family.cronEnv ? family.cronEnv(options.cronEnabled ?? null) : null),
       ...(family.openclawMemoryIndex ? buildOpenClawMemoryIndexEnv(options.memoryIndex) : null),
-      ...(family.env ?? null),
+      // No family-level model env here: HYPER_MODELS / HYPER_EMBEDDING_MODELS
+      // defaults are image-owned (CI/Pulumi build args); caller env below is
+      // the only per-launch override.
       ...(options.env ?? {}),
     };
     if (family.openclawControlUi) {

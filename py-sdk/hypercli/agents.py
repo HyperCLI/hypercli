@@ -99,11 +99,11 @@ OPENCLAW_TRUSTED_PROXIES_ENV = "OPENCLAW_TRUSTED_PROXIES"
 HERMES_CRON_ENV_DEFAULTS = {
     "HERMES_CRON_ENABLED": "1",
 }
-DEFAULT_OPENCLAW_MODEL_ENV = {
-    "HYPER_MODELS": "default-anthropic",
-    "HYPER_EMBEDDING_MODELS": "qwen3-embedding-4b",
-}
-DEFAULT_HERMES_MODEL_ENV = DEFAULT_OPENCLAW_MODEL_ENV
+# Model env (HYPER_MODELS / HYPER_EMBEDDING_MODELS) defaults are image-owned:
+# CI (AGENT_HYPER_MODELS / AGENT_HYPER_EMBEDDING_MODELS) and
+# pulumi/pulumi-docker bake them as image ENV via Dockerfile build args. The
+# SDK does not inject them at create time; caller env remains the only
+# per-launch override.
 DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
     "shared/**",
     ".openclaw/npm/**/node_modules/**",
@@ -2665,7 +2665,8 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(knobs["workspaces_sync"]),
             **build_openclaw_cron_env(knobs["cron_enabled"]),
             **build_openclaw_memory_index_env(knobs["memory_index"]),
-            **DEFAULT_OPENCLAW_MODEL_ENV,
+            # No model env defaults here: HYPER_MODELS / HYPER_EMBEDDING_MODELS
+            # are image-owned; caller env is the only per-launch override.
             **dict(launch["env"] or {}),
             # OpenClaw treats this env as a full replace for
             # gateway.controlUi.allowedOrigins, and every HyperCLI surface
@@ -2689,7 +2690,8 @@ class Deployments:
     def _create_hermes_agent_deployment(self, runtime: str, *, launch: dict, **knobs: Any) -> Agent:
         launch["env"] = {
             **build_hermes_cron_env(knobs["cron_enabled"]),
-            **DEFAULT_HERMES_MODEL_ENV,
+            # No model env defaults here: HYPER_MODELS / HYPER_EMBEDDING_MODELS
+            # are image-owned; caller env is the only per-launch override.
             **dict(launch["env"] or {}),
         }
         launch["image"] = launch["image"] or DEFAULT_HERMES_AGENT_IMAGE

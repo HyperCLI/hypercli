@@ -19,8 +19,6 @@ pub const OPENCLAW_CRON_ENABLED_ENV: &str = "OPENCLAW_CRON_ENABLED";
 pub const OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV: &str = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
 pub const OPENCLAW_TRUSTED_PROXIES_ENV: &str = "OPENCLAW_TRUSTED_PROXIES";
 pub const OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_DEFAULT: &str = "*";
-pub const HYPER_MODELS_ENV: &str = "HYPER_MODELS";
-pub const HYPER_EMBEDDING_MODELS_ENV: &str = "HYPER_EMBEDDING_MODELS";
 pub const OPENCLAW_MEMORY_SEARCH_ENABLED_ENV: &str = "OPENCLAW_MEMORY_SEARCH_ENABLED";
 pub const OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START_ENV: &str =
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START";
@@ -173,14 +171,9 @@ impl OpenClawLaunchConfig {
                     "0".to_owned()
                 }
             });
-        request
-            .env
-            .entry(HYPER_MODELS_ENV.to_owned())
-            .or_insert_with(|| "default-anthropic".to_owned());
-        request
-            .env
-            .entry(HYPER_EMBEDDING_MODELS_ENV.to_owned())
-            .or_insert_with(|| "qwen3-embedding-4b".to_owned());
+        // No model env defaults here: HYPER_MODELS / HYPER_EMBEDDING_MODELS
+        // are image-owned (CI/Pulumi build args baked into the image ENV);
+        // caller-provided env is the only per-launch override.
         request
             .env
             .entry(OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN_ENV.to_owned())
@@ -255,17 +248,10 @@ mod tests {
         assert_eq!(request.runtime, ManagedRuntime::Openclaw);
         assert_eq!(request.name.as_deref(), Some("test-agent"));
         assert_eq!(request.image.as_deref(), Some(OPENCLAW_IMAGE));
-        assert_eq!(
-            request.env.get(HYPER_MODELS_ENV).map(String::as_str),
-            Some("default-anthropic")
-        );
-        assert_eq!(
-            request
-                .env
-                .get(HYPER_EMBEDDING_MODELS_ENV)
-                .map(String::as_str),
-            Some("qwen3-embedding-4b")
-        );
+        // Model env is image-owned (baked as image ENV by CI/Pulumi build
+        // args); the SDK never injects HYPER_MODELS / HYPER_EMBEDDING_MODELS.
+        assert!(!request.env.contains_key("HYPER_MODELS"));
+        assert!(!request.env.contains_key("HYPER_EMBEDDING_MODELS"));
         assert_eq!(
             request
                 .env
@@ -395,6 +381,29 @@ mod tests {
                 .get(OPENCLAW_TRUSTED_PROXIES_ENV)
                 .map(String::as_str),
             Some("10.0.0.0/8")
+        );
+    }
+
+    #[test]
+    fn caller_model_env_passes_through_untouched() {
+        // HYPER_MODELS / HYPER_EMBEDDING_MODELS defaults are image-owned; an
+        // explicit caller value is the only per-launch override and must be
+        // forwarded verbatim.
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        request.env.insert("HYPER_MODELS".to_owned(), "custom-model".to_owned());
+        request
+            .env
+            .insert("HYPER_EMBEDDING_MODELS".to_owned(), "nomic-embed-text".to_owned());
+
+        OpenClawLaunchConfig::new().apply_to_create(&mut request);
+
+        assert_eq!(
+            request.env.get("HYPER_MODELS").map(String::as_str),
+            Some("custom-model")
+        );
+        assert_eq!(
+            request.env.get("HYPER_EMBEDDING_MODELS").map(String::as_str),
+            Some("nomic-embed-text")
         );
     }
 

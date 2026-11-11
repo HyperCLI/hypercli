@@ -11,6 +11,7 @@ import uuid
 
 IMAGE = sys.argv[1] if len(sys.argv) > 1 else "hypercli-hermes:local"
 MODEL = "default-anthropic"
+EMBEDDING_MODEL = "qwen3-embedding-4b"
 TEST_RUN_LABEL = "io.hypercli.hermes-test-run"
 TEST_RUN_ID = os.environ.get("HERMES_TEST_RUN_ID", f"local-{uuid.uuid4().hex}")
 EXPECTED_RUNTIME_TOOLS = (
@@ -65,6 +66,11 @@ def main() -> None:
     assert inspect["Healthcheck"]["Test"] == ["NONE"]
     assert "HYPER_ACP_AGENT_COMMAND=/opt/hermes/.venv/bin/hermes-acp" in inspect["Env"]
     assert "HERMES_ACP_SKIP_CONFIGURED_MCP=1" in inspect["Env"]
+    # Image-owned model defaults: the Dockerfile wires HYPER_MODELS /
+    # HYPER_EMBEDDING_MODELS ARG->ENV from CI/Pulumi build args; the SDK never
+    # injects them per launch.
+    assert f"HYPER_MODELS={MODEL}" in inspect["Env"]
+    assert f"HYPER_EMBEDDING_MODELS={EMBEDDING_MODEL}" in inspect["Env"]
     assert not any(value.startswith("API_SERVER_") for value in inspect["Env"])
     assert not any(value.startswith("HERMES_DEFAULT_MODEL=") for value in inspect["Env"])
     assert not any(value.startswith("HERMES_MODEL_TRANSPORT=") for value in inspect["Env"])

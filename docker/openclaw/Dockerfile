@@ -51,8 +51,15 @@ RUN chmod +x /opt/hypercli-openclaw/entrypoint.sh /opt/hypercli-openclaw/init.sh
 ARG HYPERCLI_REF
 ARG HYPERCLI_SHA
 ARG HYPERCLI_REPO
+# Image-owned model defaults: CI (agents-ci.yml AGENT_HYPER_MODELS /
+# AGENT_HYPER_EMBEDDING_MODELS) and pulumi/pulumi-docker pass these build args;
+# the values live there, not in this Dockerfile. Launch-time env still wins.
+ARG HYPER_MODELS
+ARG HYPER_EMBEDDING_MODELS
 ENV HYPERCLI_REF=${HYPERCLI_REF}
 ENV HYPERCLI_SHA=${HYPERCLI_SHA}
+ENV HYPER_MODELS=${HYPER_MODELS}
+ENV HYPER_EMBEDDING_MODELS=${HYPER_EMBEDDING_MODELS}
 
 ENV OPENCLAW_PORT=18789
 ENV OPENCLAW_GATEWAY_BIND=loopback

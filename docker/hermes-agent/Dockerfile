@@ -69,8 +69,15 @@ RUN usermod -d /home/hermes hermes \
 
 ARG HYPERCLI_REF
 ARG HYPERCLI_SHA
+# Image-owned model defaults: CI (agents-ci.yml AGENT_HYPER_MODELS /
+# AGENT_HYPER_EMBEDDING_MODELS) and pulumi/pulumi-docker pass these build args;
+# the values live there, not in this Dockerfile. Launch-time env still wins.
+ARG HYPER_MODELS
+ARG HYPER_EMBEDDING_MODELS
 ENV HYPERCLI_REF=${HYPERCLI_REF}
 ENV HYPERCLI_SHA=${HYPERCLI_SHA}
+ENV HYPER_MODELS=${HYPER_MODELS}
+ENV HYPER_EMBEDDING_MODELS=${HYPER_EMBEDDING_MODELS}
 
 ENV HOME=/home/hermes
 ENV HERMES_HOME=/home/hermes/.hermes

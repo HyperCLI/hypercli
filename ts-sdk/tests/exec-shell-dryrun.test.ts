@@ -220,14 +220,16 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
         OPENCLAW_CRON_ENABLED: '1',
-        HYPER_MODELS: 'default-anthropic',
-        HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: '*',
       }),
       routes: {},
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
+    // Model env defaults are image-owned; the SDK never injects
+    // HYPER_MODELS / HYPER_EMBEDDING_MODELS at create time.
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_MODELS');
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_EMBEDDING_MODELS');
   });
 
   it('openclaw_acp launch passes caller routes through untouched', async () => {
@@ -256,13 +258,13 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
-        HYPER_MODELS: 'default-anthropic',
-        HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: '*',
       }),
       routes: {},
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_MODELS');
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_EMBEDDING_MODELS');
   });
 
   it('openclaw launch accepts explicit desktop env and routes', async () => {
@@ -303,8 +305,6 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
         OPENCLAW_CRON_ENABLED: '1',
-        HYPER_MODELS: 'default-anthropic',
-        HYPER_EMBEDDING_MODELS: 'qwen3-embedding-4b',
         HYPER_DESKTOP_ENABLED: '1',
       }),
       routes: {
@@ -312,7 +312,33 @@ describe('HyperClaw agents SDK', () => {
       },
     }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('OPENCLAW_TRUSTED_PROXIES');
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_MODELS');
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_EMBEDDING_MODELS');
     expect(agent).toBeInstanceOf(Agent);
+  });
+
+  it('openclaw_acp launch passes caller model env through without injection', async () => {
+    // HYPER_MODELS / HYPER_EMBEDDING_MODELS defaults are image-owned
+    // (CI/Pulumi build args); caller env is the only per-launch override.
+    const post = vi.fn().mockResolvedValue({
+      runtime: 'openclaw_acp',
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createAgent('openclaw_acp', {
+      name: 'test-agent', dryRun: true,
+      env: { HYPER_MODELS: 'custom-model' },
+    });
+
+    expect(post.mock.calls[0]?.[1].env).toMatchObject({ HYPER_MODELS: 'custom-model' });
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_EMBEDDING_MODELS');
   });
 
   it('openclaw_acp launch accepts memory index launch options', async () => {

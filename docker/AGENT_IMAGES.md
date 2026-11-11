@@ -181,6 +181,22 @@ containers. Today the image aliases resolve as:
 | `coding-anthropic` | `kimi-k31-pro-anthropic` | Stable coding alias, Anthropic Messages route |
 | `kimi-k3-anthropic` | `kimi-k31-pro-anthropic` | Compatibility Kimi alias, Anthropic Messages route |
 
+Model defaults are image-owned, not SDK-owned. The OpenClaw and Hermes
+Dockerfiles declare `ARG HYPER_MODELS` / `ARG HYPER_EMBEDDING_MODELS` and wire
+them to `ENV` with no hardcoded model values; CI
+(`.github/workflows/agents-ci.yml`, global `AGENT_HYPER_MODELS` /
+`AGENT_HYPER_EMBEDDING_MODELS` with committed fallbacks) and
+`pulumi/pulumi-docker/Pulumi.prod.yaml` (per-image `build_args`) pass the
+values — `HYPER_MODELS=default-anthropic` (first and only entry) and
+`HYPER_EMBEDDING_MODELS=qwen3-embedding-4b` — so every build of either image
+advertises the same defaults, and a rebuild with different args retargets both
+the advertised env and the seeded runtime config at boot. The TS, Python, and
+Rust SDKs do not inject these env vars at create time; an explicit caller
+launch env remains the per-launch override. The parity between CI fallbacks
+and Pulumi build args is guarded by
+`agents/tests/unit/test_agent_image_model_defaults.py`, and both sanity
+suites assert the image advertises the defaults.
+
 The authoritative alias map lives in
 `pulumi/pulumi-agents-k8s/gpus.yaml`, in the parent deployment repository.
 Image configs duplicate the public names so runtime UIs can list and select

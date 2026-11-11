@@ -604,8 +604,10 @@ class TestCreateAgentOpenClawRuntimes:
         env = body["env"]
         assert env["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert env["OPENCLAW_CRON_ENABLED"] == "1"
-        assert env["HYPER_MODELS"] == "default-anthropic"
-        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+        # Model env defaults are image-owned; the SDK never injects
+        # HYPER_MODELS / HYPER_EMBEDDING_MODELS at create time.
+        assert "HYPER_MODELS" not in env
+        assert "HYPER_EMBEDDING_MODELS" not in env
         assert env["OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN"] == "*"
         assert "HYPER_DESKTOP_ENABLED" not in env
         assert "HYPER_ACP_PERMISSIONS" not in env
@@ -663,15 +665,15 @@ class TestCreateAgentOpenClawRuntimes:
             ".openclaw/browser/**/optimization_guide_model_store/**",
         )
 
-    def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
+    def test_caller_model_env_passes_through_without_injection(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
 
         deployments.create_agent("openclaw_acp", env={"HYPER_MODELS": "custom-model", "X": "1"})
 
         env = posts[0][1]["env"]
         assert env["HYPER_MODELS"] == "custom-model"
-        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
         assert env["X"] == "1"
+        assert "HYPER_EMBEDDING_MODELS" not in env
 
     def test_control_ui_allowed_origin_wildcard_is_unconditional(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "openclaw_acp")
@@ -723,17 +725,19 @@ class TestCreateAgentHermesRuntimes:
         assert body["runtime_scopes"] == list(DEFAULT_AGENT_RUNTIME_SCOPES)
         env = body["env"]
         assert env["HERMES_CRON_ENABLED"] == "1"
-        assert env["HYPER_MODELS"] == "default-anthropic"
-        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+        # Model env defaults are image-owned; the SDK never injects
+        # HYPER_MODELS / HYPER_EMBEDDING_MODELS at create time.
+        assert "HYPER_MODELS" not in env
+        assert "HYPER_EMBEDDING_MODELS" not in env
 
-    def test_caller_env_overrides_model_env_defaults(self, monkeypatch):
+    def test_caller_model_env_passes_through_without_injection(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "hermes_acp")
 
         deployments.create_agent("hermes_acp", env={"HYPER_MODELS": "custom-model"})
 
         env = posts[0][1]["env"]
         assert env["HYPER_MODELS"] == "custom-model"
-        assert env["HYPER_EMBEDDING_MODELS"] == "qwen3-embedding-4b"
+        assert "HYPER_EMBEDDING_MODELS" not in env
 
     def test_explicit_cors_passes_through(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "hermes_acp")
