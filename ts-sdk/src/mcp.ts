@@ -3,7 +3,7 @@ import type { McpServer } from '@agentclientprotocol/sdk';
 /** Standard session setup. Hyper-ACP supplies only its local hyper-chat entry. */
 export function buildSessionMcpServers(productBase: string, apiKey: string, additions: readonly McpServer[] = []): McpServer[] {
   return [
-    { type: 'http', name: 'hypercli', url: `${productBase.replace(/\/+$/, '')}/api/mcp`,
+    { type: 'http', name: 'hypercli', url: `${productBase.replace(/\/+$/, '')}/mcp`,
       headers: [{ name: 'Authorization', value: `Bearer ${apiKey}` }] },
     { type: 'http', name: 'hypercli-docs', url: 'https://docs.hypercli.com/mcp', headers: [] },
     ...structuredClone(additions),

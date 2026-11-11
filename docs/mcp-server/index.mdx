@@ -11,7 +11,7 @@ and your credentials.
 ## Endpoint
 
 ```
-https://api.hypercli.com/api/mcp
+https://api.hypercli.com/mcp
 ```
 
 ## Authentication
@@ -27,7 +27,7 @@ For clients accepting HTTP MCP configuration:
   "mcpServers": {
     "hypercli": {
       "type": "http",
-      "url": "https://api.hypercli.com/api/mcp",
+      "url": "https://api.hypercli.com/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
       }
@@ -39,7 +39,7 @@ For clients accepting HTTP MCP configuration:
 Or via CLI:
 
 ```bash
-claude mcp add hypercli --transport http https://api.hypercli.com/api/mcp \
+claude mcp add hypercli --transport http https://api.hypercli.com/mcp \
   --header "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -86,4 +86,4 @@ remain restricted, and submission failures never authorize a paid retry.
 
 ## Transport
 
-The server uses streamable HTTP transport (recommended for web clients). Health checks are available at `/api/mcp/health`.
+The server uses streamable HTTP transport (recommended for web clients). Health checks are available at `/mcp/health`.

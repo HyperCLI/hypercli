@@ -180,7 +180,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     const client = track(await acpAgent(proxy).acpConnect({ mcpServers: additions, onDiagnostic: event => diagnostics.push(event) }));
     const { sessionId } = await client.newSession();
     const expected = [
-      { name: 'hypercli', type: 'http', url: 'https://product.example.test/prefix/api/mcp', headers: [{ name: 'Authorization', value: 'Bearer product-key' }] },
+      { name: 'hypercli', type: 'http', url: 'https://product.example.test/prefix/mcp', headers: [{ name: 'Authorization', value: 'Bearer product-key' }] },
       { name: 'hypercli-docs', type: 'http', url: 'https://docs.hypercli.com/mcp', headers: [] },
       structuredClone(additions[0]),
     ];
