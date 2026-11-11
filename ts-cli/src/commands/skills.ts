@@ -335,7 +335,7 @@ async function cmdInstall(ctx: CommandContext, args: string[]): Promise<void> {
 
   const names = listSkills().map((s) => s.name);
   if (names.length === 0) {
-    throw new CliError('no skills bundled — rebuild with scripts/build-skills.mjs');
+    throw new CliError('no skills bundled — regenerate the committed projection with the mono skills service (services/hypercli-skills/project_bundle.py)');
   }
 
   const tmp = mkdtempSync(join(tmpdir(), 'hyper-skills-'));

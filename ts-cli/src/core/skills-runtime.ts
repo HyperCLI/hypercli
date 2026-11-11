@@ -1,7 +1,7 @@
 /**
  * Bundled-skills runtime.
  *
- * scripts/build-skills.mjs compiles the allowlisted skills into
+ * the mono skills service projects the allowlisted skills into
  * <pkg>/skills/: one <name>.json per skill (full record, markdown
  * included) and an index.json with { skills: [{ name, description,
  * commands }] } in display order.
@@ -120,6 +120,6 @@ export function getSkill(nameOrPrefix: string, dir: string = skillsDir()): Bundl
     }
   }
   throw new CliError(
-    `skill '${name}' is listed in the skills index but its data file is missing or corrupt — rebuild with scripts/build-skills.mjs`,
+    `skill '${name}' is listed in the skills index but its data file is missing or corrupt — regenerate the committed projection with the mono skills service`,
   );
 }

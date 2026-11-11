@@ -62,10 +62,9 @@ async function invoke(args: string[]): Promise<Captured> {
   }
 }
 
-beforeAll(async () => {
-  const { buildAll } = (await import('../scripts/build-skills.mjs')) as { buildAll: () => unknown };
-  buildAll();
-});
+// The bundled skills JSONs are committed projections produced by the mono
+// skills service (services/hypercli-skills/project_bundle.py); these tests
+// exercise the CLI against the committed bundle as shipped.
 
 describe('hyper skills (inventory)', () => {
   it('table lists all bundled skills and fits 80 columns', async () => {
