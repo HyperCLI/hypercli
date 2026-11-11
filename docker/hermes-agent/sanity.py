@@ -429,7 +429,7 @@ def main() -> None:
             "-c", "rm /home/hermes/.hermes/skills/hypercli",
         )
 
-        marker = "# preserve-existing-config"
+        marker = "preserve_existing_config: true"
         run(
             "docker", "run", "--rm", "-v", f"{volume}:/home/hermes", IMAGE,
             "python", "-c",
@@ -440,7 +440,11 @@ def main() -> None:
             "python", "-c",
             "from pathlib import Path; print(Path('/home/hermes/.hermes/config.yaml').read_text())",
         ).stdout
+        # Image-owned model defaults reconcile the model field on every boot;
+        # YAML rewriting may normalize formatting/comments, so preservation is
+        # asserted on an unknown semantic field rather than literal commentary.
         assert marker in preserved
+        assert "default: default-anthropic" in preserved
     finally:
         run("docker", "volume", "rm", "-f", volume, check=False)
 
