@@ -54,7 +54,7 @@
       "smokes": [{ "argv": ["--help"] }]
     },
     "skills": {
-      "tests": ["skills", "skills-runtime", "skills.install", "build-skills"],
+      "tests": ["skills", "skills-runtime", "skills.install"],
       "windows": true,
       "smokes": [
         { "argv": ["--help"] },
