@@ -1,6 +1,12 @@
 import type { McpServer } from '@agentclientprotocol/sdk';
 
-/** Standard session setup. Hyper-ACP supplies only its local hyper-chat entry. */
+/**
+ * Compose the historical product/docs session MCP list.
+ *
+ * @deprecated Clients no longer compose session MCP lists: connect paths send
+ * `[]` (or omit the list) and the Hyper-ACP host hydrates the full session set
+ * from pod launch env. Kept only so existing imports keep compiling.
+ */
 export function buildSessionMcpServers(productBase: string, apiKey: string, additions: readonly McpServer[] = []): McpServer[] {
   return [
     { type: 'http', name: 'hypercli', url: `${productBase.replace(/\/+$/, '')}/mcp`,

@@ -5,12 +5,11 @@ import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 import { CodingAgentAcpClient, CodingAgentAcpConnectionError, CodingAgentSessionStartupError, type CodingAgentAcpConnectOptions, type CodingAgentAcpDiagnostic } from '../src/acp.js';
 import { CodingAgentAcpPool } from '../src/acp-pool.js';
-import { buildAdditionalMcpEnv, buildSessionMcpServers } from '../src/mcp.js';
+import { buildAdditionalMcpEnv } from '../src/mcp.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
 
 type Frame = { jsonrpc: string; id?: number | string; method?: string; params?: any; result?: any; error?: any };
 const cleanup: Array<() => void | Promise<void>> = [];
-const platformServers = buildSessionMcpServers('https://product.example.test', 'product-key');
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 afterEach(() => vi.useRealTimers());
 
@@ -58,22 +57,23 @@ async function fixture() {
     calls: (method: string) => frames.filter(f => f.method === method) };
 }
 
-it('recovers full stored setup on a memoryless platform attachment and reuses an isolated accepted copy on reconnect', async () => {
+it('recovers the stored cwd on a memoryless platform attachment and reuses an isolated accepted copy on reconnect', async () => {
   const f = await fixture();
-  const stored = { cwd: '/stored', mcpServers: [...structuredClone(platformServers),
+  const stored = { cwd: '/stored', mcpServers: [
     { name: 'custom', command: '/tool', args: ['original'], env: [{ name: 'KEY', value: 'stored' }] }] };
-  const expected = structuredClone(stored);
   f.sessionSetup.mockResolvedValue({ session_id: 'existing', agent_id: 'agent', setup: stored });
   const client = await f.connect({ sessionId: 'existing' });
   expect(f.get).toHaveBeenCalledWith('/sessions/existing/setup', { agent_id: 'agent' });
-  expect(f.calls('session/resume')[0].params).toEqual({ sessionId: 'existing', ...expected });
+  // Recovery supplies only the original cwd; the stored list is not resent
+  // because the host hydrates the session MCP set from pod launch env.
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId: 'existing', cwd: '/stored', mcpServers: [] });
   expect(f.calls('session/list')).toHaveLength(0);
   stored.mcpServers[0].name = 'mutated';
   stored.cwd = '/mutated';
   await client.resumeSession('existing');
   f.peers[0].terminate();
   await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(3), { timeout: 4000 });
-  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', ...expected });
+  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', cwd: '/stored', mcpServers: [] });
   expect(f.sessionSetup).toHaveBeenCalledTimes(1);
 });
 
@@ -88,12 +88,11 @@ it.each([{ mcpServers: [] }, { mcpServers: [{ name: 'explicit', command: '/expli
 );
 
 it.each([{ mcpServers: [] }, { mcpServers: [{ name: 'addition', command: '/tool', args: [], env: [] }] }])(
-  'keeps explicit platform connection additions ahead of recovery: %j', async ({ mcpServers }) => {
+  'sends explicit platform connection additions verbatim without recovery: %j', async ({ mcpServers }) => {
     const f = await fixture(), client = await f.connect({ cwd: '/explicit', mcpServers });
     await client.resumeSession('existing');
     expect(f.sessionSetup).not.toHaveBeenCalled();
-    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(
-      buildSessionMcpServers('https://product.example.test', 'product-key', mcpServers));
+    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(mcpServers);
   },
 );
 
@@ -107,7 +106,7 @@ it.each([new Error('403 denied'), new Error('503 unavailable'), new Error('netwo
     expect(client.connected).toBe(true);
     await client.resumeSession('existing');
     expect(f.sessionSetup).toHaveBeenCalledTimes(2);
-    expect(f.calls('session/resume')[0].params.mcpServers).toEqual(platformServers);
+    expect(f.calls('session/resume')[0].params.mcpServers).toEqual([]);
   },
 );
 
@@ -125,7 +124,7 @@ it('does not remember recovered setup until native success, or replace it on ref
   await expect(client.resumeSession('existing', { cwd: '/wrong', mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
   f.hooks.delete('session/resume');
   await client.resumeSession('existing');
-  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', ...setup });
+  expect(f.calls('session/resume').at(-1)?.params).toEqual({ sessionId: 'existing', cwd: setup.cwd, mcpServers: [] });
 });
 
 it('direct platform and standalone ACP clients do not infer a setup API', async () => {
@@ -153,9 +152,9 @@ it('constructs exact v1 initialize/new/prompt/resume requests with no private wi
   expect(await client.prompt(sessionId, blocks)).toEqual({ stopReason: 'end_turn' });
   await client.resumeSession(sessionId);
   expect(f.calls('initialize')[0].params).toEqual({ protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'hypercli-ts-sdk', version: '' } });
-  expect(f.calls('session/new')[0].params).toEqual({ cwd: '/platform', mcpServers: platformServers });
+  expect(f.calls('session/new')[0].params).toEqual({ cwd: '/platform', mcpServers: [] });
   expect(f.calls('session/prompt')[0].params).toEqual({ sessionId, prompt: blocks });
-  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: platformServers });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/platform', mcpServers: [] });
   expect(client.negotiatedProtocolVersion).toBe(1);
   expect(client.initializeResponse?.agentInfo?.name).toBe('fixture');
   expect(f.urls[0].pathname).toBe('/ws/acp');
@@ -462,7 +461,7 @@ it('rejects uncertain prompt on disconnect, resumes exact session without histor
   const pending = client.prompt(sessionId, 'original'), rejected = expect(pending).rejects.toThrow();
   await vi.waitFor(() => expect(f.calls('session/prompt')).toHaveLength(1)); f.peers[0].terminate(); await rejected;
   await vi.waitFor(() => expect(f.calls('session/resume')).toHaveLength(1), { timeout: 3000 }); await client.waitConnected();
-  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/original', mcpServers: platformServers });
+  expect(f.calls('session/resume')[0].params).toEqual({ sessionId, cwd: '/original', mcpServers: [] });
   expect(f.calls('session/load')).toHaveLength(0); expect(f.calls('session/new')).toHaveLength(1);
   expect(f.calls('session/prompt')).toHaveLength(1);
   f.hooks.delete('session/prompt'); await client.prompt(sessionId, 'caller resubmission');

@@ -94,10 +94,10 @@ export interface CodingAgentAcpConnectOptions {
   productHeartbeat?: boolean;
   onDiagnostic?: (event: CodingAgentAcpDiagnostic) => void;
   resolveDefaultCwd?: () => Promise<string>;
-  /** Optional product setup lookup; standalone ACP never assumes a platform API. */
+  /** Optional product setup lookup; standalone ACP never assumes a platform API.
+   * Recovery supplies the session's original cwd only: the MCP list is hydrated
+   * host-side from pod env, so a default resume sends `[]`. */
   resolveSessionSetup?: (sessionId: string) => Promise<{ cwd: string; mcpServers: acp.McpServer[] } | null>;
-  /** Generated defaults, used only when no explicit or recovered setup is known. */
-  defaultMcpServers?: acp.McpServer[];
   signal?: AbortSignal;
   token?: string;
   cwd?: string;
@@ -234,7 +234,9 @@ export class CodingAgentAcpClient {
       if (!this.options.resolveDefaultCwd) throw new CodingAgentAcpUnavailableError('session/new', 'supply cwd or a runtime path resolver');
       return this.options.resolveDefaultCwd();
     });
-    const mcpServers = structuredClone(options.mcpServers ?? this.options.mcpServers ?? this.options.defaultMcpServers ?? []);
+    // No composed defaults: the Hyper-ACP host hydrates the session MCP set
+    // from pod launch env, so an unspecified list means "no client additions".
+    const mcpServers = structuredClone(options.mcpServers ?? this.options.mcpServers ?? []);
     const result = await this.observe('new', () => this.request<acp.NewSessionResponse>('session/new', { cwd, mcpServers }));
     this.sessions.set(result.sessionId, { cwd, mcpServers });
     if (result.configOptions) this.sessionConfig.set(result.sessionId, result.configOptions);
@@ -279,8 +281,11 @@ export class CodingAgentAcpClient {
   async resumeSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.ResumeSessionResponse> {
     const previous = this.sessions.get(sessionId);
     const supplied = options.mcpServers ?? previous?.mcpServers ?? this.options.mcpServers;
+    // Platform recovery resolves the original cwd only. Its MCP list is never
+    // resent: the host rehydrates the session set from pod launch env, so a
+    // default resume sends [] and explicit caller lists stay verbatim.
     const recovered = supplied === undefined ? await this.options.resolveSessionSetup?.(sessionId) : null;
-    const mcpServers = structuredClone(supplied ?? recovered?.mcpServers ?? this.options.defaultMcpServers ?? []);
+    const mcpServers = structuredClone(supplied ?? []);
     const cwd = await this.observe('cwd', () => options.cwd !== undefined ? Promise.resolve(options.cwd)
       : recovered ? Promise.resolve(recovered.cwd) : this.originalSessionCwd(sessionId));
     const connection = this.connection, generation = this.generation;
@@ -310,7 +315,7 @@ export class CodingAgentAcpClient {
   async deleteSession(sessionId: string): Promise<void> { await this.request('session/delete', { sessionId }); this.sessions.delete(sessionId); this.sessionConfig.delete(sessionId); }
   async unstableForkSession(sessionId: string, options: { cwd?: string; mcpServers?: acp.McpServer[] } = {}): Promise<acp.ForkSessionResponse> {
     const cwd = options.cwd ?? await this.originalSessionCwd(sessionId);
-    const mcpServers = structuredClone(options.mcpServers ?? this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? this.options.defaultMcpServers ?? []);
+    const mcpServers = structuredClone(options.mcpServers ?? this.sessions.get(sessionId)?.mcpServers ?? this.options.mcpServers ?? []);
     const result = await this.request<acp.ForkSessionResponse>('session/fork', { sessionId, cwd, mcpServers });
     this.sessions.set(result.sessionId, { cwd, mcpServers });
     return result;

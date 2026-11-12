@@ -515,14 +515,14 @@ Kubernetes startup override is needed. HyperACP owns connect/reconnect and the
 generic ACP wire protocol.
 
 Native `buzz-agent` is a stdio ACP child, distinct from `hyper-acp` with Buzz credentials.
-The platform SDK supplies product `hypercli`, `hypercli-docs` and caller additions
-through standard session `mcpServers`. It uses the canonical product base and
-caller credential; the app passes its saved list using the same constructor.
-Images do not seed product/docs MCP defaults. Hyper-ACP adds only local
-`hyper-chat` with its existing runtime credential for verified additive OpenCode
-peers. Other caller entries are preserved; there is no private MCP registry.
-SDKs retain successful setup for resume; a fresh client must provide the same
-list and credentials for an active session. The hosted
+Hyper-ACP composes the full session `mcpServers` list host-side: the local
+`hyper-chat` entry, the product `hypercli` entry (canonical product base plus
+`/mcp`, runtime bearer) and `hypercli-docs` (static), and the user's saved
+servers from the `HYPER_ADDITIONAL_MCP_SERVERS` launch env. Clients send
+`mcpServers: []`; a caller-supplied entry with the same name shadows the host
+entry. Images do not seed product/docs MCP defaults; there is no private MCP
+registry. SDKs retain successful setup for resume; a fresh client re-sends no
+list and hyper-acp re-hydrates from the same launch env. The hosted
 Buzz connector submits an empty MCP server list and publishes completed
 assistant text locally.
 

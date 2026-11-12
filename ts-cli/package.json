@@ -1,7 +1,7 @@
 {
   "name": "@hypercli.com/cli",
   "version": "0.10.8",
-  "description": "HyperCLI command line \u2014 product APIs, managed agents, compute, flows, knowledge, voice.",
+  "description": "HyperCLI command line — product APIs, managed agents, compute, flows, knowledge, voice.",
   "type": "module",
   "bin": {
     "hyper": "./dist/index.js"

@@ -2828,6 +2828,11 @@ export class Agent {
    * The `cwd` default comes from the runtime's validated launch-directory
    * advertisement, never from the pod sync root or the caller's machine.
     *
+    * Session MCP setup is not composed here: unspecified lists are sent as
+    * `[]` and the Hyper-ACP host hydrates the session's MCP set from pod
+    * launch env. Explicit `mcpServers` pass through verbatim, and resume
+    * recovery (proxy transport) resolves only the original `cwd`.
+    *
     * Auth: the dial carries the client API key on the `token` query param;
     * `options.token` overrides that credential.
     */
@@ -2850,10 +2855,9 @@ export class Agent {
     const client = await CodingAgentAcpClient.connect(
       { url: url.toString(), token: '' },
       { ...options,
-        // Explicit connection additions retain their composed default semantics;
-        // generated product defaults alone must not shadow durable resume setup.
-        mcpServers: options.mcpServers === undefined ? undefined : deployments.sessionMcpServers(options.mcpServers),
-        defaultMcpServers: deployments.sessionMcpServers(),
+        // No MCP composition: the Hyper-ACP host hydrates the session MCP set
+        // from pod launch env. Explicit caller lists pass through verbatim;
+        // recovery below resolves the original cwd only.
         resolveSessionSetup: options.resolveSessionSetup ?? (transport === 'proxy'
           ? async sessionId => (await deployments.sessionSetup(sessionId, this.id)).setup
           : undefined),
@@ -3553,7 +3557,14 @@ export class Deployments {
     return this.apiKey;
   }
 
-  /** Product MCP uses the product client's canonical base and credential. */
+  /**
+   * Compose the historical product/docs session MCP list.
+   *
+   * @deprecated Connect paths no longer compose session MCP lists — the
+   * Hyper-ACP host hydrates the full set (product, docs and the saved
+   * additions env) from pod launch env, and clients send `[]` or omit the
+   * list. Kept only so external callers keep compiling.
+   */
   sessionMcpServers(additions: NonNullable<CodingAgentAcpConnectOptions['mcpServers']> = []) {
     return buildSessionMcpServers(this.productBase, this.productKey, additions);
   }

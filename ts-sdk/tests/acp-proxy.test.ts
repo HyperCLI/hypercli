@@ -1,10 +1,9 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Agent, Deployments } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
-import { buildSessionMcpServers } from '../src/mcp.js';
 import {
   ACP_PROXY_UNKNOWN_SESSION_CLOSE_CODE,
   CodingAgentAcpClient,
@@ -173,17 +172,13 @@ afterEach(async () => {
 });
 
 describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
-  it('sends product/docs and caller additions on new and reuses exact setup on resume without credential diagnostics', async () => {
+  it('sends caller additions verbatim on new, reuses them on resume, and defaults to no list without credential diagnostics', async () => {
     const proxy = await startProxy();
     const diagnostics: unknown[] = [];
     const additions = [{ name: 'external', type: 'http' as const, url: 'https://external.example.test/mcp', headers: [{ name: 'Authorization', value: 'Bearer external-key' }] }];
     const client = track(await acpAgent(proxy).acpConnect({ mcpServers: additions, onDiagnostic: event => diagnostics.push(event) }));
     const { sessionId } = await client.newSession();
-    const expected = [
-      { name: 'hypercli', type: 'http', url: 'https://product.example.test/prefix/mcp', headers: [{ name: 'Authorization', value: 'Bearer product-key' }] },
-      { name: 'hypercli-docs', type: 'http', url: 'https://docs.hypercli.com/mcp', headers: [] },
-      structuredClone(additions[0]),
-    ];
+    const expected = [structuredClone(additions[0])];
     additions[0].headers[0].value = 'mutated';
     await client.resumeSession(sessionId);
     expect(proxy.framesFor('session/new')[0].params?.mcpServers).toEqual(expected);
@@ -192,6 +187,13 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     // Explicit low-level setup remains an escape hatch, not another composition layer.
     await client.resumeSession(sessionId, { mcpServers: [] });
     expect(proxy.framesFor('session/resume').at(-1)?.params?.mcpServers).toEqual([]);
+  });
+
+  it('create without explicit additions sends no composed list: the host hydrates the session MCP set', async () => {
+    const proxy = await startProxy();
+    const client = track(await acpAgent(proxy).acpConnect());
+    await client.newSession();
+    expect(proxy.framesFor('session/new')[0].params?.mcpServers).toEqual([]);
   });
 
   it('create: a session-less dial dials /ws/acp without session_id and session/new mints the backend session id', async () => {
@@ -237,7 +239,7 @@ describe('acpConnect proxy transport (sessions/README §14 seam)', () => {
     await client.resumeSession(BACKEND_SESSION_ID);
     expect(updates).toEqual([]);
     expect(proxy.framesFor('session/load')).toHaveLength(0);
-    expect(proxy.framesFor('session/resume').at(-1)?.params).toEqual({ sessionId: BACKEND_SESSION_ID, cwd: '/original/workspace', mcpServers: buildSessionMcpServers('https://product.example.test/prefix/', 'product-key') });
+    expect(proxy.framesFor('session/resume').at(-1)?.params).toEqual({ sessionId: BACKEND_SESSION_ID, cwd: '/original/workspace', mcpServers: [] });
   });
 
   it('attach: an unknown standard session/resume fails without redial', async () => {

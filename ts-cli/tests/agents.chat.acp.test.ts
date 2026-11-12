@@ -218,8 +218,10 @@ describe('chat actual argv and SDK wire', () => {
     expect(run.stderr).toContain('Hello');
     expect(run.requests).toContain(`/agents/sessions/public-session/setup?agent_id=${id}`);
     expect(run.frames.map(f => f.method)).toEqual(['initialize', 'session/resume', 'session/prompt']);
+    // Recovery resolves the original cwd only: the stored MCP list is never
+    // resent (the Hyper-ACP host rehydrates the session set from pod env).
     expect(run.frames.find(f => f.method === 'session/resume').params)
-      .toEqual({ sessionId: 'public-session', ...savedSetup });
+      .toEqual({ sessionId: 'public-session', cwd: savedSetup.cwd, mcpServers: [] });
     expect(run.modeWrites).toEqual([]);
     expect(run.connectionPaths).toEqual(['/ws/acp']);
   });
