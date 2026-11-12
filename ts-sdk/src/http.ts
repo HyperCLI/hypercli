@@ -441,4 +441,40 @@ export class HTTPClient {
     }, handleResponse<T>);
   }
 
+  /**
+   * POST multipart form data: string fields plus Blobs under one or more
+   * field names (repeated entries allowed). The browser/undici fetch sets the
+   * multipart boundary itself, so no Content-Type is provided.
+   */
+  async postForm<T = any>(
+    path: string,
+    fields: Record<string, string>,
+    files: Array<{ field: string; filename: string; blob: Blob }>,
+    options: RequestOverrides = {}
+  ): Promise<T> {
+    const formData = new FormData();
+    for (const [name, value] of Object.entries(fields)) {
+      formData.append(name, value);
+    }
+    for (const file of files) {
+      formData.append(file.field, file.blob, file.filename);
+    }
+
+    return requestWithRetryHandled({
+      method: 'POST',
+      url: `${this.baseUrl}${path}`,
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
+      body: formData as any,
+      rawBody: true,
+      timeout: options.timeout ?? this.timeout,
+      retries: options.retries,
+      backoff: options.backoff,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+      redirect: options.redirect,
+    }, handleResponse<T>);
+  }
+
 }

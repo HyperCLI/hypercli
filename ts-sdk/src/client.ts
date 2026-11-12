@@ -11,6 +11,7 @@ import {
 import { Billing } from './billing.js';
 import { Jobs } from './jobs.js';
 import { UserAPI } from './user.js';
+import { FeedbackAPI } from './feedback.js';
 import { Instances } from './instances.js';
 import { Renders } from './renders.js';
 import { Files } from './files.js';
@@ -89,6 +90,7 @@ export class HyperCLI {
   public readonly billing: Billing;
   public readonly jobs: Jobs;
   public readonly user: UserAPI;
+  public readonly feedback: FeedbackAPI;
   public readonly instances: Instances;
   public readonly renders: Renders;
   public readonly files: Files;
@@ -135,6 +137,7 @@ export class HyperCLI {
     this.billing = new Billing(this._http);
     this.jobs = new Jobs(this._http);
     this.user = new UserAPI(this._http, this._http, this._agentsHttp);
+    this.feedback = new FeedbackAPI(this._agentsHttp);
     this.instances = new Instances(this._http);
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);

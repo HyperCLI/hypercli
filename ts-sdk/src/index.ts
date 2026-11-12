@@ -138,6 +138,12 @@ export {
   type UserProfile,
   type UserProfileImage,
 } from './user.js';
+export {
+  FeedbackAPI,
+  type BugReportSubmission,
+  type BugReportReceipt,
+  type FeedbackAttachment,
+} from './feedback.js';
 
 // Keys API
 export {
