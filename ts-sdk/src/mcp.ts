@@ -6,6 +6,9 @@ import type { McpServer } from '@agentclientprotocol/sdk';
  * @deprecated Clients no longer compose session MCP lists: connect paths send
  * `[]` (or omit the list) and the Hyper-ACP host hydrates the full session set
  * from pod launch env. Kept only so existing imports keep compiling.
+ * Removal plan: once the external migration window closes, delete this
+ * helper, `Deployments.sessionMcpServers`, and both re-exports
+ * (index.ts, browser.ts) together in one release.
  */
 export function buildSessionMcpServers(productBase: string, apiKey: string, additions: readonly McpServer[] = []): McpServer[] {
   return [

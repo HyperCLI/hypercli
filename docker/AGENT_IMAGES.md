@@ -212,10 +212,13 @@ both route families: `default`, `coding`, `kimi-k3`, and the matching
 default path for hosted coding work; the non-suffixed names remain available
 for OpenCode flows that expect the OpenAI-compatible model names.
 
-The SDK supplies HyperCLI product MCP, docs and caller additions through standard
-session setup, using its product base and caller credential. Images do not seed
-these entries. Hyper-ACP adds only its local `hyper-chat` server using the existing
-runtime credential. Model inference retains its independent canonical credential
+Hyper-ACP composes the full session `mcpServers` list host-side from launch
+environment: the local `hyper-chat` server with the runtime credential, the
+product `hypercli` entry (canonical product base plus `/mcp`, runtime bearer),
+`hypercli-docs`, and the user's saved servers from
+`HYPER_ADDITIONAL_MCP_SERVERS`. Clients send `mcpServers: []`; same-named
+caller entries shadow host additions. Images do not seed these entries.
+Model inference retains its independent canonical credential
 resolution. Existing user-managed OpenCode configuration is preserved.
 
 OpenClaw exposes vector-backed memory search as `memorySearch`, using the

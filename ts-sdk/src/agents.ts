@@ -3563,7 +3563,9 @@ export class Deployments {
    * @deprecated Connect paths no longer compose session MCP lists — the
    * Hyper-ACP host hydrates the full set (product, docs and the saved
    * additions env) from pod launch env, and clients send `[]` or omit the
-   * list. Kept only so external callers keep compiling.
+   * list. Kept only so external callers keep compiling. Removed together
+   * with `buildSessionMcpServers` and its re-exports once the external
+   * migration window closes.
    */
   sessionMcpServers(additions: NonNullable<CodingAgentAcpConnectOptions['mcpServers']> = []) {
     return buildSessionMcpServers(this.productBase, this.productKey, additions);
