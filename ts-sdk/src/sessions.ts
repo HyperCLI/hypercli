@@ -10,6 +10,12 @@
  * `SessionListPage` / `SessionMessagePage`), and both pages are the same
  * envelope: `{ items, next_cursor, has_more }`.
  *
+ * Explicit multiparty rooms (docs/MULTIPARTY.md) are the one REST write
+ * surface here (`POST /rooms`, `GET/PATCH /rooms/{room_id}`,
+ * `POST /rooms/{room_id}/messages`, backend `session_room_routes.py`):
+ * deliberate room creation and owner-authored messages, never native ACP
+ * session mutation.
+ *
  * Pagination contract (§15 "Type & pagination"): every list is keyset over a
  * server-issued opaque cursor — never OFFSET. Messages page BACKWARDS from
  * last-seen (`seq < cursor`, newest first), extending whole chunk runs and tool
@@ -330,6 +336,84 @@ export interface AcpSessionMessagesWindow {
   items: AcpSessionMessage[];
 }
 
+/**
+ * One verified agent roster entry on a room read (backend `RoomAgent`). The
+ * name is a display fact; `agentId` is the stable identity.
+ */
+export interface RoomAgent {
+  agentId: string;
+  name: string;
+  /** The agent leg's native binding; null until Hyper-ACP binds it. */
+  internalSessionId: string | null;
+}
+
+/** Explicit multiparty room (docs/MULTIPARTY.md) as the product API reads it. */
+export interface RoomRecord {
+  /** Stable platform room/session UUID; there is no separate room id. */
+  id: string;
+  kind: 'room';
+  title: string | null;
+  purpose: string;
+  style: string;
+  rules: string[];
+  ownerId: string;
+  agents: RoomAgent[];
+  /** Aggregate per-epoch token budget; null means unlimited. */
+  tokenLimit: number | null;
+  /** Effective per-agent, per-epoch turn allowance the backend enforces (product default 25). */
+  agentTurnLimit: number;
+  /** The explicitly configured knob; null when the product default is in force. */
+  configuredAgentTurnLimit: number | null;
+  status: 'live' | 'archived' | 'deleted';
+  setupRevision: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** Room creation brief: the complete initial roster plus the two policy knobs. */
+export interface RoomCreateOptions {
+  /** null (or omitted) leaves the room untitled. */
+  title?: string | null;
+  purpose?: string;
+  style?: string;
+  rules?: string[];
+  /** null (or omitted) means unlimited. 0 removes the automatic-turn token allowance. */
+  tokenLimit?: number | null;
+  /** null (or omitted) selects the product default. 0 disables automatic room turns. */
+  agentTurnLimit?: number | null;
+}
+
+/**
+ * Owner edits (`PATCH /rooms/{room_id}`). Omitted fields are preserved;
+ * explicit null clears brief text and restores a policy knob's product
+ * default. Policy changes take effect at the next human-message epoch.
+ */
+export interface RoomUpdateOptions {
+  title?: string | null;
+  purpose?: string | null;
+  style?: string | null;
+  rules?: string[] | null;
+  tokenLimit?: number | null;
+  agentTurnLimit?: number | null;
+  status?: 'live' | 'archived';
+}
+
+/** One canonical room message committed by the authenticated owner. */
+export interface RoomMessage {
+  sessionId: string;
+  messageId: string;
+  seq: number;
+  epochId: string;
+  senderId: string;
+  senderKind: 'user';
+  senderName: string;
+  body: string;
+  replyTo: string | null;
+  createdAt: string | null;
+  /** Backend-owned per-agent delivery evidence; keys are agent UUIDs. */
+  fanout: Record<string, boolean>;
+}
+
 function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T | undefined {
   const value = row[snake] ?? row[camel];
   return value as T | undefined;
@@ -426,13 +510,85 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
   };
 }
 
+function roomAgentFromWire(row: Record<string, unknown>): RoomAgent {
+  const internalSessionId = pick<unknown>(row, 'internal_session_id', 'internalSessionId');
+  return {
+    agentId: String(pick<unknown>(row, 'agent_id', 'agentId') ?? ''),
+    name: typeof row.name === 'string' ? row.name : '',
+    internalSessionId: internalSessionId === undefined || internalSessionId === null ? null : String(internalSessionId),
+  };
+}
+
+/** Normalize one backend `RoomRecord`; refuses non-room payloads. */
+function roomFromWire(row: Record<string, unknown>): RoomRecord {
+  if (row.kind !== 'room') throw new TypeError('Invalid room record response');
+  const rules = row.rules;
+  const agents = row.agents;
+  const tokenLimit = pick<unknown>(row, 'token_limit', 'tokenLimit');
+  const agentTurnLimit = pick<unknown>(row, 'agent_turn_limit', 'agentTurnLimit');
+  const configured = pick<unknown>(row, 'configured_agent_turn_limit', 'configuredAgentTurnLimit');
+  const setupRevision = pick<unknown>(row, 'setup_revision', 'setupRevision');
+  const status = row.status;
+  const integer = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isInteger(value) ? value : null;
+  // agentTurnLimit and setupRevision are required on the wire; defaulting them
+  // here would fabricate policy facts (0 disables turns).
+  if (!Array.isArray(rules) || !rules.every((rule) => typeof rule === 'string') ||
+      !Array.isArray(agents) || typeof status !== 'string' ||
+      integer(agentTurnLimit) === null || integer(setupRevision) === null) {
+    throw new TypeError('Invalid room record response');
+  }
+  return {
+    id: String(row.id ?? ''),
+    kind: 'room',
+    title: row.title === undefined || row.title === null ? null : String(row.title),
+    purpose: typeof row.purpose === 'string' ? row.purpose : '',
+    style: typeof row.style === 'string' ? row.style : '',
+    rules: rules.map(String),
+    ownerId: String(pick<unknown>(row, 'owner_id', 'ownerId') ?? ''),
+    agents: agents.filter((agent) => agent && typeof agent === 'object').map(roomAgentFromWire),
+    tokenLimit: integer(tokenLimit),
+    agentTurnLimit: agentTurnLimit as number,
+    configuredAgentTurnLimit: integer(configured),
+    status: status as RoomRecord['status'],
+    setupRevision: setupRevision as number,
+    createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
+    updatedAt: pick<string>(row, 'updated_at', 'updatedAt') ?? null,
+  };
+}
+
+function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
+  const seq = row.seq;
+  const fanout = row.fanout;
+  if (typeof fanout !== 'object' || fanout === null || Array.isArray(fanout)) {
+    throw new TypeError('Invalid room message response');
+  }
+  return {
+    sessionId: String(pick<unknown>(row, 'session_id', 'sessionId') ?? ''),
+    messageId: String(pick<unknown>(row, 'message_id', 'messageId') ?? ''),
+    seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
+    epochId: String(pick<unknown>(row, 'epoch_id', 'epochId') ?? ''),
+    senderId: String(pick<unknown>(row, 'sender_id', 'senderId') ?? ''),
+    // The REST surface commits authenticated owner messages only; the wire
+    // kind is 'user' today and any other value is a contract change.
+    senderKind: 'user',
+    senderName: pick<string>(row, 'sender_name', 'senderName') ?? '',
+    body: typeof row.body === 'string' ? row.body : '',
+    replyTo: pick<string>(row, 'reply_to', 'replyTo') ?? null,
+    createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
+    fanout: Object.fromEntries(
+      Object.entries(fanout as Record<string, unknown>).map(([key, value]) => [key, value === true]),
+    ),
+  };
+}
+
 /**
  * Session read surface scoped to the caller's identity (user key: sessions
  * of owned agents; runtime key: sessions §15 exposes to the pod). Bound to
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post'>>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch'>>) {}
 
   /** Unknown setup is null; lookup failures and malformed replies remain errors. */
   async getSetup(sessionId: string, agentId: string): Promise<AcpSessionSetup> {
@@ -562,6 +718,72 @@ export class SessionsAPI {
         ? items.filter((row) => row && typeof row === 'object').map(messageFromWire)
         : [],
     };
+  }
+
+  /**
+   * Create an explicit multiparty room (`POST /rooms`, docs/MULTIPARTY.md).
+   * `agents` are agent UUID strings the authenticated owner is authorized to
+   * use; the backend validates the roster, brief, and both policy knobs.
+   * Omitted knobs select the product defaults (read back as the effective
+   * `agentTurnLimit`, 25 today, with `configuredAgentTurnLimit` null).
+   */
+  async createRoom(agents: readonly string[], options: RoomCreateOptions = {}): Promise<RoomRecord> {
+    if (!this.http.post) throw new Error('Room creation requires a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>('/rooms', {
+      title: options.title ?? null,
+      purpose: options.purpose ?? '',
+      style: options.style ?? '',
+      rules: options.rules ?? [],
+      agents: [...agents],
+      token_limit: options.tokenLimit ?? null,
+      agent_turn_limit: options.agentTurnLimit ?? null,
+    });
+    return roomFromWire(payload);
+  }
+
+  /** Read one room's brief, roster, policy, and status by room/session id. */
+  async getRoom(roomId: string): Promise<RoomRecord> {
+    const payload = await this.http.get<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}`,
+    );
+    return roomFromWire(payload);
+  }
+
+  /**
+   * Owner-edit a room brief, policy knobs, or status (`PATCH /rooms/{room_id}`).
+   * Omitted fields are preserved; explicit null clears brief text and restores
+   * a policy knob's product default. Policy changes take effect at the next
+   * human-message epoch.
+   */
+  async updateRoom(roomId: string, patch: RoomUpdateOptions = {}): Promise<RoomRecord> {
+    if (!this.http.patch) throw new Error('Room updates require a writable HTTP client');
+    const body: Record<string, unknown> = {};
+    if (patch.title !== undefined) body.title = patch.title;
+    if (patch.purpose !== undefined) body.purpose = patch.purpose;
+    if (patch.style !== undefined) body.style = patch.style;
+    if (patch.rules !== undefined) body.rules = patch.rules;
+    if (patch.tokenLimit !== undefined) body.token_limit = patch.tokenLimit;
+    if (patch.agentTurnLimit !== undefined) body.agent_turn_limit = patch.agentTurnLimit;
+    if (patch.status !== undefined) body.status = patch.status;
+    const payload = await this.http.patch<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}`, body,
+    );
+    return roomFromWire(payload);
+  }
+
+  /**
+   * Commit one authenticated human room message
+   * (`POST /rooms/{room_id}/messages`). Fanout stays backend-owned: the reply
+   * carries the canonical message identity, its epoch, and the per-agent
+   * delivery map; automatic agent turns are neither awaited nor relayed.
+   */
+  async createRoomMessage(roomId: string, body: string, options: { replyTo?: string | null } = {}): Promise<RoomMessage> {
+    if (!this.http.post) throw new Error('Room messages require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/messages`,
+      { body, ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}) },
+    );
+    return roomMessageFromWire(payload);
   }
 
 }

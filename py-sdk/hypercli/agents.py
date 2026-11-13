@@ -25,6 +25,7 @@ from typing import (
     Callable,
     Literal,
     Optional,
+    Sequence,
     Any,
     AsyncIterator,
     NotRequired,
@@ -45,7 +46,7 @@ from .config import (
     _default_agents_ws_url,
 )
 from .http import HTTPClient, APIError
-from .sessions import SessionPage, SessionRecord, SessionSetup
+from .sessions import RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup
 
 
 AGENTS_API_PREFIX = "/deployments"
@@ -3727,6 +3728,76 @@ class Deployments:
         if cursor is not None:
             params["cursor"] = cursor
         return SessionPage.from_dict(self._get("/sessions", params=params))
+
+    def create_room(
+        self,
+        agents: Sequence[str],
+        *,
+        title: str | None = None,
+        purpose: str = "",
+        style: str = "",
+        rules: Sequence[str] | None = None,
+        token_limit: int | None = None,
+        agent_turn_limit: int | None = None,
+    ) -> RoomRecord:
+        """Create an explicit multiparty room (docs/MULTIPARTY.md).
+
+        ``agents`` are agent UUID strings the authenticated owner is authorized
+        to use; the backend validates the roster, brief, and both policy knobs.
+        ``agent_turn_limit=None`` selects the product default (read back as the
+        effective limit, 25 today, with the configured value null).
+        """
+        body = {
+            "title": title,
+            "purpose": purpose,
+            "style": style,
+            "rules": list(rules) if rules is not None else [],
+            "agents": [str(agent) for agent in agents],
+            "token_limit": token_limit,
+            "agent_turn_limit": agent_turn_limit,
+        }
+        return RoomRecord.from_dict(self._post("/rooms", json=body))
+
+    def get_room(self, room_id: str) -> RoomRecord:
+        """Read one room's brief, roster, policy, and status by room/session id."""
+        return RoomRecord.from_dict(self._get(f"/rooms/{quote(room_id, safe='')}"))
+
+    def update_room(
+        self, room_id: str, *, title: str | object = _UNSET, purpose: str | object = _UNSET,
+        style: str | object = _UNSET, rules: Sequence[str] | object = _UNSET,
+        token_limit: int | object = _UNSET, agent_turn_limit: int | object = _UNSET,
+        status: str | object = _UNSET,
+    ) -> RoomRecord:
+        """Owner-edit a room brief, policy knobs, or status.
+
+        Omitted fields are preserved. Supplied ``None`` clears brief text,
+        and restores a policy knob's product default; ``status`` accepts
+        ``live`` or ``archived``. Policy changes take effect at the next
+        authenticated-human-message epoch.
+        """
+        supplied = {
+            "title": title, "purpose": purpose, "style": style, "rules": rules,
+            "token_limit": token_limit, "agent_turn_limit": agent_turn_limit, "status": status,
+        }
+        body = {key: (list(value) if key == "rules" else value)
+                for key, value in supplied.items() if value is not _UNSET}
+        return RoomRecord.from_dict(self._patch(f"/rooms/{quote(room_id, safe='')}", json=body))
+
+    def create_room_message(
+        self, room_id: str, body: str, *, reply_to: str | None = None,
+    ) -> RoomMessage:
+        """Commit one authenticated human message; fanout stays backend-owned.
+
+        The response carries the canonical message identity, its epoch, and
+        the backend's per-agent delivery map. Automatic agent turns are not
+        awaited or relayed here.
+        """
+        payload: dict[str, Any] = {"body": body}
+        if reply_to is not None:
+            payload["reply_to"] = reply_to
+        return RoomMessage.from_dict(
+            self._post(f"/rooms/{quote(room_id, safe='')}/messages", json=payload)
+        )
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
         """Redeem a promo/activation grant code via POST /billing/grants/redeem.

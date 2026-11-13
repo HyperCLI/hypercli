@@ -123,6 +123,17 @@
         { "argv": ["delete", "--help"] }
       ]
     },
+    "rooms": {
+      "tests": ["rooms"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["create", "--help"] },
+        { "argv": ["get", "--help"] },
+        { "argv": ["update", "--help"] },
+        { "argv": ["message", "--help"] }
+      ]
+    },
     "jobs": {
       "tests": ["jobs"],
       "windows": false,

@@ -485,6 +485,11 @@ export {
   type AcpSessionMessagePage,
   type AcpTranscriptSearchHit,
   type AcpTranscriptSearchOptions,
+  type RoomAgent,
+  type RoomCreateOptions,
+  type RoomMessage,
+  type RoomRecord,
+  type RoomUpdateOptions,
 } from './sessions.js';
 export {
   MemoryAPI,

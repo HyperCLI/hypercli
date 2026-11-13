@@ -16,6 +16,7 @@ import * as jobs from './commands/jobs.js';
 import * as me from './commands/me.js';
 import * as memory from './commands/memory.js';
 import * as routines from './commands/routines.js';
+import * as rooms from './commands/rooms.js';
 import role from './commands/role.js';
 import soul from './commands/soul.js';
 import user from './commands/user.js';
@@ -36,6 +37,7 @@ export const GROUPS: readonly CommandGroup[] = [
   agents,
   agent,
   routines,
+  rooms,
   jobs,
   flow,
   files,

@@ -53,7 +53,7 @@ from .workspaces import (
     WorkspacesAPI,
 )
 from .routines import Routine, RoutinesAPI
-from .sessions import SessionPage, SessionRecord, SessionSetup
+from .sessions import RoomAgent, RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup
 from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
 from .files import File
@@ -163,6 +163,9 @@ __all__ = [
     "CHAT_INTEGRATIONS",
     "build_chat_integration_config",
     "HyperCLI",
+    "RoomAgent",
+    "RoomMessage",
+    "RoomRecord",
     "SessionPage",
     "SessionRecord",
     "SessionSetup",
