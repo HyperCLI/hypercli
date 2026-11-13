@@ -167,7 +167,7 @@ def test_update_room_null_semantics(monkeypatch, patch, expected):
     assert json.loads(requests[0].content) == expected
 
 
-def test_update_room_requires_at_least_one_field(monkeypatch):
+def test_update_room_sends_empty_patch_when_nothing_supplied(monkeypatch):
     requests = patch_transport(monkeypatch, {("PATCH", f"/agents/rooms/{ROOM_ID}"): room_row()})
     make_api().update_room(ROOM_ID)
     assert json.loads(requests[0].content) == {}
