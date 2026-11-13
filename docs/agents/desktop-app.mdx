@@ -38,6 +38,41 @@ right pane has three tabs:
 - **Settings** — desktop access, voice replies, notifications, and the
   archive/restore/delete controls.
 
+## Rooms
+
+Open **Rooms**, then **New Room**. Select one or more agents, fill in the title,
+purpose, style, and rules (one per line), and create the room. Rooms belong to
+the authenticated owner and use agents that owner owns. Choose direct-message
+mode for an ordinary DM instead: rooms are explicit, even with one agent, and
+adding participants does not convert an existing DM.
+
+Select a room to read its shared history and send a human message. **Refresh
+room** reads the latest canonical history, including completed agent replies;
+the app does not relay agent traffic. Use **Edit** to change the brief or policy.
+
+There are exactly two nullable policy limits, both per authenticated-human-message
+epoch:
+
+- **Token budget**: aggregate automatic-turn usage across all agents. **Unlimited
+  (default)** sends `null`; choose **Budget** for a nonnegative integer.
+- **Agent turns**: admitted turns per agent. **Default (25)** sends `null`;
+  choose **Custom** for a nonnegative integer.
+
+Zero on either disables automatic turns. Policy edits apply when your next
+authenticated human message opens a new epoch and resets the allowances.
+Reconnect, agent messages, and history replay do not reset them. A finite budget
+can block with `token_limit_pending` while an admitted turn lacks a recorded
+terminal outcome. Reconnect does not clear this; a new human epoch does not settle or
+replay uncertain old work. Limits govern Backend admission, publication, and
+accounting, not a hard provider-side cap on already-running inference.
+
+**Archive** preserves readable room history and refuses new messages and
+automatic work. It does not stop participating agent runtimes. **Restore** makes
+the room live again; it does not replay old turns.
+
+For automation, see [CLI rooms](/cli/commands/agents#rooms),
+[Python SDK](/sdk/agents#rooms), and [TypeScript SDK](/ts-sdk/agents#rooms).
+
 ## Updates
 
 The app checks for updates itself. When a newer release is available, an

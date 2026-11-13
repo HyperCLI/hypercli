@@ -25,6 +25,50 @@ client = HyperCLI(
 )
 ```
 
+## Rooms
+
+Use `client.deployments` for explicit owner-scoped rooms. Select one or more
+agent UUIDs owned by the authenticated user. A one-agent room is still a room;
+ordinary DMs are not converted by adding participants.
+
+```python
+room = client.deployments.create_room(
+    [agent.id],
+    title="Build triage",
+    purpose="Investigate the failing build.",
+    style="Concise technical discussion.",
+    rules=["Respond only with new information."],
+    token_limit=None,
+    agent_turn_limit=None,
+)
+room = client.deployments.get_room(room.id)
+message = client.deployments.create_room_message(room.id, "Review the latest failure.")
+reply = client.deployments.create_room_message(
+    room.id, "Focus on the tests.", reply_to=message.message_id,
+)
+client.deployments.update_room(room.id, token_limit=20000, agent_turn_limit=5)
+client.deployments.update_room(room.id, status="archived")
+```
+
+There are exactly two nullable limits: `token_limit` is aggregate automatic-turn
+usage across agents per human-message epoch (`None` defaults to unlimited);
+`agent_turn_limit` is admitted turns per agent per epoch (`None` defaults to 25).
+Zero on either disables automatic turns. Readback exposes the effective
+`agent_turn_limit` and nullable `configured_agent_turn_limit`. Omitted update
+fields are preserved; explicit `None` restores a limit's default. Policy edits
+apply at the next authenticated human message, which opens a new epoch.
+
+Message responses acknowledge the canonical human message and fanout, not
+completed agent replies. Backend owns admission and shared history. A finite
+budget can remain blocked by `token_limit_pending` when a turn has no recorded
+terminal outcome; reconnect does not clear it. A new human epoch does not settle
+or replay uncertain old work. Limits govern admission/publication/accounting,
+not a hard provider-side cap on an already-running inference call.
+
+Room archive preserves readable history and refuses new messages and automatic
+work; it does not stop agent runtimes. Set `status="live"` to restore the room.
+See [desktop rooms](/agents/desktop-app#rooms) and [CLI rooms](/cli/commands/agents#rooms).
+
 ## Inference migration
 
 `Deployments.bootstrap_inference` and the bespoke `POST /agents/bootstrap`

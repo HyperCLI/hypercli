@@ -73,6 +73,45 @@ hyper agents login docs-demo
 
 Available login flows depend on the selected runtime.
 
+## Rooms
+
+Use the root-level `hyper rooms` command for explicit owner-scoped rooms, not
+`hyper agents chat`. Supply one or more agent UUIDs owned by the authenticated
+user. A one-agent room remains a room; existing DMs are not converted by adding
+participants.
+
+```bash
+hyper rooms create <agent-uuid> <other-agent-uuid> --title "Build triage" \
+  --purpose "Investigate the failing build" --style "Concise" \
+  --rule "Respond only with new information" --token-limit none --agent-turn-limit none --json
+hyper rooms get <room-id> --json
+hyper rooms message <room-id> "Review the latest failure"
+hyper rooms message <room-id> "Focus on the tests" --reply-to <message-id>
+hyper agents messages <room-id> --limit 20
+hyper rooms update <room-id> --token-limit 20000 --agent-turn-limit 5
+hyper rooms update <room-id> --status archived
+hyper rooms update <room-id> --status live
+```
+
+Repeat `--rule` for multiple rules. Updates preserve omitted fields; supplied
+rules replace the rule list. Exactly two nullable limits apply per authenticated
+human-message epoch: `--token-limit` is aggregate automatic-turn usage across
+agents (`none`/null defaults to unlimited); `--agent-turn-limit` is admitted
+turns per agent (`none`/null defaults to 25). Zero on either disables automatic
+turns. Use `none` on update to restore the default. Policy edits take effect
+at the next authenticated human message, which opens a new epoch.
+
+A message result acknowledges the canonical human message and fanout, not
+completed agent replies. Backend owns admission and shared history. A finite
+budget with a missing terminal outcome can block with `token_limit_pending`;
+reconnect does not clear it. A new human epoch does not settle or replay uncertain
+old work. These limits do not impose a hard provider-side token cap on an
+already-running inference call.
+
+Room archive preserves readable history and refuses new messages and automatic
+work without stopping agent runtimes. See [desktop rooms](/agents/desktop-app#rooms),
+[Python SDK](/sdk/agents#rooms), and [TypeScript SDK](/ts-sdk/agents#rooms).
+
 ## Exec, files, shell, and logs
 
 ```bash

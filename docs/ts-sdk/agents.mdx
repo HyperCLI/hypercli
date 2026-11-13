@@ -5,13 +5,59 @@ description: Detailed TypeScript SDK guide for HyperCLI deployments, routes, exe
 
 ## Overview
 
-There are two HyperCLI-related namespaces in the TS SDK:
+The main agent-related namespaces in the TS SDK are:
 
 - `client.agent`
 - `client.deployments`
+- `client.sessions`
 
 `client.agent` covers account metadata.
 `client.deployments` covers live runtime containers.
+`client.sessions` covers session history and explicit rooms.
+
+## Rooms
+
+Rooms are explicitly created owner-scoped conversations with one or more agent
+UUIDs owned by the authenticated user. A one-agent room is still a room; adding
+participants to a DM does not convert it into a room.
+
+```ts
+const room = await client.sessions.createRoom([agent.id], {
+  title: "Build triage",
+  purpose: "Investigate the failing build.",
+  style: "Concise technical discussion.",
+  rules: ["Respond only with new information."],
+  tokenLimit: null,
+  agentTurnLimit: null,
+});
+const current = await client.sessions.getRoom(room.id);
+const message = await client.sessions.createRoomMessage(room.id, "Review the latest failure.");
+await client.sessions.createRoomMessage(room.id, "Focus on the tests.", {
+  replyTo: message.messageId,
+});
+const history = await client.sessions.getMessages(room.id);
+await client.sessions.updateRoom(room.id, { tokenLimit: 20000, agentTurnLimit: 5 });
+await client.sessions.updateRoom(room.id, { status: "archived" });
+```
+
+Exactly two nullable limits apply per authenticated-human-message epoch:
+`tokenLimit` counts aggregate automatic-turn usage across agents (`null` defaults
+to unlimited); `agentTurnLimit` counts admitted turns per agent (`null` defaults
+to 25). Zero on either disables automatic turns. Readback has the effective
+`agentTurnLimit` and nullable `configuredAgentTurnLimit`. Omitted patch fields
+are preserved; explicit `null` restores a limit's default. Edits take effect
+when the next authenticated human message opens a new epoch.
+
+Message responses acknowledge the canonical human message and fanout, not
+completed agent replies. Backend owns admission and shared history. With a
+finite budget, `token_limit_pending` blocks further admission while a turn lacks
+a recorded terminal outcome; reconnect does not clear it. A new human epoch does
+not settle or replay uncertain old work. Limits govern admission/publication/
+accounting, not a hard provider-side cap on already-running inference.
+
+Room archive preserves readable history and refuses new messages and automatic
+work without stopping agent runtimes. Restore with `{ status: "live" }`.
+See [desktop rooms](/agents/desktop-app#rooms) and [CLI rooms](/cli/commands/agents#rooms).
 
 ## Inference migration
 
