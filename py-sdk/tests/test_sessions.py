@@ -19,6 +19,51 @@ MESSAGE = {"session_id": "s", "seq": 1, "role": "assistant", "message_id": "m",
            "acp": {"content": {"type": "text", "text": "hello"}}, "participant_id": "a"}
 
 
+@pytest.mark.parametrize("later", [False, True])
+@pytest.mark.parametrize("payload", [
+    None, {}, [], {"items": []}, {"items": None, "has_more": False},
+    {"items": {}, "has_more": False}, {"items": [], "has_more": "false"},
+    {"items": [], "has_more": None}, {"items": [], "has_more": 0},
+    {"items": [], "has_more": False, "next_cursor": 3},
+    {"items": [], "has_more": True}, {"items": [], "has_more": True, "next_cursor": None},
+    {"items": [], "has_more": True, "next_cursor": ""},
+    *[{"items": [row], "has_more": False, "next_cursor": None} for row in [
+        None, {}, {**MESSAGE, "session_id": ""}, {**MESSAGE, "session_id": 1},
+        {**MESSAGE, "seq": "1"}, {**MESSAGE, "seq": 0}, {**MESSAGE, "seq": 1.5},
+        {**MESSAGE, "role": []}, {**MESSAGE, "role": "unknown"},
+        {**MESSAGE, "acp": []}, {**MESSAGE, "acp": None}, {**MESSAGE, "message_id": 4},
+    ]],
+])
+def test_message_pages_reject_malformed_http_success(monkeypatch, later, payload):
+    calls = []
+
+    def send(self, request, **kwargs):
+        calls.append(request)
+        body = {"items": [MESSAGE], "has_more": True, "next_cursor": "older"} if later and len(calls) == 1 else payload
+        return httpx.Response(200, content=json.dumps(body), headers={"Content-Type": "application/json"}, request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    api = HyperCLI(api_key="test", api_url="https://example.test").deployments
+    cursor = None
+    if later:
+        first = api.get_session_messages("s")
+        assert first.has_more and len(first.items) == 1
+        cursor = first.next_cursor
+    with pytest.raises(ValueError):
+        api.get_session_messages("s", cursor=cursor)
+    if later:
+        assert calls[-1].url.params["cursor"] == "older"
+
+
+@pytest.mark.parametrize("payload", [
+    {"items": [], "has_more": False, "next_cursor": None}, {"items": [], "has_more": False},
+])
+def test_message_pages_preserve_genuine_empty_http_success(monkeypatch, payload):
+    monkeypatch.setattr(httpx.Client, "send", lambda self, request, **kwargs: httpx.Response(200, json=payload, request=request))
+    page = HyperCLI(api_key="test", api_url="https://example.test").deployments.get_session_messages("s")
+    assert page.items == [] and not page.has_more and page.next_cursor is None and page.head_seq is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reference,canonical", [
     ("AABBCCDD-1234-5678-9ABC-0123456789AB", "aabbccdd-1234-5678-9abc-0123456789ab"),

@@ -524,6 +524,39 @@ function pageFromWire<T>(payload: Record<string, unknown>, parse: (row: Record<s
   };
 }
 
+/** History recovery must never interpret a malformed page as completed history. */
+function messagePageFromWire(value: unknown): AcpSessionMessagePage {
+  const record = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
+  const fail = (): never => { throw new TypeError('Invalid session message page'); };
+  if (!record(value) || !Array.isArray(value.items)) return fail();
+  // Prefer an explicitly supplied snake-case field, including null, rather
+  // than masking malformed values with a valid alias.
+  const field = (row: Record<string, unknown>, snake: string, camel: string) =>
+    Object.hasOwn(row, snake) ? row[snake] : row[camel];
+  const more = field(value, 'has_more', 'hasMore');
+  const cursor = field(value, 'next_cursor', 'nextCursor');
+  if (typeof more !== 'boolean' ||
+      !(cursor === undefined || cursor === null || typeof cursor === 'string') ||
+      (more && (typeof cursor !== 'string' || cursor.length === 0))) return fail();
+  const items = value.items.map((row: unknown) => {
+    if (!record(row)) return fail();
+    const sessionId = field(row, 'session_id', 'sessionId');
+    const messageId = field(row, 'message_id', 'messageId');
+    // Older responses encode ordinals as decimal strings; preserve that read
+    // compatibility without coercing missing, boolean or malformed values.
+    const seq = typeof row.seq === 'string' && /^\d+$/.test(row.seq) ? Number(row.seq) : row.seq;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 ||
+        !Number.isSafeInteger(seq) || (seq as number) < 1 ||
+        !['user', 'assistant', 'tool'].includes(row.role as string) || !record(row.acp) ||
+        !(messageId === undefined || messageId === null || typeof messageId === 'string')) return fail();
+    return messageFromWire(row);
+  });
+  return { items, nextCursor: typeof cursor === 'string' && cursor ? cursor : null, hasMore: more,
+    headSeq: pick<number>(value, 'head_seq', 'headSeq') ?? null,
+    importOutcome: pick<SessionImportOutcome>(value, 'import_outcome', 'importOutcome') ?? null };
+}
+
 function roomAgentFromWire(row: Record<string, unknown>): RoomAgent {
   const internalSessionId = pick<unknown>(row, 'internal_session_id', 'internalSessionId');
   return {
@@ -710,9 +743,7 @@ export class SessionsAPI {
         limit: options.limit ?? 20,
       },
     );
-    return { ...pageFromWire(payload ?? {}, messageFromWire),
-      headSeq: pick<number>(payload ?? {}, 'head_seq', 'headSeq') ?? null,
-      importOutcome: pick<SessionImportOutcome>(payload ?? {}, 'import_outcome', 'importOutcome') ?? null };
+    return messagePageFromWire(payload);
   }
 
   /**

@@ -27,8 +27,10 @@ class SessionMessage:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SessionMessage":
         if (not isinstance(data, dict) or not isinstance(data.get("session_id"), str)
+                or not data["session_id"]
                 or type(data.get("seq")) is not int or data["seq"] < 1
-                or data.get("role") not in {"user", "assistant", "tool"}
+                or data.get("role") not in ("user", "assistant", "tool")
+                or not (data.get("message_id") is None or isinstance(data["message_id"], str))
                 or not isinstance(data.get("acp"), dict)):
             raise ValueError("Invalid session message")
         return cls(**{key: deepcopy(data[key]) for key in cls.__dataclass_fields__ if key in data})
@@ -46,7 +48,8 @@ class SessionMessagePage:
     def from_dict(cls, data: dict[str, Any]) -> "SessionMessagePage":
         if (not isinstance(data, dict) or not isinstance(data.get("items"), list)
                 or type(data.get("has_more")) is not bool
-                or not (data.get("next_cursor") is None or isinstance(data["next_cursor"], str))):
+                or not (data.get("next_cursor") is None or isinstance(data["next_cursor"], str))
+                or (data["has_more"] and not data.get("next_cursor"))):
             raise ValueError("Invalid session message page")
         return cls(items=[SessionMessage.from_dict(row) for row in data["items"]],
                    next_cursor=data.get("next_cursor"), has_more=data["has_more"],

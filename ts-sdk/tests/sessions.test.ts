@@ -7,6 +7,55 @@ import { WebSocketServer } from 'ws';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 
+describe('canonical messages-page validation over HTTP', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const row = { session_id: 's', seq: 1, role: 'assistant', acp: { content: { type: 'text', text: 'retained' } } };
+  const empty = { items: [], has_more: false, next_cursor: null };
+  const malformed = [null, {}, [], { items: [] }, { ...empty, items: null }, { ...empty, items: {} },
+    { ...empty, has_more: null }, { ...empty, has_more: 'false' }, { ...empty, has_more: 0 },
+    { ...empty, next_cursor: 3 }, { ...empty, next_cursor: {} },
+    { items: [], has_more: true }, { ...empty, has_more: true }, { ...empty, has_more: true, next_cursor: '' },
+    ...[null, {}, { ...row, session_id: '' }, { ...row, session_id: 1 }, { ...row, seq: 'invalid' },
+      { ...row, seq: 0 }, { ...row, seq: 1.5 }, { ...row, role: 'unknown' }, { ...row, acp: [] },
+      { ...row, acp: null }, { ...row, message_id: 4 }].map(item => ({ ...empty, items: [item] })),
+    { items: [], hasMore: 'false', nextCursor: null }, { items: [], hasMore: true, nextCursor: '' },
+  ];
+
+  it.each(malformed.map(payload => [payload]))('rejects malformed initial HTTP 200 page: %j', async payload => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload))));
+    const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'test'));
+    await expect(api.getMessages('s')).rejects.toThrow(TypeError);
+  });
+
+  it.each(malformed.map(payload => [payload]))('rejects malformed later HTTP 200 page without completing history: %j', async payload => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [row], has_more: true, next_cursor: 'older' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload)));
+    vi.stubGlobal('fetch', fetch);
+    const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'test'));
+    const first = await api.getMessages('s');
+    expect(first.items).toHaveLength(1);
+    expect(first.hasMore).toBe(true);
+    await expect(api.getMessages('s', { cursor: first.nextCursor })).rejects.toThrow(TypeError);
+    expect(fetch.mock.calls[1][0]).toContain('cursor=older');
+  });
+
+  it.each([empty, { items: [], has_more: false }, { items: [], hasMore: false, nextCursor: null }])(
+    'preserves genuine empty history and default nullable head: %j', async payload => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload))));
+      const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'test'));
+      expect(await api.getMessages('s')).toMatchObject({ items: [], hasMore: false, nextCursor: null, headSeq: null });
+    });
+
+  it('retains camel-case row/page aliases and complete ACP content', async () => {
+    const payload = { items: [{ sessionId: 's', messageId: 'm', seq: 1, role: 'assistant', acp: row.acp }],
+      hasMore: true, nextCursor: 'older', headSeq: null };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload))));
+    const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'test'));
+    expect(await api.getMessages('s')).toMatchObject({ items: [payload.items[0]], hasMore: true, nextCursor: 'older', headSeq: null });
+  });
+});
+
 describe('session observer loopback', () => {
   const row = { session_id: 's', seq: 1, role: 'assistant', message_id: 'm',
     acp: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hello' } },
@@ -719,7 +768,7 @@ describe('SessionsAPI (§15)', () => {
   });
 
   it('url-encodes the session id', async () => {
-    const http = fakeHttp({ items: [] });
+    const http = fakeHttp({ items: [], has_more: false });
     const api = new SessionsAPI(http as never);
 
     await api.getMessages('sess/odd id');
