@@ -74,8 +74,14 @@ describe('session observer loopback', () => {
 
   it('retries transport-open timeout before any ready/ACK exchange', async () => {
     const originalSetTimeout = globalThis.setTimeout;
-    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>
-      originalSetTimeout(callback, ms === 10_000 ? 20 : ms, ...args));
+    let expireFirstOpen: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+      const handle = originalSetTimeout(callback, ms, ...args);
+      if (ms === 10_000 && !expireFirstOpen) {
+        expireFirstOpen = () => { clearTimeout(handle); callback(...args); };
+      }
+      return handle;
+    });
     const http = createServer();
     const wss = new WebSocketServer({ noServer: true });
     const sockets = new Set<import('node:net').Socket>();
@@ -83,7 +89,12 @@ describe('session observer loopback', () => {
     let attempts = 0;
     http.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
     http.on('upgrade', (request, socket, head) => {
-      if (++attempts === 1) return; // Accepted TCP, but no WebSocket upgrade response.
+      if (++attempts === 1) {
+        // Expire only the deliberately stalled handshake after TCP acceptance.
+        // Successful retries retain their real deadline under CI contention.
+        expireFirstOpen!();
+        return;
+      }
       wss.handleUpgrade(request, socket, head, ws => {
         ws.send(JSON.stringify({ type: 'ready' }));
         ws.on('message', raw => {
