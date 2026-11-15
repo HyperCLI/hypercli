@@ -47,8 +47,10 @@ async def subscribe_session(
         request = 0
         while stop_event is None or not stop_event.is_set():
             started = asyncio.get_running_loop().time()
+            connected = False
             try:
                 async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
+                    connected = True
                     ready = json.loads(await asyncio.wait_for(ws.recv(), 10))
                     if not isinstance(ready, dict) or ready.get("type") != "ready":
                         raise ValueError("Session observer did not send ready")
@@ -88,6 +90,11 @@ async def subscribe_session(
                     raise
             except InvalidStatus as exc:
                 if exc.response.status_code in {401, 403}:
+                    raise
+            except TimeoutError:
+                # Opening the transport can be retried. Once open, a missing
+                # ready/subscribed frame is a terminal protocol timeout.
+                if connected:
                     raise
             except OSError:
                 pass

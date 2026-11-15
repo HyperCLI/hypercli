@@ -610,6 +610,13 @@ export class SessionsAPI {
   async subscribe(sessionId: string, handler: (event: SessionMessageEvent) => void | Promise<void>, options: SessionSubscribeOptions = {}): Promise<void> {
     if (options.signal?.aborted) return;
     if (!sessionId) throw new TypeError('sessionId is required');
+    // Public UUID references may omit hyphens or use uppercase hex. The
+    // backend publishes canonical UUIDs; use that same identity on the wire.
+    if (/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(sessionId)) {
+      sessionId = sessionId.replace(/-/g, '').toLowerCase().replace(
+        /^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5',
+      );
+    }
     if (!this.http.base || !this.http.credential) throw new Error('Session subscriptions require an authenticated HTTP client');
     const url = new URL(this.wsUrl ?? defaultAgentsWsUrl(this.http.base));
     url.searchParams.set('mode', 'observe');

@@ -19,6 +19,66 @@ MESSAGE = {"session_id": "s", "seq": 1, "role": "assistant", "message_id": "m",
            "acp": {"content": {"type": "text", "text": "hello"}}, "participant_id": "a"}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reference,canonical", [
+    ("AABBCCDD-1234-5678-9ABC-0123456789AB", "aabbccdd-1234-5678-9abc-0123456789ab"),
+    ("AABBCCDD123456789ABC0123456789AB", "aabbccdd-1234-5678-9abc-0123456789ab"),
+    ("room-1", "room-1"),
+])
+async def test_session_observer_canonical_uuid_identity(reference, canonical):
+    stop = asyncio.Event()
+    sent = []
+    received = []
+
+    async def peer(ws):
+        await ws.send(json.dumps({"type": "ready"}))
+        frame = json.loads(await ws.recv())
+        sent.append(frame)
+        await ws.send(json.dumps({**frame, "type": "sessionSubscribed"}))
+        await ws.send(json.dumps({"type": "sessionMessage", "sessionId": canonical,
+                                 "message": {**MESSAGE, "session_id": canonical}}))
+        await ws.wait_closed()
+
+    def handler(event):
+        received.append(event)
+        stop.set()
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        await asyncio.wait_for(client.deployments.subscribe_session(reference, handler, stop_event=stop), 3)
+    assert sent[0]["sessionId"] == canonical
+    assert len(received) == 1
+    assert received[0].session_id == canonical
+    assert received[0].message.session_id == canonical
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["ready", "ack"])
+async def test_session_observer_handshake_timeout_is_terminal(monkeypatch, phase):
+    original_wait_for = asyncio.wait_for
+
+    async def fast_wait_for(awaitable, timeout):
+        return await original_wait_for(awaitable, 0.02 if timeout == 10 else timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", fast_wait_for)
+    connections = []
+
+    async def peer(ws):
+        connections.append(ws)
+        if phase == "ack":
+            await ws.send(json.dumps({"type": "ready"}))
+            await ws.recv()
+        await ws.wait_closed()
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        with pytest.raises(TimeoutError):
+            await original_wait_for(client.deployments.subscribe_session("s", lambda event: None), 0.8)
+    assert len(connections) == 1
+
+
 def test_canonical_message_pagination():
     http = MagicMock(spec=HTTPClient)
     http.api_key = "test"

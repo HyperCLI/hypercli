@@ -39,7 +39,13 @@ export async function subscribeSession(
         }
         finish();
       };
-      const timer = setTimeout(() => finish(new Error('Session subscription acknowledgement timed out')), 10_000);
+      // A transport that never opens may reconnect. Protocol readiness gets
+      // its own terminal deadline only after the WebSocket upgrade succeeds.
+      let timer = setTimeout(() => finish(), 10_000);
+      ws.addEventListener('open', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => finish(new Error('Session subscription acknowledgement timed out')), 10_000);
+      });
       options.signal?.addEventListener('abort', abort, { once: true });
       // Node exposes rejected HTTP upgrades; browsers only expose an opaque
       // network close, which follows the ordinary reconnect policy.

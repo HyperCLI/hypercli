@@ -3711,6 +3711,10 @@ class Deployments:
         Protocol, subscription and callback failures propagate to the caller.
         """
         from .session_subscription import subscribe_session
+        # Match the canonical UUID identity used in backend observer events.
+        # Opaque references retain their existing server-validation behavior.
+        if re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", session_id, re.IGNORECASE):
+            session_id = str(UUID(session_id))
         await subscribe_session(self._agents_ws_url, self._api_key, session_id, handler,
                                 stop_event=stop_event, on_ready=on_ready)
 

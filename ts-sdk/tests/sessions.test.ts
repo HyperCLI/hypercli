@@ -5,6 +5,7 @@ import { Deployments } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
 import { WebSocketServer } from 'ws';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
 
 describe('session observer loopback', () => {
   const row = { session_id: 's', seq: 1, role: 'assistant', message_id: 'm',
@@ -21,6 +22,86 @@ describe('session observer loopback', () => {
       await new Promise<void>(resolve => wss.close(() => resolve()));
     } };
   }
+
+  it('retries transport-open timeout before any ready/ACK exchange', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>
+      originalSetTimeout(callback, ms === 10_000 ? 20 : ms, ...args));
+    const http = createServer();
+    const wss = new WebSocketServer({ noServer: true });
+    const sockets = new Set<import('node:net').Socket>();
+    const controller = new AbortController();
+    let attempts = 0;
+    http.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+    http.on('upgrade', (request, socket, head) => {
+      if (++attempts === 1) return; // Accepted TCP, but no WebSocket upgrade response.
+      wss.handleUpgrade(request, socket, head, ws => {
+        ws.send(JSON.stringify({ type: 'ready' }));
+        ws.on('message', raw => {
+          const frame = JSON.parse(String(raw));
+          ws.send(JSON.stringify({ ...frame, type: 'sessionSubscribed' }));
+        });
+      });
+    });
+    http.listen(0, '127.0.0.1');
+    await once(http, 'listening');
+    const { port } = http.address() as { port: number };
+    const api = new SessionsAPI(new HTTPClient(`http://127.0.0.1:${port}/agents`, 'test'));
+    try {
+      await api.subscribe('s', () => {}, { signal: controller.signal, onReady: () => controller.abort() });
+      expect(attempts).toBe(2);
+    } finally {
+      controller.abort(); timer.mockRestore();
+      for (const socket of sockets) socket.destroy();
+      wss.close();
+      await new Promise<void>(resolve => http.close(() => resolve()));
+    }
+  });
+
+  it.each(['ready', 'ack'])('treats a missing %s frame after opening as terminal', async phase => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>
+      originalSetTimeout(callback, ms === 10_000 ? 20 : ms, ...args));
+    const { wss, api, close } = await server();
+    let connections = 0;
+    const ready = vi.fn();
+    wss.on('connection', ws => {
+      connections++;
+      if (phase === 'ack') ws.send(JSON.stringify({ type: 'ready' }));
+    });
+    try {
+      await expect(api.subscribe('s', () => {}, { onReady: ready })).rejects.toThrow('acknowledgement timed out');
+      expect(connections).toBe(1);
+      expect(ready).not.toHaveBeenCalled();
+    } finally { timer.mockRestore(); await close(); }
+  });
+
+  it.each([
+    ['AABBCCDD-1234-5678-9ABC-0123456789AB', 'aabbccdd-1234-5678-9abc-0123456789ab'],
+    ['AABBCCDD123456789ABC0123456789AB', 'aabbccdd-1234-5678-9abc-0123456789ab'],
+    ['room-1', 'room-1'],
+  ])('uses canonical identity for reference %s', async (reference, canonical) => {
+    const { wss, api, close } = await server();
+    const controller = new AbortController();
+    const sent: Record<string, unknown>[] = [];
+    const received: unknown[] = [];
+    wss.on('connection', ws => {
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.on('message', raw => {
+        const frame = JSON.parse(String(raw));
+        sent.push(frame);
+        if (frame.type !== 'sessionSubscribe') return;
+        ws.send(JSON.stringify({ ...frame, type: 'sessionSubscribed' }));
+        ws.send(JSON.stringify({ type: 'sessionMessage', sessionId: canonical, message: { ...row, session_id: canonical } }));
+      });
+    });
+    try {
+      await api.subscribe(reference, event => { received.push(event); controller.abort(); }, { signal: controller.signal });
+      expect(sent[0]).toMatchObject({ type: 'sessionSubscribe', sessionId: canonical });
+      expect(received).toEqual([expect.objectContaining({ sessionId: canonical,
+        message: expect.objectContaining({ sessionId: canonical, messageId: 'm' }) })]);
+    } finally { controller.abort(); await close(); }
+  });
 
   it('authenticates, waits for ACK, maps canonical messages, resubscribes and aborts', async () => {
     const { wss, api, close } = await server();
