@@ -46,7 +46,7 @@ from .config import (
     _default_agents_ws_url,
 )
 from .http import HTTPClient, APIError
-from .sessions import RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup
+from .sessions import RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup, SessionMessagePage, SessionMessageEvent
 
 
 AGENTS_API_PREFIX = "/deployments"
@@ -3687,6 +3687,32 @@ class Deployments:
         if result.session_id != session_id or result.agent_id != agent_id:
             raise ValueError("Session setup response does not match the requested session/agent")
         return result
+
+    def get_session_messages(self, session_id: str, *, cursor: str | None = None, limit: int = 20) -> SessionMessagePage:
+        """Canonical history, newest first. Feed next_cursor back unchanged for older rows.
+
+        The target limit may extend chunk/tool dependencies. This is not a
+        transaction or gap-free boundary with a live subscription.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return SessionMessagePage.from_dict(self._get(
+            f"/sessions/{quote(session_id, safe='')}/messages", params=params,
+        ))
+
+    async def subscribe_session(
+        self, session_id: str, handler: Callable[[SessionMessageEvent], Any], *,
+        stop_event: asyncio.Event | None = None, on_ready: Callable[[], Any] | None = None,
+    ) -> None:
+        """Observe canonical messages until stopped/cancelled. Reconnects resubscribe.
+
+        on_ready runs after each subscribe ACK; no replay/gap-free guarantee.
+        Protocol, subscription and callback failures propagate to the caller.
+        """
+        from .session_subscription import subscribe_session
+        await subscribe_session(self._agents_ws_url, self._api_key, session_id, handler,
+                                stop_event=stop_event, on_ready=on_ready)
 
     def get_session(self, platform_session_id: str) -> SessionRecord:
         """Read stored metadata by platform session ID, never a runtime/leg ID.

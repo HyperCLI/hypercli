@@ -53,7 +53,7 @@ from .workspaces import (
     WorkspacesAPI,
 )
 from .routines import Routine, RoutinesAPI
-from .sessions import RoomAgent, RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup
+from .sessions import RoomAgent, RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup, SessionMessage, SessionMessagePage, SessionMessageEvent
 from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
 from .files import File
@@ -169,6 +169,9 @@ __all__ = [
     "SessionPage",
     "SessionRecord",
     "SessionSetup",
+    "SessionMessage",
+    "SessionMessagePage",
+    "SessionMessageEvent",
     "configure",
     "get_api_key",
     "get_agent_api_key",

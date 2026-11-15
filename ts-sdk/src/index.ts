@@ -468,6 +468,8 @@ export {
   type AcpSessionListOptions,
   type AcpSessionUpdate,
   type AcpSessionMessage,
+  type SessionMessageEvent,
+  type SessionSubscribeOptions,
   type SessionMessageMeta,
   type SessionReactionGroup,
   type SessionReactionOperation,

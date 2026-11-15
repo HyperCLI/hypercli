@@ -3,6 +3,125 @@ import { HyperCLI, APIError, type AcpSessionRecord } from '../src/index.js';
 import { SessionsAPI, type AcpSessionState, type SessionDiscoveryStatus, type SessionImportOutcome } from '../src/sessions.js';
 import { Deployments } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
+import { WebSocketServer } from 'ws';
+import { once } from 'node:events';
+
+describe('session observer loopback', () => {
+  const row = { session_id: 's', seq: 1, role: 'assistant', message_id: 'm',
+    acp: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hello' } },
+    stop_reason: null, participant_kind: 'agent', participant_id: 'a' };
+
+  async function server() {
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    await once(wss, 'listening');
+    const address = wss.address() as { port: number };
+    const api = new SessionsAPI(new HTTPClient(`http://127.0.0.1:${address.port}/agents`, 'existing credential'));
+    return { wss, api, close: async () => {
+      for (const ws of wss.clients) ws.terminate();
+      await new Promise<void>(resolve => wss.close(() => resolve()));
+    } };
+  }
+
+  it('authenticates, waits for ACK, maps canonical messages, resubscribes and aborts', async () => {
+    const { wss, api, close } = await server();
+    const controller = new AbortController();
+    const ready = vi.fn();
+    let connections = 0;
+    const frames: string[] = [];
+    const events: unknown[] = [];
+    wss.on('connection', (ws, request) => {
+      connections++;
+      const url = new URL(request.url ?? '', 'http://local');
+      expect(url.pathname).toBe('/ws');
+      expect(url.searchParams.get('mode')).toBe('observe');
+      expect(url.searchParams.get('token')).toBe('existing credential');
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.on('message', raw => {
+        const frame = JSON.parse(String(raw));
+        frames.push(frame.type);
+        if (frame.type !== 'sessionSubscribe') return;
+        expect(ready).toHaveBeenCalledTimes(connections - 1);
+        expect(frame.sessionId).toBe('s');
+        expect(typeof frame.requestId).toBe('string');
+        ws.send(JSON.stringify({ ...frame, type: 'sessionSubscribed' }));
+        ws.send(JSON.stringify({ type: 'sessionMessage', sessionId: 's', message: row }));
+        if (connections === 1) ws.close();
+      });
+    });
+    try {
+      await api.subscribe('s', event => {
+        events.push(event);
+        if (events.length === 2) controller.abort();
+      }, { signal: controller.signal, onReady: ready });
+      expect(connections).toBe(2);
+      expect(ready).toHaveBeenCalledTimes(2);
+      expect(events[0]).toMatchObject({ type: 'sessionMessage', sessionId: 's',
+        message: { sessionId: 's', messageId: 'm', seq: 1, acp: row.acp, participantId: 'a' } });
+      expect(frames.filter(type => type === 'sessionSubscribe')).toHaveLength(2);
+      expect(frames.every(type => ['sessionSubscribe', 'sessionUnsubscribe'].includes(type))).toBe(true);
+    } finally { controller.abort(); await close(); }
+  });
+
+  it.each(['denied', 'foreign', 'wrong-ack', 'callback'])('fails honestly without reconnecting: %s', async mode => {
+    const { wss, api, close } = await server();
+    let connections = 0;
+    const ready = vi.fn();
+    const handler = vi.fn(() => { if (mode === 'callback') throw new Error('callback failed'); });
+    wss.on('connection', ws => {
+      connections++;
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.on('message', raw => {
+        const frame = JSON.parse(String(raw));
+        if (mode === 'denied') ws.send(JSON.stringify({ ...frame, type: 'sessionSubscriptionError', message: 'forbidden' }));
+        else {
+          ws.send(JSON.stringify({ ...frame, type: 'sessionSubscribed', requestId: mode === 'wrong-ack' ? 'wrong' : frame.requestId }));
+          ws.send(JSON.stringify({ type: 'sessionMessage', sessionId: 's', message: { ...row, session_id: mode === 'foreign' ? 'other' : 's' } }));
+        }
+      });
+    });
+    try {
+      await expect(api.subscribe('s', handler, { onReady: ready })).rejects.toThrow();
+      expect(connections).toBe(1);
+      if (mode === 'denied' || mode === 'wrong-ack') expect(ready).not.toHaveBeenCalled();
+      if (mode === 'foreign') expect(handler).not.toHaveBeenCalled();
+    } finally { await close(); }
+  });
+
+  it('stops reconnect backoff on abort', async () => {
+    const { wss, api, close } = await server();
+    const controller = new AbortController();
+    let connections = 0;
+    wss.on('connection', ws => { connections++; ws.close(); setTimeout(() => controller.abort(), 20); });
+    try {
+      await api.subscribe('s', () => {}, { signal: controller.signal });
+      expect(connections).toBe(1);
+    } finally { controller.abort(); await close(); }
+  });
+
+  it('reports an HTTP authorization refusal without retrying', async () => {
+    let attempts = 0;
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1',
+      verifyClient: (_info, done) => { attempts++; done(false, 403, 'Forbidden'); } });
+    await once(wss, 'listening');
+    const { port } = wss.address() as { port: number };
+    const api = new SessionsAPI(new HTTPClient(`http://127.0.0.1:${port}/agents`, 'test'));
+    try {
+      await expect(api.subscribe('s', () => {})).rejects.toThrow('authorization failed (403)');
+      expect(attempts).toBe(1);
+    } finally { await new Promise<void>(resolve => wss.close(() => resolve())); }
+  });
+
+  it('aborts while waiting for the initial ready frame', async () => {
+    const { wss, api, close } = await server();
+    const controller = new AbortController();
+    const ready = vi.fn();
+    wss.on('connection', () => controller.abort());
+    try {
+      await api.subscribe('s', () => {}, { signal: controller.signal, onReady: ready });
+      expect(ready).not.toHaveBeenCalled();
+    } finally { controller.abort(); await close(); }
+  });
+});
 
 describe('client session metadata', () => {
   afterEach(() => vi.unstubAllGlobals());

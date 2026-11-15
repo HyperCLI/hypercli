@@ -7,6 +7,59 @@ from typing import Any
 from acp import schema
 
 
+@dataclass
+class SessionMessage:
+    """Canonical persisted message DTO; ACP payloads are retained at full fidelity."""
+
+    session_id: str
+    seq: int
+    role: str
+    acp: dict[str, Any]
+    message_id: str | None = None
+    meta: dict[str, Any] | None = None
+    stop_reason: str | None = None
+    created_at: str | None = None
+    delivered_at: str | None = None
+    completed_at: str | None = None
+    participant_kind: str | None = None
+    participant_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SessionMessage":
+        if (not isinstance(data, dict) or not isinstance(data.get("session_id"), str)
+                or type(data.get("seq")) is not int or data["seq"] < 1
+                or data.get("role") not in {"user", "assistant", "tool"}
+                or not isinstance(data.get("acp"), dict)):
+            raise ValueError("Invalid session message")
+        return cls(**{key: deepcopy(data[key]) for key in cls.__dataclass_fields__ if key in data})
+
+
+@dataclass
+class SessionMessagePage:
+    items: list[SessionMessage]
+    next_cursor: str | None = None
+    has_more: bool = False
+    head_seq: int | None = None
+    import_outcome: dict[str, Any] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SessionMessagePage":
+        if (not isinstance(data, dict) or not isinstance(data.get("items"), list)
+                or type(data.get("has_more")) is not bool
+                or not (data.get("next_cursor") is None or isinstance(data["next_cursor"], str))):
+            raise ValueError("Invalid session message page")
+        return cls(items=[SessionMessage.from_dict(row) for row in data["items"]],
+                   next_cursor=data.get("next_cursor"), has_more=data["has_more"],
+                   head_seq=data.get("head_seq"), import_outcome=deepcopy(data.get("import_outcome")))
+
+
+@dataclass
+class SessionMessageEvent:
+    type: str
+    session_id: str
+    message: SessionMessage
+
+
 def _parse_session_setup(setup: Any) -> dict[str, Any]:
     if not isinstance(setup, dict) or not isinstance(setup.get("mcpServers"), list):
         raise ValueError("Invalid session setup: expected an object with mcpServers")

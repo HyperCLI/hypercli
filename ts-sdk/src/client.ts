@@ -156,7 +156,7 @@ export class HyperCLI {
       agentsApiBase: resolvedAgentsApiBase,
       timeout: options.timeout,
     });
-    this.sessions = new SessionsAPI(this._agentsHttp);
+    this.sessions = new SessionsAPI(this._agentsHttp, resolvedAgentsWsUrl);
     this.memory = new MemoryAPI(this._agentsHttp);
     this.integrations = new IntegrationsAPI(this._apiKey, {
       agentsApiBase: resolvedAgentsApiBase,

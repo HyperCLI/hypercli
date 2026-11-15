@@ -23,6 +23,8 @@
  * `(updated_at, id)`.
  */
 import type { HTTPClient } from './http.js';
+import { defaultAgentsWsUrl } from './agent-urls.js';
+import { subscribeSession } from './session-subscription.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
 
 /** Stored standard setup for one platform session's agent leg. */
@@ -300,6 +302,18 @@ export interface AcpSessionMessagesOptions {
   /** Opaque cursor from a previous page's nextCursor; omitted starts at the newest message. */
   cursor?: string | null;
   limit?: number;
+}
+
+export interface SessionMessageEvent {
+  type: 'sessionMessage';
+  sessionId: string;
+  message: AcpSessionMessage;
+}
+
+export interface SessionSubscribeOptions {
+  signal?: AbortSignal;
+  /** Called after each correlated subscription ACK; resync history here if needed. */
+  onReady?: () => void | Promise<void>;
 }
 
 /**
@@ -588,7 +602,29 @@ function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch'>>) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
+
+  /** Observe committed public message DTOs. Reconnects resubscribe; no replay/gap-free guarantee.
+   * Abort resolves the subscription. Protocol, subscription and callback errors reject it.
+   */
+  async subscribe(sessionId: string, handler: (event: SessionMessageEvent) => void | Promise<void>, options: SessionSubscribeOptions = {}): Promise<void> {
+    if (options.signal?.aborted) return;
+    if (!sessionId) throw new TypeError('sessionId is required');
+    if (!this.http.base || !this.http.credential) throw new Error('Session subscriptions require an authenticated HTTP client');
+    const url = new URL(this.wsUrl ?? defaultAgentsWsUrl(this.http.base));
+    url.searchParams.set('mode', 'observe');
+    url.searchParams.set('token', this.http.credential);
+    await subscribeSession(url, sessionId, async (frame) => {
+      const row = frame.message as Record<string, unknown>;
+      if (!row || typeof row !== 'object' || Array.isArray(row) || row.session_id !== sessionId ||
+          !Number.isSafeInteger(row.seq) || (row.seq as number) < 1 ||
+          !['user', 'assistant', 'tool'].includes(row.role as string) ||
+          !row.acp || typeof row.acp !== 'object' || Array.isArray(row.acp)) {
+        throw new TypeError('Invalid session message event');
+      }
+      await handler({ type: 'sessionMessage', sessionId, message: messageFromWire(row) });
+    }, options);
+  }
 
   /** Unknown setup is null; lookup failures and malformed replies remain errors. */
   async getSetup(sessionId: string, agentId: string): Promise<AcpSessionSetup> {

@@ -1,5 +1,11 @@
 from unittest.mock import MagicMock
 import json
+import asyncio
+from http import HTTPStatus
+from urllib.parse import parse_qs, urlsplit
+
+from websockets.asyncio.server import serve
+from websockets.exceptions import InvalidStatus
 
 import httpx
 import pytest
@@ -7,6 +13,142 @@ import pytest
 from hypercli import HyperCLI, SessionRecord, SessionSetup
 from hypercli.agents import Deployments
 from hypercli.http import APIError, HTTPClient
+
+
+MESSAGE = {"session_id": "s", "seq": 1, "role": "assistant", "message_id": "m",
+           "acp": {"content": {"type": "text", "text": "hello"}}, "participant_id": "a"}
+
+
+def test_canonical_message_pagination():
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "test"
+    api = Deployments(http, api_base="https://example.com/agents")
+    api._get = MagicMock(return_value={"items": [MESSAGE], "next_cursor": "opaque", "has_more": True, "head_seq": 5})
+    page = api.get_session_messages("s/id", cursor="older", limit=1)
+    api._get.assert_called_once_with("/sessions/s%2Fid/messages", params={"cursor": "older", "limit": 1})
+    assert page.items[0].message_id == "m"
+    assert page.items[0].acp == MESSAGE["acp"]
+    assert (page.next_cursor, page.has_more, page.head_seq) == ("opaque", True, 5)
+
+
+@pytest.mark.asyncio
+async def test_session_observer_reconnect_ack_mapping_and_stop():
+    stop = asyncio.Event()
+    connections = 0
+    readies = []
+    frames = []
+    events = []
+
+    async def peer(ws):
+        nonlocal connections
+        connections += 1
+        query = parse_qs(urlsplit(ws.request.path).query)
+        assert urlsplit(ws.request.path).path == "/ws"
+        assert query == {"mode": ["observe"], "token": ["existing credential"]}
+        await ws.send(json.dumps({"type": "ready"}))
+        frame = json.loads(await ws.recv())
+        frames.append(frame)
+        assert frame["type"] == "sessionSubscribe" and frame["sessionId"] == "s"
+        assert isinstance(frame["requestId"], str)
+        assert len(readies) == connections - 1
+        await ws.send(json.dumps({**frame, "type": "sessionSubscribed"}))
+        await ws.send(json.dumps({"type": "sessionMessage", "sessionId": "s", "message": MESSAGE}))
+        if connections > 1:
+            frame = json.loads(await ws.recv())
+            assert frame["type"] == "sessionUnsubscribe"
+
+    def handler(event):
+        events.append(event)
+        if len(events) == 2:
+            stop.set()
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="existing credential", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        await asyncio.wait_for(client.deployments.subscribe_session("s", handler, stop_event=stop,
+                               on_ready=lambda: readies.append(True)), 5)
+    assert connections == 2 and len(readies) == 2
+    assert events[0].type == "sessionMessage" and events[0].session_id == "s"
+    assert events[0].message.acp == MESSAGE["acp"]
+    assert events[0].message.message_id == "m"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["denied", "foreign", "wrong-ack", "callback"])
+async def test_session_observer_terminal_errors(mode):
+    connections = 0
+    readies = []
+    events = []
+
+    async def peer(ws):
+        nonlocal connections
+        connections += 1
+        await ws.send(json.dumps({"type": "ready"}))
+        frame = json.loads(await ws.recv())
+        if mode == "denied":
+            await ws.send(json.dumps({**frame, "type": "sessionSubscriptionError", "message": "forbidden"}))
+        else:
+            await ws.send(json.dumps({**frame, "type": "sessionSubscribed",
+                                     "requestId": "wrong" if mode == "wrong-ack" else frame["requestId"]}))
+            await ws.send(json.dumps({"type": "sessionMessage", "sessionId": "s",
+                                     "message": {**MESSAGE, "session_id": "other" if mode == "foreign" else "s"}}))
+        await ws.wait_closed()
+
+    def handler(event):
+        events.append(event)
+        raise ValueError("callback failed")
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        with pytest.raises(ValueError):
+            await asyncio.wait_for(client.deployments.subscribe_session("s", handler,
+                                   on_ready=lambda: readies.append(True)), 3)
+    assert connections == 1
+    if mode in {"denied", "wrong-ack"}:
+        assert not readies
+    if mode == "foreign":
+        assert not events
+
+
+@pytest.mark.asyncio
+async def test_session_observer_auth_denial():
+    attempts = []
+
+    def refuse(connection, request):
+        attempts.append(request)
+        return connection.respond(HTTPStatus.FORBIDDEN, "Forbidden")
+
+    async def peer(ws):
+        pytest.fail("unauthorized connection accepted")
+
+    async with serve(peer, "127.0.0.1", 0, process_request=refuse) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        with pytest.raises(InvalidStatus):
+            await asyncio.wait_for(client.deployments.subscribe_session("s", lambda event: None), 3)
+    assert len(attempts) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["ready", "backoff"])
+async def test_session_observer_stop_interrupts_wait(phase):
+    stop = asyncio.Event()
+    connections = []
+
+    async def peer(ws):
+        connections.append(ws)
+        if phase == "backoff":
+            await ws.close()
+        await asyncio.sleep(0.02)
+        stop.set()
+        await ws.wait_closed()
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        await asyncio.wait_for(client.deployments.subscribe_session("s", lambda event: None, stop_event=stop), 1)
+    assert len(connections) == 1
 
 
 @pytest.mark.parametrize("source", [None, "slack", "future-client"])
