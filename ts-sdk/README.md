@@ -14,6 +14,13 @@ npm install @hypercli.com/sdk
 
 ## Vanilla ACP v1 (breaking API change)
 
+Standard form elicitation is available through `onElicitationRequest` or
+`setElicitationHandler`. Advertise `clientCapabilities: { elicitation: { form: {} } }`
+when implementing a responder. The callback receives the untouched standard
+request and its AbortSignal, and returns `accept` with native `content`, `decline`,
+or `cancel`. Without a handler the SDK returns a standard no-responder error;
+it never manufactures user answers. The SDK does not choose or render fields.
+
 ACP permission callbacks (`onPermissionRequest`, `setPermissionHandler`) and the
 exported `RequestPermissionRequest` use the upstream v1 shape: `request.toolCall`.
 All offered permission options reach the callback, including unfamiliar kinds.

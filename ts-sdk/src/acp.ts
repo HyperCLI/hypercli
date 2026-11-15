@@ -4,6 +4,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import { createWebSocketStream, MemoryAcpCookieStore, type WebSocketConstructor, type WebSocketLike } from '@agentclientprotocol/sdk/experimental/ws-client';
 
 export type { ContentBlock, SessionNotification, RequestPermissionRequest } from '@agentclientprotocol/sdk';
+export type { CreateElicitationRequest, CreateElicitationResponse } from '@agentclientprotocol/sdk';
 export type CodingAgentAcpProtocolVersion = 1;
 export type CodingAgentAcpPromptResult = acp.PromptResponse;
 export type CodingAgentAcpTransport = 'proxy' | 'direct';
@@ -83,6 +84,7 @@ function diagnosticError(error: unknown, depth = 0): CodingAgentAcpDiagnosticErr
   };
 }
 type PermissionHandler = (params: acp.RequestPermissionRequest, signal?: AbortSignal) => acp.MaybePromise<acp.RequestPermissionResponse>;
+type ElicitationHandler = (params: acp.CreateElicitationRequest, signal?: AbortSignal) => acp.MaybePromise<acp.CreateElicitationResponse>;
 /** Observers never own protocol settlement, including accidentally async observers. */
 function callObserver<T>(observer: ((value: T) => void) | undefined, value: T): void {
   try { void Promise.resolve(observer?.(value)).catch(() => {}); } catch { /* Isolate consumer observers. */ }
@@ -109,6 +111,7 @@ export interface CodingAgentAcpConnectOptions {
   source?: string | null;
   onUpdate?: (notification: acp.SessionNotification) => void;
   onPermissionRequest?: PermissionHandler;
+  onElicitationRequest?: ElicitationHandler;
   onError?: (error: Error) => void;
   onClose?: (event: { code: number; reason: string }) => void;
   /** Refresh platform history before reconnect resumes the tracked sessions. */
@@ -146,6 +149,7 @@ export class CodingAgentAcpClient {
   private readonly errorListeners = new Set<(error: Error) => void>();
   private readonly closeListeners = new Set<(event: { code: number; reason: string }) => void>();
   private permissionHandler: PermissionHandler | null = null;
+  private elicitationHandler: ElicitationHandler | null = null;
   private closedFlag = false;
   private terminalError: CodingAgentAcpConnectionError | null = null;
   private failures = 0;
@@ -199,6 +203,7 @@ export class CodingAgentAcpClient {
     this.closeListeners.add(listener); return () => { this.closeListeners.delete(listener); };
   }
   setPermissionHandler(handler: PermissionHandler | null): void { this.permissionHandler = handler; }
+  setElicitationHandler(handler: ElicitationHandler | null): void { this.elicitationHandler = handler; }
   waitConnected(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.connected) return Promise.resolve();
@@ -368,6 +373,7 @@ export class CodingAgentAcpClient {
     this.updateListeners.clear(); this.errorListeners.clear(); this.closeListeners.clear();
     this.sessionConfig.clear();
     this.permissionHandler = null;
+    this.elicitationHandler = null;
   }
   private async open(reconnecting = false): Promise<void> {
     const generation = this.generation;
@@ -409,6 +415,11 @@ export class CodingAgentAcpClient {
       }
     } as unknown as WebSocketConstructor;
     const app = acp.client({ name: this.options.clientInfo?.name ?? 'hypercli-ts-sdk' });
+    app.onRequest('elicitation/create', context => {
+      const handler = this.elicitationHandler ?? this.options.onElicitationRequest;
+      if (!handler) throw new acp.RequestError(-32603, 'No elicitation responder');
+      return handler(context.params, context.signal);
+    });
     app.onRequest('session/request_permission', context => {
       const handler = this.permissionHandler ?? this.options.onPermissionRequest;
       return handler ? handler(context.params, context.signal) : { outcome: { outcome: 'cancelled' as const } };
