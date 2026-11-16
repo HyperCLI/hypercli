@@ -14,12 +14,14 @@
     },
     {
       "name": "hypercli-account",
-      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, manage the account profile and Agent soul or role metadata with hyper user and hyper soul, write the local product API key with hyper configure, and check billing balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet. Use for who-am-I, capability, entitlement, profile, and balance questions; hypercli-auth owns credential precedence and auth failure diagnosis, and grant-code redemption belongs to hypercli-agents.",
+      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, manage the account profile and Agent soul or role metadata with hyper user and hyper soul, resolve dynamic persona context with hyper persona, write the local product API key with hyper configure, and check billing balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet. Use for who-am-I, capability, entitlement, profile, and balance questions; hypercli-auth owns credential precedence and auth failure diagnosis, and grant-code redemption belongs to hypercli-agents.",
       "commands": [
         "hyper me",
         "hyper me --json",
         "hyper user",
         "hyper agent <id> soul",
+        "hyper persona resolve",
+        "hyper persona list",
         "hyper configure",
         "hyper billing balance",
         "hyper keys list",

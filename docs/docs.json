@@ -147,6 +147,7 @@
               "ts-sdk/keys",
               "ts-sdk/agents",
               "ts-sdk/hermes",
+              "ts-sdk/personas",
               "ts-sdk/workflows",
               "ts-sdk/workspaces",
               "ts-sdk/reference"
@@ -233,6 +234,7 @@
               "cli/commands/flow",
               "cli/commands/llm",
               "cli/commands/memory",
+              "cli/commands/persona",
               "cli/commands/renders",
               "cli/commands/role",
               "cli/commands/routines",

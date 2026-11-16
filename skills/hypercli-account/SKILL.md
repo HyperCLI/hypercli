@@ -3,17 +3,19 @@ name: hypercli-account
 description: >
   Inspect the active HyperCLI identity, capabilities, and entitlements with
   hyper me, manage the account profile and Agent soul or role metadata with
-  hyper user and hyper soul, write the local product API key with hyper
-  configure, and check billing balance, API keys, and wallet with hyper
-  billing, hyper keys, and hyper wallet. Use for who-am-I, capability,
-  entitlement, profile, and balance questions; hypercli-auth owns credential
-  precedence and auth failure diagnosis, and grant-code redemption belongs
-  to hypercli-agents.
+  hyper user and hyper soul, resolve dynamic persona context with hyper persona,
+  write the local product API key with hyper configure, and check billing
+  balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet.
+  Use for who-am-I, capability, entitlement, profile, and balance questions;
+  hypercli-auth owns credential precedence and auth failure diagnosis, and
+  grant-code redemption belongs to hypercli-agents.
 commands:
   - hyper me
   - hyper me --json
   - hyper user
   - hyper agent <id> soul
+  - hyper persona resolve
+  - hyper persona list
   - hyper configure
   - hyper billing balance
   - hyper keys list
@@ -38,6 +40,8 @@ installed `--help` when exactness matters.
 | Agent soul | `hyper soul [--agent <id>] [-f <file>|-]` |
 | Agent role identifier | `hyper role [--agent <id>] [value]` |
 | Canonical Agent metadata | `hyper agent <id> soul`, `hyper agent <id> role [value]` |
+| Dynamic persona USER + effective SOUL | `hyper persona resolve [--agent <id>] [--json]` |
+| Live persona discovery | `hyper persona list`, `hyper persona get <id> [--source live] [--json]` |
 | Write the local product API key | `hyper configure` |
 | Balance, invoices, transactions | `hyper billing balance` |
 | API keys | `hyper keys list`, `hyper keys create` |
@@ -72,6 +76,14 @@ user-scoped keys require `--agent <id>` or canonical `hyper agent <id> ...`.
 Do not substitute local USER.md, SOUL.md, or role files. The `-f` and
 `[value]` write forms replace Backend-owned content — remote mutations:
 confirm the exact Agent and obtain approval before writing.
+
+`hyper persona resolve` is the read-only dynamic composition path. It rereads
+current Agent metadata and canonical USER on every call: valid `meta.persona`
+returns the current service-assembled effective SOUL; absent/null selection
+returns canonical SOUL. Invalid or unavailable selections fail without a
+canonical-SOUL or static-content fallback. Omit `--agent` only for an exactly
+bound Agent key. `hyper persona list` and `hyper persona get <id>` are also live
+Backend reads; no generated persona catalog is installed with the CLI.
 
 ## Local credential configuration
 

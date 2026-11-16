@@ -253,13 +253,14 @@ jobs:
         run: |
           docker run --rm --entrypoint /bin/bash hypercli-cli-ci:${{ github.sha }} -lc '\
             cd /opt/cli && \
-            python3 /opt/tools/run_unit_tests.py -- npx vitest run tests/metadata.test.ts tests/ci-matrix.test.ts && \
+            python3 /opt/tools/run_unit_tests.py -- npx vitest run tests/metadata.test.ts tests/persona.test.ts tests/ci-matrix.test.ts && \
             node dist/index.js agent --help >/dev/null && \
             node dist/index.js agent agent-id soul --help >/dev/null && \
             node dist/index.js agent agent-id role --help >/dev/null && \
             node dist/index.js soul --help >/dev/null && \
             node dist/index.js role --help >/dev/null && \
-            node dist/index.js user --help >/dev/null'
+            node dist/index.js user --help >/dev/null && \
+            node dist/index.js persona --help >/dev/null'
       - name: Build runtime toolchain image
         run: docker build -f docker/cli/Dockerfile -t hypercli-cli-runtime:${{ github.sha }} .
       - name: Smoke bundled metadata help in the runtime container
@@ -270,6 +271,7 @@ jobs:
           docker run --rm hypercli-cli-runtime:${{ github.sha }} soul --help >/dev/null
           docker run --rm hypercli-cli-runtime:${{ github.sha }} role --help >/dev/null
           docker run --rm hypercli-cli-runtime:${{ github.sha }} user --help >/dev/null
+          docker run --rm hypercli-cli-runtime:${{ github.sha }} persona --help >/dev/null
 
   # rs-sdk cargo test. rs-sdk is the only member of the repo-root workspace;
   # --locked pins the checked-in Cargo.lock.

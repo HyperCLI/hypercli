@@ -129,6 +129,25 @@ export {
 } from './agent-persona.js';
 export type { UserUi, UpdateUserOptions } from './user.js';
 export {
+  PersonasAPI,
+  PersonaError,
+  PERSONA_ID_PATTERN,
+  PERSONA_DIGEST_PATTERN,
+  PERSONA_REVISION_PATTERN,
+  assertPersonaId,
+  personaCatalogFromData,
+  personaArtifactFromData,
+  type PersonaSourceDigest,
+  type PersonaCatalogEntry,
+  type PersonaCatalogMetadata,
+  type PersonaCatalog,
+  type PersonaArtifact,
+  type PersonaResolveOptions,
+  type PersonaResolutionSource,
+  type PersonaResolution,
+  type PersonaErrorCode,
+} from './personas.js';
+export {
   UserAPI,
   isRuntimeAgent,
   runtimeAgentId,

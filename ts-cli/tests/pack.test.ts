@@ -56,6 +56,18 @@ describe('npm pack --dry-run (pack gate)', () => {
     expect(paths.has('dist/index.js'), 'missing dist/index.js from tarball').toBe(true);
   });
 
+  it('keeps generated persona catalogs out of npm and the single-file toolchain', { timeout: 120_000 }, () => {
+    const paths = packedPaths();
+    expect([...paths].filter(path =>
+      path === 'personas' || path.startsWith('personas/') || path.includes('personas-runtime'),
+    )).toEqual([]);
+
+    const dockerfile = readFileSync(join(PKG_DIR, '..', 'docker', 'cli', 'Dockerfile'), 'utf8');
+    expect(dockerfile).not.toContain('HYPERCLI_PERSONAS_RELATIVE_PATH');
+    expect(dockerfile).not.toContain('ts-cli/personas');
+    expect(dockerfile).not.toContain('/opt/hypercli/personas');
+  });
+
   it('dist/index.js has a POSIX-clean shebang (LF endings)', () => {
     const bytes = readFileSync(join(PKG_DIR, 'dist', 'index.js'), 'utf8');
     expect(bytes.includes('\r'), 'dist/index.js contains CR characters').toBe(false);

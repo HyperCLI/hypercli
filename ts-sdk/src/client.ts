@@ -26,6 +26,7 @@ import { RunnersAPI } from './runners.js';
 import { SessionsAPI } from './sessions.js';
 import { MemoryAPI } from './memory.js';
 import { IntegrationsAPI } from './integrations.js';
+import { PersonasAPI } from './personas.js';
 import { defaultAgentsWsUrl, resolveAgentsApiBase } from './agent-urls.js';
 
 export interface HyperCLIOptions {
@@ -106,6 +107,7 @@ export class HyperCLI {
   public readonly integrations: IntegrationsAPI;
   public readonly agent: HyperAgent;
   public readonly deployments: Deployments;
+  public readonly personas: PersonasAPI;
 
   constructor(options: HyperCLIOptions = {}) {
     // Handle explicit undefined vs explicitly passed empty string
@@ -176,6 +178,7 @@ export class HyperCLI {
       resolvedAgentsWsUrl,
       options.timeout,
     );
+    this.personas = new PersonasAPI(this._agentsHttp);
   }
 
   get apiUrl(): string {

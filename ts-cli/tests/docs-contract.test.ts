@@ -43,6 +43,32 @@ describe('TS CLI documentation and generated skill contract', () => {
     expect(agentsGenerated.commands).toContain('hyper agents activate <code>');
   });
 
+  it('documents dynamic-only persona discovery and resolution', () => {
+    const cli = read('docs/cli/commands/persona.mdx');
+    expect(cli).toContain('hyper persona list');
+    expect(cli).toContain('hyper persona ls --json');
+    expect(cli).toContain('hyper persona resolve --agent <id> --json');
+    expect(cli).toContain('--source live');
+    expect(cli).toContain('Every list, get, and resolve request goes through the authenticated');
+    expect(cli).toContain('does not ship or read a generated');
+    expect(cli).toContain('Resolution is always live');
+    expect(cli).not.toContain('degraded_offline');
+    const sdk = read('docs/ts-sdk/personas.mdx');
+    expect(sdk).toContain('client.personas.resolve');
+    expect(sdk).toContain('Deployments.accessIdentity()');
+    expect(sdk).toContain('UserAPI.getProfile()');
+    const navigation = JSON.stringify(JSON.parse(read('docs/docs.json')));
+    expect(navigation).toContain('cli/commands/persona');
+    expect(navigation).toContain('ts-sdk/personas');
+    expect(read('skills/hypercli-account/SKILL.md')).toContain('hyper persona resolve');
+    const account = JSON.parse(read('ts-cli/skills/hypercli-account.json'));
+    expect(account.commands).toEqual(expect.arrayContaining([
+      'hyper persona resolve',
+      'hyper persona list',
+    ]));
+    expect(account.markdown).toContain('no generated persona catalog is installed with the CLI');
+  });
+
   it('keeps legacy references separate and avoids dead embed links', () => {
     const navigation = JSON.parse(read('docs/docs.json'));
     const pages = JSON.stringify(navigation);

@@ -51,6 +51,7 @@ describe('HyperCLI Client', () => {
     expect(client.billing).toBeDefined();
     expect(client.instances).toBeDefined();
     expect(client.voice).toBeDefined();
+    expect(client.personas).toBeDefined();
   });
 
   it('should construct client with explicit API key', () => {

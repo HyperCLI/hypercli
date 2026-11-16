@@ -1050,6 +1050,8 @@ export interface AgentIntegrationMeta {
 export interface AgentMeta {
   /** Canonical semantic Markdown; null on write clears only this field. */
   soul?: string | null;
+  /** Exact dynamic persona selector. Absent/null selects canonical SOUL; blank is invalid. */
+  persona?: string | null;
   /** Canonical nonblank role identifier, at most 64 characters; null on write clears it. */
   role?: string | null;
   ui?: AgentUiMeta | null;

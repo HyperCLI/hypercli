@@ -15,6 +15,7 @@ import * as integrations from './commands/integrations.js';
 import * as jobs from './commands/jobs.js';
 import * as me from './commands/me.js';
 import * as memory from './commands/memory.js';
+import persona from './commands/persona.js';
 import * as routines from './commands/routines.js';
 import * as rooms from './commands/rooms.js';
 import role from './commands/role.js';
@@ -31,6 +32,7 @@ export const GROUPS: readonly CommandGroup[] = [
   role,
   soul,
   user,
+  persona,
   memory,
   configure,
   skills,

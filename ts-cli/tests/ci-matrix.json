@@ -36,6 +36,17 @@
       "windows": true,
       "smokes": [{ "argv": ["--help"] }]
     },
+    "persona": {
+      "tests": ["persona"],
+      "windows": true,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["list", "--help"] },
+        { "argv": ["ls", "--help"] },
+        { "argv": ["get", "--help"] },
+        { "argv": ["resolve", "--help"] }
+      ]
+    },
     "memory": {
       "tests": ["memory"],
       "windows": true,

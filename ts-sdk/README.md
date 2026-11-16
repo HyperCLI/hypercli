@@ -202,6 +202,20 @@ if (hasActivePlan(summary)) { // subscription OR direct entitlement
 A `401` or `403` from the summary means the selected key cannot determine plan
 state. Consumers should represent that as unknown, never as an explicit no.
 
+### Dynamic Personas
+
+```typescript
+const catalog = await client.personas.list();
+const artifact = await client.personas.get('chief-of-staff');
+const context = await client.personas.resolve({ agentId });
+```
+
+Every call uses the authenticated Agents Backend at request time. Selected
+`Agent.meta.persona` returns the current assembled `INDEX.md` plus canonical
+USER; absent selection returns canonical SOUL plus USER. Invalid selections and
+fetch failures reject without a default-SOUL or static-content fallback. The SDK
+ships no persona catalog and writes no prompt/runtime files.
+
 ### OpenClaw Agents
 
 OpenClaw uses the generic deployment launch surface. `registryUrl`,
@@ -623,6 +637,7 @@ const response = await fetch(`${comfy.baseUrl}/prompt`, {
 - `client.files` - File upload/download
 - `client.keys` - API keys management
 - `client.agent` - hosted inference API
+- `client.personas` - dynamic persona discovery and Backend context resolution
 - `client.agents` - hosted agents `hypercli-openclaw` exec/shell API
 
 ### Job Helpers

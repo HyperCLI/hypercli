@@ -1,0 +1,51 @@
+---
+title: Personas
+description: Dynamic TypeScript SDK persona discovery and USER + effective SOUL resolution.
+---
+
+The `HyperCLI` client exposes `client.personas`. All SDK discovery and resolution
+methods use the authenticated Agents Backend at request time; this module has no
+offline catalog, cached prompt, or runtime-file fallback.
+
+```ts
+import { HyperCLI } from '@hypercli.com/sdk';
+
+const client = new HyperCLI();
+const catalog = await client.personas.list();
+const artifact = await client.personas.get('chief-of-staff');
+```
+
+`list()` calls `GET /personas` and returns the current authorized discovery
+records and catalog revision/digest. `get(id)` calls
+`GET /personas/{id}` and returns one exact record with the service-assembled
+`INDEX.md` in `artifact.markdown`. IDs are not normalized or prefix-matched.
+The SDK validates the returned identity, provenance, effective digest, and
+catalog revision; malformed responses throw instead of substituting content.
+
+## Resolve an Agent through Backend
+
+```ts
+const bound = await client.personas.resolve();
+const explicit = await client.personas.resolve({ agentId: '<agent-uuid>' });
+```
+
+Both forms call `GET /personas/resolve`, with `agent_id` only for the explicit
+form. The single Backend resolver owns exact bound-Agent inference, owner
+authorization, metadata refreshes, canonical USER, and canonical SOUL
+precedence. This is the same logical path as `Deployments.accessIdentity()`,
+`Deployments.get()`, and `UserAPI.getProfile()`; the SDK does not independently
+reassemble or cache that context.
+
+The returned `PersonaResolution` contains `agentId`, `userId`, `user`, `soul`,
+`personaId`, `revision`, `digest`, and `source`:
+
+- valid `Agent.meta.persona`: `soul` is the current assembled `INDEX.md`,
+  `personaId`/`revision`/`digest` identify its receipt, and `source` is
+  `"persona"`;
+- absent/null selection: `soul` uses Backend canonical SOUL precedence, the
+  selection fields are null, and `source` is `"canonical"`;
+- invalid selection or any failed USER/Agent/catalog read: the promise rejects;
+  no default-SOUL or static-content fallback is returned.
+
+The resolver performs no writes and does not alter ACP, runtime files, startup,
+or lifecycle behavior.

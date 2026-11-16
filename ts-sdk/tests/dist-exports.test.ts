@@ -65,6 +65,8 @@ describe('dist export parity', () => {
     expect(root.resolveAgentPersonaProfile('openclaw_acp')).toBeInstanceOf(root.OpenClawPersonaProfile);
     expect(root.resolveAgentPersonaProfile('hermes_acp')).toBeInstanceOf(root.HermesPersonaProfile);
     expect(root.resolveAgentPersonaProfile('opencode')).toBeInstanceOf(root.DefaultPersonaProfile);
+    expect(root.PersonasAPI).toBeTypeOf('function');
+    expect(root.PersonaError).toBeTypeOf('function');
   });
 
   const entries = Object.entries(pkg.exports as Record<string, { import?: string }>)

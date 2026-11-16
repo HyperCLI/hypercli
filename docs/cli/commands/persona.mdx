@@ -1,0 +1,68 @@
+---
+title: hyper persona
+description: Discover behavioral personas and resolve current canonical USER plus effective SOUL.
+---
+
+`hyper persona` is a read-only, dynamic discovery and context-resolution
+surface. Every list, get, and resolve request goes through the authenticated
+Backend/service path at call time. The CLI does not ship or read a generated
+persona catalog, save prompt copies, select a persona, mutate Agent metadata, or
+write `USER.md`/`SOUL.md`.
+
+## Dynamic discovery
+
+```bash
+hyper persona list
+hyper persona ls --json
+hyper persona get chief-of-staff
+hyper persona get chief-of-staff --json
+```
+
+The default source is live Backend discovery. `--source live` is accepted as an
+explicit selector; there is no offline, bundled, or cached source:
+
+```bash
+hyper persona list --source live
+hyper persona get chief-of-staff --source live
+```
+
+IDs are exact lowercase hyphenated identifiers. There is no prefix, case,
+description, or role-based matching. Human-readable `get` prints only the exact
+service-assembled `INDEX.md` Markdown returned for that request. JSON adds its
+metadata, effective digest, catalog revision, Markdown, and `source: "live"`
+receipt. List JSON also returns the current catalog revision and digest.
+
+An unavailable catalog, unknown ID, integrity failure, or revision mismatch is
+an error. It is never rendered as a valid empty catalog or recovered from a
+local prompt copy.
+
+## Resolve current context
+
+```bash
+hyper persona resolve
+hyper persona resolve --agent <id>
+hyper persona resolve --agent <id> --json
+```
+
+Resolution is always live and has no `--source` option. Every call rereads
+current Agent metadata and canonical USER through the same Backend helpers used
+by `hyper soul` and `hyper user`:
+
+- An exactly bound Agent runtime key may omit `--agent`. A user-scoped key must
+  pass `--agent <id>`; the CLI never guesses an Agent.
+- A valid exact `Agent.meta.persona` returns the current service-assembled
+  `INDEX.md` as `soul`, together with unchanged canonical `User.meta.profile`
+  as `user`. JSON also returns the artifact identity, revision, and digest.
+- Absent or null `Agent.meta.persona` returns current canonical SOUL plus USER.
+  Top-level `Agent.meta.soul` presence wins, including an empty string; legacy
+  `ui.soul` is read only when the canonical key is absent. This path performs no
+  persona catalog request.
+- A blank, malformed, unknown, forbidden, or unavailable selected persona is an
+  error. The command does not substitute canonical SOUL, a role, another
+  persona, or any static content.
+
+Human output labels the USER and effective SOUL sections. JSON provides
+`agent_id`, `user_id`, `user`, `soul`, `persona`, `revision`, `digest`, and
+`source`. Source is `"persona"` for a selected assembled artifact and
+`"canonical"` for default SOUL. Empty canonical USER or SOUL remains empty; a
+fetch or authorization failure is not converted into empty content.
