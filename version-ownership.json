@@ -2,7 +2,6 @@
   "manifests": {
     "Cargo.toml": "app",
     "rs-sdk/Cargo.toml": "inherits:Cargo.toml",
-    "py-cli/pyproject.toml": "excluded: legacy EOL CLI; ts-cli is the only active CLI release",
     "py-sdk/pyproject.toml": "app",
     "ts-cli/package.json": "app",
     "ts-sdk/package.json": "app"

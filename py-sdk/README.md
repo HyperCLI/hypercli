@@ -339,6 +339,17 @@ agent.delete_secret("SERVICE_TOKEN")
 These methods return `AgentLaunchValueMutation` metadata. Secret writes never
 echo the secret value in their response.
 
+## Personas
+
+`HyperCLI().personas` exposes the public `PersonasAPI`: `list()`,
+`get(persona_id)`, and `resolve(agent_id=None)` read the live Backend catalog,
+exact service-assembled artifact, and effective USER + SOUL respectively.
+No persona artifacts are cached locally. See the [persona commands](../docs/cli/commands/persona.mdx).
+
+The public `canonical_soul(meta)` helper reads stored canonical SOUL, not the
+selected persona's effective SOUL. An explicit `meta.soul` (including an empty
+or null value) takes precedence over legacy `meta.ui.soul`.
+
 ## Platform session metadata
 
 ```python

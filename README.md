@@ -1,6 +1,6 @@
 # HyperCLI
 
-Official SDKs, CLIs, and documentation for the HyperCLI platform: GPU
+Official SDKs, CLI, and documentation for the HyperCLI platform: GPU
 instances and jobs, managed agents, hosted inference, flow/media pipelines,
 and shared workspaces.
 
@@ -15,14 +15,13 @@ the full method surface.
 | [`py-sdk/`](py-sdk) | `hypercli-sdk` | Python | Jobs, instances, renders/ComfyUI, deployments, workspaces |
 | [`rs-sdk/`](rs-sdk) | `hypercli-sdk` | Rust | Core product API |
 
-## CLIs
+## CLI
 
-Ship the `hyper` binary and read the same `~/.hypercli` credentials.
+The TypeScript CLI ships the `hyper` binary and reads `~/.hypercli` credentials.
 
 | Directory | Package | Status |
 |---|---|---|
 | [`ts-cli/`](ts-cli) | `@hypercli.com/cli` | Current CLI (`npm install -g @hypercli.com/cli`) |
-| [`py-cli/`](py-cli) | `hypercli-cli` | End-of-life reference only; excluded from active CI and release projections |
 
 ## Documentation
 

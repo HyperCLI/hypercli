@@ -87,8 +87,10 @@ describe('TS CLI documentation and generated skill contract', () => {
     }
   });
 
-  it('marks py-cli excluded from release projections', () => {
-    expect(read('docs/versioning.md')).toContain('**Excluded** from managed projections and future syncs');
-    expect(read('version-ownership.json')).toContain('"py-cli/pyproject.toml": "excluded:');
+  it('owns only the supported SDKs and TypeScript CLI release', () => {
+    const ownership = JSON.parse(read('version-ownership.json'));
+    expect(ownership.manifests['py-cli/pyproject.toml']).toBeUndefined();
+    expect(ownership.manifests['py-sdk/pyproject.toml']).toBe('app');
+    expect(ownership.manifests['ts-cli/package.json']).toBe('app');
   });
 });

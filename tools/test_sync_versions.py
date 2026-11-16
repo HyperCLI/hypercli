@@ -37,7 +37,6 @@ class VersionContract(unittest.TestCase):
     def test_standalone_idempotence_and_next_release(self):
         self.assertEqual(self.sync(), [])
         before = self.snapshot()
-        legacy_py_cli = (self.root / "py-cli/pyproject.toml").read_text()
         self.assertEqual(self.sync(check=False), [])
         self.assertEqual(before, self.snapshot())
         self.assertEqual(self.sync("0.9.1", check=False), [])
@@ -47,7 +46,6 @@ class VersionContract(unittest.TestCase):
             package = json.loads((self.root / name / "package.json").read_text())
             self.assertEqual(package["version"], "0.9.1")
             self.assertIn("'0.9.1'", (self.root / name / "src/version.ts").read_text())
-        self.assertEqual((self.root / "py-cli/pyproject.toml").read_text(), legacy_py_cli)
         self.assertIn('version = "0.9.1"', (self.root / "Cargo.toml").read_text())
         self.assertIn('"@agentclientprotocol/sdk": "1.5.0"', (self.root / "ts-sdk/package.json").read_text())
 
