@@ -2,22 +2,15 @@
 name: hypercli-knowledge
 description: >
   Upload and inspect platform files, manage durable HyperCLI shared knowledge
-  workspaces, search/sync/download Markdown projections, control grants, and
+  workspaces through the Python SDK, search/sync/download Markdown projections,
+  control grants, and
   search session memory, inspect history, and request summary rebuilds. Use for hyper
-  files, hyper workspaces, and hyper memory commands. When a file exists only
+  files and hyper memory commands, and SDK workspace workflows. When a file exists only
   as an input to media rendering, use the hypercli-flows skill instead; this
   skill owns durable knowledge, not render inputs.
 commands:
   - hyper files upload ./reference.png
   - hyper files get <file-id>
-  - hyper workspaces create "Team Knowledge" --slug team-knowledge --output json
-  - hyper workspaces list
-  - hyper workspaces search "launch notes" --output json
-  - hyper workspaces upload team-knowledge ./report.pdf --path projects/acme/report.pdf --output json
-  - hyper workspaces wait-until-processed team-knowledge projects/acme/report.pdf --timeout 300 --poll-interval 2
-  - hyper workspaces sync team-knowledge --output-dir ~/workspaces
-  - hyper workspaces grant team-knowledge --agent-id <agent> --role viewer
-  - hyper workspaces revoke-grant team-knowledge <grant-id>
   - hyper memory search "launch notes" --session-id <session-id> --json
   - hyper memory summary <session-id> --json
   - hyper memory chunks <session-id> --limit 50 --json
@@ -34,7 +27,7 @@ help and this skill disagree, follow help and report the drift. Managed image
 references are:
 
 - `/opt/hypercli/docs/cli/commands/files.mdx`
-- `/opt/hypercli/docs/cli/commands/workspaces.mdx`
+- `/opt/hypercli/docs/sdk/workspaces.mdx`
 - `/opt/hypercli/docs/cli/commands/memory.mdx`
 
 ## Choose the storage surface
@@ -42,12 +35,12 @@ references are:
 | Need | Surface |
 | --- | --- |
 | Reusable upload ID for flows/renders | `hyper files` |
-| Durable originals, Markdown projections, search, grants, agent sync | `hyper workspaces` |
+| Durable originals, Markdown projections, search, grants, agent sync | Python SDK `client.workspaces` |
 | Indexed session memory, summaries, and recent conversation history | `hyper memory` |
 
 These are not interchangeable. A platform file ID is not a Workspace path or
-session ID. Memory commands use the remote session-memory API; Workspace
-`enrich` only builds a payload.
+session ID. Memory commands use the remote session-memory API. The supported
+TypeScript CLI has no workspace command group; use the SDK below.
 
 ## Platform files
 
@@ -69,140 +62,119 @@ returned URL may be scoped or time-limited; do not publish it.
 pending or reproducible renders. Resolve the exact ID and check its use before
 approval.
 
-## Workspace command map
+## Workspace Python SDK
 
-All rows run under `hyper workspaces <command>` (for example
-`hyper workspaces list`).
-
-| Area | Commands |
-| --- | --- |
-| Workspace lifecycle | `create`, `list`, `update`, `delete` |
-| Discovery | `search`, `search-files`, `manifest` |
-| Source lifecycle | `upload`, `wait-until-processed`, `regenerate`, `delete-file` |
-| Retrieval | `download`, `download-url`, `sync` |
-| Access | `grant`, `grants`, `revoke-grant` |
-| Local payload prep | `enrich` |
-
-Most table-oriented commands accept `--output table|json`. `manifest` always
-prints JSON. `sync` uses `--json` rather than `--output json`, and `download`
-uses `--json` for machine-readable local-file metadata.
-
-### Workspace lifecycle and search
+Use the source-built `hypercli-sdk` package from the public repository's
+`py-sdk` directory (Python 3.10+). From a checked-out `HyperCLI/hypercli` root:
 
 ```bash
-hyper workspaces create "Team Knowledge" --slug team-knowledge --output json
-hyper workspaces list
-hyper workspaces update team-knowledge --description "Current launch context"
-hyper workspaces search "launch notes" --output json
-hyper workspaces search-files team-knowledge "visual language" --no-vector
+python3 -m pip install ./py-sdk
 ```
 
-`update` requires at least one of `--name`, `--slug`, or `--description`.
-`search` spans accessible workspaces; `search-files` is scoped to one. Vector
-search is on by default and can be disabled for exact/metadata-only behavior.
-Scores and match reasons are relevance signals, not proof that a file contains
-the answer; retrieve the selected projection before citing it.
+The examples below share this setup and use configured credentials without
+embedding keys:
 
-`delete <workspace>` is a soft delete but has no confirmation prompt. Confirm
-the slug/ID and downstream grants/sync consumers first.
+```python
+from pathlib import Path
+from hypercli import HyperCLI
 
-Explicit `--user-id` and `--agent-id` select the authorization subject for
-supported calls and are primarily for agent or local/dev contexts. Never use a
-different subject to bypass access control. When sync receives neither, it
-resolves the authenticated runtime agent or current user.
+client = HyperCLI()
+ws = client.workspaces
+workspace = "team-knowledge"  # workspace slug or ID
+source = "projects/acme/report.pdf"
+```
+
+The supported methods and signatures live in `py-sdk/hypercli/workspaces.py`.
+Workspace calls authenticate with the client's key; `user_id` and `agent_id`
+parameters do not override the bearer identity.
+
+### Discovery and workspace management
+
+```python
+created = ws.create(name="Team Knowledge", slug="team-knowledge")
+workspaces = ws.list()
+details = ws.get(workspace)
+updated = ws.update(workspace, description="Current launch context")
+matches = ws.search("launch notes")
+files = ws.search_files(workspace, "visual language", vector=False)
+```
+
+`search` spans accessible workspaces; `search_files` is scoped to one. Both
+default to `vector=True`. Scores and match reasons are relevance signals;
+retrieve the selected projection before citing it. `create`, `get`, and
+`update` return Workspace records; searches return lists of records.
+`ensure_workspace(name=..., slug=...)` can reuse an existing workspace and
+returns a result with `workspace` and `created` fields.
 
 ### Upload and processing
 
-```bash
-hyper workspaces upload team-knowledge ./report.pdf \
-  --path projects/acme/report.pdf --output json
-hyper workspaces wait-until-processed team-knowledge \
-  projects/acme/report.pdf --timeout 300 --poll-interval 2
-hyper workspaces manifest team-knowledge
+```python
+uploaded = ws.upload(workspace, "./report.pdf", workspace_path=source)
+ready = ws.wait_until_processed(workspace, uploaded.path,
+                                timeout=300, poll_interval=2)
+manifest = ws.manifest(workspace)
 ```
 
-An upload stores the original and queues its Markdown projection. Retain its
-workspace-relative path/file ID and wait when the next action requires ready
-Markdown. A successful upload is not successful conversion. `manifest` shows
-active projection paths and states.
+Upload stores the original and queues its Markdown projection. Retain the
+workspace-relative path/file ID. Upload success is not conversion success:
+`wait_until_processed` requires both file and processing states to be
+`processed`, raises on failed/deleted states, and times out otherwise.
+`manifest.markdown_files` contains projection entries and states.
 
-`regenerate` queues a new Markdown projection and must be followed by
-`wait-until-processed` before consumption:
-
-```bash
-hyper workspaces regenerate team-knowledge projects/acme/report.pdf
-hyper workspaces delete-file team-knowledge projects/acme/obsolete.pdf
-```
-
-`delete-file` soft-deletes without confirmation. Obtain approval and use the
-exact relative path or file ID.
+To regenerate a projection, call `ws.regenerate_file(workspace, source)` and
+then `ws.wait_until_processed(workspace, source)` before consumption.
+`ws.get_file(workspace, source)` and `ws.list_files(workspace)` inspect sources.
 
 ### Download and signed URLs
 
-Markdown is the default; raw returns the original:
-
-```bash
-hyper workspaces download team-knowledge projects/acme/report.pdf \
-  --output report.md
-hyper workspaces download team-knowledge projects/acme/report.pdf \
-  --raw --output report.pdf
-hyper workspaces download-url team-knowledge projects/acme/report.pdf \
-  --output json
+```python
+Path("report.md").write_bytes(ws.download(workspace, source))
+Path("report.pdf").write_bytes(ws.download(workspace, source, raw=True))
+metadata, markdown = ws.markdown_file(workspace, source)
+signed = ws.download_url(workspace, source)
 ```
 
-`download` also accepts one `slug/path` argument or reads that address from
-stdin. `--raw` and `--md` are mutually exclusive. Without `--output`, raw uses
-the source basename; Markdown uses `<source-basename>.md` (for example,
-`report.pdf.md`). Parent directories are created and existing files are
-overwritten, so choose an explicit safe destination.
-
-With `--json --raw` and no destination, the CLI writes a temporary file and
-prints its `local_path`. JSON does not put raw bytes on stdout.
-
-`download-url` returns a time-limited signed URL for the original. The URL is a
-bearer capability until expiry; never paste it into public logs or durable
-documents.
+`download` returns bytes (Markdown by default, original with `raw=True`);
+it does not choose or write a local destination. `markdown_file` returns a
+metadata dictionary and decoded Markdown text. Choose explicit destinations;
+`Path.write_bytes` overwrites existing files and requires parent directories
+to exist. A returned `signed.url` is a time-limited bearer capability: do not
+publish it or blindly execute a returned `download_command` string.
 
 ### Sync
 
-```bash
-hyper workspaces sync team-knowledge --output-dir ~/workspaces
-hyper workspaces sync --all --ready-only \
-  --output-dir ~/workspaces --json
+```python
+root = str(Path("~/workspaces").expanduser())
+written = ws.sync_manifest(workspace, root, ready_only=True)
+all_written = ws.sync_all(root, ready_only=True)
 ```
 
-Pass either one workspace or `--all`, not both. `--ready-only` avoids writing
-unfinished projections. The deterministic layout is
-`<root>/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md`. Sync writes
-remote Markdown into the local tree; inspect destination ownership and avoid
-overwriting a user's edited copy. Agents commonly sync to
-`/home/node/workspaces` during boot.
+`sync_manifest` returns written paths; `sync_all` returns paths keyed by
+workspace slug. The layout is
+`<output_dir>/<workspace-slug>/<manifest-entry-path>.md`. `ready_only=True`
+skips entries not marked `processed` and missing Markdown responses. Sync
+creates parent directories and overwrites files; inspect destination ownership
+first. A failed sync can leave earlier files written; report partial results.
 
-### Grants
+### Grants and deletion
 
-```bash
-hyper workspaces grant team-knowledge --agent-id <agent> --role viewer
-hyper workspaces grant team-knowledge --user-subject-id <user> --role contributor
-hyper workspaces grants team-knowledge --output json
-hyper workspaces revoke-grant team-knowledge <grant-id>
+```python
+grant = ws.grant(workspace, subject_type="agent", subject_id="<agent-id>",
+                 role="viewer")
+grants = ws.list_grants(workspace)
+# When revocation is intended:
+ws.revoke_grant(workspace, grant.id)
 ```
 
-Grant requires exactly one agent or user subject. Roles are `viewer`,
-`contributor`, and `admin`. Use least privilege, obtain approval, and list
-grants afterward. Revoke has no confirmation prompt and may break active agent
-sync.
+Use `subject_type="user"` and the user ID for a user grant. Roles are `viewer`,
+`contributor`, and `admin`. Use least privilege and inspect grants afterward.
+`ws.access_snapshot(workspace)` distinguishes an admin's direct-access listing
+from the current-access-only view available to other roles.
 
-### Enrichment payload
-
-```bash
-hyper workspaces enrich team-knowledge/projects/acme/report.pdf \
-  --dir ./generated-markdown --json > enrichment.json
-```
-
-The directory must contain at least one Markdown file. The command recursively
-reads all `.md` files and builds an address/workspace/path/files JSON payload,
-marking the first sorted file primary. It does not submit that payload to the
-Workspace API. Review Markdown for secrets before passing the result anywhere.
+`ws.delete_file(workspace, source)` deletes a source;
+`ws.delete_workspace(workspace)` deletes the workspace. These SDK methods and
+`revoke_grant` have no interactive confirmation. Confirm the exact target and
+downstream consumers before deletion or revocation.
 
 ## Session memory
 
