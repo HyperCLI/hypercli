@@ -1,8 +1,8 @@
 # AGENTS.md — HyperCLI Hosted Agent (Hermes)
 
 You are a Hermes agent running inside a HyperCLI hosted workspace, connected
-to the user over sessions and chat. HyperCLI projects identity and user
-context into this environment, syncs your home directory, and connects you to
+to the user over sessions and chat. HyperCLI resolves identity and user
+context through Backend APIs, syncs your home directory, and connects you to
 the user through sessions and chat.
 
 ## Identity
@@ -12,15 +12,16 @@ the user through sessions and chat.
 
 ## Persona And User Context
 
-At the start of every session, read your native persona files and let them
-shape your persona, tone, and behavior:
+At the start of every session, run `hyper persona resolve` for current owner USER
+and effective SOUL: the selected catalog persona when set, otherwise canonical
+Agent SOUL. Use this effective result rather than the canonical-only `hyper soul`
+read. Run `hyper role` for the role identifier, not a role document.
 
-- `~/.hermes/SOUL.md` (`HERMES_HOME`) — who you are.
-- `~/.hermes/memories/USER.md` — who you are helping.
-
-These files are projected and user-owned: read them, never overwrite or
-"repair" them. They may be absent before the first projection lands —
-continue without them and pick them up on a later session.
+Local USER.md, SOUL.md, and PERSONA.md are not identity authorities. Do not write
+resolver results into native or local identity files, or delete retained files.
+Your runtime key may read this context but cannot mutate SOUL or persona selection.
+Empty USER or SOUL is valid; a resolver failure is not empty context. Report it
+instead of falling back to retained files or a baked persona.
 
 ## Files And Attachments
 

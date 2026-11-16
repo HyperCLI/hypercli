@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def test_generated_probe_requires_backend_commands_and_rejects_retired_persona_files():
-    for command in ("hyper user", "hyper soul", "hyper role"):
+    for command in ("hyper persona resolve", "hyper role"):
         assert command in testlib.COMMON_PROBE
         assert command in testlib.INSTRUCTION_PERSONA_REFS
     assert "instructions_retired_markers_absent" in testlib.COMMON_PROBE
@@ -71,7 +71,7 @@ def test_common_generated_probe_compiles():
 def test_maintainer_docs_do_not_restore_local_persona_contract():
     for path in (ROOT / "AGENTS.md", ROOT / "README.md"):
         text = path.read_text(encoding="utf-8")
-        for command in ("hyper user", "hyper soul", "hyper role"):
+        for command in ("hyper persona resolve", "hyper role"):
             assert command in text, f"{command} missing from {path}"
         for marker in ("~/.hypercli/USER.md", "~/.hypercli/SOUL.md", "HYPER_AGENT_ROLE"):
             assert marker not in text, f"retired marker {marker} returned in {path}"

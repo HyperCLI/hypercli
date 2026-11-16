@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Agent, Deployments, buildAgentConfig, canonicalSoul } from '../src/agents.js';
+import { Deployments, buildAgentConfig, canonicalSoul } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 
 describe('Deployments.update', () => {

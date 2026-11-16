@@ -341,10 +341,23 @@ At boot the shared entrypoint seeds each runtime's native instruction file
 (see "Runtime instruction roots") from the canonical
 `/opt/hypercli/share/runtime/AGENTS.md.template`. The template is
 runtime-neutral and directs the runtime to read Backend-owned metadata with
-`hyper user`, `hyper soul`, and `hyper role` at session start. The first two
-return Markdown; role returns an identifier string, not a role document. The
+`hyper persona resolve` and `hyper role` at session start. The resolver returns
+current owner USER and effective SOUL (selected catalog persona or canonical
+Agent SOUL); role returns an identifier string, not a role document. The
 seed is written only when the target path is absent: an existing user-managed
 file, directory, or symlink always wins and is never overwritten or followed.
+Consequently retained instructions can still contain old local-file guidance;
+updating the image does not migrate those files. Resolver output is used in
+memory, never persisted into native identity files. Runtime self keys cannot
+mutate SOUL or persona selection. Empty context and resolver failures are distinct.
+This is instruction delivery, not enforced native adoption. The seed tests prove
+file delivery/preservation; CLI smoke proves resolver access/freshness, not that
+a native session performed the read or used its result. Merely configuring an
+MCP tool does not require the model to call it. Mandatory native consumption and
+precedence over retained identity instructions remain acceptance blockers.
+Runner host-process launches (`acp/hyper-runner/src/executors.rs:launch_process`
+in the private mono) execute the configured command/environment/cwd directly;
+they do not pass through this image seed and have no dynamic context consumer.
 There is no ACP session prompt transport to reconcile against: the wire is
 passthrough with reject semantics (see "Container Injection").
 Native mode does not create
@@ -382,7 +395,7 @@ the entrypoint and must receive the matching native variable separately.
 The relative filenames name the native instruction file the shared entrypoint
 seeds from the canonical template at boot, at the resolved native root. The
 seed carries the platform base instructions plus the Backend metadata command
-contract (`hyper user`, `hyper soul`, and `hyper role`), with no local persona
+contract (`hyper persona resolve` and `hyper role`), with no local persona
 file or environment-based role fallback. It is written only when no user-managed
 file, link, or directory exists at the target. Existing config
 templates follow the resolved native root and retain their existing
@@ -397,6 +410,15 @@ to establish the selected instruction root while preserving user config. Hermes
 loads generic `AGENTS.md` from workspace cwd (default `/home/hermes`), not from
 `HERMES_HOME` (`/home/hermes/.hermes`). Its CLI and ACP workspace controls
 need separate verification against the pinned August image before mapping them.
+
+Hermes' existing workspace instruction seed now directs effective context reads
+through `hyper persona resolve`. OpenClaw's existing skill seed carries that
+guidance in `hypercli-account`; existing skill directories are preserved too.
+OpenClaw supports workspace `AGENTS.md` bootstrap instructions, but this image
+does not seed a platform instruction file there. Skill availability is not proof
+of automatic native loading. Both native runtimes can still load retained native
+identity files independently of the platform guidance. No native loader hook,
+identity-file deletion, ACP extension, or refresh cadence is implemented here.
 
 Run the root gate in addition to each runtime's existing image contract test:
 
@@ -627,8 +649,8 @@ Provider, SDK, ACP, or image changes must verify:
    fail this gate.
 6. The canonical instruction template is seeded once into each runtime's
     resolved native instruction root (workspace root only for `buzz-agent`,
-    whose home is its instruction root), carries the Backend `hyper user`,
-    `hyper soul`, and `hyper role` metadata commands (role is an identifier,
+    whose home is its instruction root), carries the Backend `hyper persona resolve`
+    and `hyper role` metadata commands (role is an identifier,
     not a document), contains no retired local-persona markers, and never
     overwrites an existing user-managed path. System instructions belong in native configuration;
       ACP carries ordinary user turns.

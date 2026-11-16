@@ -36,7 +36,7 @@ INSTRUCTION_FILES = {
     "pi": ".pi/agent/AGENTS.md",
 }
 INSTRUCTION_HEADING = "# AGENTS.md — HyperCLI Hosted Agent"
-INSTRUCTION_PERSONA_REFS = ("hyper user", "hyper soul", "hyper role")
+INSTRUCTION_PERSONA_REFS = ("hyper persona resolve", "hyper role")
 INSTRUCTION_RETIRED_MARKERS = (
     "~/.hypercli/USER.md",
     "~/.hypercli/SOUL.md",
