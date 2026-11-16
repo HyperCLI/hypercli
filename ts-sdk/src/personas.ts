@@ -202,11 +202,8 @@ export function personaCatalogFromData(value: unknown): PersonaCatalog {
 export function personaArtifactFromData(value: unknown): PersonaArtifact {
   const data = record(value);
   if (!data) throw new PersonaError('persona_invalid', 'Backend persona artifact must be an object');
-  // Backend currently returns {...entry, markdown}; accepting the explicit
-  // {persona: entry, markdown} envelope keeps the parser compatible with the
-  // equivalent MCP DTO without relaxing any field validation.
-  const nested = record(data.persona) ?? record(data.entry) ?? record(data.metadata);
-  const entry = personaCatalogEntryFromData(nested ?? data);
+  // Backend and MCP publish the flat {...entry, markdown} shape.
+  const entry = personaCatalogEntryFromData(data);
   const markdown = data.markdown;
   if (typeof markdown !== 'string') {
     throw new PersonaError('persona_invalid', `Backend persona '${entry.id}' is missing assembled Markdown`);

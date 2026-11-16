@@ -116,13 +116,13 @@ describe('live persona discovery', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('accepts the equivalent {persona, markdown} DTO but rejects an ID mismatch', async () => {
+  it('rejects unpublished nested envelopes and mismatched flat IDs', async () => {
     const { api, fetchMock } = fixture();
-    fetchMock.mockImplementation(async () => Response.json({ persona: entry(), markdown: MARKDOWN }));
-    await expect(api.get('chief-of-staff', { retries: 1 })).resolves.toMatchObject({
-      id: 'chief-of-staff', markdown: MARKDOWN,
-    });
-    fetchMock.mockImplementation(async () => Response.json({ persona: entry({ name: 'other' }), markdown: MARKDOWN }));
+    for (const envelope of ['persona', 'entry', 'metadata']) {
+      fetchMock.mockImplementation(async () => Response.json({ [envelope]: entry(), markdown: MARKDOWN }));
+      await expect(api.get('chief-of-staff', { retries: 1 })).rejects.toThrow(PersonaError);
+    }
+    fetchMock.mockImplementation(async () => Response.json({ ...entry({ name: 'other' }), markdown: MARKDOWN }));
     await expect(api.get('chief-of-staff', { retries: 1 })).rejects.toThrow(PersonaError);
   });
 
