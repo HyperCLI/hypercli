@@ -1,0 +1,26 @@
+{
+  "personas": [
+    {
+      "name": "chief-of-staff",
+      "description": "Coordinate inbox, calendar, meetings, and follow-ups with calm triage, decision-ready summaries, and clear owners, blockers, and next actions. Use for prioritization, meeting preparation, open-loop tracking, and confirmed coordination across granted tools; not for unverified access or commitments.",
+      "artifact": "/personas/chief-of-staff/INDEX.md",
+      "schema": 1,
+      "repo_sha": "121d44f753fb0bb382dab78d12b5505071dfc27d",
+      "sources": {
+        "PERSONA.md": {
+          "sha256": "46984a87ee5bfc045a5b5ce0cd92e2528c70b3f9895a6680b02717a99ce21244"
+        },
+        "GUARDRAIL.md": {
+          "sha256": "500689020337f49a5c67346ea3fc8db6348a58b75ffd694996c3930208258d93"
+        }
+      },
+      "digest": "a4be9f2fac43bdd609dffeb84b259b751652a69948bf253579d75c1249acb01f",
+      "revision": "persona-catalog-v1-9959ca4971cd43c8b895fb6cf51a20ae5740162f46b727d1e67400ee127402f2"
+    }
+  ],
+  "catalog": {
+    "schema": 1,
+    "revision": "persona-catalog-v1-9959ca4971cd43c8b895fb6cf51a20ae5740162f46b727d1e67400ee127402f2",
+    "digest": "9959ca4971cd43c8b895fb6cf51a20ae5740162f46b727d1e67400ee127402f2"
+  }
+}
