@@ -3,7 +3,7 @@ name: hypercli-knowledge
 description: >
   Upload and inspect platform files, manage durable HyperCLI shared knowledge
   workspaces, search/sync/download Markdown projections, control grants, and
-  convert captions or documents into local OpenClaw memory. Use for hyper
+  search session memory, inspect history, and request summary rebuilds. Use for hyper
   files, hyper workspaces, and hyper memory commands. When a file exists only
   as an input to media rendering, use the hypercli-flows skill instead; this
   skill owns durable knowledge, not render inputs.
@@ -18,7 +18,11 @@ commands:
   - hyper workspaces sync team-knowledge --output-dir ~/workspaces
   - hyper workspaces grant team-knowledge --agent-id <agent> --role viewer
   - hyper workspaces revoke-grant team-knowledge <grant-id>
-  - hyper memory import ./notes --collection research --workspace ~/.openclaw/workspace
+  - hyper memory search "launch notes" --session-id <session-id> --json
+  - hyper memory summary <session-id> --json
+  - hyper memory chunks <session-id> --limit 50 --json
+  - hyper memory tail <session-id> --n 20 --json
+  - hyper memory rebuild <session-id> --json
 ---
 
 # HyperCLI Knowledge
@@ -39,11 +43,11 @@ references are:
 | --- | --- |
 | Reusable upload ID for flows/renders | `hyper files` |
 | Durable originals, Markdown projections, search, grants, agent sync | `hyper workspaces` |
-| Local OpenClaw-indexable Markdown generated from source files | `hyper memory import` |
+| Indexed session memory, summaries, and recent conversation history | `hyper memory` |
 
-These are not interchangeable. A platform file ID is not a Workspace path;
-local memory import does not upload anything unless `--enrich` calls the model
-API, and Workspace `enrich` only builds a payload.
+These are not interchangeable. A platform file ID is not a Workspace path or
+session ID. Memory commands use the remote session-memory API; Workspace
+`enrich` only builds a payload.
 
 ## Platform files
 
@@ -200,57 +204,43 @@ reads all `.md` files and builds an address/workspace/path/files JSON payload,
 marking the first sorted file primary. It does not submit that payload to the
 Workspace API. Review Markdown for secrets before passing the result anywhere.
 
-## Local memory import
+## Session memory
 
-`hyper memory` has one command, `import`:
-
-```bash
-hyper memory import ./notes \
-  --collection research/project \
-  --workspace ~/.openclaw/workspace
-```
-
-Supported captions are `.srt`, `.vtt`, and `.ttml`; documents are `.pdf`,
-`.doc`, `.docx`, `.epub`, `.txt`, and `.md`. A directory is searched
-recursively. Install `hypercli-cli[documents]` for PDF/DOCX/EPUB extraction.
-Legacy `.doc` also requires the external `antiword` executable on `PATH`;
-convert it to DOCX or PDF when that tool is unavailable. Plain text, Markdown,
-and caption conversion do not need optional dependencies.
-
-`--collection` is required and selects a path below the memory root. The root
-defaults to `<workspace>/memory`, where workspace defaults to
-`~/.openclaw/workspace`; `--memory-dir` or `HYPER_MEMORY_DIR` overrides it.
-The command prints each generated Markdown path and transcript-line or
-word/character counts.
-
-For one input, metadata options include `--source-id`, `--title`,
-`--source-url`, caption channel/language/kind/participants, or document author
-and source type. `--source-id`, `--title`, `--source-url`, and `--raw-json3`
-are rejected for multi-file imports; JSON3 applies only to captions.
-`--no-copy-raw` prevents copying original/raw companion files into the memory
-artifact tree.
-
-Optional work changes the trust boundary:
+`hyper memory` supports `search`, `summary`, `chunks`, `tail`, and `rebuild`.
+All accept `--json`. There is no local file-import command.
 
 ```bash
-hyper memory import ./notes.txt --collection research \
-  --enrich --model <model-id>
-hyper memory import ./notes --collection research --index --agent <agent-id>
+hyper memory search "launch notes" --session-id <session-id> --limit 50 --json
+hyper memory search "launch notes" --agent-id <agent-uuid> --json
+hyper memory summary <session-id> --json
+hyper memory chunks <session-id> --limit 50 --json
+hyper memory tail <session-id> --n 20 --json
+hyper memory rebuild <session-id> --json
 ```
 
-`--enrich` sends sampled extracted text to the remote `/v1` LLM API to produce
-summary/keyword metadata. Without it, conversion is local. `--index` invokes
-the local subprocess `openclaw memory index` after every import and fails the
-command if indexing fails. Generated files can still exist after that failure;
-do not rerun import blindly without inspecting them.
+- `search` searches indexed session chunks. Optional `--session-id` (`-s`)
+  and `--agent-id` (`-a`) scope the query; the agent ID must be a full UUID.
+- `summary`, `chunks`, `tail`, and `rebuild` each require one session ID.
+  `summary --json` exposes summary text, coverage cursor, timestamps, pending
+  state, and failure information.
+- `search` and `chunks` accept `--limit` and `--cursor`. Follow `nextCursor`
+  while `hasMore` is true; one page is not the complete result. `chunks`
+  returns indexed text in ascending sequence order.
+- `tail` returns recent logical text messages in chronological order, not raw
+  event frames. `--n` defaults to 20. Both `--n` and `--limit` accept integers
+  from 1 to 100.
+- `rebuild` requests a summary rebuild, limited by the server to once per
+  24 hours. A pending response is not a completed summary. Inspect `summary`
+  afterward and report pending or failure state honestly. Honor retry-after
+  information on errors; do not blindly repeat an uncertain rebuild request.
 
 ## Completion and safety
 
-- Distinguish uploaded, processing, ready, failed, synced, and locally indexed
-  states. They are separate milestones.
+- Distinguish uploaded, processing, ready, failed, and synced workspace states
+  from session-memory summary pending/completed/failed states.
 - Treat originals, generated Markdown, search results, grants, signed URLs, and
   file IDs as potentially private.
-- On a conversion failure, report the exact source and any generated paths;
-  directory imports can partially succeed before a later file fails.
+- For session memory, report the session scope, pagination completeness, and
+  summary state; search hits and recent history do not prove summary coverage.
 - Report workspace/file address, processing state, local destination, and
   whether raw or Markdown content was used. Never expose a signed URL or key.
