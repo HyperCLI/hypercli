@@ -77,30 +77,17 @@ print(response.choices[0].message.content)
 
 ## Option 2: CLI
 
-Subscribe with USDC via the HyperCLI:
+Configure an existing API key and inspect your entitlements:
 
 ```bash
-# Install with wallet support
-pip install 'hypercli-cli[wallet]'
-
-# Create wallet
-hyper wallet create
-
-# Fund with USDC on Base (send to your wallet address)
-hyper wallet balance
-
-# Buy one Solo entitlement
-hyper agent subscribe solo
-
-# Get your key
-hyper agent status
+npm install -g @hypercli.com/cli
+hyper configure
+hyper me
 ```
 
-<Note>
-If you used the CLI, your key is saved at `~/.hypercli/agent-key.json`. No need to create one from the dashboard.
-</Note>
-
-See the [legacy Python CLI reference](/cli/commands/agent-legacy) for details.
+Requires Node.js 22+. Purchase capacity in the dashboard above; the supported
+CLI does not implement wallet subscription checkout. See
+[configuration](/cli/configuration) for credential storage and precedence.
 
 ## Option 3: x402-wallet (Headless)
 
@@ -146,4 +133,4 @@ curl https://api.hypercli.com/agents/plans/current \
 
 - [API Reference](/agents/api) — full REST API docs
 - [x402 Wallet](/agents/x402-wallet) — headless USDC payments
-- [Legacy Python CLI Commands](/cli/commands/agent-legacy) — manage subscriptions from the terminal
+- [Python SDK](/sdk/agents) — inspect plans and entitlements programmatically

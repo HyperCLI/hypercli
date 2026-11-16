@@ -5,8 +5,8 @@ description: Deploy an OpenAI-compatible speech-to-text and text-to-speech serve
 
 # Speaches — STT + TTS on GPU
 
-The `hyper instances` commands in this recipe require the legacy Python CLI
-(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+Install `hypercli-sdk` and configure `HYPER_API_KEY` to run this recipe.
+See [jobs SDK](/sdk/jobs) for launch options.
 
 [Speaches](https://github.com/speaches-ai/speaches) is an open-source, OpenAI-compatible speech server that bundles Whisper (STT) and Kokoro/Piper (TTS) into a single container. One GPU, two APIs, zero hassle.
 
@@ -17,15 +17,15 @@ The `hyper instances` commands in this recipe require the legacy Python CLI
 
 ## Quick Launch
 
-```bash
-hyper instances launch ghcr.io/speaches-ai/speaches:latest-cuda \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8000
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="ghcr.io/speaches-ai/speaches:latest-cuda",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8000},
+)
+print(job.job_id)
 ```
 
 ## Usage

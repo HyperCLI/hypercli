@@ -1,43 +1,15 @@
 ---
-title: TUI
-description: Follow jobs with live logs and metrics from the terminal UI.
+title: Job monitoring
+description: Stream job logs with the supported CLI.
 ---
 
-The legacy Python CLI (`hypercli-cli`) includes a full-screen job monitor
-through `hyper jobs logs --tui`. The current TypeScript CLI does not implement
-the TUI or `jobs metrics`; use `hyper jobs logs --follow` for streaming logs.
-
-## Launch The TUI
+The Python CLI's full-screen job monitor has been removed.
+Use [hyper jobs](/cli/commands/jobs) for job state and streaming logs:
 
 ```bash
-hyper jobs logs <job_id> --tui
-```
-
-Optional behavior:
-
-```bash
-hyper jobs logs <job_id> --tui --cancel-on-exit
-```
-
-## What It Shows
-
-- current job state
-- elapsed runtime
-- hostname and websocket status
-- CPU and memory usage
-- per-GPU utilization, VRAM, temperature, and power
-- live container logs
-
-## Related Live Views
-
-For a simpler metrics-only view:
-
-```bash
-hyper jobs metrics <job_id> --watch
-```
-
-For a plain streaming log view:
-
-```bash
+hyper jobs get <job_id>
 hyper jobs logs <job_id> --follow
 ```
+
+The supported CLI does not implement `--tui` or `--cancel-on-exit`.
+For metrics, use the [Python jobs SDK](/sdk/jobs).

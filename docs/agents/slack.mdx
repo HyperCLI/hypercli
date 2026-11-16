@@ -49,12 +49,6 @@ turn through the Backend's `/ws/acp` proxy. An agent never dials out to a
 Slack relay, so there is no Slack transport env to set and no restart
 beyond the normal agent lifecycle.
 
-The legacy Python CLI calls the same attach path:
-
-```bash
-hyper agent enable <agent-name-or-id>
-```
-
 One agent session is kept per Slack scope (channel thread or DM) **and** per
 Slack sender: two people in one thread each get their own agent conversation;
 neither inherits the other's turn history. Every turn runs under the install

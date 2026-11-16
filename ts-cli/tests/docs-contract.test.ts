@@ -69,13 +69,13 @@ describe('TS CLI documentation and generated skill contract', () => {
     expect(account.markdown).toContain('no generated persona catalog is installed with the CLI');
   });
 
-  it('keeps legacy references separate and avoids dead embed links', () => {
+  it('routes retired commands to supported interfaces without obsolete installs', () => {
     const navigation = JSON.parse(read('docs/docs.json'));
     const pages = JSON.stringify(navigation);
     expect(pages).toContain('cli/commands/agent-legacy');
     expect(pages).toContain('cli/commands/soul');
     expect(pages).toContain('cli/commands/role');
-    expect(read('docs/cli/commands/agent-legacy.mdx')).toContain('end-of-life');
+    expect(read('docs/cli/commands/agent-legacy.mdx')).toContain('Python CLI has been removed');
     for (const path of [
       'docs/cli/skills.mdx',
       'docs/cli/quickstart.mdx',
@@ -83,8 +83,10 @@ describe('TS CLI documentation and generated skill contract', () => {
       'docs/cli/commands/wallet.mdx',
     ]) {
       expect(read(path), path).not.toContain('/cli/commands/agent#embed');
-      expect(read(path), path).toContain('/cli/commands/agent-legacy');
+      expect(read(path), path).not.toContain('hypercli-cli');
     }
+    expect(read('docs/cli/commands/memory.mdx')).toContain('no `hyper memory import` command');
+    expect(read('docs/cli/commands/memory.mdx')).toContain('hyper memory search');
   });
 
   it('owns only the supported SDKs and TypeScript CLI release', () => {

@@ -5,8 +5,8 @@ description: Deploy Qwen3-TTS with voice cloning, preset voices, and voice desig
 
 # Qwen3 TTS — Voice Cloning on GPU
 
-The `hyper instances` commands in this recipe require the legacy Python CLI
-(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+Install `hypercli-sdk` and configure `HYPER_API_KEY` to run this recipe.
+See [jobs SDK](/sdk/jobs) for launch options.
 This self-hosted model recipe is separate from the managed Voice API, which
 supports reference cloning rather than preset/design synthesis.
 
@@ -19,16 +19,16 @@ supports reference cloning rather than preset/design synthesis.
 
 ## Quick Launch
 
-```bash
-hyper instances launch registry.example.com/hypercli/<qwen3-tts-image>:prod \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8998 \
-  -e TTS_MAX_SENTENCES=2
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="registry.example.com/hypercli/<qwen3-tts-image>:prod",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8998},
+    env={"TTS_MAX_SENTENCES": "2"},
+)
+print(job.job_id)
 ```
 
 ## API Endpoints

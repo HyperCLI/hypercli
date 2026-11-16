@@ -394,7 +394,7 @@ hyper configure
 
 # Use CLI commands
 hyper jobs list
-hyper instances launch pytorch/pytorch:2.0.0 -g L40S
+hyper jobs create --image pytorch/pytorch:2.0.0 --gpu l40s -- nvidia-smi
 ```
 
 #### Direct API Requests

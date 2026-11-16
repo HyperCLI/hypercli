@@ -15,8 +15,8 @@ curl https://api.hypercli.com/instances/pricing \
 Or via CLI:
 
 ```bash
-hyper billing gpus
-hyper billing gpus -o json
+hyper jobs gpus
+hyper jobs gpus --json
 ```
 
 ## Pricing Tiers
@@ -62,11 +62,10 @@ Budget-friendly options:
 
 ```bash
 # Compare pricing
-hyper billing gpus
+hyper jobs gpus
 ```
 
 ## Billing
 
 - Billed per second of GPU usage
-- Check balance: `hyper billing balance`
-- View history: `hyper billing history`
+- Check balance and transaction history with the [billing SDK](/sdk/billing).

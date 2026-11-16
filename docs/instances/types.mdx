@@ -104,8 +104,8 @@ Efficient inference-optimized GPUs.
 
 ```bash
 # List available GPUs with pricing
-hyper billing gpus
+hyper jobs gpus
 
 # Create job with specific GPU
-hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g h100 -c "python train.py"
+hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 --gpu h100 -- python train.py
 ```

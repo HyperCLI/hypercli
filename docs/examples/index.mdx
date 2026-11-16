@@ -5,9 +5,10 @@ description: Real-world deployment examples for GPU workloads on HyperCLI.
 
 # Examples
 
-The deployment recipes below use `hyper instances` from the legacy Python
-CLI (`hypercli-cli`). The current TypeScript CLI uses
-[hyper jobs create](/cli/commands/jobs); its flags differ.
+The deployment recipes below use the [Python jobs SDK](/sdk/jobs) for
+authenticated load balancers and model-specific launch options. Install
+`hypercli-sdk` and configure `HYPER_API_KEY` before running them.
+For command-line job management, use [hyper jobs](/cli/commands/jobs).
 
 Production-tested deployment recipes for popular models and workloads. Every example includes a one-liner launch command, API usage, and spot pricing.
 

@@ -1,35 +1,10 @@
 ---
-title: hyper billing
-description: Balance and transaction commands.
+title: Billing APIs
+description: Inspect balances and billing through supported SDKs.
 ---
 
-This command group belongs to the legacy Python CLI (`hypercli-cli`), which is
-end-of-life. It is not registered by `@hypercli.com/cli`.
-
-## balance
-
-Get the current account balance.
-
-```bash
-hyper billing balance
-hyper billing balance --output json
-```
-
-## transactions
-
-List account transactions.
-
-```bash
-hyper billing transactions
-hyper billing transactions --limit 50
-hyper billing transactions --page 2
-hyper billing transactions --output json
-```
-
-## invoices
-
-```bash
-hyper billing invoices
-```
-
-The CLI exposes the command, but the backing SDK support is still marked TODO and currently prints a placeholder message.
+The former `hyper billing` command was removed with the Python CLI.
+Use the [Python billing SDK](/sdk/billing) for balances and transactions,
+or the [plans dashboard](https://agents.hypercli.com/plans) for purchases.
+The supported CLI's `hyper me` reports identity and entitlement information;
+see [configuration](/cli/configuration).

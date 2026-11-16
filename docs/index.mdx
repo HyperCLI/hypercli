@@ -145,11 +145,11 @@ export HYPER_API_KEY=hyper_...
 
 ```bash
 # Launch a GPU job
-hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
+hyper jobs create --image nvidia/cuda:12.6.3-runtime-ubuntu22.04 --gpu l40s -- nvidia-smi
 
 # Run a managed flow
-hyper flow text-to-image "a product hero image"
+hyper flow create text-to-image --prompt "a product hero image"
 
-# Discover HyperCLI plans
-hyper agent plans
+# Inspect identity and entitlements
+hyper me
 ```

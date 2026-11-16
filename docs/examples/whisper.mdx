@@ -5,8 +5,9 @@ description: Run OpenAI Whisper Large v3 on GPU via vLLM for fast, accurate tran
 
 # Whisper Large v3 — Speech-to-Text on GPU
 
-The `hyper instances` commands in this recipe require the legacy Python CLI
-(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+Install `hypercli-sdk` and configure `HYPER_API_KEY` to run this recipe.
+See [jobs SDK](/sdk/jobs) for launch options and [hyper jobs](/cli/commands/jobs)
+for command-line monitoring.
 
 [Whisper Large v3](https://huggingface.co/openai/whisper-large-v3) is OpenAI's state-of-the-art speech recognition model. Running it on vLLM gives you an OpenAI-compatible transcription API with GPU acceleration.
 
@@ -21,20 +22,18 @@ For most use cases, consider [Speaches](/examples/speaches) instead — it bundl
 
 ## Quick Launch
 
-```bash
-hyper instances launch vllm/vllm-openai:v0.15.1 \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8000 \
-  -c 'vllm serve openai/whisper-large-v3 \
-    --host 0.0.0.0 --port 8000 \
-    --served-model-name whisper-large-v3 \
-    --task transcription \
-    --max-model-len 448'
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="vllm/vllm-openai:v0.15.1",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8000},
+    command=("vllm serve openai/whisper-large-v3 "
+             "--host 0.0.0.0 --port 8000 --served-model-name whisper-large-v3 "
+             "--task transcription --max-model-len 448"),
+)
+print(job.job_id)
 ```
 
 ## Usage

@@ -1,64 +1,9 @@
 ---
-title: hyper llm
-description: Basic direct LLM chat commands against the OpenAI-compatible /v1 surface.
+title: Direct inference
+description: Use the supported inference APIs for chat and image analysis.
 ---
 
-This command group belongs to the legacy Python CLI (`hypercli-cli`), which is
-end-of-life. It is not registered by `@hypercli.com/cli`.
-
-`hyper llm` is the smallest direct inference surface in the Python CLI.
-
-Use it when you want a one-off chat completion without setting up an agent.
-
-## chat
-
-Send one prompt to `/v1/chat/completions`:
-
-```bash
-hyper llm chat "Say hello"
-hyper llm chat "Summarize this file" --model kimi-k3
-hyper llm chat "Answer in one word" --no-stream
-hyper llm chat "You are terse" --system "Be concise" --json
-```
-
-### Defaults
-
-- uses the configured product API base
-- uses your configured API key
-- defaults to the first non-embedding chat model from `/v1/models`; pass
-  `--model kimi-k3-anthropic` (or another id from [`GET /v1/models`](/inference/models)) to choose explicitly
-
-### Useful flags
-
-- `--model`, `-m`
-- `--system`, `-s`
-- `--stream/--no-stream`
-- `--json`
-- `--temperature`
-- `--max-tokens`
-- `--key`, `-k`
-
-Select the API endpoint with canonical `HYPER_API_BASE` configuration;
-`--base-url` is unsupported.
-
-### Notes
-
-- this is a direct model call, not an agent session
-- voice and embedding helpers still live under `hyper agent`
-- agent lifecycle still lives under `hyper agents`
-
-## image
-
-Send one readable local image as an inline data URL to a vision-capable chat
-model:
-
-```bash
-hyper llm image ./source.png
-hyper llm image ./source.jpg --prompt "Describe the visible controls"
-hyper llm image ./source.webp --model <vision-model> --no-stream
-```
-
-Supported extensions are `.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif`. The CLI
-base64-encodes the complete local file into the request; it does not create a
-reusable HyperCLI file upload. `image` supports the same model, system,
-temperature, token, stream, JSON, base URL, and key options as `chat`.
+The former `hyper llm` command was removed with the Python CLI.
+Use an OpenAI-compatible or Anthropic-compatible client against the hosted
+inference API. See the [inference quickstart](/inference/quickstart) for Python
+and HTTP examples. `@hypercli.com/cli` does not register an `llm` group.

@@ -55,26 +55,31 @@ Workspace files and projections move through a small lifecycle:
 - conversion tasks and projections use `pending`, `running`, `finished`, `failed`, and `deleted`
 - a file is ready for sync when the file is processed and the projection is finished
 
-Use `hyper workspaces wait-until-processed` before a workflow depends on the generated Markdown.
+Use the [Python SDK](/sdk/workspaces) before a workflow depends on generated
+Markdown. Install `hypercli-sdk` and configure `HYPER_API_KEY`:
 
-```bash
-hyper workspaces upload team-knowledge ./report.pdf --path projects/example/report.pdf
-hyper workspaces wait-until-processed team-knowledge projects/example/report.pdf
+```python
+from hypercli import HyperCLI
+
+workspaces = HyperCLI().workspaces
+workspaces.upload("team-knowledge", "./report.pdf", workspace_path="projects/example/report.pdf")
+workspaces.wait_until_processed("team-knowledge", "projects/example/report.pdf")
 ```
 
 ## Download
 
-`hyper workspaces download` writes the Markdown projection by default:
+`download()` returns Markdown projection bytes by default:
 
-```bash
-hyper workspaces download team-knowledge projects/example/report.pdf --output report.md
-hyper workspaces download team-knowledge/projects/example/report.pdf
+```python
+from pathlib import Path
+
+Path("report.md").write_bytes(workspaces.download("team-knowledge", "projects/example/report.pdf"))
 ```
 
-Use `--raw` when you need the original uploaded file:
+Use `raw=True` when you need the original uploaded file:
 
-```bash
-hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
+```python
+Path("report.pdf").write_bytes(workspaces.download("team-knowledge", "projects/example/report.pdf", raw=True))
 ```
 
 Projection frontmatter includes provenance for the original file and a `download_command` that points back to the raw source.
@@ -83,9 +88,10 @@ Projection frontmatter includes provenance for the original file and a `download
 
 Sync copies finished Markdown projections into a local directory:
 
-```bash
-hyper workspaces sync team-knowledge --output-dir ~/shared
-hyper workspaces sync --all --ready-only --output-dir ~/shared
+```python
+output_dir = str(Path("~/shared").expanduser())
+workspaces.sync_manifest("team-knowledge", output_dir, ready_only=True)
+workspaces.sync_all(output_dir, ready_only=True)
 ```
 
 The synced layout is:
@@ -107,29 +113,25 @@ OpenClaw boot sync defaults to `/home/node/shared` and runs before the gateway s
 
 Search works across accessible Workspaces and inside a single Workspace:
 
-```bash
-hyper workspaces search "launch notes"
-hyper workspaces search-files team-knowledge "visual language"
-hyper workspaces search-files team-knowledge "visual language" --no-vector
+```python
+workspaces.search("launch notes")
+workspaces.search_files("team-knowledge", "visual language")
+workspaces.search_files("team-knowledge", "visual language", vector=False)
 ```
 
-Search uses paths, filenames, keywords, summaries, projection metadata, and vector matches when enabled. Use `--no-vector` for exact-only matching.
-
-`hyper workspaces enrich` prepares a machine-readable enrichment payload from generated Markdown files for one Workspace file address:
-
-```bash
-hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
-```
+Search uses paths, filenames, keywords, summaries, projection metadata, and
+vector matches when enabled. Use `vector=False` for exact-only matching.
+The former CLI-only local enrichment-payload helper has been removed.
 
 ## Grants
 
 Workspace access is explicit. Grants can target users or agents.
 
-```bash
-hyper workspaces grant team-knowledge --agent-id agent-id --role viewer
-hyper workspaces grant team-knowledge --user-subject-id user-id --role contributor
-hyper workspaces grants team-knowledge
-hyper workspaces revoke-grant team-knowledge grant-id
+```python
+workspaces.grant("team-knowledge", subject_type="agent", subject_id="agent-id", role="viewer")
+workspaces.grant("team-knowledge", subject_type="user", subject_id="user-id", role="contributor")
+workspaces.list_grants("team-knowledge")
+workspaces.revoke_grant("team-knowledge", "grant-id")
 ```
 
 Roles are:
@@ -144,6 +146,6 @@ Grant an agent access before expecting that agent's runtime credential to list, 
 
 - Treat `.tomd` files as generated projections, not source files.
 - Store user-editable metadata in Workspace file/version/projection metadata, then let access-time frontmatter injection serialize it.
-- Use `hyper workspaces download` for Markdown and `hyper workspaces download --raw` for originals.
-- Use `hyper workspaces sync --ready-only` for agent boot and local sync workflows that should avoid incomplete projections.
+- Use `download()` for Markdown and `download(..., raw=True)` for originals.
+- Use `ready_only=True` for local sync workflows that should avoid incomplete projections.
 - Avoid using the sync directory as an editable source tree.

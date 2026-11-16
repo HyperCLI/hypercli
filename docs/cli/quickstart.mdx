@@ -9,9 +9,8 @@ description: Install the CLI, configure credentials, launch jobs, and create and
 npm install -g @hypercli.com/cli
 ```
 
-Requires Node.js 22+. The legacy Python CLI (`pip install hypercli-cli`) is
-end-of-life and retained for reference; see [CLI](/cli/index#implementations)
-for which groups ship in each implementation.
+Requires Node.js 22+. See [CLI](/cli/index) for supported command groups.
+For Python API integrations, use the [Python SDK](/sdk/index).
 
 ## Configure Platform Access
 
@@ -41,19 +40,9 @@ hyper jobs list
 hyper jobs logs <job_id> -f
 ```
 
-The Python implementation adds GPU inventory browsing and interactive shells:
-`hyper instances list`, `hyper jobs shell <job_id>`.
-
-## Agent Plans, Subscriptions, And Wallet Checkout (legacy Python)
-
-These account commands ship only in the EOL Python implementation; they are not
-registered by the TypeScript CLI. See the [legacy agent reference](/cli/commands/agent-legacy):
-
-```bash
-hyper agent plans
-hyper agent subscribe solo
-hyper agent status
-```
+Use `hyper jobs gpus` for inventory. Account purchases are available through the
+[plans dashboard](https://agents.hypercli.com/plans); programmatic account
+inspection uses the [SDK](/sdk/agents).
 
 ## Create An Agent
 

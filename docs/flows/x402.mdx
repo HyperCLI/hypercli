@@ -3,8 +3,8 @@ title: x402 Top-Ups and Flow Checkout
 description: How x402 top-ups and pay-per-use flow launches work on HyperCLI
 ---
 
-The CLI examples on this page require the legacy Python CLI (`hypercli-cli`).
-The current TypeScript CLI does not implement wallet commands or x402 checkout.
+Use the [Python x402 SDK](/sdk/x402) for signed pay-per-use requests.
+The TypeScript CLI does not implement wallet commands or x402 checkout.
 
 ## Overview
 
@@ -99,31 +99,8 @@ curl -X DELETE -H "Authorization: Bearer $ACCESS_KEY" \
 The `hypercli_access_...` key is scoped to the specific flow render and is intended for lightweight lifecycle access (status/get/cancel) without requiring JWT or a long-lived API key.
 </Note>
 
-## CLI
+## SDK checkout
 
-```bash
-# Uses embedded x402 wallet and auto-loads fixed flow price from /flows
-hyper flow text-to-image "studio portrait" --x402
-```
-
-Optional explicit amount (must equal flow fixed price):
-
-```bash
-hyper flow text-to-image "studio portrait" --x402 --amount 0.10
-```
-
-If you want backend-backed history after using a wallet, you have two paths:
-
-```bash
-hyper wallet login
-hyper flow list
-hyper flow get <render_id>
-```
-
-Or use the wallet context directly on read commands:
-
-```bash
-hyper flow list --x402
-hyper flow get <render_id> --x402
-hyper flow status <render_id> --x402
-```
+Install `hypercli-sdk[wallet]` and use `X402Client.create_flow()` with
+`amount=x402.get_flow_price(flow_type)`. See the [SDK example](/sdk/x402).
+Retain the returned per-render access key for the HTTP reads above.

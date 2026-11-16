@@ -25,17 +25,8 @@ hyper me --output json
 Use it to verify identity and key capabilities before a billed operation. Its
 output contains account identifiers and should not be pasted into public logs.
 
-The legacy Python CLI's `hyper status` queries compact model and cluster health
-through the agents API. The TypeScript CLI does not register this command; use
-`hyper me` to inspect identity and entitlements.
-
-```bash
-hyper status
-hyper status --output json
-```
-
-It is a health check, not an identity check. A successful `status` does not
-replace `me` when diagnosing which account a product credential resolves to.
+For model and cluster health APIs, use the [Python SDK](/sdk/index).
+The supported CLI uses `hyper me` for identity and entitlement inspection.
 
 ## Environment Variables
 
@@ -88,7 +79,7 @@ derives the `api.dev.hypercli.com` and `api.agents.dev.hypercli.com`
 equivalents. A custom `HYPER_API_BASE` keeps its origin and gains an `/agents`
 path suffix for the agents REST base.
 
-Public TS, Python, and ACP CLIs do not support `--dev` or `--prod`; these flags
+Public TypeScript and ACP CLIs do not support `--dev` or `--prod`; these flags
 are reserved for admin tooling. Use `HYPER_API_BASE` and, independently,
 `HYPER_AGENTS_API_BASE` in environment/config. Independent workspace, routine,
 runner, and integration base overrides remain unsupported.
@@ -115,14 +106,9 @@ HYPER_API_BASE=https://api.hypercli.com
 
 ## Local State Files
 
-The CLI stores additional state in `~/.hypercli/`:
-
-- `config`: shared API key and base URL
-- `agent-key.json`: saved HyperCLI key from `hyper agent subscribe` or `hyper agent login`
-- `agent-keys.yaml`: key history written by `hyper agent subscribe`
-- `agent-jwt.json`: wallet-auth JWT used during agent login flows
-- `agents.json`: cached agent metadata for ID prefix resolution
-- `wallet.json`: local wallet file, either an encrypted keystore or a plaintext private-key wallet
+The supported CLI stores its shared API key and base URL in `~/.hypercli/config`.
+Files left by retired wallet/account tooling are not shared-client credential
+sources; removing the Python CLI does not delete those local files.
 
 ## Priority Rules
 
@@ -142,9 +128,8 @@ Shared SDK/CLI credentials resolve in this exact order:
 Remove or update the higher-priority value when replacing a credential; writing
 a new lower-priority value will not change the active key.
 
-The Python voice, embedding, and model commands use canonical configuration.
-Endpoint override flags such as `--base-url` are unsupported. Legacy login
-state files are not additional shared-client credential sources.
+The Python SDK also uses canonical configuration. Legacy login state files
+are not additional shared-client credential sources.
 
 Runner and Lagoon inject consistent defaults for `HYPER_API_BASE`,
 `HYPER_AGENTS_API_BASE`, the appropriate ACP URL, and `HYPER_AGENTS_API_KEY`.

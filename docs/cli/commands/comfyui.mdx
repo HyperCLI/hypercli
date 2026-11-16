@@ -1,6 +1,6 @@
 ---
-title: hyper comfyui
-description: Inspect and run user-managed ComfyUI workflows with the Python CLI
+title: ComfyUI interfaces
+description: Managed flows and SDK tools for user-managed ComfyUI workflows.
 ---
 
 ## Managed rendering
@@ -17,22 +17,7 @@ See [Flow](/cli/commands/flow) for exact input types and owned-media bindings.
 
 ## User-managed ComfyUI
 
-The Python CLI's `hyper comfyui` commands are separate GPU-job tools for your
-own workflows. An upstream template appearing in these tools is not a promise
-of managed Render support.
-
-```bash
-hyper comfyui --help
-hyper comfyui list
-hyper comfyui show image_qwen_image_2_1_t2i
-hyper comfyui run --help
-```
-
-Use `show` to inspect the actual workflow before applying parameters. Node IDs,
-input names, enabled modes and supported parameters depend on the graph; do not
-reuse node IDs from another template. Workflow conversion utilities retain
-support for arbitrary user graphs and upstream node types.
-
-The `run` command's existing job lookup, instance reuse, GPU/region selection,
-output download and debugging options remain available through `--help`.
-These job tools do not change the managed catalog or its server-selected models.
+The former `hyper comfyui` command was removed with the Python CLI.
+Use the [Python ComfyUI SDK](/sdk/comfyui) for your own GPU workflows.
+Workflow conversion utilities support arbitrary user graphs and upstream node
+types; that does not make those graphs part of the managed Render catalog.

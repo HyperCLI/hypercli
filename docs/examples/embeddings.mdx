@@ -5,8 +5,9 @@ description: Run text embedding models on GPU via vLLM for semantic search, RAG,
 
 # Embedding Models on GPU
 
-The `hyper instances` commands in this recipe require the legacy Python CLI
-(`hypercli-cli`). See [hyper jobs](/cli/commands/jobs) for the current CLI.
+Install `hypercli-sdk` and configure `HYPER_API_KEY` to run these recipes.
+See [jobs SDK](/sdk/jobs) for launch options and [hyper jobs](/cli/commands/jobs)
+for command-line monitoring.
 
 vLLM supports running embedding models with an OpenAI-compatible `/v1/embeddings` endpoint. This is perfect for semantic search, RAG pipelines, and clustering workloads that need GPU-accelerated throughput.
 
@@ -16,20 +17,18 @@ vLLM supports running embedding models with an OpenAI-compatible `/v1/embeddings
 
 ### Quick Launch
 
-```bash
-hyper instances launch vllm/vllm-openai:v0.15.1 \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8000 \
-  -c 'vllm serve Qwen/Qwen3-Embedding-4B \
-    --host 0.0.0.0 --port 8000 \
-    --served-model-name qwen3-embedding-4b \
-    --trust-remote-code \
-    --task embed'
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="vllm/vllm-openai:v0.15.1",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8000},
+    command=("vllm serve Qwen/Qwen3-Embedding-4B "
+             "--host 0.0.0.0 --port 8000 --served-model-name qwen3-embedding-4b "
+             "--trust-remote-code --task embed"),
+)
+print(job.job_id)
 ```
 
 ### Usage
@@ -64,37 +63,33 @@ Any HuggingFace embedding model supported by vLLM works. Just change the model n
 
 ### BGE Large (English)
 
-```bash
-hyper instances launch vllm/vllm-openai:v0.15.1 \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8000 \
-  -c 'vllm serve BAAI/bge-large-en-v1.5 \
-    --host 0.0.0.0 --port 8000 \
-    --served-model-name bge-large \
-    --task embed'
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="vllm/vllm-openai:v0.15.1",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8000},
+    command=("vllm serve BAAI/bge-large-en-v1.5 "
+             "--host 0.0.0.0 --port 8000 --served-model-name bge-large --task embed"),
+)
+print(job.job_id)
 ```
 
 ### E5 Mistral 7B (Instruction-tuned)
 
-```bash
-hyper instances launch vllm/vllm-openai:v0.15.1 \
-  -g l40s \
-  -n 1 \
-  -r se \
-  -t 3600 \
-  --interruptible \
-  --lb-auth \
-  --lb 8000 \
-  -c 'vllm serve intfloat/e5-mistral-7b-instruct \
-    --host 0.0.0.0 --port 8000 \
-    --served-model-name e5-mistral \
-    --task embed \
-    --max-model-len 4096'
+```python
+from hypercli import HyperCLI
+
+job = HyperCLI().jobs.create(
+    image="vllm/vllm-openai:v0.15.1",
+    gpu_type="l40s", gpu_count=1, region="se", runtime=3600,
+    interruptible=True, auth=True, ports={"lb": 8000},
+    command=("vllm serve intfloat/e5-mistral-7b-instruct "
+             "--host 0.0.0.0 --port 8000 --served-model-name e5-mistral "
+             "--task embed --max-model-len 4096"),
+)
+print(job.job_id)
 ```
 
 ## vLLM Parameters
