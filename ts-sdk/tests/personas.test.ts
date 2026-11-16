@@ -33,7 +33,12 @@ function entry(overrides: Record<string, unknown> = {}): Record<string, unknown>
 function catalog() {
   return {
     personas: [entry()],
-    catalog: { schema: 1, revision: REVISION, digest: CATALOG_DIGEST },
+    catalog: {
+      schema: 1,
+      repo_sha: '0123456789abcdef0123456789abcdef01234567',
+      revision: REVISION,
+      digest: CATALOG_DIGEST,
+    },
   };
 }
 

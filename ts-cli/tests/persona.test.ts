@@ -45,7 +45,12 @@ function clientFixture() {
   const personas = {
     list: vi.fn(async () => ({
       personas: [artifact()],
-      catalog: { schema: 1, revision: REVISION, digest: CATALOG_DIGEST },
+      catalog: {
+        schema: 1,
+        repoSha: '0123456789abcdef0123456789abcdef01234567',
+        revision: REVISION,
+        digest: CATALOG_DIGEST,
+      },
     })),
     get: vi.fn(async () => artifact()),
     resolve: vi.fn(async () => resolution()),

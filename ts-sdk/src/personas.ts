@@ -33,6 +33,8 @@ export interface PersonaCatalogEntry {
 
 export interface PersonaCatalogMetadata {
   schema: number;
+  /** Immutable source revision, required even when personas is empty. */
+  repoSha: string;
   revision: string;
   digest: string;
 }
@@ -108,6 +110,14 @@ function requiredRevision(value: unknown, field: string): string {
   return revision;
 }
 
+function requiredRepoSha(value: unknown, field: string): string {
+  const repoSha = requiredString(value, field);
+  if (!/^[0-9a-f]{40}$/.test(repoSha) || repoSha === '0'.repeat(40)) {
+    throw new PersonaError('persona_invalid', `Backend persona response has an invalid ${field}`);
+  }
+  return repoSha;
+}
+
 export function assertPersonaId(value: unknown): string {
   if (typeof value !== 'string' || value.length > 64 || !PERSONA_ID_PATTERN.test(value)) {
     throw new PersonaError('persona_invalid_id', 'persona id must be an exact lowercase hyphenated identifier');
@@ -174,6 +184,7 @@ export function personaCatalogFromData(value: unknown): PersonaCatalog {
   }
   const catalog = {
     schema: 1,
+    repoSha: requiredRepoSha(rawCatalog.repo_sha ?? rawCatalog.repoSha, 'catalog.repo_sha'),
     revision: requiredRevision(rawCatalog.revision, 'catalog.revision'),
     digest: requiredDigest(rawCatalog.digest, 'catalog.digest'),
   };
