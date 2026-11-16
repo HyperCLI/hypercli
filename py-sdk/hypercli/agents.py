@@ -263,17 +263,16 @@ DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
 DEFAULT_CODING_AGENT_SYNC_INCLUDES: dict[CodingAgentRuntime, tuple[str, ...] | None] = {
     "buzz-agent": None,
     "opencode": (
-        ".hypercli/USER.md", ".hypercli/SOUL.md",
         ".config/opencode",
         ".local/share/opencode",
         ".local/state/opencode",
         ".cache/opencode",
     ),
-    "codex": (".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"),
-    "claude-code": (".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"),
-    "goose": (".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"),
-    "kimi-code": (".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"),
-    "pi": (".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"),
+    "codex": (".codex",),
+    "claude-code": (".claude", ".claude.json"),
+    "goose": (".goose",),
+    "kimi-code": (".kimi-code",),
+    "pi": (".pi",),
 }
 DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
@@ -1874,6 +1873,7 @@ class Agent:
         runtime: ManagedAgentRuntime | None = None,
         reset_image: bool | None = None,
         soul: str | None | object = _UNSET,
+        persona: str | None | object = _UNSET,
         role: str | None | object = _UNSET,
         ui: dict | None = None,
     ) -> "Agent":
@@ -1886,6 +1886,7 @@ class Agent:
             runtime=runtime,
             reset_image=reset_image,
             soul=soul,
+            persona=persona,
             role=role,
             ui=ui,
         )
@@ -3376,10 +3377,16 @@ class Deployments:
         runtime: ManagedAgentRuntime | None = None,
         reset_image: bool | None = None,
         soul: str | None | object = _UNSET,
+        persona: str | None | object = _UNSET,
         role: str | None | object = _UNSET,
         ui: dict | None = None,
     ) -> Agent:
+        """Update metadata. Backend requires agents:* owner access for soul/persona;
+        runtime self-writes are denied. Omit to preserve; None clears.
+        """
         body: dict[str, Any] = {}
+        if persona is not _UNSET:
+            body["persona"] = persona
         if soul is not _UNSET:
             body["soul"] = soul
         if role is not _UNSET:

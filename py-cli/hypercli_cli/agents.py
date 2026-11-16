@@ -29,10 +29,13 @@ from rich.console import Console
 from rich.table import Table
 
 from .paths import hyper_home
+from .metadata import selector as _persona_selector, soul as _canonical_soul
 
 app = typer.Typer(help="Manage agent deployments")
 routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
 app.add_typer(routes_app, name="routes")
+app.command("persona")(_persona_selector)
+app.command("soul")(_canonical_soul)
 console = Console()
 
 # Config — uses HyperCLI API key (hyper_api_...) for backend auth

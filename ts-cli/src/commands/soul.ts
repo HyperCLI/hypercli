@@ -3,7 +3,7 @@ import { runSoulShorthand } from './metadata.js';
 
 export const soul: CommandGroup = {
   name: 'soul',
-  summary: 'Read or update the resolved Agent soul from Backend metadata.',
+  summary: 'Read canonical SOUL or update it with agents:* owner access (runtime self-writes denied).',
   usage: ['hyper soul [--agent <id>] [-f <file>|-] [--json]'],
   run: (ctx, args) => runSoulShorthand(ctx, args, soul),
 };

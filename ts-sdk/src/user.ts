@@ -19,7 +19,7 @@ export interface User {
   ui: UserUi;
 }
 
-/** Account-owned markdown projected to USER.md only by an explicit client action. */
+/** Legacy account Markdown metadata; dynamic consumers use getProfile(). */
 export interface UserUi {
   profile?: string | null;
 }
@@ -216,7 +216,7 @@ export class UserAPI {
     return userProfileFromDict(await this.profileHttp.get('/users/profile'));
   }
 
-  /** Null clears only User.meta.profile; omitted fields are never sent. Maximum 32768 characters. */
+  /** Backend requires user-family write access. Null clears User.meta.profile. Maximum 32768 characters. */
   async updateProfile(profile: string | null): Promise<UserProfile> {
     return userProfileFromDict(await this.profileHttp.patch('/users/profile', { profile }));
   }

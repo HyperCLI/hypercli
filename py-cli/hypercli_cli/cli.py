@@ -11,6 +11,7 @@ from hypercli import HyperCLI, APIError, configure
 
 from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, memory, user, voice, wallet, workspaces
 from .output import output, spinner
+from . import persona, metadata
 
 console = Console()
 
@@ -92,6 +93,8 @@ app.add_typer(jobs.app, name="jobs")
 app.add_typer(llm.app, name="llm")
 app.add_typer(memory.app, name="memory")
 app.add_typer(user.app, name="user")
+app.add_typer(persona.app, name="persona")
+app.command("soul")(metadata.soul)
 app.add_typer(voice.app, name="voice")
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(workspaces.app, name="workspaces")

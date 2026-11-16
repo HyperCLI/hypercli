@@ -25,6 +25,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
       meta: {
         soul: Object.prototype.hasOwnProperty.call(patch, 'soul') ? patch.soul : '# Soul\n',
         role: Object.prototype.hasOwnProperty.call(patch, 'role') ? patch.role : 'researcher',
+        persona: Object.prototype.hasOwnProperty.call(patch, 'persona') ? patch.persona : null,
       },
     })),
     list: vi.fn(),
@@ -107,6 +108,28 @@ describe('hyper user', () => {
 });
 
 describe('canonical and shorthand soul', () => {
+  it('updates and clears the selector independently of canonical SOUL', async () => {
+    const { client, api } = fixture();
+    expect(JSON.parse((await invoke(agent, [ID, 'persona', 'researcher', '--json'], client)).stdout)).toEqual({
+      agent_id: ID, persona: 'researcher',
+    });
+    expect(api.update).toHaveBeenLastCalledWith(ID, { persona: 'researcher' });
+    await invoke(agent, [ID, 'persona', '--clear'], client);
+    expect(api.update).toHaveBeenLastCalledWith(ID, { persona: null });
+    expect((await invoke(soul, ['--agent', ID], client)).stdout).toBe('# Soul\n');
+  });
+  it('rejects blank selectors and invalid clear combinations before contacting Backend', async () => {
+    const { client, api } = fixture();
+    for (const args of [
+      [ID, 'persona', ''], [ID, 'persona', '  '],
+      [ID, 'persona', 'researcher', '--clear'], [ID, 'persona', '', '--clear'],
+      [ID, 'soul', '--clear'], [ID, 'role', '--clear'],
+    ]) {
+      await expect(invoke(agent, args, client)).rejects.toBeInstanceOf(UsageError);
+    }
+    expect(api.update).not.toHaveBeenCalled();
+    expect(api.get).not.toHaveBeenCalled();
+  });
   it('uses top-level soul before the legacy UI alias and writes through canonical agent syntax', async () => {
     const { client, api } = fixture();
     expect((await invoke(agent, [ID, 'soul'], client)).stdout).toBe('# Soul\n');

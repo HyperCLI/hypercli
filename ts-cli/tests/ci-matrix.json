@@ -118,6 +118,7 @@
       "smokes": [
         { "argv": ["--help"] },
         { "argv": ["agent-id", "soul", "--help"] },
+        { "argv": ["agent-id", "persona", "--help"] },
         { "argv": ["agent-id", "role", "--help"] }
       ]
     },

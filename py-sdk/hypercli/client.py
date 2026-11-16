@@ -11,6 +11,7 @@ from .http import HTTPClient
 from .billing import Billing
 from .jobs import Jobs
 from .user import UserAPI
+from .personas import PersonasAPI
 from .instances import Instances
 from .renders import Renders
 from .files import Files
@@ -94,7 +95,8 @@ class HyperCLI:
         )
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)
-        self.user = UserAPI(self._http)
+        self.user = UserAPI(self._http, profile_http=self._agents_http)
+        self.personas = PersonasAPI(self._agents_http)
         self.instances = Instances(self._http)
         self.renders = Renders(self._http)
         self.files = Files(self._http)

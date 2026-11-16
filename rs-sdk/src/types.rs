@@ -53,23 +53,16 @@ impl ManagedRuntime {
         match self {
             Self::BuzzAgent => None,
             Self::Opencode => Some(&[
-                ".hypercli/USER.md",
-                ".hypercli/SOUL.md",
                 ".config/opencode",
                 ".local/share/opencode",
                 ".local/state/opencode",
                 ".cache/opencode",
             ]),
-            Self::Codex => Some(&[".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
-            Self::ClaudeCode => Some(&[
-                ".claude",
-                ".claude.json",
-                ".hypercli/USER.md",
-                ".hypercli/SOUL.md",
-            ]),
-            Self::Goose => Some(&[".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
-            Self::KimiCode => Some(&[".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
-            Self::Pi => Some(&[".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"]),
+            Self::Codex => Some(&[".codex"]),
+            Self::ClaudeCode => Some(&[".claude", ".claude.json"]),
+            Self::Goose => Some(&[".goose"]),
+            Self::KimiCode => Some(&[".kimi-code"]),
+            Self::Pi => Some(&[".pi"]),
             Self::Generic
             | Self::Openclaw
             | Self::HermesAgent
@@ -2870,39 +2863,17 @@ mod tests {
             (
                 ManagedRuntime::Opencode,
                 vec![
-                    ".hypercli/USER.md",
-                    ".hypercli/SOUL.md",
                     ".config/opencode",
                     ".local/share/opencode",
                     ".local/state/opencode",
                     ".cache/opencode",
                 ],
             ),
-            (
-                ManagedRuntime::Codex,
-                vec![".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-            ),
-            (
-                ManagedRuntime::ClaudeCode,
-                vec![
-                    ".claude",
-                    ".claude.json",
-                    ".hypercli/USER.md",
-                    ".hypercli/SOUL.md",
-                ],
-            ),
-            (
-                ManagedRuntime::Goose,
-                vec![".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-            ),
-            (
-                ManagedRuntime::KimiCode,
-                vec![".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-            ),
-            (
-                ManagedRuntime::Pi,
-                vec![".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"],
-            ),
+            (ManagedRuntime::Codex, vec![".codex"]),
+            (ManagedRuntime::ClaudeCode, vec![".claude", ".claude.json"]),
+            (ManagedRuntime::Goose, vec![".goose"]),
+            (ManagedRuntime::KimiCode, vec![".kimi-code"]),
+            (ManagedRuntime::Pi, vec![".pi"]),
         ] {
             let mut request = CreateDeploymentRequest::new(runtime);
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")

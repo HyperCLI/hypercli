@@ -141,9 +141,18 @@ def _derive_external_id(
 class UserAPI:
     """User API wrapper"""
 
-    def __init__(self, http: "HTTPClient", auth_http: Optional["HTTPClient"] = None):
+    def __init__(self, http: "HTTPClient", auth_http: Optional["HTTPClient"] = None, profile_http: Optional["HTTPClient"] = None):
         self._http = http
         self._auth_http = auth_http or http
+        self._profile_http = profile_http or http
+
+    def get_profile(self) -> dict:
+        """Read canonical USER Markdown from the Backend; no local projection."""
+        return self._profile_http.get("/users/profile")
+
+    def update_profile(self, profile: str | None) -> dict:
+        """Write canonical USER. Backend requires user-family write access; None clears."""
+        return self._profile_http.patch("/users/profile", json={"profile": profile})
 
     def get(self) -> User:
         """Get current user info"""

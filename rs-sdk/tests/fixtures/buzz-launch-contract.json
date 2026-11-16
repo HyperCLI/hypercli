@@ -32,7 +32,6 @@
     },
     "opencode": {
       "sync_include": [
-        ".hypercli/USER.md", ".hypercli/SOUL.md",
         ".config/opencode",
         ".local/share/opencode",
         ".local/state/opencode",
@@ -46,7 +45,7 @@
       "env": {}
     },
     "codex": {
-      "sync_include": [".codex", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "sync_include": [".codex"],
       "image": "ghcr.io/hypercli/hypercli-codex:prod",
       "stock_agent_command": "codex-acp",
       "agent_command": "/opt/hypercli/bin/codex-acp",
@@ -55,7 +54,7 @@
       "env": {}
     },
     "claude-code": {
-      "sync_include": [".claude", ".claude.json", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "sync_include": [".claude", ".claude.json"],
       "image": "ghcr.io/hypercli/hypercli-claude:prod",
       "stock_agent_command": "claude-agent-acp",
       "agent_command": "/opt/hypercli/bin/claude-agent-acp",
@@ -64,7 +63,7 @@
       "env": {}
     },
     "goose": {
-      "sync_include": [".goose", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "sync_include": [".goose"],
       "image": "ghcr.io/hypercli/hypercli-goose:prod",
       "stock_agent_command": "goose",
       "agent_command": "/usr/local/bin/goose",
@@ -73,7 +72,7 @@
       "env": {}
     },
     "pi": {
-      "sync_include": [".pi", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "sync_include": [".pi"],
       "image": "ghcr.io/hypercli/hypercli-pi:prod",
       "stock_agent_command": "pi-acp",
       "agent_command": "/opt/hypercli/bin/pi-acp",
@@ -82,7 +81,7 @@
       "env": {}
     },
     "kimi-code": {
-      "sync_include": [".kimi-code", ".hypercli/USER.md", ".hypercli/SOUL.md"],
+      "sync_include": [".kimi-code"],
       "image": "ghcr.io/hypercli/hypercli-kimi-code:prod",
       "stock_agent_command": "kimi",
       "agent_command": "/opt/hypercli/bin/kimi",

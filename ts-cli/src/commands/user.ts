@@ -3,7 +3,7 @@ import { runUserProfile } from './metadata.js';
 
 export const user: CommandGroup = {
   name: 'user',
-  summary: 'Read or update the account profile Markdown from Backend metadata.',
+  summary: 'Read canonical USER or update it with Backend user-family write access.',
   usage: ['hyper user [-f <file>|-] [--json]'],
   run: (ctx, args) => runUserProfile(ctx, args, user),
 };

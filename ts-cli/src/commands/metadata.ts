@@ -1,7 +1,7 @@
 /** Backend-owned account and Agent semantic metadata commands. */
 
 import { readFileSync } from 'node:fs';
-import type { Agent, AgentMeta, Deployments, HyperCLI } from '@hypercli.com/sdk';
+import { canonicalSoul, type Agent, type Deployments, type HyperCLI } from '@hypercli.com/sdk';
 import { parseCommandArgs } from '../core/argv.js';
 import { CliError, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
@@ -58,14 +58,6 @@ async function resolveAgent(api: Deployments, ref: string | undefined): Promise<
   );
 }
 
-function canonicalSoul(meta: AgentMeta | null): string {
-  if (meta?.soul !== undefined) {
-    return typeof meta.soul === 'string' ? meta.soul : '';
-  }
-  // Read-only compatibility for older Backend projections and stored records.
-  return typeof meta?.ui?.soul === 'string' ? meta.ui.soul : '';
-}
-
 function soulResult(agent: Agent): SoulResult {
   return { agent_id: agent.id, soul: canonicalSoul(agent.meta) };
 }
@@ -107,11 +99,12 @@ async function runRole(
 }
 
 export async function runAgentMetadata(ctx: CommandContext, args: string[], group: CommandGroup): Promise<void> {
-  const parsed = parseCommandArgs(args, { file: { type: 'string', short: 'f' } });
+  const parsed = parseCommandArgs(args, { file: { type: 'string', short: 'f' }, clear: { type: 'boolean' } });
   if (parsed.help) return help(ctx, group);
   const [ref, field, value, ...extra] = parsed.positionals;
-  if (!ref || !field) throw new UsageError('expected <id> soul or <id> role [value]');
+  if (!ref || !field) throw new UsageError('expected <id> soul, <id> role [value], or <id> persona [value]');
   if (extra.length) throw new UsageError(`unexpected argument '${extra[0]}'`);
+  if (parsed.values.clear && field !== 'persona') throw new UsageError('--clear is only valid for persona');
   if (field === 'soul') {
     if (value !== undefined) throw new UsageError('soul content must be supplied with -f <file> or -f -');
     return runSoul(ctx, ref, parsed.values.file as string | undefined);
@@ -120,7 +113,20 @@ export async function runAgentMetadata(ctx: CommandContext, args: string[], grou
     if (parsed.values.file !== undefined) throw new UsageError('-f is only valid for soul');
     return runRole(ctx, ref, value);
   }
-  throw new UsageError(`unknown agent metadata field '${field}' (expected soul or role)`);
+  if (field === 'persona') {
+    if (parsed.values.file !== undefined) throw new UsageError('-f is only valid for soul');
+    if (parsed.values.clear && value !== undefined) throw new UsageError('--clear cannot be combined with a persona value');
+    if (value !== undefined && !value.trim()) throw new UsageError('persona id must not be blank; use --clear');
+    const { api } = await deployments(ctx);
+    const id = await resolveAgent(api, ref);
+    const agent = parsed.values.clear
+      ? await api.update(id, { persona: null })
+      : value === undefined ? await api.get(id) : await api.update(id, { persona: value });
+    const result = { agent_id: agent.id, persona: agent.meta?.persona ?? null };
+    ctx.output.result(result, result.persona ?? '');
+    return;
+  }
+  throw new UsageError(`unknown agent metadata field '${field}' (expected soul, role, or persona)`);
 }
 
 export async function runSoulShorthand(ctx: CommandContext, args: string[], group: CommandGroup): Promise<void> {

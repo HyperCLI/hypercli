@@ -421,10 +421,8 @@ class TestCreateAgentCodingRuntimes:
 
         body = posts[0][1]
         assert "sync_exclude" not in body
-        assert body["sync_include"][-2:] == [".hypercli/USER.md", ".hypercli/SOUL.md"] or runtime in (
-            "opencode",
-            "pi",
-        )
+        assert ".hypercli/USER.md" not in body["sync_include"]
+        assert ".hypercli/SOUL.md" not in body["sync_include"]
 
     def test_buzz_runtime_defaults_to_whole_root_with_empty_exclude(self, monkeypatch):
         deployments, posts = _capture_create(monkeypatch, "buzz-agent")
@@ -441,8 +439,6 @@ class TestCreateAgentCodingRuntimes:
         deployments.create_agent("opencode")
 
         assert posts[0][1]["sync_include"] == [
-            ".hypercli/USER.md",
-            ".hypercli/SOUL.md",
             ".config/opencode",
             ".local/share/opencode",
             ".local/state/opencode",

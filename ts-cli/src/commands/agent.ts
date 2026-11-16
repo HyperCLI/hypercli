@@ -6,6 +6,7 @@ export const agent: CommandGroup = {
   summary: 'Read or update canonical Agent semantic metadata.',
   usage: [
     'hyper agent <id> soul [-f <file>|-] [--json]',
+    'hyper agent <id> persona [<id> | --clear] [--json] (agents:* owner writes; runtime self-writes denied)',
     'hyper agent <id> role [value] [--json]',
   ],
   run: (ctx, args) => runAgentMetadata(ctx, args, agent),

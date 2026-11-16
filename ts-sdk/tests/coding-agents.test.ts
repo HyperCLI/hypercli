@@ -114,17 +114,16 @@ describe('coding agents', () => {
   it.each([
     ['buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, undefined, []],
     ['opencode', DEFAULT_OPENCODE_IMAGE, [
-      '.hypercli/USER.md', '.hypercli/SOUL.md',
       '.config/opencode',
       '.local/share/opencode',
       '.local/state/opencode',
       '.cache/opencode',
     ], undefined],
-    ['codex', DEFAULT_CODEX_IMAGE, ['.codex', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
-    ['claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ['.claude', '.claude.json', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
-    ['goose', DEFAULT_GOOSE_IMAGE, ['.goose', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
-    ['kimi-code', DEFAULT_KIMI_CODE_IMAGE, ['.kimi-code', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
-    ['pi', DEFAULT_PI_IMAGE, ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'], undefined],
+    ['codex', DEFAULT_CODEX_IMAGE, ['.codex'], undefined],
+    ['claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ['.claude', '.claude.json'], undefined],
+    ['goose', DEFAULT_GOOSE_IMAGE, ['.goose'], undefined],
+    ['kimi-code', DEFAULT_KIMI_CODE_IMAGE, ['.kimi-code'], undefined],
+    ['pi', DEFAULT_PI_IMAGE, ['.pi'], undefined],
   ] as const)('creates %s with the managed runtime contract', async (runtime, image, syncInclude, syncExclude) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
@@ -717,9 +716,9 @@ describe('coding agents', () => {
       image: 'ghcr.io/hypercli/hypercli-pi:prod',
       command: ['/usr/local/bin/hyper-acp'],
       sync_root: '/home/node',
-      sync_include: ['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md'],
+      sync_include: ['.pi'],
     });
-    expect(DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi).toEqual(['.pi', '.hypercli/USER.md', '.hypercli/SOUL.md']);
+    expect(DEFAULT_CODING_AGENT_SYNC_INCLUDES.pi).toEqual(['.pi']);
     expect(post.mock.calls[0][1].env).not.toHaveProperty('HYPER_RUNTIME_HOME');
     await deployments.createAgent('pi', {
       image: 'registry.example.test/pi:custom',

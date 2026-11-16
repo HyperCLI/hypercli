@@ -7,10 +7,6 @@ import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
 import { buildSessionMcpServers } from './mcp.js';
 import { SessionsAPI, sessionMessageMetaFromWire } from './sessions.js';
-import {
-  DEFAULT_PERSONA_SOUL_PATH,
-  DEFAULT_PERSONA_USER_PATH,
-} from './agent-persona.js';
 
 // undici's native WebSocket (Node 18+) drops a permessage-deflate frame when
 // the peer's close frame and FIN land in the same TCP chunk, surfacing as a
@@ -156,18 +152,17 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
 export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[] | null>> = {
   'buzz-agent': null,
   opencode: [
-    DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH,
     '.config/opencode',
     '.local/share/opencode',
     '.local/state/opencode',
     '.cache/opencode',
   ],
-  codex: ['.codex', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
-  'claude-code': ['.claude', '.claude.json', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
-  goose: ['.goose', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
-  'kimi-code': ['.kimi-code', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
+  codex: ['.codex'],
+  'claude-code': ['.claude', '.claude.json'],
+  goose: ['.goose'],
+  'kimi-code': ['.kimi-code'],
   // Native agent state and pi-acp metadata (~/.pi/pi-acp).
-  pi: ['.pi', DEFAULT_PERSONA_USER_PATH, DEFAULT_PERSONA_SOUL_PATH],
+  pi: ['.pi'],
 };
 export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
@@ -1047,6 +1042,12 @@ export interface AgentIntegrationMeta {
   enabled?: boolean | null;
 }
 
+/** Canonical stored SOUL, distinct from PersonasAPI.resolve's effective persona. */
+export function canonicalSoul(meta: AgentMeta | null | undefined): string {
+  if (meta?.soul !== undefined) return typeof meta.soul === 'string' ? meta.soul : '';
+  return typeof meta?.ui?.soul === 'string' ? meta.ui.soul : '';
+}
+
 export interface AgentMeta {
   /** Canonical semantic Markdown; null on write clears only this field. */
   soul?: string | null;
@@ -1168,8 +1169,10 @@ export interface LifecycleActionOptions {
 }
 
 export interface UpdateAgentOptions {
-  /** Omit to preserve; a string replaces; null clears canonical Agent.meta.soul. */
+  /** Backend requires agents:* owner access; runtime self-writes are denied. Null clears. */
   soul?: string | null;
+  /** Exact live persona selector; null selects canonical SOUL. Same owner permission as soul. */
+  persona?: string | null;
   /** Omit to preserve; a nonblank string <=64 chars replaces verbatim; null clears. */
   role?: string | null;
   ui?: Pick<AgentUiMeta, 'description' | 'soul' | 'user'>;
@@ -3772,6 +3775,7 @@ export class Deployments {
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size) body.size = options.size;
     if (options.meta?.soul !== undefined) body.meta = { ...body.meta, soul: options.meta.soul };
+    if (options.meta?.persona !== undefined) body.meta = { ...body.meta, persona: options.meta.persona };
     if (options.meta?.role !== undefined) body.meta = { ...body.meta, role: options.meta.role };
     if (options.meta?.ui) body.meta = { ...body.meta, ui: structuredClone(options.meta.ui) };
     if (options.meta?.integrations) body.meta = { ...body.meta, integrations: structuredClone(options.meta.integrations) };
@@ -4586,10 +4590,11 @@ export class Deployments {
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
-    // soul, role, name, handle, size, launch_config, runtime, reset_image, ui, integrations.
+    // soul, persona, role, name, handle, size, launch_config, runtime, reset_image, ui, integrations.
     // refresh_from_lagoon/error are rejected.
     const body: Record<string, any> = {};
     if (options.soul !== undefined) body.soul = options.soul;
+    if (options.persona !== undefined) body.persona = options.persona;
     if (options.role !== undefined) body.role = options.role;
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;

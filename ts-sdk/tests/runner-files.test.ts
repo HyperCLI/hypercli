@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Deployments, RUNNER_FILE_MAX_BYTES } from '../src/agents.js';
 import { APIError } from '../src/errors.js';
 import type { HTTPClient } from '../src/http.js';
-import { projectManagedContext } from '../src/managed-context.js';
 
 const id = '11111111-2222-4333-8444-555555555555';
 function setup() {
@@ -176,31 +175,4 @@ describe('native assignment file transport', () => {
     await expect(deployments.fileDelete(id, '.hypercli', { recursive: true })).rejects.toThrow('never recursive');
   });
 
-  it('projects native context without directory listing, refreshes managed markers and preserves edits', async () => {
-    const { deployments, files } = setup();
-    const list = vi.spyOn(deployments, 'filesList');
-    const agent = await deployments.get(id);
-    const context = { profile: 'Me', description: 'Instructions' };
-    const run = () => projectManagedContext(deployments, agent, 'owner', context);
-    expect((await run()).map((r) => r.status)).toEqual(['written', 'written']);
-    expect((await run()).map((r) => r.status)).toEqual(['unchanged', 'unchanged']);
-    context.profile = 'New me';
-    files.set('.hypercli/SOUL.md', btoa('User edits'));
-    expect((await run()).map((r) => r.status)).toEqual(['written', 'preserved']);
-    expect(atob(files.get('.hypercli/SOUL.md')!)).toBe('User edits');
-    // Readiness probes the native root listing; projection reads each file directly.
-    expect(list).toHaveBeenCalled();
-  });
-
-  it.each([503, 501, 409])('reports offline/unsupported/unavailable (%i) without writing', async (statusCode) => {
-    const { deployments, post, files } = setup();
-    post.mockRejectedValue(new APIError(statusCode, 'Runner unavailable'));
-    const wait = deployments.waitForFileApiReady.bind(deployments);
-    vi.spyOn(deployments, 'waitForFileApiReady').mockImplementation((target) => wait(target, { timeoutMs: 0 }));
-    const agent = await deployments.get(id);
-    const result = await projectManagedContext(deployments, agent, 'owner', { profile: 'Me' });
-    expect(result[0]).toMatchObject({ status: 'skipped' });
-    expect(result[0].detail).toContain(String(statusCode));
-    expect(files.size).toBe(0);
-  });
 });

@@ -58,6 +58,7 @@ from .runners import Runner, RunnerMeta, RunnerUiMeta, RunnersAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, FlowCatalogItem
 from .files import File
 from .user import AuthMe, RuntimeIdentity, User, UserAPI
+from .personas import PersonasAPI, canonical_soul
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import (
@@ -244,6 +245,8 @@ __all__ = [
     "File",
     "User",
     "UserAPI",
+    "PersonasAPI",
+    "canonical_soul",
     "AuthMe",
     "RuntimeIdentity",
     "AsyncHTTPClient",
