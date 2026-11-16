@@ -18,7 +18,6 @@ function artifact(markdown = '# Live assembled INDEX\n'): PersonaArtifact {
     description: 'Coordinate work.',
     artifact: '/personas/chief-of-staff/INDEX.md',
     schema: 1,
-    repoSha: '0123456789abcdef0123456789abcdef01234567',
     sources: {},
     digest: DIGEST,
     revision: REVISION,
@@ -47,7 +46,6 @@ function clientFixture() {
       personas: [artifact()],
       catalog: {
         schema: 1,
-        repoSha: '0123456789abcdef0123456789abcdef01234567',
         revision: REVISION,
         digest: CATALOG_DIGEST,
       },

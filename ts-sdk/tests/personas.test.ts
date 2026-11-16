@@ -19,7 +19,6 @@ function entry(overrides: Record<string, unknown> = {}): Record<string, unknown>
     description: 'Coordinate current work.',
     artifact: '/personas/chief-of-staff/INDEX.md',
     schema: 1,
-    repo_sha: '0123456789abcdef0123456789abcdef01234567',
     sources: {
       'PERSONA.md': { sha256: 'c'.repeat(64) },
       'GUARDRAIL.md': { sha256: 'd'.repeat(64) },
@@ -35,7 +34,6 @@ function catalog() {
     personas: [entry()],
     catalog: {
       schema: 1,
-      repo_sha: '0123456789abcdef0123456789abcdef01234567',
       revision: REVISION,
       digest: CATALOG_DIGEST,
     },
@@ -98,7 +96,6 @@ describe('live persona discovery', () => {
     expect(result.personas[0]).toMatchObject({
       id: 'chief-of-staff',
       name: 'chief-of-staff',
-      repoSha: '0123456789abcdef0123456789abcdef01234567',
       digest: DIGEST,
       revision: REVISION,
     });

@@ -69,7 +69,6 @@ function entryJson(entry: PersonaCatalogEntry): Record<string, unknown> {
     description: entry.description,
     artifact: entry.artifact,
     schema: entry.schema,
-    repo_sha: entry.repoSha,
     sources: entry.sources,
     digest: entry.digest,
     revision: entry.revision,

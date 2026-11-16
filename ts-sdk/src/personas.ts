@@ -24,7 +24,6 @@ export interface PersonaCatalogEntry {
   description: string;
   artifact: string;
   schema: number;
-  repoSha: string;
   sources: Record<string, PersonaSourceDigest>;
   /** SHA-256 of the exact assembled INDEX.md bytes. */
   digest: string;
@@ -33,8 +32,6 @@ export interface PersonaCatalogEntry {
 
 export interface PersonaCatalogMetadata {
   schema: number;
-  /** Immutable source revision, required even when personas is empty. */
-  repoSha: string;
   revision: string;
   digest: string;
 }
@@ -110,14 +107,6 @@ function requiredRevision(value: unknown, field: string): string {
   return revision;
 }
 
-function requiredRepoSha(value: unknown, field: string): string {
-  const repoSha = requiredString(value, field);
-  if (!/^[0-9a-f]{40}$/.test(repoSha) || repoSha === '0'.repeat(40)) {
-    throw new PersonaError('persona_invalid', `Backend persona response has an invalid ${field}`);
-  }
-  return repoSha;
-}
-
 export function assertPersonaId(value: unknown): string {
   if (typeof value !== 'string' || value.length > 64 || !PERSONA_ID_PATTERN.test(value)) {
     throw new PersonaError('persona_invalid_id', 'persona id must be an exact lowercase hyphenated identifier');
@@ -143,10 +132,6 @@ function personaCatalogEntryFromData(value: unknown): PersonaCatalogEntry {
   if (data.schema !== 1) {
     throw new PersonaError('persona_invalid', `Backend persona '${name}' has an unsupported schema`);
   }
-  const repoSha = requiredString(data.repo_sha ?? data.repoSha, `repo_sha for '${name}'`);
-  if (!/^[0-9a-f]{40}$/.test(repoSha)) {
-    throw new PersonaError('persona_invalid', `Backend persona '${name}' has an invalid repo_sha`);
-  }
   const rawSources = record(data.sources);
   if (!rawSources || Object.keys(rawSources).sort().join(',') !== 'GUARDRAIL.md,PERSONA.md') {
     throw new PersonaError('persona_invalid', `Backend persona '${name}' has invalid source digests`);
@@ -165,7 +150,6 @@ function personaCatalogEntryFromData(value: unknown): PersonaCatalogEntry {
     description,
     artifact,
     schema: 1,
-    repoSha,
     sources,
     digest: requiredDigest(data.digest, `digest for '${name}'`),
     revision: requiredRevision(data.revision, `revision for '${name}'`),
@@ -184,7 +168,6 @@ export function personaCatalogFromData(value: unknown): PersonaCatalog {
   }
   const catalog = {
     schema: 1,
-    repoSha: requiredRepoSha(rawCatalog.repo_sha ?? rawCatalog.repoSha, 'catalog.repo_sha'),
     revision: requiredRevision(rawCatalog.revision, 'catalog.revision'),
     digest: requiredDigest(rawCatalog.digest, 'catalog.digest'),
   };
