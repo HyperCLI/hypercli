@@ -6,6 +6,7 @@ const ROOM_ID = '2f5d8a10-97c3-4a1e-8b4d-9a2f6c0e7d31';
 const AGENT_A = '3f6c9a20-1b4d-4e5f-8a7c-2d0e9f1b3a45';
 const AGENT_B = '8d1f2b34-56a7-48b9-9c01-d23e4f5a6b7c';
 const OWNER_ID = '81c2f4e6-7a8b-49c0-b1d2-3e4f5a6b7c8d';
+const USER_B = '4b2d9c81-3e5f-4a7b-9c0d-1e2f3a4b5c6d';
 
 /** Mirror of the backend `RoomRecord` (`agents/backend/agents/session_room_routes.py`). */
 function roomRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -20,6 +21,10 @@ function roomRow(overrides: Record<string, unknown> = {}): Record<string, unknow
     agents: [
       { agent_id: AGENT_A, name: 'Atlas', internal_session_id: 'claude-9f2e' },
       { agent_id: AGENT_B, name: 'Maya', internal_session_id: null },
+    ],
+    users: [
+      { user_id: OWNER_ID, name: 'Dmitry', role: 'owner' },
+      { user_id: USER_B, name: 'Grace Hopper', role: 'user' },
     ],
     token_limit: null,
     agent_turn_limit: 25,
@@ -76,6 +81,10 @@ describe('explicit room creation and readback', () => {
       agents: [
         { agentId: AGENT_A, name: 'Atlas', internalSessionId: 'claude-9f2e' },
         { agentId: AGENT_B, name: 'Maya', internalSessionId: null },
+      ],
+      users: [
+        { userId: OWNER_ID, name: 'Dmitry', role: 'owner' },
+        { userId: USER_B, name: 'Grace Hopper', role: 'user' },
       ],
       tokenLimit: null, agentTurnLimit: 25, configuredAgentTurnLimit: null,
       status: 'live', setupRevision: 3,
@@ -164,6 +173,33 @@ describe('room read and owner updates', () => {
     await expect(api.createRoom([AGENT_A])).rejects.toThrow('Room creation requires a writable HTTP client');
     await expect(api.updateRoom(ROOM_ID, { title: 'x' })).rejects.toThrow('Room updates require a writable HTTP client');
     await expect(api.createRoomMessage(ROOM_ID, 'hello')).rejects.toThrow('Room messages require a writable HTTP client');
+    await expect(api.addParticipant(ROOM_ID, USER_B)).rejects.toThrow('Room participants require a writable HTTP client');
+  });
+
+  it('owner-adds a participant and maps the refreshed roster back', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(roomRow()) };
+    const room = await new SessionsAPI(http).addParticipant(ROOM_ID, USER_B);
+    expect(http.post).toHaveBeenCalledExactlyOnceWith(`/rooms/${ROOM_ID}/participants`, { user_id: USER_B });
+    expect(room.users).toEqual([
+      { userId: OWNER_ID, name: 'Dmitry', role: 'owner' },
+      { userId: USER_B, name: 'Grace Hopper', role: 'user' },
+    ]);
+  });
+
+  it('encodes odd room ids on the participants route', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(roomRow()) };
+    await new SessionsAPI(http).addParticipant('room/odd id?#%', USER_B);
+    expect(http.post).toHaveBeenCalledWith(
+      '/rooms/room%2Fodd%20id%3F%23%25/participants', { user_id: USER_B },
+    );
+  });
+
+  it('reads a room from a backend that predates the human roster', async () => {
+    const { users: _omitted, ...withoutUsers } = roomRow();
+    const http = { get: vi.fn().mockResolvedValue(withoutUsers) };
+    const room = await new SessionsAPI(http).getRoom(ROOM_ID);
+    expect(room.users).toEqual([]);
+    expect(room.agents).toHaveLength(2);
   });
 });
 

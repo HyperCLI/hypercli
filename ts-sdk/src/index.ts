@@ -500,6 +500,7 @@ export {
   type RoomMessage,
   type RoomRecord,
   type RoomUpdateOptions,
+  type RoomUser,
 } from './sessions.js';
 export {
   MemoryAPI,

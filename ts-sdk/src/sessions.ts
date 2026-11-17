@@ -361,6 +361,16 @@ export interface RoomAgent {
   internalSessionId: string | null;
 }
 
+/**
+ * One verified human roster entry on a room read (backend `RoomUser`). The
+ * name is a cleaned display fact; `userId` is the stable identity.
+ */
+export interface RoomUser {
+  userId: string;
+  name: string;
+  role: 'owner' | 'user';
+}
+
 /** Explicit multiparty room (docs/MULTIPARTY.md) as the product API reads it. */
 export interface RoomRecord {
   /** Stable platform room/session UUID; there is no separate room id. */
@@ -372,6 +382,8 @@ export interface RoomRecord {
   rules: string[];
   ownerId: string;
   agents: RoomAgent[];
+  /** Humans on the roster: the owner first, then additions in audit order. */
+  users: RoomUser[];
   /** Aggregate per-epoch token budget; null means unlimited. */
   tokenLimit: number | null;
   /** Effective per-agent, per-epoch turn allowance the backend enforces (product default 25). */
@@ -566,11 +578,20 @@ function roomAgentFromWire(row: Record<string, unknown>): RoomAgent {
   };
 }
 
+function roomUserFromWire(row: Record<string, unknown>): RoomUser {
+  return {
+    userId: String(pick<unknown>(row, 'user_id', 'userId') ?? ''),
+    name: typeof row.name === 'string' ? row.name : '',
+    role: row.role === 'owner' ? 'owner' : 'user',
+  };
+}
+
 /** Normalize one backend `RoomRecord`; refuses non-room payloads. */
 function roomFromWire(row: Record<string, unknown>): RoomRecord {
   if (row.kind !== 'room') throw new TypeError('Invalid room record response');
   const rules = row.rules;
   const agents = row.agents;
+  const users = row.users;
   const tokenLimit = pick<unknown>(row, 'token_limit', 'tokenLimit');
   const agentTurnLimit = pick<unknown>(row, 'agent_turn_limit', 'agentTurnLimit');
   const configured = pick<unknown>(row, 'configured_agent_turn_limit', 'configuredAgentTurnLimit');
@@ -594,6 +615,11 @@ function roomFromWire(row: Record<string, unknown>): RoomRecord {
     rules: rules.map(String),
     ownerId: String(pick<unknown>(row, 'owner_id', 'ownerId') ?? ''),
     agents: agents.filter((agent) => agent && typeof agent === 'object').map(roomAgentFromWire),
+    // Backends before humans-in-rooms omit the roster; an empty list keeps
+    // their room reads working.
+    users: Array.isArray(users)
+      ? users.filter((user) => user && typeof user === 'object').map(roomUserFromWire)
+      : [],
     tokenLimit: integer(tokenLimit),
     agentTurnLimit: agentTurnLimit as number,
     configuredAgentTurnLimit: integer(configured),
@@ -858,6 +884,21 @@ export class SessionsAPI {
       { body, ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}) },
     );
     return roomMessageFromWire(payload);
+  }
+
+  /**
+   * Owner-adds one human to a room roster (`POST /rooms/{room_id}/participants`).
+   * Idempotent: re-adding an existing participant changes nothing on the wire.
+   * The authenticated caller must be the room owner; agent runtime keys are
+   * refused.
+   */
+  async addParticipant(roomId: string, userId: string): Promise<RoomRecord> {
+    if (!this.http.post) throw new Error('Room participants require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/participants`,
+      { user_id: userId },
+    );
+    return roomFromWire(payload);
   }
 
 }
