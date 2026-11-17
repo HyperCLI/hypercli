@@ -42,6 +42,7 @@ COPY --chmod=0644 AGENTS.md.template /opt/hypercli-hermes/AGENTS.md.template
 COPY --chmod=0644 mem0.json /opt/hypercli-hermes/mem0.json
 COPY --chmod=0755 entrypoint.sh /opt/hypercli-hermes/entrypoint.sh
 COPY --chmod=0755 init.sh /opt/hypercli-hermes/init.sh
+COPY --chmod=0755 seed_instructions.sh /opt/hypercli-hermes/seed_instructions.sh
 COPY --chmod=0755 skills.sh /opt/hypercli-hermes/skills.sh
 COPY --chmod=0755 configure_mem0.py /opt/hypercli-hermes/configure_mem0.py
 COPY --chmod=0755 config.py /opt/hypercli-hermes/config.py

@@ -51,12 +51,7 @@ fi
 python3 /opt/hypercli-hermes/configure_mem0.py "${MEM0_CONFIG_PATH}"
 
 HERMES_INSTRUCTIONS_TEMPLATE="${HERMES_INSTRUCTIONS_TEMPLATE:-/opt/hypercli-hermes/AGENTS.md.template}"
-if [[ -e "${HERMES_INSTRUCTIONS_TEMPLATE}" && ! -e "${HOME}/AGENTS.md" && ! -L "${HOME}/AGENTS.md" ]]; then
-  cp "${HERMES_INSTRUCTIONS_TEMPLATE}" "${HOME}/AGENTS.md"
-  echo "[hermes-agent] seeded native instructions at ${HOME}/AGENTS.md"
-else
-  echo "[hermes-agent] preserving existing native instructions at ${HOME}/AGENTS.md"
-fi
+/opt/hypercli-hermes/seed_instructions.sh "${HERMES_INSTRUCTIONS_TEMPLATE}" "${HOME}/AGENTS.md"
 
 chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${CONFIG_PATH}"
 if [[ -e "${MEM0_CONFIG_PATH}" || -L "${MEM0_CONFIG_PATH}" ]]; then
