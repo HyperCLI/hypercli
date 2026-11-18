@@ -105,6 +105,7 @@ export async function subscribeSession(
               typeof a.id === 'string' && a.id && Number.isSafeInteger(a.expiresInMs) && a.expiresInMs > 0 && a.expiresInMs <= 120_000)) {
               throw new Error('Invalid room activity');
             }
+            if (!options.onRoomActivity) return;
             clearTimeout(expiry);
             const now = performance.now();
             const leases = frame.actors.map(({ kind, id, expiresInMs }) => ({ actor: { kind, id }, until: now + expiresInMs }));

@@ -107,6 +107,8 @@ async def subscribe_session(
                                     and type(a.get("expiresInMs")) is int and 0 < a["expiresInMs"] <= 120_000 for a in actors
                                 ):
                                     raise ValueError("Invalid room activity")
+                                if on_room_activity is None:
+                                    continue
                                 now = clock()
                                 leases = [(now + a["expiresInMs"] / 1000, {"id": a["id"], "kind": a["kind"]}) for a in actors]
                                 await callback(on_room_activity, [actor for _, actor in leases])
