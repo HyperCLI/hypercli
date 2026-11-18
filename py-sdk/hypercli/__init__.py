@@ -159,7 +159,7 @@ from .acp import (
     AmbiguousDeliveryError,
     RetryableACPError,
 )
-__version__ = "0.11.4"
+__version__ = "0.11.5"
 __all__ = [
     "CHAT_INTEGRATIONS",
     "build_chat_integration_config",
