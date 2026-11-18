@@ -100,10 +100,10 @@ export async function subscribeSession(
             await options.onReady?.();
             return;
           }
-          if (activityEnabled && frame.type === 'roomActivity' && frame.sessionId === sessionId) {
-            if (!Array.isArray(frame.actors) || !frame.actors.every(a => a && ['user', 'agent'].includes(a.kind) &&
+          if (activityEnabled && frame.type === 'roomActivity') {
+            if (frame.sessionId !== sessionId || !Array.isArray(frame.actors) || !frame.actors.every(a => a && ['user', 'agent'].includes(a.kind) &&
               typeof a.id === 'string' && a.id && Number.isSafeInteger(a.expiresInMs) && a.expiresInMs > 0 && a.expiresInMs <= 120_000)) {
-              throw new Error('Invalid room activity');
+              return; // A bad hint cannot replace valid leases or interrupt canonical observation.
             }
             if (!options.onRoomActivity) return;
             clearTimeout(expiry);

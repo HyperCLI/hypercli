@@ -146,6 +146,32 @@ describe('session observer loopback', () => {
     } finally { stop.abort(); await close(); }
   });
 
+  it('drops invalid optional snapshots while retaining good activity and canonical delivery', async () => {
+    const { wss, api, close } = await server();
+    const stop = new AbortController();
+    const snapshots: unknown[] = [];
+    wss.on('connection', ws => {
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.on('message', bytes => {
+        const cmd = JSON.parse(String(bytes));
+        if (cmd.type !== 'sessionSubscribe') return;
+        const activity = { type: 'roomActivity', sessionId: 's', actors: [{ kind: 'agent', id: 'a', expiresInMs: 60000 }] };
+        for (const frame of [{ ...cmd, type: 'sessionSubscribed' }, activity, { ...activity, actors: [null] },
+          { ...activity, sessionId: 'other', actors: [] }, { type: 'sessionMessage', sessionId: 's', message: row }]) {
+          ws.send(JSON.stringify(frame));
+        }
+      });
+    });
+    try {
+      await api.subscribe('s', event => {
+        expect(event.message.seq).toBe(1);
+        expect(snapshots).toEqual([[{ kind: 'agent', id: 'a' }]]);
+        stop.abort();
+      }, { signal: stop.signal, onRoomActivity: actors => snapshots.push(actors) });
+      expect(stop.signal.aborted).toBe(true);
+    } finally { stop.abort(); await close(); }
+  });
+
   it.each(['ready', 'ack'])('treats a missing %s frame after opening as terminal', async phase => {
     const originalSetTimeout = globalThis.setTimeout;
     const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>

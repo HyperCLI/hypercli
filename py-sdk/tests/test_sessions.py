@@ -55,6 +55,33 @@ async def test_room_activity_opt_in_typing_and_independent_expiry():
     await channels[0](True)  # A stale sender cannot affect another connection.
 
 
+@pytest.mark.asyncio
+async def test_invalid_optional_snapshots_preserve_good_activity_and_canonical_delivery():
+    stop = asyncio.Event()
+    snapshots = []
+
+    async def peer(ws):
+        await ws.send(json.dumps({"type": "ready"}))
+        cmd = json.loads(await ws.recv())
+        activity = {"type": "roomActivity", "sessionId": "s", "actors": [{"kind": "agent", "id": "a", "expiresInMs": 60000}]}
+        for frame in ({**cmd, "type": "sessionSubscribed"}, activity, {**activity, "actors": [None]},
+                      {**activity, "sessionId": "other", "actors": []}, {"type": "sessionMessage", "sessionId": "s", "message": MESSAGE}):
+            await ws.send(json.dumps(frame))
+        await ws.wait_closed()
+
+    def message(event):
+        assert event.message.seq == 1
+        assert snapshots == [[{"kind": "agent", "id": "a"}]]
+        stop.set()
+
+    async with serve(peer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="test", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        await asyncio.wait_for(client.deployments.subscribe_session("s", message, stop_event=stop,
+                               on_room_activity=snapshots.append), 3)
+    assert stop.is_set()
+
+
 @pytest.mark.parametrize("later", [False, True])
 @pytest.mark.parametrize("payload", [
     None, {}, [], {"items": []}, {"items": None, "has_more": False},

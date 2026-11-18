@@ -95,24 +95,26 @@ async def subscribe_session(
                             else:
                                 data = await ws.recv()
                             frame = json.loads(data)
-                            if (not isinstance(frame, dict) or frame.get("sessionId") != session_id):
+                            if not isinstance(frame, dict):
                                 raise ValueError("Invalid session observer event")
-                            if frame.get("type") == "sessionSubscriptionError":
-                                raise ValueError(frame.get("message") or "Session subscription rejected")
                             if enabled and frame.get("type") == "roomActivity":
                                 actors = frame.get("actors")
-                                if not isinstance(actors, list) or not all(
+                                if frame.get("sessionId") != session_id or not isinstance(actors, list) or not all(
                                     isinstance(a, dict) and a.get("kind") in ("user", "agent")
                                     and isinstance(a.get("id"), str) and a["id"]
                                     and type(a.get("expiresInMs")) is int and 0 < a["expiresInMs"] <= 120_000 for a in actors
                                 ):
-                                    raise ValueError("Invalid room activity")
+                                    continue  # Leave the last valid leases and canonical subscription intact.
                                 if on_room_activity is None:
                                     continue
                                 now = clock()
                                 leases = [(now + a["expiresInMs"] / 1000, {"id": a["id"], "kind": a["kind"]}) for a in actors]
                                 await callback(on_room_activity, [actor for _, actor in leases])
                                 continue
+                            if frame.get("sessionId") != session_id:
+                                raise ValueError("Invalid session observer event")
+                            if frame.get("type") == "sessionSubscriptionError":
+                                raise ValueError(frame.get("message") or "Session subscription rejected")
                             if frame.get("type") != "sessionMessage":
                                 raise ValueError("Invalid session observer event")
                             message = SessionMessage.from_dict(frame.get("message"))
