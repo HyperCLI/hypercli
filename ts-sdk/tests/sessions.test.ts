@@ -435,6 +435,21 @@ describe('product session mode over HTTP', () => {
     expect(get).toHaveBeenCalledExactlyOnceWith('/sessions/session%2Fid');
   });
 
+  it('aborts a pending mode update when its signal fires', async () => {
+    const fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => new Promise((_, reject) => {
+      init.signal!.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+    }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'caller-key'));
+      const controller = new AbortController();
+      const pending = api.setMode('s', 'auto', { signal: controller.signal });
+      controller.abort(new Error('interrupted'));
+      await expect(pending).rejects.toThrow();
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('propagates offline errors while allowing persisted mode readback', async () => {
     const error = new Error('503 runtime offline');
     const post = vi.fn().mockRejectedValue(error);

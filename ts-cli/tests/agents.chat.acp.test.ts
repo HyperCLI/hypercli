@@ -13,6 +13,7 @@ const savedSetup = { cwd: '/original-workspace', mcpServers: [
   { name: 'retained-tool', command: 'fixture-tool', args: [], env: [] },
 ] };
 const root = fileURLToPath(new URL('..', import.meta.url));
+const CHILD_DEADLINE_MS = 8000;
 
 async function exercise(args: string[], mode = 'reply') {
   const home = await mkdtemp(join(tmpdir(), 'hyper-chat-'));
@@ -41,12 +42,16 @@ async function exercise(args: string[], mode = 'reply') {
         const update = JSON.parse(body);
         modeWrites.push(update);
         sequence.push('set-mode');
-        if (mode === 'policy-interrupt') child!.kill('SIGINT');
+        if (mode === 'policy-interrupt') {
+          // The mode update never gets an answer: Ctrl-C alone must end the CLI.
+          child!.kill('SIGINT');
+          return;
+        }
         setTimeout(() => {
           sequence.push('mode-response');
           res.statusCode = mode === 'policy-error' ? 503 : 200;
           res.end(JSON.stringify(mode === 'policy-error' ? { detail: 'mode unavailable' } : { mode: update.mode }));
-        }, mode === 'policy-stall' || mode === 'policy-interrupt' ? 1500 : 100);
+        }, mode === 'policy-stall' ? 1500 : 100);
       });
       return;
     }
@@ -120,7 +125,7 @@ async function exercise(args: string[], mode = 'reply') {
     let stdout = '', stderr = '';
     child.stdout!.on('data', data => { stdout += data; });
     child.stderr!.on('data', data => { stderr += data; });
-    const deadline = setTimeout(() => child!.kill('SIGKILL'), 8000);
+    const deadline = setTimeout(() => child!.kill('SIGKILL'), CHILD_DEADLINE_MS);
     const [code, signal] = await once(child, 'close');
     clearTimeout(deadline);
     if (mode === 'permission-app') await appCompletion;
@@ -129,12 +134,13 @@ async function exercise(args: string[], mode = 'reply') {
     app?.close();
     for (const client of ws.clients) client.terminate();
     await new Promise<void>(resolve => ws.close(() => resolve()));
+    server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(home, { recursive: true, force: true });
   }
 }
 
-describe('chat actual argv and SDK wire', () => {
+describe('chat actual argv and SDK wire', { timeout: CHILD_DEADLINE_MS }, () => {
   it('rejects a missing option value before network', async () => {
     const run = await exercise(['--permissions']);
     expect(run.code).toBe(2);
