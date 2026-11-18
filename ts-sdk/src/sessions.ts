@@ -312,6 +312,10 @@ export interface SessionMessageEvent {
 
 export interface SessionSubscribeOptions {
   signal?: AbortSignal;
+  /** Opt in to transient room activity; an empty snapshot clears indicators. */
+  onRoomActivity?: (actors: { kind: 'agent' | 'user'; id: string }[]) => void;
+  /** Optional typing sender for this registration, cleared on disconnect. */
+  onTypingChannel?: (send: ((active: boolean) => void) | null) => void;
   /** Called after each correlated subscription ACK; resync history here if needed. */
   onReady?: () => void | Promise<void>;
 }

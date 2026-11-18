@@ -23,13 +23,23 @@ export async function subscribeSession(
       let finished = false;
       let ready = false;
       let subscribed = false;
+      const wantsActivity = Boolean(options.onRoomActivity || options.onTypingChannel);
+      let activityEnabled = false;
+      let expiry: ReturnType<typeof setTimeout> | undefined;
       let processing = Promise.resolve();
       const finish = (error?: unknown) => {
         if (finished) return;
         finished = true;
+        clearTimeout(expiry);
         clearTimeout(timer);
         options.signal?.removeEventListener('abort', abort);
         if (ws.readyState < 2) ws.close();
+        if (activityEnabled) {
+          try {
+            options.onTypingChannel?.(null);
+            options.onRoomActivity?.([]);
+          } catch (e) { error ??= e; }
+        }
         if (error && !options.signal?.aborted) reject(error);
         else resolve();
       };
@@ -66,7 +76,7 @@ export async function subscribeSession(
           if (!ready) {
             if (frame.type !== 'ready') throw new Error('Session observer did not send ready');
             ready = true;
-            ws.send(JSON.stringify({ type: 'sessionSubscribe', requestId, sessionId }));
+            ws.send(JSON.stringify({ type: 'sessionSubscribe', requestId, sessionId, ...(wantsActivity && { roomActivity: true }) }));
             return;
           }
           if (frame.type === 'sessionSubscriptionError') {
@@ -79,7 +89,33 @@ export async function subscribeSession(
             }
             subscribed = true;
             clearTimeout(timer);
+            activityEnabled = wantsActivity && frame.roomActivity === true;
+            if (activityEnabled) options.onTypingChannel?.(active => {
+              if (!finished && ws.readyState === 1) {
+                // The transport can close between the ready check and this
+                // best-effort write. Never fail the caller's canonical send.
+                try { ws.send(JSON.stringify({ type: 'roomTyping', sessionId, requestId, active })); } catch { /* expires */ }
+              }
+            });
             await options.onReady?.();
+            return;
+          }
+          if (activityEnabled && frame.type === 'roomActivity' && frame.sessionId === sessionId) {
+            if (!Array.isArray(frame.actors) || !frame.actors.every(a => a && ['user', 'agent'].includes(a.kind) &&
+              typeof a.id === 'string' && a.id && Number.isSafeInteger(a.expiresInMs) && a.expiresInMs > 0 && a.expiresInMs <= 120_000)) {
+              throw new Error('Invalid room activity');
+            }
+            clearTimeout(expiry);
+            const now = performance.now();
+            const leases = frame.actors.map(({ kind, id, expiresInMs }) => ({ actor: { kind, id }, until: now + expiresInMs }));
+            const publish = () => {
+              if (finished) return;
+              const time = performance.now();
+              const live = leases.filter(lease => lease.until > time);
+              if (live.length) expiry = setTimeout(publish, Math.ceil(Math.min(...live.map(lease => lease.until)) - time));
+              try { options.onRoomActivity?.(live.map(lease => lease.actor)); } catch (error) { finish(error); }
+            };
+            publish();
             return;
           }
           if (frame.type !== 'sessionMessage' || frame.sessionId !== sessionId) throw new Error('Invalid session observer event');

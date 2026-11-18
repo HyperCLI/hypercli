@@ -3711,10 +3711,14 @@ class Deployments:
     async def subscribe_session(
         self, session_id: str, handler: Callable[[SessionMessageEvent], Any], *,
         stop_event: asyncio.Event | None = None, on_ready: Callable[[], Any] | None = None,
+        on_room_activity: Callable[[list[dict[str, str]]], Any] | None = None,
+        on_typing_channel: Callable[[Callable[[bool], Awaitable[None]] | None], Any] | None = None,
     ) -> None:
         """Observe canonical messages until stopped/cancelled. Reconnects resubscribe.
 
         on_ready runs after each subscribe ACK; no replay/gap-free guarantee.
+        on_room_activity replaces transient actors; on_typing_channel receives
+        an async send(active) function for this registration, or None on loss.
         Protocol, subscription and callback failures propagate to the caller.
         """
         from .session_subscription import subscribe_session
@@ -3723,7 +3727,8 @@ class Deployments:
         if re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", session_id, re.IGNORECASE):
             session_id = str(UUID(session_id))
         await subscribe_session(self._agents_ws_url, self._api_key, session_id, handler,
-                                stop_event=stop_event, on_ready=on_ready)
+                                stop_event=stop_event, on_ready=on_ready,
+                                on_room_activity=on_room_activity, on_typing_channel=on_typing_channel)
 
     def get_session(self, platform_session_id: str) -> SessionRecord:
         """Read stored metadata by platform session ID, never a runtime/leg ID.

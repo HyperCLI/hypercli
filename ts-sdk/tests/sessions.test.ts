@@ -118,6 +118,34 @@ describe('session observer loopback', () => {
     }
   });
 
+  it('negotiates typing and expires a snapshot even when the terminal hint is lost', async () => {
+    const { wss, api, close } = await server();
+    const stop = new AbortController();
+    const commands: Record<string, unknown>[] = [];
+    wss.on('connection', ws => {
+      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.on('message', bytes => {
+        const command = JSON.parse(String(bytes));
+        commands.push(command);
+        if (command.type === 'sessionSubscribe') ws.send(JSON.stringify({ ...command, type: 'sessionSubscribed' }));
+        if (command.type === 'roomTyping') ws.send(JSON.stringify({ type: 'roomActivity', sessionId: 's',
+          actors: [{ kind: 'agent', id: 'atlas', expiresInMs: 50 }] }));
+      });
+    });
+    const snapshots: unknown[] = [];
+    try {
+      await api.subscribe('s', () => { throw new Error('activity entered canonical history'); }, {
+        signal: stop.signal, onTypingChannel: send => send?.(true), onRoomActivity: actors => {
+          snapshots.push(actors);
+          if (!actors.length) stop.abort();
+        },
+      });
+      expect(commands[0].roomActivity).toBe(true);
+      expect(commands[1]).toEqual({ type: 'roomTyping', sessionId: 's', requestId: commands[0].requestId, active: true });
+      expect(snapshots.slice(0, 2)).toEqual([[{ kind: 'agent', id: 'atlas' }], []]);
+    } finally { stop.abort(); await close(); }
+  });
+
   it.each(['ready', 'ack'])('treats a missing %s frame after opening as terminal', async phase => {
     const originalSetTimeout = globalThis.setTimeout;
     const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>

@@ -1,9 +1,9 @@
-"""Read-only product /ws observer, independent of native ACP connections."""
+"""Product /ws observer, independent of native ACP connections."""
 
 import asyncio
 import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -25,6 +25,8 @@ async def subscribe_session(
     ws_url: str, credential: str, session_id: str,
     handler: Callable[[SessionMessageEvent], Any], *,
     stop_event: asyncio.Event | None = None, on_ready: Callable[[], Any] | None = None,
+    on_room_activity: Callable[[list[dict[str, str]]], Any] | None = None,
+    on_typing_channel: Callable[[Callable[[bool], Awaitable[None]] | None], Any] | None = None,
 ) -> None:
     if not session_id:
         raise ValueError("session_id is required")
@@ -56,7 +58,9 @@ async def subscribe_session(
                         raise ValueError("Session observer did not send ready")
                     request += 1
                     request_id = str(request)
-                    await ws.send(json.dumps({"type": "sessionSubscribe", "requestId": request_id, "sessionId": session_id}))
+                    wants_activity = on_room_activity is not None or on_typing_channel is not None
+                    await ws.send(json.dumps({"type": "sessionSubscribe", "requestId": request_id, "sessionId": session_id,
+                                              **({"roomActivity": True} if wants_activity else {})}))
                     ack = json.loads(await asyncio.wait_for(ws.recv(), 10))
                     if (not isinstance(ack, dict) or ack.get("requestId") != request_id
                             or ack.get("sessionId") != session_id):
@@ -65,14 +69,48 @@ async def subscribe_session(
                         raise ValueError(ack.get("message") or "Session subscription rejected")
                     if ack.get("type") != "sessionSubscribed":
                         raise ValueError("Invalid session subscription acknowledgement")
+                    enabled = wants_activity and ack.get("roomActivity") is True
+                    retired = asyncio.Event()
+                    clock = asyncio.get_running_loop().time
+                    leases = []
+
+                    async def typing(active: bool, *, _ws=ws, _retired=retired, _id=request_id):
+                        if type(active) is bool and not _retired.is_set() and _ws.state.name == "OPEN":
+                            with suppress(ConnectionClosed):
+                                await _ws.send(json.dumps({"type": "roomTyping", "requestId": _id,
+                                                           "sessionId": session_id, "active": active}))
+
                     try:
+                        if enabled:
+                            await callback(on_typing_channel, typing)
                         await callback(on_ready)
                         while stop_event is None or not stop_event.is_set():
-                            frame = json.loads(await ws.recv())
+                            if leases:
+                                try:
+                                    data = await asyncio.wait_for(ws.recv(), min(end for end, _ in leases) - clock())
+                                except asyncio.TimeoutError:
+                                    leases = [(end, actor) for end, actor in leases if end > clock()]
+                                    await callback(on_room_activity, [actor for _, actor in leases])
+                                    continue
+                            else:
+                                data = await ws.recv()
+                            frame = json.loads(data)
                             if (not isinstance(frame, dict) or frame.get("sessionId") != session_id):
                                 raise ValueError("Invalid session observer event")
                             if frame.get("type") == "sessionSubscriptionError":
                                 raise ValueError(frame.get("message") or "Session subscription rejected")
+                            if enabled and frame.get("type") == "roomActivity":
+                                actors = frame.get("actors")
+                                if not isinstance(actors, list) or not all(
+                                    isinstance(a, dict) and a.get("kind") in ("user", "agent")
+                                    and isinstance(a.get("id"), str) and a["id"]
+                                    and type(a.get("expiresInMs")) is int and 0 < a["expiresInMs"] <= 120_000 for a in actors
+                                ):
+                                    raise ValueError("Invalid room activity")
+                                now = clock()
+                                leases = [(now + a["expiresInMs"] / 1000, {"id": a["id"], "kind": a["kind"]}) for a in actors]
+                                await callback(on_room_activity, [actor for _, actor in leases])
+                                continue
                             if frame.get("type") != "sessionMessage":
                                 raise ValueError("Invalid session observer event")
                             message = SessionMessage.from_dict(frame.get("message"))
@@ -80,6 +118,10 @@ async def subscribe_session(
                                 raise ValueError("Session message does not match selected session")
                             await callback(handler, SessionMessageEvent("sessionMessage", session_id, message))
                     finally:
+                        retired.set()
+                        if enabled:
+                            await callback(on_typing_channel, None)
+                            await callback(on_room_activity, [])
                         if ws.state.name == "OPEN":
                             with suppress(ConnectionClosed):
                                 await ws.send(json.dumps({"type": "sessionUnsubscribe", "requestId": str(request + 1), "sessionId": session_id}))
