@@ -1891,7 +1891,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
       sessionResumed = sessionName !== undefined;
       ctx.output.info(`session opened ${sessionId}`);
       if (permissions !== undefined) {
-        await atStage('policy', () => client.sessions.setMode(sessionId, permissions));
+        await atStage('policy', () => client.sessions.setMode(sessionId, permissions, { signal: controller.signal }));
       }
       try {
         // Only this command's submitted prompt makes it eligible to cancel.

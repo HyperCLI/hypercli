@@ -733,17 +733,18 @@ export class SessionsAPI {
   }
 
   /** Persist product permission mode. A 503 can follow persistence; GET reads it back. */
-  async setMode(platformSessionId: string, mode: 'ask' | 'auto' | 'none'): Promise<AcpSessionRecord> {
+  async setMode(platformSessionId: string, mode: 'ask' | 'auto' | 'none', options: { signal?: AbortSignal } = {}): Promise<AcpSessionRecord> {
     if (!this.http.post) throw new Error('Session mode updates require a writable HTTP client');
-    return this.updateSession(platformSessionId, { mode });
+    return this.updateSession(platformSessionId, { mode }, options);
   }
 
   /** Update stored session fields; omitted fields are preserved. Whole-meta null is rejected by the server. */
-  async updateSession(platformSessionId: string, patch: AcpSessionUpdate): Promise<AcpSessionRecord> {
+  async updateSession(platformSessionId: string, patch: AcpSessionUpdate, options: { signal?: AbortSignal } = {}): Promise<AcpSessionRecord> {
     if (!this.http.post) throw new Error('Session updates require a writable HTTP client');
-    const payload = await this.http.post<Record<string, unknown>>(
-      `/sessions/${encodeURIComponent(platformSessionId)}`, patch,
-    );
+    const path = `/sessions/${encodeURIComponent(platformSessionId)}`;
+    const payload = options.signal
+      ? await this.http.post<Record<string, unknown>>(path, patch, { signal: options.signal })
+      : await this.http.post<Record<string, unknown>>(path, patch);
     return sessionFromWire(payload);
   }
 
