@@ -174,12 +174,17 @@ describe('session observer loopback', () => {
 
   it.each(['ready', 'ack'])('treats a missing %s frame after opening as terminal', async phase => {
     const originalSetTimeout = globalThis.setTimeout;
+    // Shorten only the acknowledgement deadline, which the SDK arms once the
+    // upgrade succeeds. The transport-open deadline reconnects by design, so it
+    // keeps its real length: a slow upgrade must not race it into a retry.
+    let upgraded = false;
     const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) =>
-      originalSetTimeout(callback, ms === 10_000 ? 20 : ms, ...args));
+      originalSetTimeout(callback, ms === 10_000 && upgraded ? 20 : ms, ...args));
     const { wss, api, close } = await server();
     let connections = 0;
     const ready = vi.fn();
     wss.on('connection', ws => {
+      upgraded = true;
       connections++;
       if (phase === 'ack') ws.send(JSON.stringify({ type: 'ready' }));
     });
