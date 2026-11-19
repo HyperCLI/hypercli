@@ -439,9 +439,20 @@ export interface RoomMessage {
   senderName: string;
   body: string;
   replyTo: string | null;
+  /** Agent ids the message explicitly names; empty when it names no agent. */
+  mentions: string[];
   createdAt: string | null;
   /** Backend-owned per-agent delivery evidence; keys are agent UUIDs. */
   fanout: Record<string, boolean>;
+}
+
+/** One uploaded room attachment with the backend's per-agent delivery report. */
+export interface RoomAttachment {
+  attachmentId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  deliveries: { agentId: string; delivered: boolean; reason: string | null }[];
 }
 
 function pick<T>(row: Record<string, unknown>, snake: string, camel: string): T | undefined {
@@ -652,11 +663,41 @@ function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
     senderName: pick<string>(row, 'sender_name', 'senderName') ?? '',
     body: typeof row.body === 'string' ? row.body : '',
     replyTo: pick<string>(row, 'reply_to', 'replyTo') ?? null,
+    mentions: Array.isArray(row.mentions) ? (row.mentions as unknown[]).map(String) : [],
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
     fanout: Object.fromEntries(
       Object.entries(fanout as Record<string, unknown>).map(([key, value]) => [key, value === true]),
     ),
   };
+}
+
+function roomAttachmentFromWire(row: Record<string, unknown>): RoomAttachment {
+  const invalid = () => new TypeError('Invalid room attachment response');
+  const size = row.size;
+  const deliveries = row.deliveries;
+  if (typeof size !== 'number' || !Number.isInteger(size) || size < 0 || !Array.isArray(deliveries)) throw invalid();
+  const parsed = (deliveries as unknown[]).map((entry): { agentId: string; delivered: boolean; reason: string | null } => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) throw invalid();
+    const delivery = entry as Record<string, unknown>;
+    const agentId = pick<unknown>(delivery, 'agent_id', 'agentId');
+    const reason = delivery.reason;
+    if (typeof agentId !== 'string' || typeof delivery.delivered !== 'boolean' ||
+        !(reason === null || reason === undefined || typeof reason === 'string')) throw invalid();
+    return { agentId, delivered: delivery.delivered as boolean, reason: typeof reason === 'string' ? reason : null };
+  });
+  const attachmentId = pick<unknown>(row, 'attachment_id', 'attachmentId');
+  const name = pick<unknown>(row, 'name', 'name');
+  const mimeType = pick<unknown>(row, 'mime_type', 'mimeType');
+  if (typeof attachmentId !== 'string' || typeof name !== 'string' || typeof mimeType !== 'string') throw invalid();
+  return { attachmentId, name, mimeType, size, deliveries: parsed };
+}
+
+/** The room reactions endpoints reply with the same meta shape as session messages. */
+function roomReactionFromWire(row: Record<string, unknown>): { messageId: string; meta: SessionMessageMeta } {
+  const messageId = pick<unknown>(row, 'message_id', 'messageId');
+  const meta = sessionMessageMetaFromWire(row.meta);
+  if (typeof messageId !== 'string' || meta === undefined) throw new TypeError('Invalid room reaction response');
+  return { messageId, meta };
 }
 
 /**
@@ -665,7 +706,7 @@ function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
 export class SessionsAPI {
-  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
+  constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'postRaw' | 'delete' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
 
   /** Observe committed public message DTOs. Reconnects resubscribe; no replay/gap-free guarantee.
    * Abort resolves the subscription. Protocol, subscription and callback errors reject it.
@@ -881,12 +922,19 @@ export class SessionsAPI {
    * (`POST /rooms/{room_id}/messages`). Fanout stays backend-owned: the reply
    * carries the canonical message identity, its epoch, and the per-agent
    * delivery map; automatic agent turns are neither awaited nor relayed.
+   * Optional `mentions` name agent ids and `attachmentIds` reference room
+   * attachments; neither is sent unless non-empty.
    */
-  async createRoomMessage(roomId: string, body: string, options: { replyTo?: string | null } = {}): Promise<RoomMessage> {
+  async createRoomMessage(roomId: string, body: string, options: { replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
     if (!this.http.post) throw new Error('Room messages require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
       `/rooms/${encodeURIComponent(roomId)}/messages`,
-      { body, ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}) },
+      {
+        body,
+        ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}),
+        ...(options.mentions && options.mentions.length > 0 ? { mentions: [...options.mentions] } : {}),
+        ...(options.attachmentIds && options.attachmentIds.length > 0 ? { attachment_ids: [...options.attachmentIds] } : {}),
+      },
     );
     return roomMessageFromWire(payload);
   }
@@ -904,6 +952,49 @@ export class SessionsAPI {
       { user_id: userId },
     );
     return roomFromWire(payload);
+  }
+
+  /**
+   * Upload one room attachment (`POST /rooms/{room_id}/attachments`): raw
+   * `application/octet-stream` bytes in, attachment identity and the
+   * backend-owned per-agent delivery report out. Delivery is not awaited.
+   */
+  async uploadRoomAttachment(roomId: string, data: Uint8Array, name: string, mimeType: string, options: { signal?: AbortSignal } = {}): Promise<RoomAttachment> {
+    if (!this.http.postRaw) throw new Error('Room attachments require a writable HTTP client');
+    const payload = await this.http.postRaw<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/attachments?name=${encodeURIComponent(name)}&mime_type=${encodeURIComponent(mimeType)}`,
+      data,
+      'application/octet-stream',
+      { signal: options.signal },
+    );
+    return roomAttachmentFromWire(payload);
+  }
+
+  /**
+   * Add the caller's reaction to one room message
+   * (`POST /rooms/{room_id}/messages/{message_id}/reactions`); the reply
+   * carries the message's refreshed session-style reaction metadata.
+   */
+  async addRoomReaction(roomId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
+    if (!this.http.post) throw new Error('Room reactions require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+      { emoji },
+    );
+    return roomReactionFromWire(payload);
+  }
+
+  /**
+   * Remove the caller's reaction from one room message
+   * (`DELETE /rooms/{room_id}/messages/{message_id}/reactions?emoji=…`);
+   * the reply carries the message's refreshed session-style reaction metadata.
+   */
+  async removeRoomReaction(roomId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
+    if (!this.http.delete) throw new Error('Room reactions require a writable HTTP client');
+    const payload = await this.http.delete<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions?emoji=${encodeURIComponent(emoji)}`,
+    );
+    return roomReactionFromWire(payload);
   }
 
 }

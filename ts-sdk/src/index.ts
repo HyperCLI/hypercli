@@ -496,6 +496,7 @@ export {
   type AcpTranscriptSearchHit,
   type AcpTranscriptSearchOptions,
   type RoomAgent,
+  type RoomAttachment,
   type RoomCreateOptions,
   type RoomMessage,
   type RoomRecord,

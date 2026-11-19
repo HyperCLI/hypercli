@@ -216,6 +216,7 @@ describe('canonical room messages', () => {
       sessionId: ROOM_ID, messageId: 'msg-1', seq: 7, epochId: 'epoch-1',
       senderId: OWNER_ID, senderKind: 'user', senderName: 'Dmitry',
       body: 'Can you look at the build failure?', replyTo: 'msg-0',
+      mentions: [],
       createdAt: '2026-11-12T10:05:00Z', fanout: { [AGENT_A]: true, [AGENT_B]: false },
     });
   });
@@ -236,5 +237,131 @@ describe('canonical room messages', () => {
     const error = new Error('422 room archived');
     const http = { get: vi.fn(), post: vi.fn().mockRejectedValue(error) };
     await expect(new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello')).rejects.toBe(error);
+  });
+});
+
+describe('room message mentions and attachment ids', () => {
+  it('sends mentions and attachment ids only when supplied, and reads mentions back', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow({ mentions: [AGENT_A] })) };
+    const message = await new SessionsAPI(http).createRoomMessage(
+      ROOM_ID, 'Atlas, look at this.', { mentions: [AGENT_A], attachmentIds: ['att-1'] },
+    );
+    expect(http.post).toHaveBeenCalledExactlyOnceWith(`/rooms/${ROOM_ID}/messages`, {
+      body: 'Atlas, look at this.', mentions: [AGENT_A], attachment_ids: ['att-1'],
+    });
+    expect(message.mentions).toEqual([AGENT_A]);
+  });
+
+  it('omits mentions and attachment_ids when none are supplied, defaulting mentions to []', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
+    const message = await new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello');
+    expect(http.post).toHaveBeenCalledWith(`/rooms/${ROOM_ID}/messages`, { body: 'hello' });
+    expect(message.mentions).toEqual([]);
+  });
+});
+
+function attachmentRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    attachment_id: 'att-1',
+    name: 'report.pdf',
+    mime_type: 'application/pdf',
+    size: 3,
+    deliveries: [
+      { agent_id: AGENT_A, delivered: true, reason: null },
+      { agent_id: AGENT_B, delivered: false, reason: 'agent offline' },
+    ],
+    ...overrides,
+  };
+}
+
+describe('room attachments', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('posts raw octet-stream bytes with query name and mime type, and parses deliveries', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify(attachmentRow()), { status: 201 }));
+    vi.stubGlobal('fetch', fetch);
+    const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'caller-key'));
+    const attachment = await api.uploadRoomAttachment('r1', new Uint8Array([1, 2, 3]), 'report.pdf', 'application/pdf');
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('https://example.test/agents/rooms/r1/attachments?name=report.pdf&mime_type=application%2Fpdf', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/octet-stream' },
+      body: new Uint8Array([1, 2, 3]),
+      signal: expect.any(AbortSignal),
+    });
+    expect(attachment).toEqual({
+      attachmentId: 'att-1', name: 'report.pdf', mimeType: 'application/pdf', size: 3,
+      deliveries: [
+        { agentId: AGENT_A, delivered: true, reason: null },
+        { agentId: AGENT_B, delivered: false, reason: 'agent offline' },
+      ],
+    });
+  });
+
+  it('rejects a malformed attachment payload instead of fabricating one', async () => {
+    const http = {
+      get: vi.fn(),
+      postRaw: vi.fn().mockResolvedValue({ attachment_id: 'att-1', name: 'report.pdf', mime_type: 'application/pdf', size: 1 }),
+    };
+    const outcome = await new SessionsAPI(http).uploadRoomAttachment('r1', new Uint8Array([1]), 'report.pdf', 'application/pdf')
+      .then(() => null, (error: unknown) => error);
+    expect(outcome).toBeInstanceOf(TypeError);
+    expect(outcome).toHaveProperty('message', 'Invalid room attachment response');
+  });
+
+  it('keeps the writable-client guard for attachments', async () => {
+    const api = new SessionsAPI({ get: vi.fn() });
+    await expect(api.uploadRoomAttachment('r1', new Uint8Array([1]), 'report.pdf', 'application/pdf'))
+      .rejects.toThrow('Room attachments require a writable HTTP client');
+  });
+});
+
+describe('room reactions', () => {
+  const reactionMeta = {
+    reactions: {
+      'unicode:👍': {
+        count: 1,
+        actors: { [`user:${OWNER_ID}`]: { isBot: false, receipt: null } },
+        actorsComplete: true,
+      },
+    },
+    reactionSupport: 'supported',
+    reactionsComplete: true,
+    reactionUpdatedAt: '2026-11-12T10:06:00.000000Z',
+  };
+  const reactionResponse = { message_id: 'msg-1', meta: reactionMeta };
+  const parsedReaction = {
+    messageId: 'msg-1',
+    meta: {
+      reactions: {
+        'unicode:👍': {
+          count: 1,
+          actors: { [`user:${OWNER_ID}`]: { isBot: false, receipt: null } },
+          actorsComplete: true,
+        },
+      },
+      reactionSupport: 'supported',
+      reactionsComplete: true,
+      reactionUpdatedAt: '2026-11-12T10:06:00.000000Z',
+    },
+  };
+
+  it('posts an emoji reaction and returns the refreshed session meta', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(reactionResponse) };
+    const result = await new SessionsAPI(http).addRoomReaction('r1', 'msg-1', '👍');
+    expect(http.post).toHaveBeenCalledExactlyOnceWith('/rooms/r1/messages/msg-1/reactions', { emoji: '👍' });
+    expect(result).toEqual(parsedReaction);
+  });
+
+  it('removes an emoji reaction over DELETE with the emoji as a query parameter', async () => {
+    const http = { get: vi.fn(), delete: vi.fn().mockResolvedValue(reactionResponse) };
+    const result = await new SessionsAPI(http).removeRoomReaction('r1', 'msg-1', '👍');
+    expect(http.delete).toHaveBeenCalledExactlyOnceWith('/rooms/r1/messages/msg-1/reactions?emoji=%F0%9F%91%8D');
+    expect(result).toEqual(parsedReaction);
+  });
+
+  it('keeps the writable-client guards for reactions', async () => {
+    const api = new SessionsAPI({ get: vi.fn() });
+    await expect(api.addRoomReaction('r1', 'msg-1', '👍')).rejects.toThrow('Room reactions require a writable HTTP client');
+    await expect(api.removeRoomReaction('r1', 'msg-1', '👍')).rejects.toThrow('Room reactions require a writable HTTP client');
   });
 });
