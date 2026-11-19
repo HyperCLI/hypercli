@@ -34,7 +34,11 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-describe('CLI single-base request routing', () => {
+// Each spawned CLI may run as long as its child deadline; the default 5 s test
+// timeout is shorter than a cold start on a loaded CI runner.
+const CHILD_DEADLINE_MS = 10_000;
+
+describe('CLI single-base request routing', { timeout: CHILD_DEADLINE_MS }, () => {
   it.each(['env', 'config'])('keeps public requests on divergent bases from %s', async (source) => {
     vi.stubEnv('HYPER_API_BASE', 'https://inference.example/prefix');
     vi.stubEnv('HYPER_API_KEY', 'synthetic-key');
@@ -153,7 +157,7 @@ describe('CLI single-base request routing', () => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../dist/index.js', import.meta.url)), ...args], {
       env: { ...process.env, HYPER_HOME: home, HYPER_API_KEY: '', HYPER_AGENTS_API_KEY: '' },
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CHILD_DEADLINE_MS,
     });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('HYPER_API_BASE');
@@ -162,7 +166,7 @@ describe('CLI single-base request routing', () => {
 
   it('does not advertise environment flags in public help', () => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../dist/index.js', import.meta.url)), '--help'], {
-      env: { ...process.env, HYPER_HOME: home }, encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, HYPER_HOME: home }, encoding: 'utf8', timeout: CHILD_DEADLINE_MS,
     });
     expect(result.status).toBe(0);
     expect(result.stdout).not.toMatch(/--(?:dev|prod)\b/);

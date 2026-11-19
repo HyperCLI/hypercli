@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+
+// A cold `tsx` child takes seconds to start on a loaded CI runner, so the
+// child deadline is generous and each test may run as long as its child.
+const CHILD_DEADLINE_MS = 8000;
+vi.setConfig({ testTimeout: CHILD_DEADLINE_MS });
 
 const id = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const snapshot = (text: string, file = 'one', truncated = false) => ({ event: 'captured_logs', agent_id: id,
@@ -54,7 +59,7 @@ async function runLogs(args: string[], frames: unknown[], followOutput?: RegExp)
       }
     });
     child.stderr!.on('data', data => { stderr += data; });
-    timers.push(setTimeout(() => child!.kill('SIGKILL'), 4000));
+    timers.push(setTimeout(() => child!.kill('SIGKILL'), CHILD_DEADLINE_MS));
     const [code] = await once(child, 'close');
     return { code, stdout, stderr, socketUrl };
   } finally {
