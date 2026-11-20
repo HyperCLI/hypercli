@@ -186,6 +186,16 @@ describe('room read and owner updates', () => {
     ]);
   });
 
+  it('owner-adds a participant by email and maps the refreshed roster back', async () => {
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(roomRow()) };
+    const room = await new SessionsAPI(http).addParticipantByEmail(ROOM_ID, '  rae@example.com  ');
+    expect(http.post).toHaveBeenCalledExactlyOnceWith(`/rooms/${ROOM_ID}/participants`, { email: 'rae@example.com' });
+    expect(room.users).toEqual([
+      { userId: OWNER_ID, name: 'Dmitry', role: 'owner' },
+      { userId: USER_B, name: 'Grace Hopper', role: 'user' },
+    ]);
+  });
+
   it('encodes odd room ids on the participants route', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(roomRow()) };
     await new SessionsAPI(http).addParticipant('room/odd id?#%', USER_B);

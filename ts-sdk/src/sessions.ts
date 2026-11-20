@@ -955,6 +955,23 @@ export class SessionsAPI {
   }
 
   /**
+   * Owner-adds one human to a room roster by their account email
+   * (`POST /rooms/{room_id}/participants` with `email`). The address must
+   * resolve to exactly one existing HyperCLI account; anything else gets the
+   * backend's single 404 `room_person_not_added`, and no invitation is sent.
+   * The authenticated caller must be the room owner; agent runtime keys are
+   * refused.
+   */
+  async addParticipantByEmail(roomId: string, email: string): Promise<RoomRecord> {
+    if (!this.http.post) throw new Error('Room participants require a writable HTTP client');
+    const payload = await this.http.post<Record<string, unknown>>(
+      `/rooms/${encodeURIComponent(roomId)}/participants`,
+      { email: email.trim() },
+    );
+    return roomFromWire(payload);
+  }
+
+  /**
    * Upload one room attachment (`POST /rooms/{room_id}/attachments`): raw
    * `application/octet-stream` bytes in, attachment identity and the
    * backend-owned per-agent delivery report out. Delivery is not awaited.
