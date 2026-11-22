@@ -23,6 +23,8 @@ const AGENT_B = '8d1f2b34-56a7-48b9-9c01-d23e4f5a6b7c';
 const OWNER_ID = '81c2f4e6-7a8b-49c0-b1d2-3e4f5a6b7c8d';
 
 const PARENT_ID = '44444444-4444-4444-8444-444444444444';
+const PARENT_MEMBER_PERIOD = '55555555-5555-4555-8555-555555555555';
+const CHILD_GRANT_PERIOD = '66666666-6666-4666-8666-666666666666';
 const parent: RoomParent = {
   id: PARENT_ID, title: 'Build triage', purpose: 'Investigate CI failures.',
   style: 'Concise technical discussion.', rules: ['Respond with new information only.'],
@@ -43,7 +45,7 @@ function setup(format: 'table' | 'json' = 'table') {
     listRoomSessions: vi.fn(async () => ({items: [{id:SESSION_ID,title:'test'}],next_cursor:null})),
     createRoomSession: vi.fn(async () => ({id:SESSION_ID,room_id:PARENT_ID})),
     updateSessionBudgets: vi.fn(async () => ({agent_turn_limit:null, token_limit:0})),
-    listGrants:vi.fn(async()=>[]), issueMember:vi.fn(async()=>({id:AGENT_B})), revokeMember:vi.fn(async()=>({id:AGENT_B})),
+    listGrants:vi.fn(async()=>[]), issueMember:vi.fn(async()=>({id:CHILD_GRANT_PERIOD})), revokeMember:vi.fn(async()=>({id:CHILD_GRANT_PERIOD})),
     updateRoom: vi.fn(async () => parent),
     createRoomMessage: vi.fn(async () => roomMessage),
   };
@@ -117,10 +119,10 @@ describe('hyper rooms', () => {
     const {ctx,api}=setup();
     await rooms.run(ctx,['grants','rooms',PARENT_ID]);
     expect(api.listGrants).toHaveBeenCalledWith('rooms',PARENT_ID,undefined);
-    await rooms.run(ctx,['grant','sessions',SESSION_ID,AGENT_B,'agent',AGENT_A,PARENT_ID]);
-    expect(api.issueMember).toHaveBeenCalledWith('sessions',SESSION_ID,AGENT_B,{subject_type:'agent',subject_id:AGENT_A,member_grant_id:PARENT_ID});
-    await rooms.run(ctx,['revoke','sessions',SESSION_ID,AGENT_B]);
-    expect(api.revokeMember).toHaveBeenCalledWith('sessions',SESSION_ID,AGENT_B);
+    await rooms.run(ctx,['grant','sessions',SESSION_ID,CHILD_GRANT_PERIOD,'agent',AGENT_A,PARENT_MEMBER_PERIOD]);
+    expect(api.issueMember).toHaveBeenCalledWith('sessions',SESSION_ID,CHILD_GRANT_PERIOD,{subject_type:'agent',subject_id:AGENT_A,member_grant_id:PARENT_MEMBER_PERIOD});
+    await rooms.run(ctx,['revoke','sessions',SESSION_ID,CHILD_GRANT_PERIOD]);
+    expect(api.revokeMember).toHaveBeenCalledWith('sessions',SESSION_ID,CHILD_GRANT_PERIOD);
   });
   it('updates only the supplied fields', async () => {
     const { ctx, api } = setup();

@@ -1,26 +1,10 @@
 /**
- * Sessions REST client — the §15 memory-shaped session model
- * (sessions/README §15) as a read surface for console/desktop/CLI.
- *
- * The backend proxy (`/ws/acp`, see acp.ts) is the write/turn path; this
- * namespace is the typed read path over the durable `agent_sessions` /
- * `session_messages` tables: session catalog with summaries and participants,
- * backwards-paginated history per session. The wire contract is owned by the
- * backend routes (`agents/backend/agents/session_routes.py` —
- * `SessionListPage` / `SessionMessagePage`), and both pages are the same
- * envelope: `{ items, next_cursor, has_more }`.
- *
- * Explicit multiparty rooms (docs/MULTIPARTY.md) are the one REST write
- * surface here (`POST /rooms`, `GET/PATCH /rooms/{room_id}`,
- * `POST /sessions/{session_id}/room/messages`, backend `session_room_routes.py`):
- * deliberate room creation and owner-authored messages, never native ACP
- * session mutation.
- *
- * Pagination contract (§15 "Type & pagination"): every list is keyset over a
- * server-issued opaque cursor — never OFFSET. Messages page BACKWARDS from
- * last-seen (`seq < cursor`, newest first), extending whole chunk runs and tool
- * dependencies; has_more says older eligible rows exist. Sessions page over
- * `(updated_at, id)`.
+ * Platform session catalog, retained history, rooms, grants and budgets.
+ * Native turns use ACP; owner and member actions here use Backend REST.
+ * Session catalog and history pages use opaque next cursors. History pages
+ * go backward from the newest message; catalog order is (updated_at, id).
+ * Room and child catalog pages return a UUID next_cursor. Grant history
+ * returns a list: pass the last period ID as cursor for the next page.
  */
 import type { HTTPClient } from './http.js';
 import { defaultAgentsWsUrl } from './agent-urls.js';
@@ -399,9 +383,9 @@ export interface RoomRecord {
   users: RoomUser[];
   /** Aggregate per-epoch token budget; null means unlimited. */
   tokenLimit: number | null;
-  /** Effective per-agent, per-epoch turn allowance the backend enforces (product default 25). */
+  /** Effective turn allowance across agents in one session epoch the backend enforces (product default 25). */
   agentTurnLimit: number;
-  /** The explicitly configured knob; null when the product default is in force. */
+  /** The explicitly configured knob; null when this session inherits. */
   configuredAgentTurnLimit: number | null;
   configuredTokenLimit: number | null;
   status: 'live' | 'archived' | 'deleted';
@@ -417,9 +401,9 @@ export interface RoomCreateOptions {
   purpose?: string;
   style?: string;
   rules?: string[];
-  /** null (or omitted) means unlimited. 0 removes the automatic-turn token allowance. */
+  /** null (or omitted) leaves this field unconfigured. 0 removes the automatic-turn token allowance. */
   tokenLimit?: number | null;
-  /** null (or omitted) selects the product default. 0 disables automatic room turns. */
+  /** null (or omitted) leaves this field unconfigured. 0 disables automatic room turns. */
   agentTurnLimit?: number | null;
 }
 
@@ -730,11 +714,7 @@ function roomReactionFromWire(row: Record<string, unknown>): { messageId: string
   return { messageId, meta };
 }
 
-/**
- * Session read surface scoped to the caller's identity (user key: sessions
- * of owned agents; runtime key: sessions §15 exposes to the pod). Bound to
- * the agents API base, so `/sessions` resolves to `/agents/sessions`.
- */
+/** One grant issuance period, including its revocation evidence when closed. */
 export interface GrantPeriod {
   id: string;
   room_id: string | null;
@@ -775,6 +755,7 @@ function lostCreationReceipt(error: unknown): never {
   throw error;
 }
 
+/** Caller-scoped session and room API on the agents gateway base (`/agents`). */
 export class SessionsAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'postRaw' | 'delete' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
 
@@ -955,8 +936,9 @@ export class SessionsAPI {
    * Create an explicit multiparty room (`POST /rooms`, docs/MULTIPARTY.md).
    * `agents` are agent UUID strings the authenticated owner is authorized to
    * use; the backend validates the roster, brief, and both policy knobs.
-   * Omitted knobs select the product defaults (read back as the effective
-   * `agentTurnLimit`, 25 today, with `configuredAgentTurnLimit` null).
+   * The receipt contains configured parent limits (null if omitted), not effective
+   * child budgets. If session_id is non-null, use getSessionBudgets(session_id)
+   * for its effective limits: session override, then parent, then platform default.
    */
   async createRoom(agents: readonly string[] = [], options: RoomCreateOptions = {}): Promise<RoomCreated> {
     if (!this.http.post) throw new Error('Room creation requires a writable HTTP client');
@@ -1106,8 +1088,8 @@ export class SessionsAPI {
       `/sessions/${encodeURIComponent(sessionId)}/room/attachments?name=${encodeURIComponent(name)}&mime_type=${encodeURIComponent(mimeType)}`,
       data,
       'application/octet-stream',
-      { signal: options.signal },
-    );
+      { signal: options.signal, retries: 1 },
+    ).catch(lostCreationReceipt);
     return roomAttachmentFromWire(payload);
   }
 

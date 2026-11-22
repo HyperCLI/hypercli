@@ -319,6 +319,17 @@ describe('room attachments', () => {
     expect(outcome).toHaveProperty('message', 'Invalid room attachment response');
   });
 
+  it('forwards the caller signal on the single raw upload attempt', async () => {
+    const signal = new AbortController().signal;
+    const http = { get: vi.fn(), postRaw: vi.fn().mockResolvedValue(attachmentRow()) };
+    const bytes = new Uint8Array([1, 2, 3]);
+    await new SessionsAPI(http).uploadRoomAttachment('r1', bytes, 'report.pdf', 'application/pdf', { signal });
+    expect(http.postRaw).toHaveBeenCalledExactlyOnceWith(
+      '/sessions/r1/room/attachments?name=report.pdf&mime_type=application%2Fpdf',
+      bytes, 'application/octet-stream', { signal, retries: 1 },
+    );
+  });
+
   it('keeps the writable-client guard for attachments', async () => {
     const api = new SessionsAPI({ get: vi.fn() });
     await expect(api.uploadRoomAttachment('r1', new Uint8Array([1]), 'report.pdf', 'application/pdf'))
@@ -406,6 +417,8 @@ it.each([
   ['/rooms', (api: SessionsAPI) => api.createRoom()],
   [`/rooms/${OWNER_ID}/sessions`, (api: SessionsAPI) => api.createRoomSession(OWNER_ID, [AGENT_A])],
   [`/sessions/${ROOM_ID}/room/messages`, (api: SessionsAPI) => api.createRoomMessage(ROOM_ID, 'hello')],
+  [`/sessions/${ROOM_ID}/room/attachments?name=report.pdf&mime_type=application%2Fpdf`,
+    (api: SessionsAPI) => api.uploadRoomAttachment(ROOM_ID, new Uint8Array([1]), 'report.pdf', 'application/pdf')],
 ] as const)('sends exactly one POST to %s and reports unknown outcome after receipt loss', async (path, create) => {
   const reset = resetAfterCommit();
   const committed: string[] = [];

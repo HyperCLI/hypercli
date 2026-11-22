@@ -3866,8 +3866,9 @@ class Deployments:
 
         ``agents`` are agent UUID strings the authenticated owner is authorized
         to use; the backend validates the roster, brief, and both policy knobs.
-        ``agent_turn_limit=None`` selects the product default (read back as the
-        effective limit, 25 today, with the configured value null).
+        The receipt reports configured parent limits (None when omitted). If
+        ``session_id`` is not None, ``get_session_budgets(session_id)`` reports
+        effective limits: session override, then parent, then platform default.
         """
         body = {
             "title": title,

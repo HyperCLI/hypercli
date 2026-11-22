@@ -85,6 +85,19 @@ def make_api():
     return HyperCLI(api_key="caller-key", api_url="https://example.com").deployments
 
 
+def test_room_message_lost_response_is_not_resent(monkeypatch):
+    posts = []
+
+    def reset_after_commit(self, request, **kwargs):
+        posts.append((request.method, request.url.path))
+        raise httpx.ReadError("Connection reset after commit", request=request)
+
+    monkeypatch.setattr(httpx.Client, "send", reset_after_commit)
+    with pytest.raises(httpx.ReadError, match="reset after commit"):
+        make_api().create_room_message(ROOM_ID, "Send once")
+    assert posts == [("POST", f"/agents/sessions/{ROOM_ID}/room/messages")]
+
+
 def test_session_member_grant_and_period_addressed_revocation(monkeypatch):
     path = f"/agents/sessions/{ROOM_ID}/grants/{AGENT_B}"
     created = {"id": AGENT_B, "session_id": ROOM_ID, "room_id": None, "role": "member", "subject_type": "agent",

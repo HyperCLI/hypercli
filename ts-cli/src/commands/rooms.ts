@@ -112,12 +112,12 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   }
   if (command === 'child-create' && rest.length < 2) throw new UsageError('child-create requires room ID and agents');
   if (rest.some(value => !value.trim())) throw new UsageError('Empty argument');
-  if (['get', 'update', 'children'].includes(command) && (rest.length !== 1 || !rest[0].trim())) {
+  if (['get', 'update', 'children'].includes(command) && rest.length !== 1) {
     throw new UsageError(`rooms ${command} requires one room ID`);
   }
   const [sessionId, ...bodyWords] = command === 'message' ? rest : [undefined];
   const messageBody = command === 'message' ? bodyWords.join(' ').trim() : undefined;
-  if (command === 'message' && (!sessionId || !sessionId.trim() || !messageBody)) {
+  if (command === 'message' && (!sessionId || !messageBody)) {
     throw new UsageError('rooms message requires a child session ID and a message body');
   }
 
