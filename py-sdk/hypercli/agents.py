@@ -2218,7 +2218,7 @@ class Deployments:
     def _post(self, path: str, json: dict = None, *, headers: dict | None = None) -> Any:
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(f"{self._api_base}{path}", headers={**self._headers, **(headers or {})}, json=json)
-        if not resp.is_success and resp.status_code < 400:
+        if resp.status_code < 200 or 300 <= resp.status_code < 400:
             raise APIError(resp.status_code, "Outcome unknown: expected a successful write receipt")
         if resp.status_code >= 400:
             try:
