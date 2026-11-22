@@ -75,38 +75,36 @@ Available login flows depend on the selected runtime.
 
 ## Rooms
 
-Use the root-level `hyper rooms` command for explicit owner-scoped rooms, not
-`hyper agents chat`. Supply one or more agent UUIDs owned by the authenticated
-user. A one-agent room remains a room; existing DMs are not converted by adding
-participants.
+Create an empty parent with `hyper rooms create --title Triage --json`. Save
+its `id` as `ROOM`; `session_id` is null. Supply your own fresh UUID for each
+grant period. Retry the same issuance with the same period ID.
 
-```bash
-hyper rooms create <agent-uuid> <other-agent-uuid> --title "Build triage" \
-  --purpose "Investigate the failing build" --style "Concise" \
-  --rule "Respond only with new information" --token-limit none --agent-turn-limit none --json
-hyper rooms get <room-id> --json
-hyper rooms message <room-id> "Review the latest failure"
-hyper rooms message <room-id> "Focus on the tests" --reply-to <message-id>
-hyper agents messages <room-id> --limit 20
-hyper rooms update <room-id> --token-limit 20000 --agent-turn-limit 5
-hyper rooms update <room-id> --status archived
-hyper rooms update <room-id> --status live
+```sh
+hyper rooms grant rooms "$ROOM" "$MEMBER_PERIOD" agent "$AGENT"
+hyper rooms child-create "$ROOM" "$AGENT" --title Incident --json
+hyper rooms grants rooms "$ROOM" --json
+hyper rooms grants sessions "$CHILD" --json
+hyper rooms update "$ROOM" --token-limit 10000
+hyper rooms session-budget "$CHILD" --token-limit none --agent-turn-limit 0
+hyper rooms message "$CHILD" 'Following up' --reply-to "$MESSAGE_ID"
 ```
 
-Repeat `--rule` for multiple rules. Updates preserve omitted fields; supplied
-rules replace the rule list. Exactly two nullable limits apply per authenticated
-human-message epoch: `--token-limit` is aggregate automatic-turn usage across
-agents (`none`/null defaults to unlimited); `--agent-turn-limit` is admitted
-turns per agent (`none`/null defaults to 25). Zero on either disables automatic
-turns. Use `none` on update to restore the default. Policy edits take effect
-at the next authenticated human message, which opens a new epoch.
+`CHILD` is the new conversation's `id`. To issue a child member grant, pass
+its current parent membership period as the final argument. Revoke by exact
+period: `hyper rooms revoke sessions "$CHILD" "$CHILD_PERIOD"`. Period lists
+include revoked history. A standalone DM uses `session-budget` with its own
+session ID and has no parent period. `none` clears that field; `0` is explicit.
 
-A message result acknowledges the canonical human message and fanout, not
-completed agent replies. Backend owns admission and shared history. A finite
-budget with a missing terminal outcome can block with `token_limit_pending`;
-reconnect does not clear it. A new human epoch does not settle or replay uncertain
-old work. These limits do not impose a hard provider-side token cap on an
-already-running inference call.
+For a room created with agents, the creation receipt already contains the first
+child's `session_id`. Use the parent ID for `hyper rooms get` and settings, and
+`hyper agents messages "$CHILD" --limit 20` for the child's retained history.
+A message receipt confirms that Backend saved the message. Delivery to agent
+runtimes is best effort.
+
+Each child tracks its turn and token allowances across all of its agents for
+the current human-message epoch. For each limit, an explicit child setting wins,
+then the room default, then the platform default (25 turns, unlimited tokens).
+Changing a limit does not refill the current epoch or cap an in-flight model call.
 
 Room archive preserves readable history and refuses new messages and automatic
 work without stopping agent runtimes. See [desktop rooms](/agents/desktop-app#rooms),
@@ -178,25 +176,3 @@ does not prove background cleanup has completed.
 - `hyper agents routines` manages scheduled prompts; see [routines](/cli/commands/routines).
 - `hyper websearch "release notes" --count 5` searches through the platform proxy.
 - `hyper agents token <id>` refreshes agent access credentials.
-
-### Empty rooms, grants, and conversations
-
-Create an empty parent with `hyper rooms create --title Triage --json`. Save
-its `id` as `ROOM`; `session_id` is null. Supply your own fresh UUID for each
-grant period. Retry the same issuance with the same period ID.
-
-```sh
-hyper rooms grant rooms "$ROOM" "$MEMBER_PERIOD" agent "$AGENT"
-hyper rooms child-create "$ROOM" "$AGENT" --title Incident --json
-hyper rooms grants rooms "$ROOM" --json
-hyper rooms grants sessions "$CHILD" --json
-hyper rooms update "$ROOM" --token-limit 10000
-hyper rooms session-budget "$CHILD" --token-limit none --agent-turn-limit 0
-hyper rooms message "$CHILD" 'Following up' --reply-to "$MESSAGE_ID"
-```
-
-`CHILD` is the new conversation's `id`. To issue a child member grant, pass
-its current parent membership period as the final argument. Revoke by exact
-period: `hyper rooms revoke sessions "$CHILD" "$CHILD_PERIOD"`. Period lists
-include revoked history. A standalone DM uses `session-budget` with its own
-session ID and has no parent period. `none` clears that field; `0` is explicit.
