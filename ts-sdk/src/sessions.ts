@@ -950,7 +950,7 @@ export class SessionsAPI {
       agents: [...agents],
       token_limit: options.tokenLimit ?? null,
       agent_turn_limit: options.agentTurnLimit ?? null,
-    }, { retries: 1 }).catch(lostCreationReceipt);
+    }, { retries: 1, redirect: 'error' }).catch(lostCreationReceipt);
     if (!result || typeof result.id !== 'string' || (result.session_id !== null && typeof result.session_id !== 'string') ||
         result.session_id === result.id || (agents.length > 0) !== (result.session_id !== null)) {
       throw new TypeError('Invalid room creation receipt');
@@ -988,7 +988,7 @@ export class SessionsAPI {
     return checkedLimits(await this.http.post<RoomChild>(`/rooms/${encodeURIComponent(roomId)}/sessions`, {
       agents: [...agents], title: options.title ?? null, purpose: options.purpose ?? '', style: options.style ?? '',
       rules: options.rules ?? [], token_limit: options.tokenLimit ?? null, agent_turn_limit: options.agentTurnLimit ?? null,
-    }, { retries: 1 }).catch(lostCreationReceipt));
+    }, { retries: 1, redirect: 'error' }).catch(lostCreationReceipt));
   }
 
   async getRoomSession(sessionId: string): Promise<RoomRecord> {
@@ -1021,17 +1021,18 @@ export class SessionsAPI {
    * Optional `mentions` name agent ids and `attachmentIds` reference room
    * attachments; neither is sent unless non-empty.
    */
-  async createRoomMessage(sessionId: string, body: string, options: { replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
+  async createRoomMessage(sessionId: string, body: string, options: { messageId?: string; replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
     if (!this.http.post) throw new Error('Room messages require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(sessionId)}/room/messages`,
       {
         body,
+        ...(options.messageId !== undefined ? { message_id: options.messageId } : {}),
         ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}),
         ...(options.mentions && options.mentions.length > 0 ? { mentions: [...options.mentions] } : {}),
         ...(options.attachmentIds && options.attachmentIds.length > 0 ? { attachment_ids: [...options.attachmentIds] } : {}),
       },
-      { retries: 1 },
+      { retries: 1, redirect: 'error' },
     ).catch(lostCreationReceipt);
     return roomMessageFromWire(payload);
   }
@@ -1043,7 +1044,7 @@ export class SessionsAPI {
   async enrollRoomMember(roomId: string, target: {email:string} | {user_id:string}) {
     if (!this.http.post) throw new Error('Room enrollment requires a writable HTTP client');
     const receipt = await this.http.post<{room_id:string; subject_id:string; member_grant_id:string}>(
-      `/rooms/${encodeURIComponent(roomId)}/members`, target, { retries: 1 });
+      `/rooms/${encodeURIComponent(roomId)}/members`, target, { retries: 1, redirect: 'error' });
     if (receipt.room_id !== roomId || !receipt.subject_id || !receipt.member_grant_id ||
         ('user_id' in target && receipt.subject_id !== target.user_id)) throw new TypeError('Invalid membership receipt');
     return receipt;
@@ -1088,7 +1089,7 @@ export class SessionsAPI {
       `/sessions/${encodeURIComponent(sessionId)}/room/attachments?name=${encodeURIComponent(name)}&mime_type=${encodeURIComponent(mimeType)}`,
       data,
       'application/octet-stream',
-      { signal: options.signal, retries: 1 },
+      { signal: options.signal, retries: 1, redirect: 'error' },
     ).catch(lostCreationReceipt);
     return roomAttachmentFromWire(payload);
   }

@@ -58,8 +58,8 @@ platform default (25 turns, unlimited tokens). Zero is explicit. Omission on
 PATCH preserves a field; null clears it. Usage is per session, across agents;
 a running epoch keeps its snapshot.
 
-Message responses acknowledge the canonical human message and fanout, not
-completed agent replies. Backend owns admission and shared history. A finite
+Message responses acknowledge the durable human message. Runtime delivery happens
+after the receipt; an empty fanout map is not an agent acknowledgement. Backend owns admission and shared history. A finite
 budget can remain blocked by `token_limit_pending` when a turn has no recorded
 terminal outcome; reconnect does not clear it. A new human epoch does not settle
 or replay uncertain old work. Limits govern admission/publication/accounting,

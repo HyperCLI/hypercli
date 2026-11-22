@@ -12393,6 +12393,18 @@
             "minLength": 1,
             "title": "Body"
           },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
           "reply_to": {
             "anyOf": [
               {

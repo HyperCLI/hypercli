@@ -3930,7 +3930,7 @@ class Deployments:
         return self._patch(f"/rooms/{quote(room_id, safe='')}", json=body)
 
     def create_room_message(
-        self, session_id: str, body: str, *, reply_to: str | None = None,
+        self, session_id: str, body: str, *, reply_to: str | None = None, message_id: str | None = None,
     ) -> RoomMessage:
         """Commit one authenticated human message; fanout stays backend-owned.
 
@@ -3939,6 +3939,8 @@ class Deployments:
         awaited or relayed here.
         """
         payload: dict[str, Any] = {"body": body}
+        if message_id is not None:
+            payload["message_id"] = message_id
         if reply_to is not None:
             payload["reply_to"] = reply_to
         return RoomMessage.from_dict(

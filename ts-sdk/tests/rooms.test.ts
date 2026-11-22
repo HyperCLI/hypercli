@@ -84,6 +84,7 @@ describe('explicit room creation and readback', () => {
         style: 'Concise technical discussion.', rules: ['Respond with new information only.'],
         agents: [AGENT_A, AGENT_B], token_limit: null, agent_turn_limit: null,
       }),
+      redirect: 'error',
       signal: expect.any(AbortSignal),
     });
     expect(room).toEqual(receipt);
@@ -95,7 +96,7 @@ describe('explicit room creation and readback', () => {
     expect(http.post).toHaveBeenCalledExactlyOnceWith('/rooms', {
       title: null, purpose: '', style: '', rules: [],
       agents: [AGENT_A], token_limit: null, agent_turn_limit: null,
-    }, {retries:1});
+    }, {retries:1, redirect:'error'});
   });
 
   it('preserves explicit policy knobs, including the disable sentinel 0', async () => {
@@ -104,7 +105,7 @@ describe('explicit room creation and readback', () => {
       post: vi.fn().mockResolvedValue({ id: OWNER_ID, session_id: ROOM_ID, token_limit:null,agent_turn_limit:null }),
     };
     const room = await new SessionsAPI(http).createRoom([AGENT_A], { tokenLimit: 100000, agentTurnLimit: 0 });
-    expect(http.post).toHaveBeenCalledWith('/rooms', expect.objectContaining({ token_limit: 100000, agent_turn_limit: 0 }), {retries:1});
+    expect(http.post).toHaveBeenCalledWith('/rooms', expect.objectContaining({ token_limit: 100000, agent_turn_limit: 0 }), {retries:1, redirect:'error'});
     expect(room.session_id).toBe(ROOM_ID);
   });
 
@@ -222,7 +223,7 @@ describe('canonical room messages', () => {
     );
     expect(http.post).toHaveBeenCalledExactlyOnceWith(`/sessions/${ROOM_ID}/room/messages`, {
       body: 'Can you look at the build failure?', reply_to: 'msg-0',
-    }, { retries: 1 });
+    }, { retries: 1, redirect: 'error' });
     expect(message).toEqual({
       sessionId: ROOM_ID, messageId: 'msg-1', seq: 7, epochId: 'epoch-1',
       senderId: OWNER_ID, senderKind: 'user', senderName: 'Dmitry',
@@ -235,13 +236,13 @@ describe('canonical room messages', () => {
   it('omits reply_to when no reply is supplied', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     await new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello');
-    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1 });
+    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1, redirect: 'error' });
   });
 
   it('encodes odd room ids without touching the message body', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     await new SessionsAPI(http).createRoomMessage('room/odd id?#%', 'hello');
-    expect(http.post).toHaveBeenCalledWith('/sessions/room%2Fodd%20id%3F%23%25/room/messages', { body: 'hello' }, { retries: 1 });
+    expect(http.post).toHaveBeenCalledWith('/sessions/room%2Fodd%20id%3F%23%25/room/messages', { body: 'hello' }, { retries: 1, redirect: 'error' });
   });
 
   it('propagates server rejection rather than inventing a message', async () => {
@@ -259,14 +260,14 @@ describe('room message mentions and attachment ids', () => {
     );
     expect(http.post).toHaveBeenCalledExactlyOnceWith(`/sessions/${ROOM_ID}/room/messages`, {
       body: 'Atlas, look at this.', mentions: [AGENT_A], attachment_ids: ['att-1'],
-    }, { retries: 1 });
+    }, { retries: 1, redirect: 'error' });
     expect(message.mentions).toEqual([AGENT_A]);
   });
 
   it('omits mentions and attachment_ids when none are supplied, defaulting mentions to []', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     const message = await new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello');
-    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1 });
+    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1, redirect: 'error' });
     expect(message.mentions).toEqual([]);
   });
 });
@@ -296,7 +297,7 @@ describe('room attachments', () => {
     expect(fetch).toHaveBeenCalledExactlyOnceWith('https://example.test/agents/sessions/r1/room/attachments?name=report.pdf&mime_type=application%2Fpdf', {
       method: 'POST',
       headers: { Authorization: 'Bearer caller-key', 'Content-Type': 'application/octet-stream' },
-      body: new Uint8Array([1, 2, 3]),
+      body: new Uint8Array([1, 2, 3]), redirect:'error',
       signal: expect.any(AbortSignal),
     });
     expect(attachment).toEqual({
@@ -326,7 +327,7 @@ describe('room attachments', () => {
     await new SessionsAPI(http).uploadRoomAttachment('r1', bytes, 'report.pdf', 'application/pdf', { signal });
     expect(http.postRaw).toHaveBeenCalledExactlyOnceWith(
       '/sessions/r1/room/attachments?name=report.pdf&mime_type=application%2Fpdf',
-      bytes, 'application/octet-stream', { signal, retries: 1 },
+      bytes, 'application/octet-stream', { signal, retries: 1, redirect:'error' },
     );
   });
 
@@ -436,4 +437,27 @@ it.each([undefined,false,-1,0.5,'0'])('rejects invalid configured nullable budge
   const row=roomRow({configured_token_limit:value});
   if(value===undefined)delete row.configured_token_limit;
   await expect(new SessionsAPI({get:vi.fn().mockResolvedValue(row)}).getRoomSession(ROOM_ID)).rejects.toThrow();
+});
+
+it.each([307,308])('does not follow HTTP %i for a room write', async status => {
+  const {createServer} = await import('node:http');
+  const received:string[]=[];
+  const server=createServer((req,res)=>{
+    received.push(req.method+' '+req.url);
+    if(req.url==='/replayed')res.writeHead(200); else res.writeHead(status,{location:'/replayed'});
+    res.end('{}');
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const port=(server.address() as {port:number}).port;
+    const http=new HTTPClient(`http://127.0.0.1:${port}`,'test');
+    await http.post('/control',{});
+    expect(received.splice(0)).toEqual(['POST /control','POST /replayed']);
+    const api=new SessionsAPI(http);
+    for(const send of [()=>api.createRoom(),()=>api.createRoomSession(OWNER_ID,[AGENT_A]),
+      ()=>api.createRoomMessage(ROOM_ID,'body'),()=>api.uploadRoomAttachment(ROOM_ID,new Uint8Array([1]),'file','text/plain')]) {
+      await expect(send()).rejects.toThrow('Outcome unknown');
+      expect(received.splice(0)).toEqual([expect.stringMatching(/^POST \/(rooms|sessions)/)]);
+    }
+  } finally {server.closeAllConnections(); await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
