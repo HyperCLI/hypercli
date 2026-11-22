@@ -1635,7 +1635,7 @@ export interface RunnerPresenceEvent {
   at: string;
 }
 
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | import('./sessions.js').SessionReactionOperation;
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent | RunnerPresenceEvent | import('./sessions.js').SessionReactionOperation | import('./sessions.js').RoomReactionTick;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -4244,6 +4244,9 @@ export class Deployments {
                   && typeof frame.runner_id === 'string'
                   && frame.runner_id.length > 0
                 ) || (
+                  frame.type === 'roomReaction' && typeof frame.session_id === 'string' && frame.session_id.length > 0
+                  && typeof frame.message_id === 'string' && frame.message_id.length > 0
+                ) || (
                   (frame.type === 'addReaction' || frame.type === 'removeReaction')
                   && typeof frame.agent_id === 'string' && frame.agent_id.length > 0
                   && typeof frame.session_id === 'string' && frame.session_id.length > 0
@@ -4251,7 +4254,7 @@ export class Deployments {
                   && typeof frame.message_id === 'string' && frame.message_id.length > 0
                 )
               ) {
-                if (frame.type === 'addReaction' || frame.type === 'removeReaction') {
+                if (frame.type === 'roomReaction' || frame.type === 'addReaction' || frame.type === 'removeReaction') {
                   frame.meta = sessionMessageMetaFromWire(frame.meta ?? null, false);
                 }
                 await handler(frame as unknown as DeploymentEvent);

@@ -172,6 +172,13 @@ class RoomAgent:
 
 
 @dataclass
+class RoomUser:
+    user_id: str
+    name: str
+    role: str
+
+
+@dataclass
 class RoomRecord:
     """Explicit multiparty room (docs/MULTIPARTY.md) as the product API reads it.
 
@@ -181,12 +188,16 @@ class RoomRecord:
     """
 
     id: str
+    room_id: str
+    session_id: str
     kind: str = "room"
     title: str | None = None
     purpose: str = ""
     style: str = ""
     rules: list[str] = field(default_factory=list)
     owner_id: str = ""
+    users: list[RoomUser] = field(default_factory=list)
+    configured_token_limit: int | None = None
     agents: list[RoomAgent] = field(default_factory=list)
     token_limit: int | None = None
     agent_turn_limit: int = 25
@@ -216,6 +227,14 @@ class RoomRecord:
                 or not (configured is None or (isinstance(configured, int) and not isinstance(configured, bool)))
                 or not (isinstance(setup_revision, int) and not isinstance(setup_revision, bool))):
             raise ValueError("Invalid room record response")
+        if (data.get("session_id") != data["id"] or not isinstance(data.get("room_id"), str)
+                or data["room_id"] == data["id"] or agent_turn_limit < 0
+                or not isinstance(data.get("users"), list)
+                or any(not isinstance(u, dict) or not isinstance(u.get("user_id"), str)
+                       or not isinstance(u.get("name"), str) or u.get("role") not in ("owner", "user") for u in data["users"])
+                or any(k not in data or (data[k] is not None and (type(data[k]) is not int or data[k] < 0))
+                       for k in ("configured_token_limit", "configured_agent_turn_limit", "token_limit"))):
+            raise ValueError("Invalid room record response")
         title = data.get("title")
         purpose = data.get("purpose")
         style = data.get("style")
@@ -225,13 +244,15 @@ class RoomRecord:
                 or not isinstance(purpose, str) or not isinstance(style, str):
             raise ValueError("Invalid room record response")
         return cls(
-            id=data["id"],
+            id=data["id"], room_id=data["room_id"], session_id=data["session_id"],
             kind="room",
             title=title,
             purpose=purpose,
             style=style,
             rules=list(rules),
             owner_id=data["owner_id"],
+            users=[RoomUser(**u) for u in data["users"]],
+            configured_token_limit=data["configured_token_limit"],
             agents=[RoomAgent.from_dict(agent) for agent in agents],
             token_limit=token_limit,
             agent_turn_limit=agent_turn_limit,

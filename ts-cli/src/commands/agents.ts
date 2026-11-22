@@ -2071,7 +2071,7 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   const agents = new Set(state.participants.filter(p => p.kind === 'agent').map(p => p.participantId));
   let previousSnapshot: string | undefined;
   let page: AcpSessionMessagePage | undefined;
-  const render = (type?: 'addReaction' | 'removeReaction') => {
+  const render = (type?: 'addReaction' | 'removeReaction' | 'roomReaction') => {
     if (!page) return;
     // Receipts are native removal evidence, not display data. Retain counts,
     // completeness and scoped actors in both JSON and human snapshots.
@@ -2104,7 +2104,7 @@ async function cmdMessages(ctx: CommandContext, args: string[]): Promise<number 
   process.once('SIGINT', onSigint);
   try {
     await client.deployments.subscribe(async event => {
-      if ((event.type === 'addReaction' || event.type === 'removeReaction') && agents.has(event.agent_id) && event.session_id === sessionId) {
+      if ((event.type === 'roomReaction' || ((event.type === 'addReaction' || event.type === 'removeReaction') && agents.has(event.agent_id))) && event.session_id === sessionId) {
         if (page) {
           const items = applySessionReactionOperation(page.items, event);
           if (items !== page.items) { page = { ...page, items }; render(event.type); }

@@ -217,6 +217,13 @@ export function newerSessionMessageMeta(current: SessionMessageMeta | undefined,
 }
 
 /** Read-only subscriber operation, separate from ACP and from native write requests. */
+export interface RoomReactionTick {
+  type: 'roomReaction';
+  session_id: string;
+  message_id: string;
+  meta: SessionMessageMeta;
+}
+
 export interface SessionReactionOperation {
   type: 'addReaction' | 'removeReaction';
   agent_id: string;
@@ -231,8 +238,8 @@ export interface SessionReactionOperation {
 }
 
 /** Apply the resulting snapshot, never increment counts or replay actor deltas. */
-export function applySessionReactionOperation<T extends AcpSessionMessage>(rows: T[], event: SessionReactionOperation): T[] {
-  const index = rows.findIndex(row => row.sessionId === event.session_id && row.seq === event.seq && row.messageId === event.message_id);
+export function applySessionReactionOperation<T extends AcpSessionMessage>(rows: T[], event: SessionReactionOperation | RoomReactionTick): T[] {
+  const index = rows.findIndex(row => row.sessionId === event.session_id && (event.type === 'roomReaction' || row.seq === event.seq) && row.messageId === event.message_id);
   if (index < 0) return rows;
   const row = rows[index];
   const meta = newerSessionMessageMeta(row.meta, event.meta);
@@ -377,8 +384,10 @@ export interface RoomUser {
 
 /** Explicit multiparty room (docs/MULTIPARTY.md) as the product API reads it. */
 export interface RoomRecord {
-  /** Stable platform room/session UUID; there is no separate room id. */
+  /** Child session UUID. The shared parent is roomId. */
   id: string;
+  roomId: string;
+  sessionId: string;
   kind: 'room';
   title: string | null;
   purpose: string;
@@ -394,6 +403,7 @@ export interface RoomRecord {
   agentTurnLimit: number;
   /** The explicitly configured knob; null when the product default is in force. */
   configuredAgentTurnLimit: number | null;
+  configuredTokenLimit: number | null;
   status: 'live' | 'archived' | 'deleted';
   setupRevision: number;
   createdAt: string | null;
@@ -601,15 +611,32 @@ function roomUserFromWire(row: Record<string, unknown>): RoomUser {
   };
 }
 
+function nullableLimit(value: unknown): number | null {
+  if (value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) return value;
+  throw new TypeError('Invalid required budget field');
+}
+
+function checkedLimits<T extends {token_limit:number|null; agent_turn_limit:number|null}>(row:T):T {
+  nullableLimit(row.token_limit);
+  nullableLimit(row.agent_turn_limit);
+  return row;
+}
+
+function checkedBudgets(row:SessionBudgets):SessionBudgets {
+  checkedLimits(row);
+  nullableLimit(row.effective_token_limit);
+  if (nullableLimit(row.effective_agent_turn_limit) === null) throw new TypeError('Invalid effective turn limit');
+  return row;
+}
+
 /** Normalize one backend `RoomRecord`; refuses non-room payloads. */
 function roomFromWire(row: Record<string, unknown>): RoomRecord {
-  if (row.kind !== 'room') throw new TypeError('Invalid room record response');
+  if (row.kind !== 'room' || typeof row.room_id !== 'string' || row.session_id !== row.id ||
+      typeof row.session_id !== 'string' || row.room_id === row.session_id) throw new TypeError('Invalid room record response');
   const rules = row.rules;
   const agents = row.agents;
   const users = row.users;
-  const tokenLimit = pick<unknown>(row, 'token_limit', 'tokenLimit');
   const agentTurnLimit = pick<unknown>(row, 'agent_turn_limit', 'agentTurnLimit');
-  const configured = pick<unknown>(row, 'configured_agent_turn_limit', 'configuredAgentTurnLimit');
   const setupRevision = pick<unknown>(row, 'setup_revision', 'setupRevision');
   const status = row.status;
   const integer = (value: unknown): number | null =>
@@ -618,11 +645,13 @@ function roomFromWire(row: Record<string, unknown>): RoomRecord {
   // here would fabricate policy facts (0 disables turns).
   if (!Array.isArray(rules) || !rules.every((rule) => typeof rule === 'string') ||
       !Array.isArray(agents) || typeof status !== 'string' ||
-      integer(agentTurnLimit) === null || integer(setupRevision) === null) {
+      (integer(agentTurnLimit) === null || (agentTurnLimit as number) < 0 || !Number.isSafeInteger(agentTurnLimit)) || integer(setupRevision) === null) {
     throw new TypeError('Invalid room record response');
   }
   return {
     id: String(row.id ?? ''),
+    roomId: row.room_id,
+    sessionId: row.session_id,
     kind: 'room',
     title: row.title === undefined || row.title === null ? null : String(row.title),
     purpose: typeof row.purpose === 'string' ? row.purpose : '',
@@ -635,9 +664,10 @@ function roomFromWire(row: Record<string, unknown>): RoomRecord {
     users: Array.isArray(users)
       ? users.filter((user) => user && typeof user === 'object').map(roomUserFromWire)
       : [],
-    tokenLimit: integer(tokenLimit),
+    tokenLimit: nullableLimit(row.token_limit),
     agentTurnLimit: agentTurnLimit as number,
-    configuredAgentTurnLimit: integer(configured),
+    configuredAgentTurnLimit: nullableLimit(row.configured_agent_turn_limit),
+    configuredTokenLimit: nullableLimit(row.configured_token_limit),
     status: status as RoomRecord['status'],
     setupRevision: setupRevision as number,
     createdAt: pick<string>(row, 'created_at', 'createdAt') ?? null,
@@ -705,8 +735,54 @@ function roomReactionFromWire(row: Record<string, unknown>): { messageId: string
  * of owned agents; runtime key: sessions §15 exposes to the pod). Bound to
  * the agents API base, so `/sessions` resolves to `/agents/sessions`.
  */
+export interface GrantPeriod {
+  id: string;
+  room_id: string | null;
+  session_id: string | null;
+  subject_type: 'user' | 'agent';
+  subject_id: string;
+  role: 'owner' | 'member';
+  created_at: string;
+  created_by_type: 'user' | 'agent' | 'system';
+  created_by_id: string;
+  revoked_at: string | null;
+  revoked_by_type: 'user' | 'agent' | 'system' | null;
+  revoked_by_id: string | null;
+  member_grant_id: string | null;
+  issued_under_room_grant_id: string | null;
+  revoked_under_room_grant_id: string | null;
+  removed_with_member_grant_id: string | null;
+}
+
+export interface SessionBudgets { agent_turn_limit: number | null; token_limit: number | null; effective_agent_turn_limit: number; effective_token_limit: number | null }
+export interface RoomParent {
+  agent_turn_limit: number | null; token_limit: number | null;
+  id: string; title: string | null; purpose: string; style: string; rules: string[];
+  status: 'live' | 'archived' | 'deleted'; created_at: string;
+}
+export interface RoomCreated extends RoomParent { session_id: string | null }
+export interface RoomChild {
+  id: string; room_id: string; title: string | null; token_limit: number | null; agent_turn_limit: number | null;
+}
+export interface RoomPage<T> { items: T[]; next_cursor: string | null }
+
 export class SessionsAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'postRaw' | 'delete' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
+
+  async listGrants(resource: 'rooms'|'sessions', resourceId: string, cursor?: string): Promise<GrantPeriod[]> {
+    return this.http.get(`/${resource}/${encodeURIComponent(resourceId)}/grants`, cursor ? {cursor} : {});
+  }
+  async issueMember(resource: 'rooms' | 'sessions', resourceId: string, grantId: string,
+    subject: { subject_type: 'user' | 'agent'; subject_id: string; member_grant_id?: string | null }): Promise<GrantPeriod> {
+    if (!this.http.post) throw new Error('Grant issuance requires a writable HTTP client');
+    return this.http.post<GrantPeriod>(`/${resource}/${encodeURIComponent(resourceId)}/grants/${encodeURIComponent(grantId)}`,
+      { subject_type: subject.subject_type, subject_id: subject.subject_id, member_grant_id: subject.member_grant_id ?? null });
+  }
+
+  async revokeMember(resource: 'rooms' | 'sessions', resourceId: string, grantId: string): Promise<GrantPeriod> {
+    if (!this.http.post) throw new Error('Grant revocation requires a writable HTTP client');
+    return this.http.post<GrantPeriod>(`/${resource}/${encodeURIComponent(resourceId)}/grants/${encodeURIComponent(grantId)}/revoke`);
+  }
 
   /** Observe committed public message DTOs. Reconnects resubscribe; no replay/gap-free guarantee.
    * Abort resolves the subscription. Protocol, subscription and callback errors reject it.
@@ -873,9 +949,9 @@ export class SessionsAPI {
    * Omitted knobs select the product defaults (read back as the effective
    * `agentTurnLimit`, 25 today, with `configuredAgentTurnLimit` null).
    */
-  async createRoom(agents: readonly string[], options: RoomCreateOptions = {}): Promise<RoomRecord> {
+  async createRoom(agents: readonly string[] = [], options: RoomCreateOptions = {}): Promise<RoomCreated> {
     if (!this.http.post) throw new Error('Room creation requires a writable HTTP client');
-    const payload = await this.http.post<Record<string, unknown>>('/rooms', {
+    const result = await this.http.post<RoomCreated>('/rooms', {
       title: options.title ?? null,
       purpose: options.purpose ?? '',
       style: options.style ?? '',
@@ -883,14 +959,50 @@ export class SessionsAPI {
       agents: [...agents],
       token_limit: options.tokenLimit ?? null,
       agent_turn_limit: options.agentTurnLimit ?? null,
-    });
-    return roomFromWire(payload);
+    }, { retries: 1 });
+    if (!result || typeof result.id !== 'string' || (result.session_id !== null && typeof result.session_id !== 'string') ||
+        result.session_id === result.id || (agents.length > 0) !== (result.session_id !== null)) {
+      throw new TypeError('Invalid room creation receipt');
+    }
+    return checkedLimits(result);
   }
 
-  /** Read one room's brief, roster, policy, and status by room/session id. */
-  async getRoom(roomId: string): Promise<RoomRecord> {
+  async getRoom(roomId: string): Promise<RoomParent> {
+    return checkedLimits(await this.http.get<RoomParent>(`/rooms/${encodeURIComponent(roomId)}`));
+  }
+
+  async getSessionBudgets(sessionId: string): Promise<SessionBudgets> {
+    return checkedBudgets(await this.http.get<SessionBudgets>(`/sessions/${encodeURIComponent(sessionId)}/budgets`));
+  }
+  async updateSessionBudgets(sessionId: string, patch: Partial<Pick<SessionBudgets, 'agent_turn_limit'|'token_limit'>>): Promise<SessionBudgets> {
+    if (!this.http.patch) throw new Error('Session budgets require a writable HTTP client');
+    return checkedBudgets(await this.http.patch<SessionBudgets>(`/sessions/${encodeURIComponent(sessionId)}/budgets`, patch));
+  }
+  async updateRoomParent(roomId: string, patch: Partial<Pick<RoomParent, 'title'|'purpose'|'style'|'rules'|'agent_turn_limit'|'token_limit'>> &
+    {status?: 'live'|'archived'}): Promise<RoomParent> {
+    if (!this.http.patch) throw new Error('Room updates require a writable HTTP client');
+    return checkedLimits(await this.http.patch<RoomParent>(`/rooms/${encodeURIComponent(roomId)}`, patch));
+  }
+
+  async listRooms(cursor?: string): Promise<RoomPage<RoomParent>> {
+    return this.http.get<RoomPage<RoomParent>>('/rooms', cursor ? { cursor } : {});
+  }
+
+  async listRoomSessions(roomId: string, cursor?: string): Promise<RoomPage<RoomChild>> {
+    return this.http.get<RoomPage<RoomChild>>(`/rooms/${encodeURIComponent(roomId)}/sessions`, cursor ? { cursor } : {});
+  }
+
+  async createRoomSession(roomId: string, agents: readonly string[], options: RoomCreateOptions = {}): Promise<RoomChild> {
+    if (!this.http.post) throw new Error('Session creation requires a writable HTTP client');
+    return checkedLimits(await this.http.post<RoomChild>(`/rooms/${encodeURIComponent(roomId)}/sessions`, {
+      agents: [...agents], title: options.title ?? null, purpose: options.purpose ?? '', style: options.style ?? '',
+      rules: options.rules ?? [], token_limit: options.tokenLimit ?? null, agent_turn_limit: options.agentTurnLimit ?? null,
+    }, { retries: 1 }));
+  }
+
+  async getRoomSession(sessionId: string): Promise<RoomRecord> {
     const payload = await this.http.get<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}`,
+      `/sessions/${encodeURIComponent(sessionId)}/room`,
     );
     return roomFromWire(payload);
   }
@@ -901,7 +1013,7 @@ export class SessionsAPI {
    * a policy knob's product default. Policy changes take effect at the next
    * human-message epoch.
    */
-  async updateRoom(roomId: string, patch: RoomUpdateOptions = {}): Promise<RoomRecord> {
+  async updateRoom(roomId: string, patch: RoomUpdateOptions = {}): Promise<RoomParent> {
     if (!this.http.patch) throw new Error('Room updates require a writable HTTP client');
     const body: Record<string, unknown> = {};
     if (patch.title !== undefined) body.title = patch.title;
@@ -911,24 +1023,23 @@ export class SessionsAPI {
     if (patch.tokenLimit !== undefined) body.token_limit = patch.tokenLimit;
     if (patch.agentTurnLimit !== undefined) body.agent_turn_limit = patch.agentTurnLimit;
     if (patch.status !== undefined) body.status = patch.status;
-    const payload = await this.http.patch<Record<string, unknown>>(
+    return checkedLimits(await this.http.patch<RoomParent>(
       `/rooms/${encodeURIComponent(roomId)}`, body,
-    );
-    return roomFromWire(payload);
+    ));
   }
 
   /**
    * Commit one authenticated human room message
-   * (`POST /rooms/{room_id}/messages`). Fanout stays backend-owned: the reply
+   * (`POST /sessions/{session_id}/room/messages`). Fanout stays backend-owned: the reply
    * carries the canonical message identity, its epoch, and the per-agent
    * delivery map; automatic agent turns are neither awaited nor relayed.
    * Optional `mentions` name agent ids and `attachmentIds` reference room
    * attachments; neither is sent unless non-empty.
    */
-  async createRoomMessage(roomId: string, body: string, options: { replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
+  async createRoomMessage(sessionId: string, body: string, options: { replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
     if (!this.http.post) throw new Error('Room messages require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/messages`,
+      `/sessions/${encodeURIComponent(sessionId)}/room/messages`,
       {
         body,
         ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}),
@@ -940,46 +1051,55 @@ export class SessionsAPI {
   }
 
   /**
-   * Owner-adds one human to a room roster (`POST /rooms/{room_id}/participants`).
+   * Owner-adds one human to a room roster (`POST /sessions/{session_id}/room/participants`).
    * Idempotent: re-adding an existing participant changes nothing on the wire.
    * The authenticated caller must be the room owner; agent runtime keys are
    * refused.
    */
-  async addParticipant(roomId: string, userId: string): Promise<RoomRecord> {
+  async enrollRoomMember(roomId: string, target: {email:string} | {user_id:string}) {
+    if (!this.http.post) throw new Error('Room enrollment requires a writable HTTP client');
+    const receipt = await this.http.post<{room_id:string; subject_id:string; member_grant_id:string}>(
+      `/rooms/${encodeURIComponent(roomId)}/members`, target, { retries: 1 });
+    if (receipt.room_id !== roomId || !receipt.subject_id || !receipt.member_grant_id ||
+        ('user_id' in target && receipt.subject_id !== target.user_id)) throw new TypeError('Invalid membership receipt');
+    return receipt;
+  }
+
+  async addParticipant(sessionId: string, userId: string, memberGrantId?: string): Promise<RoomRecord> {
     if (!this.http.post) throw new Error('Room participants require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/participants`,
-      { user_id: userId },
+      `/sessions/${encodeURIComponent(sessionId)}/room/participants`,
+      { user_id: userId, ...(memberGrantId ? { member_grant_id: memberGrantId } : {}) },
     );
     return roomFromWire(payload);
   }
 
   /**
    * Owner-adds one human to a room roster by their account email
-   * (`POST /rooms/{room_id}/participants` with `email`). The address must
+   * (`POST /sessions/{session_id}/room/participants` with `email`). The address must
    * resolve to exactly one existing HyperCLI account; anything else gets the
    * backend's single 404 `room_person_not_added`, and no invitation is sent.
    * The authenticated caller must be the room owner; agent runtime keys are
    * refused.
    */
-  async addParticipantByEmail(roomId: string, email: string): Promise<RoomRecord> {
+  async addParticipantByEmail(sessionId: string, email: string): Promise<RoomRecord> {
     if (!this.http.post) throw new Error('Room participants require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/participants`,
+      `/sessions/${encodeURIComponent(sessionId)}/room/participants`,
       { email: email.trim() },
     );
     return roomFromWire(payload);
   }
 
   /**
-   * Upload one room attachment (`POST /rooms/{room_id}/attachments`): raw
+   * Upload one room attachment (`POST /sessions/{session_id}/room/attachments`): raw
    * `application/octet-stream` bytes in, attachment identity and the
    * backend-owned per-agent delivery report out. Delivery is not awaited.
    */
-  async uploadRoomAttachment(roomId: string, data: Uint8Array, name: string, mimeType: string, options: { signal?: AbortSignal } = {}): Promise<RoomAttachment> {
+  async uploadRoomAttachment(sessionId: string, data: Uint8Array, name: string, mimeType: string, options: { signal?: AbortSignal } = {}): Promise<RoomAttachment> {
     if (!this.http.postRaw) throw new Error('Room attachments require a writable HTTP client');
     const payload = await this.http.postRaw<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/attachments?name=${encodeURIComponent(name)}&mime_type=${encodeURIComponent(mimeType)}`,
+      `/sessions/${encodeURIComponent(sessionId)}/room/attachments?name=${encodeURIComponent(name)}&mime_type=${encodeURIComponent(mimeType)}`,
       data,
       'application/octet-stream',
       { signal: options.signal },
@@ -989,13 +1109,13 @@ export class SessionsAPI {
 
   /**
    * Add the caller's reaction to one room message
-   * (`POST /rooms/{room_id}/messages/{message_id}/reactions`); the reply
+   * (`POST /sessions/{session_id}/room/messages/{message_id}/reactions`); the reply
    * carries the message's refreshed session-style reaction metadata.
    */
-  async addRoomReaction(roomId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
+  async addRoomReaction(sessionId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
     if (!this.http.post) throw new Error('Room reactions require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+      `/sessions/${encodeURIComponent(sessionId)}/room/messages/${encodeURIComponent(messageId)}/reactions`,
       { emoji },
     );
     return roomReactionFromWire(payload);
@@ -1003,13 +1123,13 @@ export class SessionsAPI {
 
   /**
    * Remove the caller's reaction from one room message
-   * (`DELETE /rooms/{room_id}/messages/{message_id}/reactions?emoji=…`);
+   * (`DELETE /sessions/{session_id}/room/messages/{message_id}/reactions?emoji=…`);
    * the reply carries the message's refreshed session-style reaction metadata.
    */
-  async removeRoomReaction(roomId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
+  async removeRoomReaction(sessionId: string, messageId: string, emoji: string): Promise<{ messageId: string; meta: SessionMessageMeta }> {
     if (!this.http.delete) throw new Error('Room reactions require a writable HTTP client');
     const payload = await this.http.delete<Record<string, unknown>>(
-      `/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions?emoji=${encodeURIComponent(emoji)}`,
+      `/sessions/${encodeURIComponent(sessionId)}/room/messages/${encodeURIComponent(messageId)}/reactions?emoji=${encodeURIComponent(emoji)}`,
     );
     return roomReactionFromWire(payload);
   }

@@ -23,7 +23,7 @@ const AGENT_B = '8d1f2b34-56a7-48b9-9c01-d23e4f5a6b7c';
 const OWNER_ID = '81c2f4e6-7a8b-49c0-b1d2-3e4f5a6b7c8d';
 
 const roomRecord: RoomRecord = {
-  id: ROOM_ID, kind: 'room', title: 'Build triage',
+  id: ROOM_ID, roomId: OWNER_ID, sessionId: ROOM_ID, users: [], kind: 'room', title: 'Build triage',
   purpose: 'Investigate CI failures.', style: 'Concise technical discussion.',
   rules: ['Respond with new information only.'], ownerId: OWNER_ID,
   agents: [
@@ -44,8 +44,12 @@ const roomMessage: RoomMessage = {
 
 function setup(format: 'table' | 'json' = 'table') {
   const api = {
-    createRoom: vi.fn(async () => roomRecord),
-    getRoom: vi.fn(async () => roomRecord),
+    createRoom: vi.fn(async () => ({ id: OWNER_ID, session_id: ROOM_ID, title: 'Build triage' })),
+    getRoom: vi.fn(async () => ({ id: OWNER_ID, title: 'Build triage', status: 'live' })),
+    listRoomSessions: vi.fn(async () => ({items: [{id:ROOM_ID,title:'test'}],next_cursor:null})),
+    createRoomSession: vi.fn(async () => ({id:ROOM_ID,room_id:OWNER_ID})),
+    updateSessionBudgets: vi.fn(async () => ({agent_turn_limit:null, token_limit:0})),
+    listGrants:vi.fn(async()=>[]), issueMember:vi.fn(async()=>({id:AGENT_B})), revokeMember:vi.fn(async()=>({id:AGENT_B})),
     updateRoom: vi.fn(async () => roomRecord),
     createRoomMessage: vi.fn(async () => roomMessage),
   };
@@ -80,7 +84,7 @@ describe('hyper rooms', () => {
       rules: ['Respond with new information only.'], tokenLimit: 100000, agentTurnLimit: 0,
     });
     expect(stdout).toContain('Build triage');
-    expect(stdout).toContain('Atlas');
+    expect(stdout).toContain(ROOM_ID);
   });
 
   it('create omits absent optional flags so product defaults apply', async () => {
@@ -95,11 +99,35 @@ describe('hyper rooms', () => {
     const { ctx, api } = setup();
     await rooms.run(ctx, ['get', ROOM_ID]);
     expect(api.getRoom).toHaveBeenCalledExactlyOnceWith(ROOM_ID);
-    expect(stdout).toContain(ROOM_ID);
-    expect(stdout).toContain('unlimited');
-    expect(stdout).toContain('25 (default)');
+    expect(stdout).toContain(OWNER_ID);
+    expect(stdout).toContain('live');
   });
 
+  it('lists and creates children under the exact parent', async () => {
+    const {ctx,api} = setup();
+    await rooms.run(ctx,['children',OWNER_ID]);
+    expect(api.listRoomSessions).toHaveBeenCalledWith(OWNER_ID,undefined);
+    await rooms.run(ctx,['child-create',OWNER_ID,AGENT_A,'--title','test']);
+    expect(api.createRoomSession).toHaveBeenCalledWith(OWNER_ID,[AGENT_A],{title:'test'});
+    expect(stdout).toContain(ROOM_ID);
+  });
+
+  it('routes session override edits to the child, including clear and zero', async () => {
+    const {ctx, api} = setup();
+    await rooms.run(ctx, ['session-budget', ROOM_ID, '--token-limit', '0', '--agent-turn-limit', 'none']);
+    expect(api.updateSessionBudgets).toHaveBeenCalledExactlyOnceWith(ROOM_ID, {token_limit:0,agent_turn_limit:null});
+    expect(api.updateRoom).not.toHaveBeenCalled();
+  });
+
+  it('lists exact periods and uses the parent member period only for child issuance',async()=>{
+    const {ctx,api}=setup();
+    await rooms.run(ctx,['grants','rooms',OWNER_ID]);
+    expect(api.listGrants).toHaveBeenCalledWith('rooms',OWNER_ID,undefined);
+    await rooms.run(ctx,['grant','sessions',ROOM_ID,AGENT_B,'agent',AGENT_A,OWNER_ID]);
+    expect(api.issueMember).toHaveBeenCalledWith('sessions',ROOM_ID,AGENT_B,{subject_type:'agent',subject_id:AGENT_A,member_grant_id:OWNER_ID});
+    await rooms.run(ctx,['revoke','sessions',ROOM_ID,AGENT_B]);
+    expect(api.revokeMember).toHaveBeenCalledWith('sessions',ROOM_ID,AGENT_B);
+  });
   it('updates only the supplied fields', async () => {
     const { ctx, api } = setup();
     await rooms.run(ctx, ['update', ROOM_ID, '--title', 'New focus', '--status', 'archived']);
@@ -131,7 +159,7 @@ describe('hyper rooms', () => {
     const { ctx, api } = setup(format);
     await rooms.run(ctx, ['get', ROOM_ID]);
     if (format === 'json') expect(JSON.parse(stdout)).toEqual(await api.getRoom.mock.results[0].value);
-    else expect(stdout).toContain('agent_turn_limit');
+    else expect(stdout).toContain('room_id');
     await rooms.run(ctx, ['message', ROOM_ID, 'hello']);
     if (format === 'json') {
       const lines = stdout.trim().split('\n');
@@ -141,7 +169,6 @@ describe('hyper rooms', () => {
 
   it.each([
     ['unknown'], ['bogus', 'x'],
-    ['create'],
     ['create', ' '],
     ['get'], ['get', 'a', 'b'],
     ['update'], ['update', 'a', 'b'],

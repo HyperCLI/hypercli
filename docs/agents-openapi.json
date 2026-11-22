@@ -7048,7 +7048,335 @@
         }
       }
     },
+    "/agents/{resource_kind}/{resource_id}/grants": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Resource Grants",
+        "operationId": "list_resource_grants_agents__resource_kind___resource_id__grants_get",
+        "parameters": [
+          {
+            "name": "resource_kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "rooms",
+                "sessions"
+              ],
+              "type": "string",
+              "title": "Resource Kind"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Resource Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GrantPeriod"
+                  },
+                  "title": "Response List Resource Grants Agents  Resource Kind   Resource Id  Grants Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{resource_kind}/{resource_id}/grants/{grant_id}": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Issue Resource Member",
+        "operationId": "issue_resource_member_agents__resource_kind___resource_id__grants__grant_id__post",
+        "parameters": [
+          {
+            "name": "resource_kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "rooms",
+                "sessions"
+              ],
+              "type": "string",
+              "title": "Resource Kind"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Resource Id"
+            }
+          },
+          {
+            "name": "grant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Grant Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantIssue"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantPeriod"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{resource_kind}/{resource_id}/grants/{grant_id}/revoke": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Revoke Resource Member",
+        "operationId": "revoke_resource_member_agents__resource_kind___resource_id__grants__grant_id__revoke_post",
+        "parameters": [
+          {
+            "name": "resource_kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "rooms",
+                "sessions"
+              ],
+              "type": "string",
+              "title": "Resource Kind"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Resource Id"
+            }
+          },
+          {
+            "name": "grant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Grant Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantPeriod"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/rooms": {
+      "get": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "List Rooms",
+        "operationId": "list_rooms_agents_rooms_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "sessions",
@@ -7083,7 +7411,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoomRecord"
+                  "$ref": "#/components/schemas/RoomCreated"
                 }
               }
             }
@@ -7107,8 +7435,8 @@
           "sessions",
           "rooms"
         ],
-        "summary": "Get Room",
-        "operationId": "get_room_agents_rooms__room_id__get",
+        "summary": "Get Room Parent",
+        "operationId": "get_room_parent_agents_rooms__room_id__get",
         "parameters": [
           {
             "name": "room_id",
@@ -7136,7 +7464,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoomRecord"
+                  "$ref": "#/components/schemas/RoomParent"
                 }
               }
             }
@@ -7158,8 +7486,8 @@
           "sessions",
           "rooms"
         ],
-        "summary": "Update Room",
-        "operationId": "update_room_agents_rooms__room_id__patch",
+        "summary": "Update Room Parent",
+        "operationId": "update_room_parent_agents_rooms__room_id__patch",
         "parameters": [
           {
             "name": "room_id",
@@ -7197,6 +7525,202 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "$ref": "#/components/schemas/RoomParent"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/rooms/{room_id}/sessions": {
+      "get": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "List Children",
+        "operationId": "list_children_agents_rooms__room_id__sessions_get",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChildPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Create Room Child",
+        "operationId": "create_room_child_agents_rooms__room_id__sessions_post",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChildSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{room_id}/room": {
+      "get": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Get Room",
+        "operationId": "get_room_agents_sessions__room_id__room_get",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
                   "$ref": "#/components/schemas/RoomRecord"
                 }
               }
@@ -7215,14 +7739,14 @@
         }
       }
     },
-    "/agents/rooms/{room_id}/events": {
+    "/agents/sessions/{room_id}/room/events": {
       "get": {
         "tags": [
           "sessions",
           "rooms"
         ],
         "summary": "Get Room Events",
-        "operationId": "get_room_events_agents_rooms__room_id__events_get",
+        "operationId": "get_room_events_agents_sessions__room_id__room_events_get",
         "parameters": [
           {
             "name": "room_id",
@@ -7254,7 +7778,7 @@
                   "items": {
                     "$ref": "#/components/schemas/RoomEvent"
                   },
-                  "title": "Response Get Room Events Agents Rooms  Room Id  Events Get"
+                  "title": "Response Get Room Events Agents Sessions  Room Id  Room Events Get"
                 }
               }
             }
@@ -7272,14 +7796,128 @@
         }
       }
     },
-    "/agents/rooms/{room_id}/messages": {
+    "/agents/sessions/{session_id}/budgets": {
+      "get": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Get Session Budgets",
+        "operationId": "get_session_budgets_agents_sessions__session_id__budgets_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBudgets"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Update Session Budgets",
+        "operationId": "update_session_budgets_agents_sessions__session_id__budgets_patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionBudgetPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBudgets"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{room_id}/room/messages": {
       "post": {
         "tags": [
           "sessions",
           "rooms"
         ],
         "summary": "Create Room Message",
-        "operationId": "create_room_message_agents_rooms__room_id__messages_post",
+        "operationId": "create_room_message_agents_sessions__room_id__room_messages_post",
         "parameters": [
           {
             "name": "room_id",
@@ -7318,6 +7956,350 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RoomMessageRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{room_id}/room/attachments": {
+      "post": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Upload Room Attachment",
+        "description": "Write one uploaded file into every room agent's own inbox.\n\nThe bytes are delivered per agent through that agent's own transport and\nrecorded as one durable ``room_attachment`` evidence frame; the per-agent\nresult returns to the uploader without exposing absolute runtime paths.",
+        "operationId": "upload_room_attachment_agents_sessions__room_id__room_attachments_post",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "title": "Name"
+            }
+          },
+          {
+            "name": "mime_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 255,
+              "default": "application/octet-stream",
+              "title": "Mime Type"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomAttachmentRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/rooms/{room_id}/members": {
+      "post": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Enroll Room Member",
+        "description": "Explicit parent-only enrollment. Retry returns the current membership period.",
+        "operationId": "enroll_room_member_agents_rooms__room_id__members_post",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomParticipantAddRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParentMemberReceipt"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{room_id}/room/participants": {
+      "post": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Add Room Participant",
+        "operationId": "add_room_participant_agents_sessions__room_id__room_participants_post",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChildParticipantAddRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/sessions/{room_id}/room/messages/{message_id}/reactions": {
+      "post": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Add Room Message Reaction",
+        "operationId": "add_room_message_reaction_agents_sessions__room_id__room_messages__message_id__reactions_post",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomReactionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomReactionRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions",
+          "rooms"
+        ],
+        "summary": "Remove Room Message Reaction",
+        "operationId": "remove_room_message_reaction_agents_sessions__room_id__room_messages__message_id__reactions_delete",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emoji"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomReactionRecord"
                 }
               }
             }
@@ -11363,6 +12345,14 @@
             ],
             "title": "Reply To"
           },
+          "mentions": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Mentions"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -11415,6 +12405,23 @@
               }
             ],
             "title": "Reply To"
+          },
+          "mentions": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Mentions"
+          },
+          "attachment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Attachment Ids"
           }
         },
         "additionalProperties": false,
@@ -11434,9 +12441,11 @@
             "type": "string",
             "enum": [
               "room_epoch",
+              "room_kickoff",
               "room_turn_admitted",
               "room_turn_rejected",
-              "room_turn_completed"
+              "room_turn_completed",
+              "room_participant_added"
             ],
             "title": "Type"
           },
@@ -11544,6 +12553,30 @@
             ],
             "title": "Usage Total"
           },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -11565,6 +12598,16 @@
             "type": "string",
             "format": "uuid",
             "title": "Id"
+          },
+          "room_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Room Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
           },
           "kind": {
             "type": "string",
@@ -11609,6 +12652,13 @@
             "type": "array",
             "title": "Agents"
           },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/RoomUser"
+            },
+            "type": "array",
+            "title": "Users"
+          },
           "token_limit": {
             "anyOf": [
               {
@@ -11634,6 +12684,17 @@
               }
             ],
             "title": "Configured Agent Turn Limit"
+          },
+          "configured_token_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configured Token Limit"
           },
           "status": {
             "type": "string",
@@ -11663,6 +12724,8 @@
         "type": "object",
         "required": [
           "id",
+          "room_id",
+          "session_id",
           "kind",
           "title",
           "purpose",
@@ -11670,9 +12733,11 @@
           "rules",
           "owner_id",
           "agents",
+          "users",
           "token_limit",
           "agent_turn_limit",
           "configured_agent_turn_limit",
+          "configured_token_limit",
           "status",
           "setup_revision",
           "created_at",
@@ -11764,30 +12829,6 @@
             ],
             "title": "Rules"
           },
-          "token_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Token Limit"
-          },
-          "agent_turn_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Turn Limit"
-          },
           "status": {
             "anyOf": [
               {
@@ -11802,6 +12843,30 @@
               }
             ],
             "title": "Status"
+          },
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          },
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
           }
         },
         "additionalProperties": false,
@@ -11850,7 +12915,6 @@
             },
             "type": "array",
             "maxItems": 64,
-            "minItems": 1,
             "title": "Agents"
           },
           "token_limit": {
@@ -11880,11 +12944,832 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": [
-          "agents"
-        ],
         "title": "RoomCreateRequest",
         "description": "The complete initial room brief, roster, and two policy knobs."
+      },
+      "RoomReactionRecord": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Meta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "meta"
+        ],
+        "title": "RoomReactionRecord"
+      },
+      "RoomReactionRequest": {
+        "properties": {
+          "emoji": {
+            "type": "string",
+            "title": "Emoji"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "emoji"
+        ],
+        "title": "RoomReactionRequest"
+      },
+      "RoomUser": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "user"
+            ],
+            "title": "Role"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "name",
+          "role"
+        ],
+        "title": "RoomUser"
+      },
+      "RoomParticipantAddRequest": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RoomParticipantAddRequest"
+      },
+      "RoomAttachmentRecord": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "title": "Attachment Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/RoomAttachmentDelivery"
+            },
+            "type": "array",
+            "title": "Deliveries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attachment_id",
+          "name",
+          "mime_type",
+          "size",
+          "deliveries"
+        ],
+        "title": "RoomAttachmentRecord"
+      },
+      "RoomAttachmentDelivery": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Agent Id"
+          },
+          "delivered": {
+            "type": "boolean",
+            "title": "Delivered"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agent_id",
+          "delivered"
+        ],
+        "title": "RoomAttachmentDelivery"
+      },
+      "SessionBudgets": {
+        "properties": {
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
+          },
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          },
+          "effective_agent_turn_limit": {
+            "type": "integer",
+            "title": "Effective Agent Turn Limit"
+          },
+          "effective_token_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Token Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effective_agent_turn_limit",
+          "effective_token_limit"
+        ],
+        "title": "SessionBudgets"
+      },
+      "SessionBudgetPatch": {
+        "properties": {
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
+          },
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SessionBudgetPatch"
+      },
+      "ChildSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "room_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Room Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          },
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "room_id",
+          "title",
+          "agent_turn_limit",
+          "token_limit"
+        ],
+        "title": "ChildSummary"
+      },
+      "ChildPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChildSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ChildPage"
+      },
+      "RoomParent": {
+        "properties": {
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          },
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "purpose": {
+            "type": "string",
+            "title": "Purpose"
+          },
+          "style": {
+            "type": "string",
+            "title": "Style"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "live",
+              "archived",
+              "deleted"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_turn_limit",
+          "token_limit",
+          "id",
+          "title",
+          "purpose",
+          "style",
+          "rules",
+          "status",
+          "created_at"
+        ],
+        "title": "RoomParent"
+      },
+      "RoomCreated": {
+        "properties": {
+          "agent_turn_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Turn Limit"
+          },
+          "token_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Limit"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "purpose": {
+            "type": "string",
+            "title": "Purpose"
+          },
+          "style": {
+            "type": "string",
+            "title": "Style"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "live",
+              "archived",
+              "deleted"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_turn_limit",
+          "token_limit",
+          "id",
+          "title",
+          "purpose",
+          "style",
+          "rules",
+          "status",
+          "created_at",
+          "session_id"
+        ],
+        "title": "RoomCreated"
+      },
+      "RoomPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoomParent"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RoomPage"
+      },
+      "GrantPeriod": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "agent"
+            ],
+            "title": "Subject Type"
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Subject Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ],
+            "title": "Role"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "agent",
+              "system"
+            ],
+            "title": "Created By Type"
+          },
+          "created_by_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By Id"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "agent",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked By Type"
+          },
+          "revoked_by_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked By Id"
+          },
+          "member_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Grant Id"
+          },
+          "issued_under_room_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued Under Room Grant Id"
+          },
+          "revoked_under_room_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked Under Room Grant Id"
+          },
+          "removed_with_member_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed With Member Grant Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject_type",
+          "subject_id",
+          "role",
+          "created_at",
+          "created_by_type",
+          "created_by_id",
+          "revoked_at",
+          "revoked_by_type",
+          "revoked_by_id",
+          "member_grant_id",
+          "issued_under_room_grant_id",
+          "revoked_under_room_grant_id",
+          "removed_with_member_grant_id"
+        ],
+        "title": "GrantPeriod"
+      },
+      "GrantIssue": {
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "agent"
+            ],
+            "title": "Subject Type"
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Subject Id"
+          },
+          "member_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Grant Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subject_type",
+          "subject_id"
+        ],
+        "title": "GrantIssue"
+      },
+      "ChildParticipantAddRequest": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "member_grant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Grant Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ChildParticipantAddRequest"
+      },
+      "ParentMemberReceipt": {
+        "properties": {
+          "room_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Room Id"
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Subject Id"
+          },
+          "member_grant_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Member Grant Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "room_id",
+          "subject_id",
+          "member_grant_id"
+        ],
+        "title": "ParentMemberReceipt"
       }
     }
   }

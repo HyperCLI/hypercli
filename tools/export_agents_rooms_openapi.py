@@ -25,7 +25,9 @@ from pathlib import Path
 
 
 def room_path(path):
-    return path == "/agents/rooms" or path.startswith("/agents/rooms/")
+    return (path == "/agents/rooms" or path.startswith("/agents/rooms/")
+            or (path.startswith("/agents/sessions/{") and ("/room" in path or path.endswith("/budgets")))
+            or path.startswith("/agents/{resource_kind}/{resource_id}/grants"))
 
 
 def references(value):

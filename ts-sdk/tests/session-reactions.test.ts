@@ -72,6 +72,7 @@ it('applies confirmed operations from the product websocket without fetching per
     socket.send(JSON.stringify({ ...fixture.event, session_id: 'other-session' }));
     socket.send(JSON.stringify({ ...fixture.event, type: 'removeReaction', meta: { ...fixture.event.meta, reactions: {}, reactionUpdatedAt: '2026-10-17T12:00:00.000003Z' } }));
     socket.send(JSON.stringify(fixture.event));
+    socket.send(JSON.stringify({type:'roomReaction', session_id:'session-1', message_id:'message-1', meta:{...fixture.event.meta,reactionUpdatedAt:'2026-10-17T12:00:00.000004Z'}}));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -84,16 +85,17 @@ it('applies confirmed operations from the product websocket without fetching per
     let count = 0;
     const snapshots: typeof rows[] = [];
     await deployments.subscribe(async event => {
-      expect(['addReaction', 'removeReaction']).toContain(event.type);
+      expect(['addReaction', 'removeReaction','roomReaction']).toContain(event.type);
       rows = applySessionReactionOperation(rows, event as SessionReactionOperation);
       snapshots.push(rows);
       expect(rows[0].acp).toEqual(fixture.row.acp);
-      if (++count === 5) controller.abort();
+      if (++count === 6) controller.abort();
     }, { signal: controller.signal });
     expect(snapshots[0][0].meta).toEqual(fixture.event.meta);
     expect(snapshots[1]).toBe(snapshots[0]);
     expect(snapshots[2]).toBe(snapshots[0]);
     expect(snapshots[4]).toBe(snapshots[3]);
+    expect(snapshots[5][0].meta?.reactions).toEqual(fixture.event.meta.reactions);
     expect(snapshots[4][0].meta?.reactions).toEqual({});
     expect(requests.filter(r => r.startsWith('GET'))).toHaveLength(1);
     denied = true;

@@ -62,6 +62,8 @@ RUN --network=none node --input-type=module -e '\
 
 FROM scratch AS toolchain
 COPY --from=builder /bundle/opt/hypercli /opt/hypercli
+COPY py-sdk/pyproject.toml py-sdk/README.md /opt/hypercli/python-src/
+COPY py-sdk/hypercli /opt/hypercli/python-src/hypercli
 
 FROM ${NODE_IMAGE} AS runtime
 COPY --from=toolchain /opt/hypercli /opt/hypercli

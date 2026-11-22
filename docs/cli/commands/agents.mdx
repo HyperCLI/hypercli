@@ -178,3 +178,25 @@ does not prove background cleanup has completed.
 - `hyper agents routines` manages scheduled prompts; see [routines](/cli/commands/routines).
 - `hyper websearch "release notes" --count 5` searches through the platform proxy.
 - `hyper agents token <id>` refreshes agent access credentials.
+
+### Empty rooms, grants, and conversations
+
+Create an empty parent with `hyper rooms create --title Triage --json`. Save
+its `id` as `ROOM`; `session_id` is null. Supply your own fresh UUID for each
+grant period. Retry the same issuance with the same period ID.
+
+```sh
+hyper rooms grant rooms "$ROOM" "$MEMBER_PERIOD" agent "$AGENT"
+hyper rooms child-create "$ROOM" "$AGENT" --title Incident --json
+hyper rooms grants rooms "$ROOM" --json
+hyper rooms grants sessions "$CHILD" --json
+hyper rooms update "$ROOM" --token-limit 10000
+hyper rooms session-budget "$CHILD" --token-limit none --agent-turn-limit 0
+hyper rooms message "$CHILD" 'Following up' --reply-to "$MESSAGE_ID"
+```
+
+`CHILD` is the new conversation's `id`. To issue a child member grant, pass
+its current parent membership period as the final argument. Revoke by exact
+period: `hyper rooms revoke sessions "$CHILD" "$CHILD_PERIOD"`. Period lists
+include revoked history. A standalone DM uses `session-budget` with its own
+session ID and has no parent period. `none` clears that field; `0` is explicit.

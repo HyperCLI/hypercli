@@ -5,6 +5,12 @@
 !ts-cli/**
 !skills/
 !skills/**
+!py-sdk/
+!py-sdk/pyproject.toml
+!py-sdk/README.md
+!py-sdk/hypercli/
+!py-sdk/hypercli/**
+**/__pycache__
 **/node_modules
 **/dist
 .git

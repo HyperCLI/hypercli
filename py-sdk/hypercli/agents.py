@@ -49,6 +49,66 @@ from .http import HTTPClient, APIError
 from .sessions import RoomMessage, RoomRecord, SessionPage, SessionRecord, SessionSetup, SessionMessagePage, SessionMessageEvent
 
 
+class SessionBudgets(TypedDict):
+    token_limit: int | None
+    agent_turn_limit: int | None
+    effective_agent_turn_limit: int
+    effective_token_limit: int | None
+
+
+class RoomParent(TypedDict):
+    token_limit: int | None
+    agent_turn_limit: int | None
+    id: str
+    title: str | None
+    purpose: str
+    style: str
+    rules: list[str]
+    status: Literal["live", "archived", "deleted"]
+    created_at: str
+
+
+class RoomCreated(RoomParent):
+    session_id: str | None
+
+
+class RoomChild(TypedDict):
+    id: str
+    room_id: str
+    title: str | None
+    token_limit: int | None
+    agent_turn_limit: int | None
+
+
+class RoomPage(TypedDict):
+    items: list[RoomParent]
+    next_cursor: str | None
+
+
+class ChildPage(TypedDict):
+    items: list[RoomChild]
+    next_cursor: str | None
+
+
+class GrantPeriod(TypedDict):
+    id: str
+    room_id: str | None
+    session_id: str | None
+    subject_type: Literal["user", "agent"]
+    subject_id: str
+    role: Literal["owner", "member"]
+    created_at: str
+    created_by_type: Literal["user", "agent", "system"]
+    created_by_id: str
+    revoked_at: str | None
+    revoked_by_type: Literal["user", "agent", "system"] | None
+    revoked_by_id: str | None
+    member_grant_id: str | None
+    issued_under_room_grant_id: str | None
+    revoked_under_room_grant_id: str | None
+    removed_with_member_grant_id: str | None
+
+
 AGENTS_API_PREFIX = "/deployments"
 AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.hypercli.com/ws/acp"
 DEV_AGENTS_ACP_PROXY_WS_URL = "wss://api.agents.dev.hypercli.com/ws/acp"
@@ -3771,9 +3831,29 @@ class Deployments:
             params["cursor"] = cursor
         return SessionPage.from_dict(self._get("/sessions", params=params))
 
+    def list_grants(self, resource: Literal["rooms", "sessions"], resource_id: str, cursor: str | None = None) -> list[GrantPeriod]:
+        if resource not in ("rooms", "sessions"):
+            raise ValueError("Unknown grant resource")
+        return self._get(f"/{resource}/{quote(resource_id, safe='')}/grants", params={"cursor": cursor} if cursor else {})
+
+    def issue_member(self, resource: Literal["rooms", "sessions"], resource_id: str, grant_id: str,
+                     *, subject_type: Literal["user", "agent"], subject_id: str,
+                     member_grant_id: str | None = None) -> GrantPeriod:
+        """Use the same grant_id when retrying one issuance."""
+        if resource not in ("rooms", "sessions"):
+            raise ValueError("Expected rooms or sessions")
+        return self._post(f"/{resource}/{quote(resource_id, safe='')}/grants/{quote(grant_id, safe='')}",
+                          json={"subject_type": subject_type, "subject_id": subject_id,
+                                "member_grant_id": member_grant_id})
+
+    def revoke_member(self, resource: Literal["rooms", "sessions"], resource_id: str, grant_id: str) -> GrantPeriod:
+        if resource not in ("rooms", "sessions"):
+            raise ValueError("Expected rooms or sessions")
+        return self._post(f"/{resource}/{quote(resource_id, safe='')}/grants/{quote(grant_id, safe='')}/revoke")
+
     def create_room(
         self,
-        agents: Sequence[str],
+        agents: Sequence[str] = (),
         *,
         title: str | None = None,
         purpose: str = "",
@@ -3781,7 +3861,7 @@ class Deployments:
         rules: Sequence[str] | None = None,
         token_limit: int | None = None,
         agent_turn_limit: int | None = None,
-    ) -> RoomRecord:
+    ) -> RoomCreated:
         """Create an explicit multiparty room (docs/MULTIPARTY.md).
 
         ``agents`` are agent UUID strings the authenticated owner is authorized
@@ -3798,18 +3878,41 @@ class Deployments:
             "token_limit": token_limit,
             "agent_turn_limit": agent_turn_limit,
         }
-        return RoomRecord.from_dict(self._post("/rooms", json=body))
+        return self._post("/rooms", json=body)
 
-    def get_room(self, room_id: str) -> RoomRecord:
-        """Read one room's brief, roster, policy, and status by room/session id."""
-        return RoomRecord.from_dict(self._get(f"/rooms/{quote(room_id, safe='')}"))
+    def get_room(self, room_id: str) -> RoomParent:
+        return self._get(f"/rooms/{quote(room_id, safe='')}")
+
+    def get_session_budgets(self, session_id: str) -> SessionBudgets:
+        return self._get(f"/sessions/{quote(session_id, safe='')}/budgets")
+
+    def update_session_budgets(self, session_id: str, *, agent_turn_limit: int | None | object = _UNSET,
+                               token_limit: int | None | object = _UNSET) -> SessionBudgets:
+        return self._patch(f"/sessions/{quote(session_id, safe='')}/budgets", json={k:v for k,v in
+            {"agent_turn_limit":agent_turn_limit,"token_limit":token_limit}.items() if v is not _UNSET})
+
+    def list_rooms(self, cursor: str | None = None) -> RoomPage:
+        return self._get("/rooms", params={"cursor": cursor} if cursor else {})
+
+    def list_room_sessions(self, room_id: str, cursor: str | None = None) -> ChildPage:
+        return self._get(f"/rooms/{quote(room_id, safe='')}/sessions", params={"cursor": cursor} if cursor else {})
+
+    def create_room_session(self, room_id: str, agents: Sequence[str], *, title: str | None = None,
+                            purpose: str = "", style: str = "", rules: Sequence[str] = (),
+                            token_limit: int | None = None, agent_turn_limit: int | None = None) -> RoomChild:
+        return self._post(f"/rooms/{quote(room_id, safe='')}/sessions", json={"agents": list(agents),
+            "title": title, "purpose": purpose, "style": style, "rules": list(rules),
+            "token_limit": token_limit, "agent_turn_limit": agent_turn_limit})
+
+    def get_room_session(self, session_id: str) -> RoomRecord:
+        return RoomRecord.from_dict(self._get(f"/sessions/{quote(session_id, safe='')}/room"))
 
     def update_room(
         self, room_id: str, *, title: str | object = _UNSET, purpose: str | object = _UNSET,
         style: str | object = _UNSET, rules: Sequence[str] | object = _UNSET,
         token_limit: int | object = _UNSET, agent_turn_limit: int | object = _UNSET,
         status: str | object = _UNSET,
-    ) -> RoomRecord:
+    ) -> RoomParent:
         """Owner-edit a room brief, policy knobs, or status.
 
         Omitted fields are preserved. Supplied ``None`` clears brief text,
@@ -3821,12 +3924,12 @@ class Deployments:
             "title": title, "purpose": purpose, "style": style, "rules": rules,
             "token_limit": token_limit, "agent_turn_limit": agent_turn_limit, "status": status,
         }
-        body = {key: (list(value) if key == "rules" else value)
+        body = {key: (list(value) if key == "rules" and value is not None else value)
                 for key, value in supplied.items() if value is not _UNSET}
-        return RoomRecord.from_dict(self._patch(f"/rooms/{quote(room_id, safe='')}", json=body))
+        return self._patch(f"/rooms/{quote(room_id, safe='')}", json=body)
 
     def create_room_message(
-        self, room_id: str, body: str, *, reply_to: str | None = None,
+        self, session_id: str, body: str, *, reply_to: str | None = None,
     ) -> RoomMessage:
         """Commit one authenticated human message; fanout stays backend-owned.
 
@@ -3838,7 +3941,7 @@ class Deployments:
         if reply_to is not None:
             payload["reply_to"] = reply_to
         return RoomMessage.from_dict(
-            self._post(f"/rooms/{quote(room_id, safe='')}/messages", json=payload)
+            self._post(f"/sessions/{quote(session_id, safe='')}/room/messages", json=payload)
         )
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:

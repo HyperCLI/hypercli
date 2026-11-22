@@ -261,13 +261,19 @@ it('applies confirmed operations without refetching, preserves the page and hide
     await handler({ ...reactionFixture.event, session_id: 'other-session' });
     await handler(reactionFixture.event);
     await handler(reactionFixture.event);
+    const room = {type:'roomReaction',session_id:'session-1',message_id:'message-1',meta:{...reactionFixture.event.meta,reactions:{},reactionUpdatedAt:'2026-10-17T13:00:00.000005Z'}};
+    await handler({...room,session_id:'sibling'});
+    await handler({...room,message_id:'foreign'});
+    await handler(room);
     await options.onReady(); // An older reconnect read cannot roll back the operation.
   });
   const client = { sessions: { getSession: vi.fn().mockResolvedValue({ participants: [{ kind: 'agent', participantId: 'agent-1' }] }), getMessages }, deployments: { subscribe } } as unknown as HyperCLI;
   const { ctx } = makeCtx(client, 'json');
   await agents.run(ctx, ['messages', 'session-1', '--follow', '--cursor', 'older-page', '--limit', '25']);
   const snapshots = stdout().trim().split('\n').map(line => JSON.parse(line));
-  expect(snapshots).toHaveLength(2);
+  expect(snapshots).toHaveLength(3);
+  expect(snapshots[2].type).toBe("roomReaction");
+  expect(snapshots[2].items[0].meta.reactions).toEqual({});
   expect(snapshots[1].type).toBe('addReaction');
   expect(snapshots[1].items[0].meta.reactions['unicode:👍'].count).toBe(2);
   expect(snapshots[1].items[0].meta.reactions['custom:teams:reaction:heart'].count).toBeNull();

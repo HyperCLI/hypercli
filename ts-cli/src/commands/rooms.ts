@@ -11,15 +11,21 @@ import { parseCommandArgs } from '../core/argv.js';
 import { UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
-import type { RoomMessage, RoomRecord } from '@hypercli.com/sdk';
+import type { RoomMessage } from '@hypercli.com/sdk';
 
 export const name = 'rooms';
 export const summary = 'Create and read multiparty agent rooms, edit the brief or policy, and post owner messages.';
 export const usage = [
-  'hyper rooms create <agent-id...> [--title TITLE] [--purpose TEXT] [--style TEXT] [--rule TEXT]... [--token-limit N|none] [--agent-turn-limit N|none] [--json]',
+  'hyper rooms create [agent-id...] [--title TITLE] [--purpose TEXT] [--style TEXT] [--rule TEXT]... [--token-limit N|none] [--agent-turn-limit N|none] [--json]',
   'hyper rooms get <room-id> [--json]',
+  'hyper rooms grants <rooms|sessions> <resource-id>',
+  'hyper rooms grant <rooms|sessions> <resource-id> <grant-id> <user|agent> <subject-id> [parent-member-period-id]',
+  'hyper rooms revoke <rooms|sessions> <resource-id> <grant-id>',
+  'hyper rooms children <room-id> [--json]',
+  'hyper rooms child-create <room-id> <agent-id...> [--title TITLE] [--json]',
+  'hyper rooms session-budget <session-id> [--token-limit N|none] [--agent-turn-limit N|none] [--json]',
   'hyper rooms update <room-id> [--title TITLE] [--purpose TEXT] [--style TEXT] [--rule TEXT]... [--token-limit N|none] [--agent-turn-limit N|none] [--status live|archived] [--json]',
-  'hyper rooms message <room-id> <body...> [--reply-to MESSAGE-ID] [--json]',
+  'hyper rooms message <session-id> <body...> [--reply-to MESSAGE-ID] [--json]',
 ];
 
 const ARG_SPEC = {
@@ -36,6 +42,10 @@ const ARG_SPEC = {
 const ALLOWED_FLAGS: Record<string, readonly string[]> = {
   create: ['title', 'purpose', 'style', 'rule', 'token-limit', 'agent-turn-limit'],
   get: [],
+  grants: [], grant: [], revoke: [],
+  children: [],
+  'session-budget': ['token-limit', 'agent-turn-limit'],
+  'child-create': ['title'],
   update: ['title', 'purpose', 'style', 'rule', 'token-limit', 'agent-turn-limit', 'status'],
   message: ['reply-to'],
 };
@@ -62,31 +72,12 @@ function rowsBlock(rows: ReadonlyArray<readonly [string, string]>): string[] {
   return rows.map(([key, value]) => `  ${key.padEnd(width)}  ${value}`.trimEnd());
 }
 
-function renderRoom(room: RoomRecord): string {
-  const rules = room.rules.length > 0 ? room.rules.map((rule, index) => `${index + 1}) ${rule}`).join('\n  ') : '(none)';
-  const rows: Array<[string, string]> = [
-    ['room_id', room.id],
-    ['title', room.title ?? '(untitled)'],
-    ['purpose', room.purpose || '(none)'],
-    ['style', room.style || '(none)'],
-    ['owner_id', room.ownerId],
-    ['agents', room.agents.map((agent) => `${agent.name} (${agent.agentId})`).join(', ') || '(none)'],
-    ['token_limit', room.tokenLimit === null ? 'unlimited' : String(room.tokenLimit)],
-    ['agent_turn_limit', `${room.agentTurnLimit}${room.configuredAgentTurnLimit === null ? ' (default)' : ''}`],
-    ['status', room.status],
-    ['setup_revision', String(room.setupRevision)],
-    ['created_at', room.createdAt ?? ''],
-    ['updated_at', room.updatedAt ?? ''],
-  ];
-  return [['Room', ...rowsBlock(rows)].join('\n'), `Rules\n  ${rules}`].join('\n\n');
-}
-
 function renderMessage(message: RoomMessage): string {
   const fanout = Object.entries(message.fanout)
     .map(([agentId, delivered]) => `${agentId}: ${delivered ? 'delivered' : 'not delivered'}`)
     .join('\n  ');
   const rows: Array<[string, string]> = [
-    ['room_id', message.sessionId],
+    ['session_id', message.sessionId],
     ['message_id', message.messageId],
     ['seq', String(message.seq)],
     ['epoch_id', message.epochId],
@@ -119,10 +110,9 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   if (status !== undefined && status !== 'live' && status !== 'archived') {
     throw new UsageError('--status must be live or archived');
   }
-  if (command === 'create' && (rest.length < 1 || rest.some((id) => !id.trim()))) {
-    throw new UsageError('rooms create requires at least one agent UUID');
-  }
-  if ((command === 'get' || command === 'update') && (rest.length !== 1 || !rest[0].trim())) {
+  if (command === 'child-create' && rest.length < 2) throw new UsageError('child-create requires room ID and agents');
+  if (rest.some(value => !value.trim())) throw new UsageError('Empty argument');
+  if (['get', 'update', 'children'].includes(command) && (rest.length !== 1 || !rest[0].trim())) {
     throw new UsageError(`rooms ${command} requires one room ID`);
   }
   const [roomId, ...bodyWords] = command === 'message' ? rest : [undefined];
@@ -133,6 +123,32 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
 
   const sessions = (await ctx.client()).sessions;
   switch (command) {
+    case 'grants':
+    case 'grant':
+    case 'revoke': {
+      const [kind,id,period,subjectType,subjectId,parentPeriod] = rest;
+      if ((kind !== 'rooms' && kind !== 'sessions') || !id) throw new UsageError('Specify rooms or sessions and its exact ID');
+      if (command === 'grants' && rest.length === 2) {
+        let cursor: string | undefined;
+        const periods = [];
+        for (;;) {
+          const page = await sessions.listGrants(kind,id,cursor);
+          periods.push(...page);
+          if (page.length < 50) break;
+          cursor = page[page.length-1].id;
+        }
+        ctx.output.result(periods,JSON.stringify(periods,null,2)); return;
+      }
+      if (command === 'revoke' && rest.length === 3) {
+        const result = await sessions.revokeMember(kind,id,period);
+        ctx.output.result(result,JSON.stringify(result,null,2)); return;
+      }
+      if (command === 'grant' && (rest.length === 5 || (kind === 'sessions' && rest.length === 6)) && (subjectType === 'agent' || subjectType === 'user')) {
+        const result = await sessions.issueMember(kind,id,period,{subject_type:subjectType,subject_id:subjectId,member_grant_id:parentPeriod ?? null});
+        ctx.output.result(result,JSON.stringify(result,null,2)); return;
+      }
+      throw new UsageError(`Invalid rooms ${command} arguments; see rooms --help`);
+    }
     case 'create': {
       const room = await sessions.createRoom(rest, {
         title: optionalText(parsed.values.title),
@@ -142,12 +158,34 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
         ...(tokenLimit !== undefined ? { tokenLimit } : {}),
         ...(agentTurnLimit !== undefined ? { agentTurnLimit } : {}),
       });
-      ctx.output.result(room, renderRoom(room));
+      ctx.output.result(room, rowsBlock([['room_id', room.id], ['session_id', room.session_id ?? '(none)'],
+        ['title', room.title ?? '(untitled)']]).join('\n'));
       return;
     }
     case 'get': {
       const room = await sessions.getRoom(rest[0]);
-      ctx.output.result(room, renderRoom(room));
+      ctx.output.result(room, rowsBlock([['room_id', room.id], ['title', room.title ?? '(untitled)'], ['status', room.status]]).join('\n'));
+      return;
+    }
+    case 'session-budget': {
+      if (rest.length !== 1) throw new UsageError('session-budget requires a session ID');
+      const value = tokenLimit === undefined && agentTurnLimit === undefined ? await sessions.getSessionBudgets(rest[0]) : await sessions.updateSessionBudgets(rest[0], {token_limit:tokenLimit,agent_turn_limit:agentTurnLimit});
+      ctx.output.result(value, JSON.stringify(value)); return;
+    }
+    case 'children': {
+      const items = [];
+      let cursor: string | undefined;
+      do {
+        const page = await sessions.listRoomSessions(rest[0], cursor);
+        items.push(...page.items);
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      ctx.output.result(items, items.map(s => `${s.id}  ${s.title ?? '(untitled)'}`).join('\n'));
+      return;
+    }
+    case 'child-create': {
+      const child = await sessions.createRoomSession(rest[0], rest.slice(1), { title: optionalText(parsed.values.title) });
+      ctx.output.result(child, rowsBlock([['room_id', child.room_id], ['session_id', child.id]]).join('\n'));
       return;
     }
     case 'update': {
@@ -160,7 +198,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
         ...(agentTurnLimit !== undefined ? { agentTurnLimit } : {}),
         ...(status !== undefined ? { status: status as 'live' | 'archived' } : {}),
       });
-      ctx.output.result(room, renderRoom(room));
+      ctx.output.result(room, rowsBlock([['room_id', room.id], ['status', room.status]]).join('\n'));
       return;
     }
     case 'message': {

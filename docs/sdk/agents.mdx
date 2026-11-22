@@ -41,22 +41,22 @@ room = client.deployments.create_room(
     token_limit=None,
     agent_turn_limit=None,
 )
-room = client.deployments.get_room(room.id)
-message = client.deployments.create_room_message(room.id, "Review the latest failure.")
+parent = client.deployments.get_room(room["id"])
+child = room["session_id"]  # None for an empty parent
+if child is None:
+    raise ValueError("Select or create a child session first")
+message = client.deployments.create_room_message(child, "Review the latest failure.")
 reply = client.deployments.create_room_message(
-    room.id, "Focus on the tests.", reply_to=message.message_id,
+    child, "Focus on the tests.", reply_to=message.message_id,
 )
-client.deployments.update_room(room.id, token_limit=20000, agent_turn_limit=5)
-client.deployments.update_room(room.id, status="archived")
+client.deployments.update_room(parent["id"], token_limit=20000, agent_turn_limit=5)
+client.deployments.update_room(parent["id"], status="archived")
 ```
 
-There are exactly two nullable limits: `token_limit` is aggregate automatic-turn
-usage across agents per human-message epoch (`None` defaults to unlimited);
-`agent_turn_limit` is admitted turns per agent per epoch (`None` defaults to 25).
-Zero on either disables automatic turns. Readback exposes the effective
-`agent_turn_limit` and nullable `configured_agent_turn_limit`. Omitted update
-fields are preserved; explicit `None` restores a limit's default. Policy edits
-apply at the next authenticated human message, which opens a new epoch.
+Limits resolve independently: explicit session value, then parent value, then
+platform default (25 turns, unlimited tokens). Zero is explicit. Omission on
+PATCH preserves a field; null clears it. Usage is per session, across agents;
+a running epoch keeps its snapshot.
 
 Message responses acknowledge the canonical human message and fanout, not
 completed agent replies. Backend owns admission and shared history. A finite
