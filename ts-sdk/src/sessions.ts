@@ -659,6 +659,12 @@ function roomFromWire(row: Record<string, unknown>): RoomRecord {
   };
 }
 
+// Compare UUID identity without changing the caller's spelling on the wire.
+function canonicalUuid(value: string): string | undefined {
+  if (!/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(value)) return undefined;
+  return value.replace(/-/g, '').toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+}
+
 function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
   const seq = row.seq;
   const fanout = row.fanout;
@@ -782,11 +788,7 @@ export class SessionsAPI {
     if (!sessionId) throw new TypeError('sessionId is required');
     // Public UUID references may omit hyphens or use uppercase hex. The
     // backend publishes canonical UUIDs; use that same identity on the wire.
-    if (/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(sessionId)) {
-      sessionId = sessionId.replace(/-/g, '').toLowerCase().replace(
-        /^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5',
-      );
-    }
+    sessionId = canonicalUuid(sessionId) ?? sessionId;
     if (!this.http.base || !this.http.credential) throw new Error('Session subscriptions require an authenticated HTTP client');
     const url = new URL(this.wsUrl ?? defaultAgentsWsUrl(this.http.base));
     url.searchParams.set('mode', 'observe');
@@ -1034,6 +1036,13 @@ export class SessionsAPI {
       },
       { retries: 1, redirect: 'error' },
     ).catch(lostCreationReceipt);
+    const expectedId = options.messageId === undefined ? undefined : canonicalUuid(options.messageId);
+    if (typeof payload?.session_id !== 'string' ||
+        (canonicalUuid(payload.session_id) ?? payload.session_id) !== (canonicalUuid(sessionId) ?? sessionId) ||
+        typeof payload.message_id !== 'string' || !payload.message_id.trim() ||
+        (options.messageId !== undefined && (!expectedId || expectedId !== canonicalUuid(payload.message_id)))) {
+      throw new Error('Outcome unknown: room message receipt does not identify the submitted message.');
+    }
     return roomMessageFromWire(payload);
   }
 

@@ -240,7 +240,7 @@ describe('canonical room messages', () => {
   });
 
   it('encodes odd room ids without touching the message body', async () => {
-    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
+    const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow({session_id:'room/odd id?#%'})) };
     await new SessionsAPI(http).createRoomMessage('room/odd id?#%', 'hello');
     expect(http.post).toHaveBeenCalledWith('/sessions/room%2Fodd%20id%3F%23%25/room/messages', { body: 'hello' }, { retries: 1, redirect: 'error' });
   });
@@ -460,4 +460,19 @@ it.each([307,308])('does not follow HTTP %i for a room write', async status => {
       expect(received.splice(0)).toEqual([expect.stringMatching(/^POST \/(rooms|sessions)/)]);
     }
   } finally {server.closeAllConnections(); await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+it.each(['same UUIDs', 'different session', 'missing session', 'different message', 'missing message'])('correlates room acceptance: %s', async scenario => {
+  const session = ROOM_ID.replace(/-/g,'').toUpperCase();
+  const id = AGENT_A.replace(/-/g,'').toUpperCase();
+  const row = messageRow({session_id: ROOM_ID, message_id: AGENT_A});
+  if (scenario === 'different session') row.session_id = OWNER_ID;
+  if (scenario === 'different message') row.message_id = AGENT_B;
+  if (scenario === 'missing session') delete row.session_id;
+  if (scenario === 'missing message') delete row.message_id;
+  const http = {get:vi.fn(), post:vi.fn().mockResolvedValue(row)};
+  const result = new SessionsAPI(http).createRoomMessage(session,'hello',{messageId:id});
+  if (scenario === 'same UUIDs') await expect(result).resolves.toMatchObject({sessionId:ROOM_ID,messageId:AGENT_A});
+  else await expect(result).rejects.toThrow('Outcome unknown');
+  expect(http.post).toHaveBeenCalledExactlyOnceWith(`/sessions/${session}/room/messages`,{body:'hello',message_id:id},{retries:1,redirect:'error'});
 });

@@ -233,7 +233,7 @@ def test_room_message_encodes_odd_room_ids(monkeypatch):
 
     def send(self, request, **kwargs):
         requests.append(request)
-        return httpx.Response(200, json=message_row(), request=request)
+        return httpx.Response(200, json=message_row(session_id="platform/odd id?#%"), request=request)
 
     monkeypatch.setattr(httpx.Client, "send", send)
     make_api().create_room_message("platform/odd id?#%", "hello")
@@ -310,3 +310,34 @@ def test_child_retains_roster_and_explicit_budget(monkeypatch, override):
     assert [(u.user_id,u.role) for u in child.users] == [(OWNER_ID,"owner")]
     missing = room_row(); del missing["configured_token_limit"]
     with pytest.raises(ValueError): RoomRecord.from_dict(missing)
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_redirect_with_matching_message_receipt_is_not_acceptance(monkeypatch, status):
+    path = f"/agents/sessions/{ROOM_ID}/room/messages"
+    response = httpx.Response(status, headers={"Location": "/other"}, json=message_row(message_id=AGENT_A))
+    requests = patch_transport(monkeypatch, {("POST", path): response})
+    with pytest.raises(APIError, match="Outcome unknown") as exc:
+        make_api().create_room_message(ROOM_ID, "hello", message_id=AGENT_A)
+    assert exc.value.status_code == status
+    assert [(r.method, r.url.path) for r in requests] == [("POST", path)]
+
+
+@pytest.mark.parametrize("field,value", [(None,None),("session_id",OWNER_ID),("session_id",None),
+                                           ("message_id",AGENT_B),("message_id",None)])
+def test_correlates_room_acceptance(monkeypatch, field, value):
+    sid, mid = (v.replace("-", "").upper() for v in (ROOM_ID, AGENT_A))
+    row = message_row(message_id=AGENT_A)
+    if field and value is None:
+        del row[field]
+    elif field:
+        row[field] = value
+    path = f"/agents/sessions/{sid}/room/messages"
+    requests = patch_transport(monkeypatch, {("POST",path):row})
+    if field:
+        with pytest.raises(ValueError, match="Outcome unknown"):
+            make_api().create_room_message(sid,"hello",message_id=mid)
+    else:
+        message = make_api().create_room_message(sid,"hello",message_id=mid)
+        assert (message.session_id,message.message_id) == (ROOM_ID,AGENT_A)
+    assert [(r.method,r.url.path,json.loads(r.content)) for r in requests] == [("POST",path,{"body":"hello","message_id":mid})]

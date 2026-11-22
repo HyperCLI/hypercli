@@ -2218,6 +2218,8 @@ class Deployments:
     def _post(self, path: str, json: dict = None, *, headers: dict | None = None) -> Any:
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(f"{self._api_base}{path}", headers={**self._headers, **(headers or {})}, json=json)
+        if not resp.is_success and resp.status_code < 400:
+            raise APIError(resp.status_code, "Outcome unknown: expected a successful write receipt")
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
@@ -3943,9 +3945,16 @@ class Deployments:
             payload["message_id"] = message_id
         if reply_to is not None:
             payload["reply_to"] = reply_to
-        return RoomMessage.from_dict(
-            self._post(f"/sessions/{quote(session_id, safe='')}/room/messages", json=payload)
-        )
+        receipt = self._post(f"/sessions/{quote(session_id, safe='')}/room/messages", json=payload)
+        try:
+            message = RoomMessage.from_dict(receipt)
+            if (not message.message_id.strip()
+                    or (message.session_id != session_id and UUID(message.session_id) != UUID(session_id))
+                    or (message_id is not None and UUID(message.message_id) != UUID(message_id))):
+                raise ValueError("Receipt identity mismatch")
+        except ValueError as exc:
+            raise ValueError("Outcome unknown: invalid room message receipt") from exc
+        return message
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
         """Redeem a promo/activation grant code via POST /billing/grants/redeem.
