@@ -216,6 +216,25 @@ describe('room read and owner updates', () => {
 });
 
 describe('canonical room messages', () => {
+  it.each([AGENT_A, AGENT_B])('checks delayed receipt %s against the ID sent before options changed', async receiptId => {
+    let respond!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>(resolve => { respond = resolve; }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const api = new SessionsAPI(new HTTPClient('https://example.test/agents', 'caller-key'));
+      const options = { messageId: AGENT_A };
+      const pending = api.createRoomMessage(ROOM_ID, 'hello', options);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(expect.any(String), expect.objectContaining({
+        body: JSON.stringify({ body: 'hello', message_id: AGENT_A }),
+      }));
+      options.messageId = AGENT_B;
+      respond(Response.json(messageRow({ message_id: receiptId })));
+      if (receiptId === AGENT_A) await expect(pending).resolves.toMatchObject({ messageId: AGENT_A });
+      else await expect(pending).rejects.toThrow('Outcome unknown');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('posts the body and optional reply, reading fanout evidence back', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow({ reply_to: 'msg-0' })) };
     const message = await new SessionsAPI(http).createRoomMessage(

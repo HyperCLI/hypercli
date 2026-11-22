@@ -665,15 +665,15 @@ function canonicalUuid(value: string): string | undefined {
   return value.replace(/-/g, '').toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 }
 
-function roomMessageFromWire(row: Record<string, unknown>): RoomMessage {
+function roomMessageFromWire(row: Record<string, unknown>, sessionId: string, messageId: string): RoomMessage {
   const seq = row.seq;
   const fanout = row.fanout;
   if (typeof fanout !== 'object' || fanout === null || Array.isArray(fanout)) {
     throw new TypeError('Invalid room message response');
   }
   return {
-    sessionId: String(pick<unknown>(row, 'session_id', 'sessionId') ?? ''),
-    messageId: String(pick<unknown>(row, 'message_id', 'messageId') ?? ''),
+    sessionId,
+    messageId,
     seq: typeof seq === 'number' ? seq : Number(seq ?? 0),
     epochId: String(pick<unknown>(row, 'epoch_id', 'epochId') ?? ''),
     senderId: String(pick<unknown>(row, 'sender_id', 'senderId') ?? ''),
@@ -1025,25 +1025,26 @@ export class SessionsAPI {
    */
   async createRoomMessage(sessionId: string, body: string, options: { messageId?: string; replyTo?: string | null; mentions?: string[]; attachmentIds?: string[] } = {}): Promise<RoomMessage> {
     if (!this.http.post) throw new Error('Room messages require a writable HTTP client');
+    const { messageId } = options;
     const payload = await this.http.post<Record<string, unknown>>(
       `/sessions/${encodeURIComponent(sessionId)}/room/messages`,
       {
         body,
-        ...(options.messageId !== undefined ? { message_id: options.messageId } : {}),
+        ...(messageId !== undefined ? { message_id: messageId } : {}),
         ...(options.replyTo !== undefined && options.replyTo !== null ? { reply_to: options.replyTo } : {}),
         ...(options.mentions && options.mentions.length > 0 ? { mentions: [...options.mentions] } : {}),
         ...(options.attachmentIds && options.attachmentIds.length > 0 ? { attachment_ids: [...options.attachmentIds] } : {}),
       },
       { retries: 1, redirect: 'error' },
     ).catch(lostCreationReceipt);
-    const expectedId = options.messageId === undefined ? undefined : canonicalUuid(options.messageId);
+    const expectedId = messageId === undefined ? undefined : canonicalUuid(messageId);
     if (typeof payload?.session_id !== 'string' ||
         (canonicalUuid(payload.session_id) ?? payload.session_id) !== (canonicalUuid(sessionId) ?? sessionId) ||
         typeof payload.message_id !== 'string' || !payload.message_id.trim() ||
-        (options.messageId !== undefined && (!expectedId || expectedId !== canonicalUuid(payload.message_id)))) {
+        (messageId !== undefined && (!expectedId || expectedId !== canonicalUuid(payload.message_id)))) {
       throw new Error('Outcome unknown: room message receipt does not identify the submitted message.');
     }
-    return roomMessageFromWire(payload);
+    return roomMessageFromWire(payload, payload.session_id, payload.message_id);
   }
 
   /**
