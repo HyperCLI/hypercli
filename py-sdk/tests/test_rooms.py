@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from hypercli import HyperCLI, RoomAgent, RoomMessage, RoomRecord
+from hypercli import HyperCLI, RoomMessage, RoomRecord
 from hypercli.agents import Deployments
 from hypercli.http import APIError, HTTPClient
 
@@ -279,7 +279,7 @@ def test_room_helpers_use_the_sessions_transport_scope():
 
 def test_session_budget_exact_patch_and_configured_effective_receipt(monkeypatch):
     path = f"/agents/sessions/{ROOM_ID}/budgets"
-    receipt = dict(agent_turn_limit=None, token_limit=0, effective_agent_turn_limit=3, effective_token_limit=0)
+    receipt = {"agent_turn_limit": None, "token_limit": 0, "effective_agent_turn_limit": 3, "effective_token_limit": 0}
     requests = patch_transport(monkeypatch, {("GET", path): receipt, ("PATCH", path): receipt})
     api = make_api()
     assert api.update_session_budgets(ROOM_ID, token_limit=0) == receipt

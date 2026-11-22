@@ -115,10 +115,10 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
   if (['get', 'update', 'children'].includes(command) && (rest.length !== 1 || !rest[0].trim())) {
     throw new UsageError(`rooms ${command} requires one room ID`);
   }
-  const [roomId, ...bodyWords] = command === 'message' ? rest : [undefined];
+  const [sessionId, ...bodyWords] = command === 'message' ? rest : [undefined];
   const messageBody = command === 'message' ? bodyWords.join(' ').trim() : undefined;
-  if (command === 'message' && (!roomId || !roomId.trim() || !messageBody)) {
-    throw new UsageError('rooms message requires a room ID and a message body');
+  if (command === 'message' && (!sessionId || !sessionId.trim() || !messageBody)) {
+    throw new UsageError('rooms message requires a child session ID and a message body');
   }
 
   const sessions = (await ctx.client()).sessions;
@@ -204,7 +204,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
     case 'message': {
       const replyTo = optionalText(parsed.values['reply-to']);
       const message = await sessions.createRoomMessage(
-        roomId as string, messageBody as string, replyTo !== undefined ? { replyTo } : {},
+        sessionId as string, messageBody as string, replyTo !== undefined ? { replyTo } : {},
       );
       ctx.output.result(message, renderMessage(message));
       return;

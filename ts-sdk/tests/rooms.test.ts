@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SessionsAPI, type RoomRecord } from '../src/sessions.js';
+import { SessionsAPI } from '../src/sessions.js';
 import { HTTPClient } from '../src/http.js';
 
 const ROOM_ID = '2f5d8a10-97c3-4a1e-8b4d-9a2f6c0e7d31';
@@ -222,7 +222,7 @@ describe('canonical room messages', () => {
     );
     expect(http.post).toHaveBeenCalledExactlyOnceWith(`/sessions/${ROOM_ID}/room/messages`, {
       body: 'Can you look at the build failure?', reply_to: 'msg-0',
-    });
+    }, { retries: 1 });
     expect(message).toEqual({
       sessionId: ROOM_ID, messageId: 'msg-1', seq: 7, epochId: 'epoch-1',
       senderId: OWNER_ID, senderKind: 'user', senderName: 'Dmitry',
@@ -235,13 +235,13 @@ describe('canonical room messages', () => {
   it('omits reply_to when no reply is supplied', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     await new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello');
-    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' });
+    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1 });
   });
 
   it('encodes odd room ids without touching the message body', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     await new SessionsAPI(http).createRoomMessage('room/odd id?#%', 'hello');
-    expect(http.post).toHaveBeenCalledWith('/sessions/room%2Fodd%20id%3F%23%25/room/messages', { body: 'hello' });
+    expect(http.post).toHaveBeenCalledWith('/sessions/room%2Fodd%20id%3F%23%25/room/messages', { body: 'hello' }, { retries: 1 });
   });
 
   it('propagates server rejection rather than inventing a message', async () => {
@@ -259,14 +259,14 @@ describe('room message mentions and attachment ids', () => {
     );
     expect(http.post).toHaveBeenCalledExactlyOnceWith(`/sessions/${ROOM_ID}/room/messages`, {
       body: 'Atlas, look at this.', mentions: [AGENT_A], attachment_ids: ['att-1'],
-    });
+    }, { retries: 1 });
     expect(message.mentions).toEqual([AGENT_A]);
   });
 
   it('omits mentions and attachment_ids when none are supplied, defaulting mentions to []', async () => {
     const http = { get: vi.fn(), post: vi.fn().mockResolvedValue(messageRow()) };
     const message = await new SessionsAPI(http).createRoomMessage(ROOM_ID, 'hello');
-    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' });
+    expect(http.post).toHaveBeenCalledWith(`/sessions/${ROOM_ID}/room/messages`, { body: 'hello' }, { retries: 1 });
     expect(message.mentions).toEqual([]);
   });
 });
@@ -388,14 +388,36 @@ it('edits only the selected session override and reads configured/effective rece
   expect(await api.getSessionBudgets(ROOM_ID)).toEqual(receipt);
 });
 
-it.each(['parent','child'])('does not repeat a committed %s creation after receipt loss', async which => {
-  const committed:string[]=[];
-  vi.stubGlobal('fetch', async (url:string) => {committed.push(url); throw new TypeError('network lost after commit');});
+function resetAfterCommit() {
+  return new TypeError('fetch failed', { cause: Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }) });
+}
+
+it('default POST retries the simulated lost receipt', async () => {
+  const fetch = vi.fn().mockRejectedValueOnce(resetAfterCommit()).mockResolvedValueOnce(Response.json({ ok: true }));
+  vi.stubGlobal('fetch', fetch);
   try {
-    const api=new SessionsAPI(new HTTPClient('https://example.test/agents','test'));
-    await expect(which==='parent'?api.createRoom():api.createRoomSession(OWNER_ID,[AGENT_A])).rejects.toThrow();
-    expect(committed).toHaveLength(1);
-  } finally {vi.unstubAllGlobals();}
+    const http = new HTTPClient('https://example.test/agents', 'test');
+    await expect(http.post('/control', {}, { backoff: 0 })).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it.each([
+  ['/rooms', (api: SessionsAPI) => api.createRoom()],
+  [`/rooms/${OWNER_ID}/sessions`, (api: SessionsAPI) => api.createRoomSession(OWNER_ID, [AGENT_A])],
+  [`/sessions/${ROOM_ID}/room/messages`, (api: SessionsAPI) => api.createRoomMessage(ROOM_ID, 'hello')],
+] as const)('sends exactly one POST to %s and reports unknown outcome after receipt loss', async (path, create) => {
+  const reset = resetAfterCommit();
+  const committed: string[] = [];
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    committed.push(`${init.method} ${url}`);
+    throw reset;
+  });
+  try {
+    await expect(create(new SessionsAPI(new HTTPClient('https://example.test/agents', 'test'))))
+      .rejects.toMatchObject({ message: expect.stringContaining('Outcome unknown'), cause: reset });
+    expect(committed).toEqual([`POST https://example.test/agents${path}`]);
+  } finally { vi.unstubAllGlobals(); }
 });
 it.each([undefined,false,-1,0.5,'0'])('rejects invalid configured nullable budget %j', async value => {
   const row=roomRow({configured_token_limit:value});

@@ -12,7 +12,7 @@
  *
  * Explicit multiparty rooms (docs/MULTIPARTY.md) are the one REST write
  * surface here (`POST /rooms`, `GET/PATCH /rooms/{room_id}`,
- * `POST /rooms/{room_id}/messages`, backend `session_room_routes.py`):
+ * `POST /sessions/{session_id}/room/messages`, backend `session_room_routes.py`):
  * deliberate room creation and owner-authored messages, never native ACP
  * session mutation.
  *
@@ -766,6 +766,15 @@ export interface RoomChild {
 }
 export interface RoomPage<T> { items: T[]; next_cursor: string | null }
 
+// A transport failure can follow a successful commit. Keep the cause for
+// diagnostics and tell callers to reconcile rather than submit the write again.
+function lostCreationReceipt(error: unknown): never {
+  if (error instanceof TypeError || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))) {
+    throw new Error('Outcome unknown: no creation receipt received. Check the catalog or session history before retrying.', { cause: error });
+  }
+  throw error;
+}
+
 export class SessionsAPI {
   constructor(private readonly http: Pick<HTTPClient, 'get'> & Partial<Pick<HTTPClient, 'post' | 'patch' | 'postRaw' | 'delete' | 'base' | 'credential'>>, private readonly wsUrl?: string) {}
 
@@ -959,7 +968,7 @@ export class SessionsAPI {
       agents: [...agents],
       token_limit: options.tokenLimit ?? null,
       agent_turn_limit: options.agentTurnLimit ?? null,
-    }, { retries: 1 });
+    }, { retries: 1 }).catch(lostCreationReceipt);
     if (!result || typeof result.id !== 'string' || (result.session_id !== null && typeof result.session_id !== 'string') ||
         result.session_id === result.id || (agents.length > 0) !== (result.session_id !== null)) {
       throw new TypeError('Invalid room creation receipt');
@@ -978,8 +987,8 @@ export class SessionsAPI {
     if (!this.http.patch) throw new Error('Session budgets require a writable HTTP client');
     return checkedBudgets(await this.http.patch<SessionBudgets>(`/sessions/${encodeURIComponent(sessionId)}/budgets`, patch));
   }
-  async updateRoomParent(roomId: string, patch: Partial<Pick<RoomParent, 'title'|'purpose'|'style'|'rules'|'agent_turn_limit'|'token_limit'>> &
-    {status?: 'live'|'archived'}): Promise<RoomParent> {
+  async updateRoomParent(roomId: string, patch: Omit<RoomUpdateOptions, 'tokenLimit' | 'agentTurnLimit'> &
+    Partial<Pick<RoomParent, 'agent_turn_limit' | 'token_limit'>>): Promise<RoomParent> {
     if (!this.http.patch) throw new Error('Room updates require a writable HTTP client');
     return checkedLimits(await this.http.patch<RoomParent>(`/rooms/${encodeURIComponent(roomId)}`, patch));
   }
@@ -997,7 +1006,7 @@ export class SessionsAPI {
     return checkedLimits(await this.http.post<RoomChild>(`/rooms/${encodeURIComponent(roomId)}/sessions`, {
       agents: [...agents], title: options.title ?? null, purpose: options.purpose ?? '', style: options.style ?? '',
       rules: options.rules ?? [], token_limit: options.tokenLimit ?? null, agent_turn_limit: options.agentTurnLimit ?? null,
-    }, { retries: 1 }));
+    }, { retries: 1 }).catch(lostCreationReceipt));
   }
 
   async getRoomSession(sessionId: string): Promise<RoomRecord> {
@@ -1014,18 +1023,12 @@ export class SessionsAPI {
    * human-message epoch.
    */
   async updateRoom(roomId: string, patch: RoomUpdateOptions = {}): Promise<RoomParent> {
-    if (!this.http.patch) throw new Error('Room updates require a writable HTTP client');
-    const body: Record<string, unknown> = {};
-    if (patch.title !== undefined) body.title = patch.title;
-    if (patch.purpose !== undefined) body.purpose = patch.purpose;
-    if (patch.style !== undefined) body.style = patch.style;
-    if (patch.rules !== undefined) body.rules = patch.rules;
-    if (patch.tokenLimit !== undefined) body.token_limit = patch.tokenLimit;
-    if (patch.agentTurnLimit !== undefined) body.agent_turn_limit = patch.agentTurnLimit;
-    if (patch.status !== undefined) body.status = patch.status;
-    return checkedLimits(await this.http.patch<RoomParent>(
-      `/rooms/${encodeURIComponent(roomId)}`, body,
-    ));
+    const { tokenLimit, agentTurnLimit, ...brief } = patch;
+    return this.updateRoomParent(roomId, {
+      ...brief,
+      ...(tokenLimit !== undefined ? { token_limit: tokenLimit } : {}),
+      ...(agentTurnLimit !== undefined ? { agent_turn_limit: agentTurnLimit } : {}),
+    });
   }
 
   /**
@@ -1046,15 +1049,14 @@ export class SessionsAPI {
         ...(options.mentions && options.mentions.length > 0 ? { mentions: [...options.mentions] } : {}),
         ...(options.attachmentIds && options.attachmentIds.length > 0 ? { attachment_ids: [...options.attachmentIds] } : {}),
       },
-    );
+      { retries: 1 },
+    ).catch(lostCreationReceipt);
     return roomMessageFromWire(payload);
   }
 
   /**
-   * Owner-adds one human to a room roster (`POST /sessions/{session_id}/room/participants`).
-   * Idempotent: re-adding an existing participant changes nothing on the wire.
-   * The authenticated caller must be the room owner; agent runtime keys are
-   * refused.
+   * Enroll an existing account in the parent (`POST /rooms/{room_id}/members`).
+   * Returns its current membership period; does not grant access to any child.
    */
   async enrollRoomMember(roomId: string, target: {email:string} | {user_id:string}) {
     if (!this.http.post) throw new Error('Room enrollment requires a writable HTTP client');
@@ -1065,6 +1067,8 @@ export class SessionsAPI {
     return receipt;
   }
 
+  /** Grant access to this child only. The user must already be a current parent member;
+   * pass the enrollment receipt's member_grant_id to require that exact period. */
   async addParticipant(sessionId: string, userId: string, memberGrantId?: string): Promise<RoomRecord> {
     if (!this.http.post) throw new Error('Room participants require a writable HTTP client');
     const payload = await this.http.post<Record<string, unknown>>(
@@ -1075,7 +1079,7 @@ export class SessionsAPI {
   }
 
   /**
-   * Owner-adds one human to a room roster by their account email
+   * Adds an existing parent member to this child by account email
    * (`POST /sessions/{session_id}/room/participants` with `email`). The address must
    * resolve to exactly one existing HyperCLI account; anything else gets the
    * backend's single 404 `room_person_not_added`, and no invitation is sent.

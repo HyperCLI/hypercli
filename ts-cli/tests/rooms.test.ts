@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RoomMessage, RoomRecord } from '@hypercli.com/sdk';
+import type { RoomMessage, RoomParent } from '@hypercli.com/sdk';
 import type { HyperCLI } from '@hypercli.com/sdk';
 import * as rooms from '../src/commands/rooms.js';
 import { UsageError } from '../src/core/errors.js';
@@ -17,26 +17,20 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const ROOM_ID = '2f5d8a10-97c3-4a1e-8b4d-9a2f6c0e7d31';
+const SESSION_ID = '2f5d8a10-97c3-4a1e-8b4d-9a2f6c0e7d31';
 const AGENT_A = '3f6c9a20-1b4d-4e5f-8a7c-2d0e9f1b3a45';
 const AGENT_B = '8d1f2b34-56a7-48b9-9c01-d23e4f5a6b7c';
 const OWNER_ID = '81c2f4e6-7a8b-49c0-b1d2-3e4f5a6b7c8d';
 
-const roomRecord: RoomRecord = {
-  id: ROOM_ID, roomId: OWNER_ID, sessionId: ROOM_ID, users: [], kind: 'room', title: 'Build triage',
-  purpose: 'Investigate CI failures.', style: 'Concise technical discussion.',
-  rules: ['Respond with new information only.'], ownerId: OWNER_ID,
-  agents: [
-    { agentId: AGENT_A, name: 'Atlas', internalSessionId: 'claude-9f2e' },
-    { agentId: AGENT_B, name: 'Maya', internalSessionId: null },
-  ],
-  tokenLimit: null, agentTurnLimit: 25, configuredAgentTurnLimit: null,
-  status: 'live', setupRevision: 3,
-  createdAt: '2026-11-12T10:00:00Z', updatedAt: '2026-11-12T10:00:00Z',
+const PARENT_ID = '44444444-4444-4444-8444-444444444444';
+const parent: RoomParent = {
+  id: PARENT_ID, title: 'Build triage', purpose: 'Investigate CI failures.',
+  style: 'Concise technical discussion.', rules: ['Respond with new information only.'],
+  token_limit: null, agent_turn_limit: 25, status: 'live', created_at: '2026-11-12T10:00:00Z',
 };
 
 const roomMessage: RoomMessage = {
-  sessionId: ROOM_ID, messageId: 'msg-1', seq: 7, epochId: 'epoch-1',
+  sessionId: SESSION_ID, messageId: 'msg-1', seq: 7, epochId: 'epoch-1',
   senderId: OWNER_ID, senderKind: 'user', senderName: 'Dmitry',
   body: 'Can you look at the build failure?', replyTo: null,
   createdAt: '2026-11-12T10:05:00Z', fanout: { [AGENT_A]: true, [AGENT_B]: false },
@@ -44,13 +38,13 @@ const roomMessage: RoomMessage = {
 
 function setup(format: 'table' | 'json' = 'table') {
   const api = {
-    createRoom: vi.fn(async () => ({ id: OWNER_ID, session_id: ROOM_ID, title: 'Build triage' })),
-    getRoom: vi.fn(async () => ({ id: OWNER_ID, title: 'Build triage', status: 'live' })),
-    listRoomSessions: vi.fn(async () => ({items: [{id:ROOM_ID,title:'test'}],next_cursor:null})),
-    createRoomSession: vi.fn(async () => ({id:ROOM_ID,room_id:OWNER_ID})),
+    createRoom: vi.fn(async () => ({ ...parent, session_id: SESSION_ID })),
+    getRoom: vi.fn(async () => parent),
+    listRoomSessions: vi.fn(async () => ({items: [{id:SESSION_ID,title:'test'}],next_cursor:null})),
+    createRoomSession: vi.fn(async () => ({id:SESSION_ID,room_id:PARENT_ID})),
     updateSessionBudgets: vi.fn(async () => ({agent_turn_limit:null, token_limit:0})),
     listGrants:vi.fn(async()=>[]), issueMember:vi.fn(async()=>({id:AGENT_B})), revokeMember:vi.fn(async()=>({id:AGENT_B})),
-    updateRoom: vi.fn(async () => roomRecord),
+    updateRoom: vi.fn(async () => parent),
     createRoomMessage: vi.fn(async () => roomMessage),
   };
   const client = vi.fn(async () => ({ sessions: api }) as unknown as HyperCLI);
@@ -84,7 +78,7 @@ describe('hyper rooms', () => {
       rules: ['Respond with new information only.'], tokenLimit: 100000, agentTurnLimit: 0,
     });
     expect(stdout).toContain('Build triage');
-    expect(stdout).toContain(ROOM_ID);
+    expect(stdout).toContain(SESSION_ID);
   });
 
   it('create omits absent optional flags so product defaults apply', async () => {
@@ -97,59 +91,59 @@ describe('hyper rooms', () => {
 
   it('reads one room', async () => {
     const { ctx, api } = setup();
-    await rooms.run(ctx, ['get', ROOM_ID]);
-    expect(api.getRoom).toHaveBeenCalledExactlyOnceWith(ROOM_ID);
-    expect(stdout).toContain(OWNER_ID);
+    await rooms.run(ctx, ['get', PARENT_ID]);
+    expect(api.getRoom).toHaveBeenCalledExactlyOnceWith(PARENT_ID);
+    expect(stdout).toContain(PARENT_ID);
     expect(stdout).toContain('live');
   });
 
   it('lists and creates children under the exact parent', async () => {
     const {ctx,api} = setup();
-    await rooms.run(ctx,['children',OWNER_ID]);
-    expect(api.listRoomSessions).toHaveBeenCalledWith(OWNER_ID,undefined);
-    await rooms.run(ctx,['child-create',OWNER_ID,AGENT_A,'--title','test']);
-    expect(api.createRoomSession).toHaveBeenCalledWith(OWNER_ID,[AGENT_A],{title:'test'});
-    expect(stdout).toContain(ROOM_ID);
+    await rooms.run(ctx,['children',PARENT_ID]);
+    expect(api.listRoomSessions).toHaveBeenCalledWith(PARENT_ID,undefined);
+    await rooms.run(ctx,['child-create',PARENT_ID,AGENT_A,'--title','test']);
+    expect(api.createRoomSession).toHaveBeenCalledWith(PARENT_ID,[AGENT_A],{title:'test'});
+    expect(stdout).toContain(SESSION_ID);
   });
 
   it('routes session override edits to the child, including clear and zero', async () => {
     const {ctx, api} = setup();
-    await rooms.run(ctx, ['session-budget', ROOM_ID, '--token-limit', '0', '--agent-turn-limit', 'none']);
-    expect(api.updateSessionBudgets).toHaveBeenCalledExactlyOnceWith(ROOM_ID, {token_limit:0,agent_turn_limit:null});
+    await rooms.run(ctx, ['session-budget', SESSION_ID, '--token-limit', '0', '--agent-turn-limit', 'none']);
+    expect(api.updateSessionBudgets).toHaveBeenCalledExactlyOnceWith(SESSION_ID, {token_limit:0,agent_turn_limit:null});
     expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it('lists exact periods and uses the parent member period only for child issuance',async()=>{
     const {ctx,api}=setup();
-    await rooms.run(ctx,['grants','rooms',OWNER_ID]);
-    expect(api.listGrants).toHaveBeenCalledWith('rooms',OWNER_ID,undefined);
-    await rooms.run(ctx,['grant','sessions',ROOM_ID,AGENT_B,'agent',AGENT_A,OWNER_ID]);
-    expect(api.issueMember).toHaveBeenCalledWith('sessions',ROOM_ID,AGENT_B,{subject_type:'agent',subject_id:AGENT_A,member_grant_id:OWNER_ID});
-    await rooms.run(ctx,['revoke','sessions',ROOM_ID,AGENT_B]);
-    expect(api.revokeMember).toHaveBeenCalledWith('sessions',ROOM_ID,AGENT_B);
+    await rooms.run(ctx,['grants','rooms',PARENT_ID]);
+    expect(api.listGrants).toHaveBeenCalledWith('rooms',PARENT_ID,undefined);
+    await rooms.run(ctx,['grant','sessions',SESSION_ID,AGENT_B,'agent',AGENT_A,PARENT_ID]);
+    expect(api.issueMember).toHaveBeenCalledWith('sessions',SESSION_ID,AGENT_B,{subject_type:'agent',subject_id:AGENT_A,member_grant_id:PARENT_ID});
+    await rooms.run(ctx,['revoke','sessions',SESSION_ID,AGENT_B]);
+    expect(api.revokeMember).toHaveBeenCalledWith('sessions',SESSION_ID,AGENT_B);
   });
   it('updates only the supplied fields', async () => {
     const { ctx, api } = setup();
-    await rooms.run(ctx, ['update', ROOM_ID, '--title', 'New focus', '--status', 'archived']);
-    expect(api.updateRoom).toHaveBeenCalledExactlyOnceWith(ROOM_ID, { title: 'New focus', status: 'archived' });
+    await rooms.run(ctx, ['update', PARENT_ID, '--title', 'New focus', '--status', 'archived']);
+    expect(api.updateRoom).toHaveBeenCalledExactlyOnceWith(PARENT_ID, { title: 'New focus', status: 'archived' });
   });
 
   it('update maps none and repeated rules onto the wire knobs', async () => {
     const { ctx, api } = setup();
     await rooms.run(ctx, [
-      'update', ROOM_ID, '--rule', 'Be terse.', '--rule', 'No repeats.',
+      'update', PARENT_ID, '--rule', 'Be terse.', '--rule', 'No repeats.',
       '--token-limit', 'none', '--agent-turn-limit', '5',
     ]);
-    expect(api.updateRoom).toHaveBeenCalledExactlyOnceWith(ROOM_ID, {
+    expect(api.updateRoom).toHaveBeenCalledExactlyOnceWith(PARENT_ID, {
       rules: ['Be terse.', 'No repeats.'], tokenLimit: null, agentTurnLimit: 5,
     });
   });
 
   it('posts a message body and reply reference', async () => {
     const { ctx, api } = setup();
-    await rooms.run(ctx, ['message', ROOM_ID, 'Can you look', 'at the build failure?', '--reply-to', 'msg-0']);
+    await rooms.run(ctx, ['message', SESSION_ID, 'Can you look', 'at the build failure?', '--reply-to', 'msg-0']);
     expect(api.createRoomMessage).toHaveBeenCalledExactlyOnceWith(
-      ROOM_ID, 'Can you look at the build failure?', { replyTo: 'msg-0' },
+      SESSION_ID, 'Can you look at the build failure?', { replyTo: 'msg-0' },
     );
     expect(stdout).toContain('epoch-1');
     expect(stdout).toContain('delivered');
@@ -157,10 +151,10 @@ describe('hyper rooms', () => {
 
   it.each(['table', 'json'] as const)('%s output is one complete SDK response', async (format) => {
     const { ctx, api } = setup(format);
-    await rooms.run(ctx, ['get', ROOM_ID]);
+    await rooms.run(ctx, ['get', PARENT_ID]);
     if (format === 'json') expect(JSON.parse(stdout)).toEqual(await api.getRoom.mock.results[0].value);
     else expect(stdout).toContain('room_id');
-    await rooms.run(ctx, ['message', ROOM_ID, 'hello']);
+    await rooms.run(ctx, ['message', SESSION_ID, 'hello']);
     if (format === 'json') {
       const lines = stdout.trim().split('\n');
       expect(JSON.parse(lines[lines.length - 1])).toEqual(await api.createRoomMessage.mock.results[0].value);
@@ -172,14 +166,14 @@ describe('hyper rooms', () => {
     ['create', ' '],
     ['get'], ['get', 'a', 'b'],
     ['update'], ['update', 'a', 'b'],
-    ['message'], ['message', ROOM_ID], ['message', '   '],
-    ['get', ROOM_ID, '--title', 'x'],
+    ['message'], ['message', SESSION_ID], ['message', '   '],
+    ['get', PARENT_ID, '--title', 'x'],
     ['create', AGENT_A, '--status', 'live'],
-    ['message', ROOM_ID, 'hi', '--title', 'x'],
-    ['update', ROOM_ID, '--status', 'deleted'],
+    ['message', SESSION_ID, 'hi', '--title', 'x'],
+    ['update', PARENT_ID, '--status', 'deleted'],
     ['create', AGENT_A, '--token-limit', '-5'],
     ['create', AGENT_A, '--agent-turn-limit', '1.5'],
-    ['update', ROOM_ID, '--token-limit', 'abc'],
+    ['update', PARENT_ID, '--token-limit', 'abc'],
     ['create', AGENT_A, '--bogus'],
   ])('rejects bad argv %j before constructing a client', async (...args) => {
     const { ctx, client } = setup();
