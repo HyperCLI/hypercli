@@ -460,9 +460,8 @@ launcher to perform runtime-specific compatibility translation immediately
 before each native-runtime child launch:
 
 - Claude Code: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`;
-- Codex: a non-secret `CODEX_CONFIG` custom-provider overlay whose credential
-  follows canonical key precedence above and whose wire API is `responses`;
-- Kimi Code 0.31: the native in-memory `KIMI_MODEL_*` overlay.
+- Codex: not implemented yet; Codex keeps its native inference;
+- Kimi Code: not implemented yet; Kimi Code keeps its native inference.
 
 The mapping is all-or-nothing and does not overwrite an explicit vendor
 runtime environment, preventing a HyperCLI key/vendor URL mix. Explicit

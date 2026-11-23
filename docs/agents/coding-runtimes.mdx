@@ -23,7 +23,7 @@ Buzz-managed launch retains the corresponding runtime image and adds
 | Codex | Native-first through the Codex/OpenAI device-login flow. | `.codex` | The gateway now exposes `/v1/responses`, and Buzz compatibility mode renders `wire_api="responses"`; a successful HyperCLI-model Codex Responses E2E is still unvalidated, so this path is not yet advertised as supported. |
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
-| Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
+| Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | `HYPERCLI_RUNTIME_INFERENCE=hypercli` is not implemented yet for Kimi Code; it keeps native inference. The SDK surface has no noninteractive logout. |
 | Pi | Runtime-specific provider configuration. | `.pi` | Native authentication status discovery is not supported by the SDK helper. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw drives sessions over the in-pod ACP bridge; its gateway binds loopback with auth mode `none`. Update its persisted `.openclaw/openclaw.json` through `hyper agents exec`-style edits at rest, then restart. |
 | Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is ACP-native; sessions run through the backend ACP bridge like the coding harnesses. |
@@ -37,8 +37,9 @@ HyperCLI inference path.
 
 `HYPERCLI_RUNTIME_INFERENCE=hypercli` is interpreted at the `hyper-acp` with Buzz credentials child
 spawn boundary. It is an explicit compatibility switch for Buzz-managed
-Claude Code and Kimi Code launches, not a universal setting for arbitrary
-direct containers. Explicit native provider environment always wins as a
+Claude Code launches, not a universal setting for arbitrary direct
+containers. It is not implemented yet for Codex or Kimi Code, which keep
+native inference. Explicit native provider environment always wins as a
 complete configuration; HyperCLI does not mix a vendor URL with a platform
 credential.
 
