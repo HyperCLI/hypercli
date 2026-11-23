@@ -176,8 +176,10 @@ supports it. Existing supported V1 configuration remains compatible.
 The image-owned OpenCode config seed supplies native context accounting:
 `default-anthropic` routes to GLM Flash with a 1,048,576-token context; `default`,
 `coding`, `coding-anthropic`, `kimi-k3`, and `kimi-k3-anthropic` route to Kimi
-with a 262,144-token context. This split follows the gateway's
-`model_group_aliases` and serving `context_length`/`--max-model-len` in the
+with a 262,144-token context. The seed boots coding agents on
+`coding-anthropic`, so they use the 262,144-token Kimi window;
+`default-anthropic` stays listed for agents that select it. This split follows
+the gateway's `model_group_aliases` and serving `context_length`/`--max-model-len` in the
 private mono's `pulumi/pulumi-agents-k8s/gpus.yaml`. The seed retains a
 65,536-token output budget. Update the seed and image contract test together
 when routing limits change. These defaults apply to newly seeded configuration;
@@ -283,7 +285,7 @@ for launch configs not yet migrated.
 
 Goose ships a HyperCLI custom provider and advertises both OpenAI-compatible
 aliases (`default`, `coding`, `kimi-k3`) and the
-matching Anthropic Messages aliases. It boots on `default-anthropic`, enables
+matching Anthropic Messages aliases. It boots on `coding-anthropic`, enables
 Goose's built-in `developer` and `memory` extensions, and enables the native
 platform `skills` extension. Buzz Agent remains native Sprig: it uses
 upstream's OpenAI-compatible Chat Completions provider, receives a single bare
@@ -448,7 +450,7 @@ zero-login HyperCLI runtimes. The shared entrypoint maps native Buzz's values to
 upstream's OpenAI-compatible Chat Completions env (`OPENAI_COMPAT_*`) without
 persisting the credential, preserving explicit overrides including empty values.
 Its image supplies `BUZZ_AGENT_PROVIDER=openai`,
-`BUZZ_AGENT_MODEL=default-anthropic`, and `OPENAI_COMPAT_API=chat`.
+`BUZZ_AGENT_MODEL=coding-anthropic`, and `OPENAI_COMPAT_API=chat`.
 Claude Code, Codex, and Kimi Code are native-first:
 missing `HYPERCLI_RUNTIME_INFERENCE` means the child receives no implicit
 HyperCLI model, URL, or credential overlay.
