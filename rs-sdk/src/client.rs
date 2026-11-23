@@ -3511,10 +3511,17 @@ mod tests {
         }
         for override_timeout in [false, true] {
             let mut server = Server::new();
-            let slow = server
+            let (arrived, request_seen) = std::sync::mpsc::channel();
+            let (release, hold_body) = std::sync::mpsc::channel();
+            let hold_body = Mutex::new(hold_body);
+            let _slow = server
                 .mock("GET", "/prefix/agents/status")
-                .with_chunked_body(|writer| {
-                    std::thread::sleep(Duration::from_millis(200));
+                .with_chunked_body(move |writer| {
+                    let _ = arrived.send(());
+                    let _ = hold_body
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(3));
                     let _ = writer.write_all(b"{}");
                     Ok(())
                 })
@@ -3528,11 +3535,11 @@ mod tests {
                 timeout: Some(if override_timeout {
                     Duration::from_secs(5)
                 } else {
-                    Duration::from_millis(20)
+                    Duration::from_secs(1)
                 }),
             };
             let client = if override_timeout {
-                HyperCliClient::new_with_timeout(config, Duration::from_millis(20)).unwrap()
+                HyperCliClient::new_with_timeout(config, Duration::from_secs(1)).unwrap()
             } else {
                 HyperCliClient::new(config).unwrap()
             };
@@ -3553,10 +3560,10 @@ mod tests {
             // Only the loopback control endpoint is sent, checking both timeout paths.
             let response = client.http.get(client.endpoint("status")).send();
             let result = response.and_then(|response| response.text());
+            let seen = request_seen.try_recv();
+            let _ = release.send(());
+            seen.expect("loopback server must receive the control request before it times out");
             assert!(result.unwrap_err().is_timeout());
-            // Mockito records the request after the delayed response finishes.
-            std::thread::sleep(Duration::from_millis(250));
-            slow.assert();
         }
     }
 
