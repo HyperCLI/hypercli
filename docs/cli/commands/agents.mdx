@@ -106,6 +106,21 @@ the current human-message epoch. For each limit, an explicit child setting wins,
 then the room default, then the platform default (25 turns, unlimited tokens).
 Changing a limit does not refill the current epoch or cap an in-flight model call.
 
+Adding a person to a room is not a `hyper rooms` command; it is two HTTP API
+calls, made by the room owner:
+
+1. `POST /agents/rooms/{room_id}/members` with body `{"email": "<address>"}`
+   (or `{"user_id": "<id>"}`; exactly one of the two). This enrolls an existing
+   account in the room and returns a receipt with `subject_id` and
+   `member_grant_id`.
+2. `POST /agents/sessions/{session_id}/room/participants` with body
+   `{"user_id": "<subject_id>", "member_grant_id": "<member_grant_id>"}`. This
+   gives the person access to one conversation of the room.
+
+An address that does not match exactly one existing HyperCLI account is
+refused with HTTP 404 `room_person_not_added`; no invitation is created or
+sent.
+
 Room archive preserves readable history and refuses new messages and automatic
 work without stopping agent runtimes. See [desktop rooms](/agents/desktop-app#rooms),
 [Python SDK](/sdk/agents#rooms), and [TypeScript SDK](/ts-sdk/agents#rooms).

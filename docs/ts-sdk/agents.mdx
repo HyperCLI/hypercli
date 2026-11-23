@@ -21,6 +21,21 @@ Rooms are explicitly created owner-scoped conversations with one or more agent
 UUIDs owned by the authenticated user. A one-agent room is still a room; adding
 participants to a DM does not convert it into a room.
 
+The owner can also add people who already have a HyperCLI account, by email.
+Two calls, both made by the room owner:
+
+1. `POST /agents/rooms/{room_id}/members` with body `{"email": "<address>"}`
+   (or `{"user_id": "<id>"}`; exactly one of the two). This enrolls an existing
+   account in the room and returns a receipt with `subject_id` and
+   `member_grant_id`.
+2. `POST /agents/sessions/{session_id}/room/participants` with body
+   `{"user_id": "<subject_id>", "member_grant_id": "<member_grant_id>"}`. This
+   gives the person access to one conversation of the room.
+
+An address that does not match exactly one existing HyperCLI account is
+refused with HTTP 404 `room_person_not_added`; no invitation is created or
+sent.
+
 ```ts
 const room = await client.sessions.createRoom([agent.id], {
   title: "Build triage",
