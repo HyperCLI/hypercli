@@ -109,11 +109,16 @@ export async function subscribeSession(
             clearTimeout(expiry);
             const now = performance.now();
             const leases = frame.actors.map(({ kind, id, expiresInMs }) => ({ actor: { kind, id }, until: now + expiresInMs }));
+            let publishedCount = -1;
             const publish = () => {
               if (finished) return;
               const time = performance.now();
               const live = leases.filter(lease => lease.until > time);
               if (live.length) expiry = setTimeout(publish, Math.ceil(Math.min(...live.map(lease => lease.until)) - time));
+              // A timer can wake before the monotonic deadline. With a fixed
+              // snapshot, membership changes only when at least one lease expires.
+              if (live.length === publishedCount) return;
+              publishedCount = live.length;
               try { options.onRoomActivity?.(live.map(lease => lease.actor)); } catch (error) { finish(error); }
             };
             publish();
