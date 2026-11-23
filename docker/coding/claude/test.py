@@ -105,13 +105,13 @@ with tempfile.TemporaryDirectory() as home_name:
     configured = json.loads(settings.read_text(encoding="utf-8"))
     assert configured == {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
-        "model": "default-anthropic",
-        "availableModels": ["default-anthropic"],
+        "model": "coding-anthropic",
+        "availableModels": ["coding-anthropic"],
     }
     assert json.loads(marker.read_text(encoding="utf-8")) == {
         "managed_by": "hypercli",
         "version": 1,
-        "model": "default-anthropic",
+        "model": "coding-anthropic",
     }
     run(image, ["true"], mounts=mounts)
     assert not settings.exists()

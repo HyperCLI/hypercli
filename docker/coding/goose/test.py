@@ -189,7 +189,7 @@ assert set(provider_contract["reasoning"].values()) == {True}
 config_text = provider_contract["config_text"]
 for expected_config in [
     "active_provider: hypercli",
-    "model: default-anthropic",
+    "model: coding-anthropic",
     "  developer:",
     "    type: builtin",
     "  memory:",
