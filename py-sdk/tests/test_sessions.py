@@ -212,7 +212,8 @@ async def test_session_observer_reconnect_ack_mapping_and_stop():
         connections += 1
         query = parse_qs(urlsplit(ws.request.path).query)
         assert urlsplit(ws.request.path).path == "/ws"
-        assert query == {"mode": ["observe"], "token": ["existing credential"]}
+        assert query == {"mode": ["observe"], "channel": ["test"]}
+        assert ws.request.headers.get_all("Authorization") == ["Bearer hyper_api_synthetic"]
         await ws.send(json.dumps({"type": "ready"}))
         frame = json.loads(await ws.recv())
         frames.append(frame)
@@ -232,13 +233,32 @@ async def test_session_observer_reconnect_ack_mapping_and_stop():
 
     async with serve(peer, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        client = HyperCLI(api_key="existing credential", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        client = HyperCLI(api_key="hyper_api_synthetic", agents_api_base_url=f"http://127.0.0.1:{port}/agents",
+                          agents_ws_url=f"ws://127.0.0.1:{port}/ws?channel=test&token=stale-synthetic")
         await asyncio.wait_for(client.deployments.subscribe_session("s", handler, stop_event=stop,
                                on_ready=lambda: readies.append(True)), 5)
     assert connections == 2 and len(readies) == 2
     assert events[0].type == "sessionMessage" and events[0].session_id == "s"
     assert events[0].message.acp == MESSAGE["acp"]
     assert events[0].message.message_id == "m"
+
+
+@pytest.mark.asyncio
+async def test_session_observer_does_not_forward_bearer_on_redirect():
+    attempts = []
+
+    def redirect(ws, request):
+        attempts.append(request.path)
+        response = ws.respond(307, "Redirect")
+        response.headers["Location"] = "/other"
+        return response
+
+    async with serve(pytest.fail, "127.0.0.1", 0, process_request=redirect) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = HyperCLI(api_key="hyper_api_synthetic", agents_api_base_url=f"http://127.0.0.1:{port}/agents")
+        with pytest.raises(ValueError, match="endpoint redirected"):
+            await asyncio.wait_for(client.deployments.subscribe_session("s", pytest.fail), 3)
+    assert attempts == ["/ws?mode=observe"]
 
 
 @pytest.mark.asyncio

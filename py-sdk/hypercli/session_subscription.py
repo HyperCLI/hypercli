@@ -14,6 +14,14 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from .sessions import SessionMessage, SessionMessageEvent
 
 
+class _ObserverConnect(websockets.connect):
+    def process_redirect(self, exc):
+        # websockets would resend additional_headers at the redirected endpoint.
+        if isinstance(exc, InvalidStatus) and 300 <= exc.response.status_code < 400:
+            return ValueError("Session observer endpoint redirected")
+        return exc
+
+
 class _CallbackError(Exception):
     """Keep user callback failures outside transport retry classification."""
 
@@ -32,7 +40,8 @@ async def subscribe_session(
         raise ValueError("session_id is required")
     parts = urlsplit(ws_url)
     query = dict(parse_qsl(parts.query))
-    query.update(mode="observe", token=credential)
+    query.pop("token", None)  # A legacy query token would take precedence over the header.
+    query["mode"] = "observe"
     url = urlunsplit(parts._replace(query=urlencode(query)))
 
     async def callback(fn, *args):
@@ -51,7 +60,8 @@ async def subscribe_session(
             started = asyncio.get_running_loop().time()
             connected = False
             try:
-                async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
+                async with _ObserverConnect(url, additional_headers={"Authorization": f"Bearer {credential}"},
+                                            ping_interval=20, ping_timeout=20) as ws:
                     connected = True
                     ready = json.loads(await asyncio.wait_for(ws.recv(), 10))
                     if not isinstance(ready, dict) or ready.get("type") != "ready":
