@@ -21,8 +21,12 @@ describe('TS CLI documentation and generated skill contract', () => {
       expect(text, path).not.toContain('hyper agent onboard');
       expect(text, path).not.toContain('hyper agent subscribe');
     }
-    for (const path of ['docs/cli/index.mdx', 'skills/hypercli-account/SKILL.md', 'ts-cli/skills/hypercli-account.json']) {
-      expect(read(path), path).toContain('hyper role');
+    const index = read('docs/cli/index.mdx');
+    expect(index).toContain('hyper role');
+    expect(index).toContain('hyper user');
+    for (const path of ['skills/hypercli-account/SKILL.md', 'ts-cli/skills/hypercli-account.json']) {
+      expect(read(path), path).not.toContain('hyper role');
+      expect(read(path), path).toContain('hyper_persona_resolve');
       expect(read(path), path).toContain('hyper user');
     }
     const canonical = read('docs/cli/commands/agent.mdx');
