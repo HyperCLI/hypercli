@@ -54,6 +54,13 @@ INSTRUCTION_MARKERS = (
     "resource_link",
     "/opt/hypercli/skills",
     "hyper skills list",
+    "Speak only if spoken to.",
+    "Never continue small talk",
+    "zero-width placeholder",
+    "selected-persona PERSONA.md overrides",
+    "DM.md",
+    "MULTI.md",
+    "ROOMS.md",
 )
 
 
