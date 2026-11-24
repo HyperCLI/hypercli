@@ -191,6 +191,14 @@ class ProbeContractTests(unittest.TestCase):
         assert unsupported_keywords(ast.parse("g(image=1)"), definitions) == ["1 g image"]
         assert unsupported_keywords(ast.parse("testlib.g(image=1)"), definitions) == ["1 g image"]
 
+    def test_maintainer_docs_do_not_restore_local_persona_contract(self):
+        for path in (ROOT / "AGENTS.md", ROOT / "README.md"):
+            text = path.read_text(encoding="utf-8")
+            for command in ("hyper persona resolve", "hyper_persona_resolve"):
+                assert command in text, f"{command} missing from {path}"
+            for marker in ("~/.hypercli/USER.md", "~/.hypercli/SOUL.md", "HYPER_AGENT_ROLE"):
+                assert marker not in text, f"retired marker {marker} returned in {path}"
+
 
 if __name__ == "__main__":
     unittest.main()

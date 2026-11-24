@@ -23,17 +23,6 @@ RUNTIME_STATE_DIRS = {
     "pi": ".pi",
     "opencode": ".config/opencode",
 }
-# Each runtime's native instruction file under the image-default home, for
-# the runtimes that run the common contract (pi/test.py checks its own agent
-# directory). The platform writes none of them; only a user does.
-NATIVE_INSTRUCTION_FILES = {
-    "buzz-agent": "AGENTS.md",
-    "claude-code": ".claude/CLAUDE.md",
-    "codex": ".codex/AGENTS.md",
-    "goose": ".goose/config/.goosehints",
-    "kimi-code": ".kimi-code/AGENTS.md",
-    "opencode": ".config/opencode/AGENTS.md",
-}
 
 
 def require_image_argument() -> str:
@@ -314,8 +303,18 @@ payload = {
         text=True,
     ).strip(),
     "runtime": runtime,
+    # Each runtime's native instruction file under the image-default home, for
+    # the runtimes that run this contract (pi/test.py checks its own agent
+    # directory). The platform writes none of them; only a user does.
     "native_instruction_file_exists": os.path.lexists(
-        workspace / __NATIVE_INSTRUCTION_FILES__[runtime]
+        workspace / {
+            "buzz-agent": "AGENTS.md",
+            "claude-code": ".claude/CLAUDE.md",
+            "codex": ".codex/AGENTS.md",
+            "goose": ".goose/config/.goosehints",
+            "kimi-code": ".kimi-code/AGENTS.md",
+            "opencode": ".config/opencode/AGENTS.md",
+        }[runtime]
     ),
     "hypercli_skill_names": {
         skill: f"name: {skill}" in (
@@ -378,7 +377,6 @@ payload = {
 }
 print(json.dumps(payload))
 """
-COMMON_PROBE = COMMON_PROBE.replace("__NATIVE_INSTRUCTION_FILES__", repr(dict(NATIVE_INSTRUCTION_FILES)))
 
 
 def assert_common_contract(
