@@ -14,7 +14,7 @@
     },
     {
       "name": "hypercli-account",
-      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, discover live personas with hyper persona list and get, resolve effective persona and owner context with hyper persona resolve, manage account profile and Agent metadata with hyper user and hyper soul, write the local product API key with hyper configure, and check billing balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet. Use for who-am-I, capability, entitlement, profile, and balance questions; hypercli-auth owns credential precedence and auth failure diagnosis, and grant-code redemption belongs to hypercli-agents.",
+      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, discover live personas with hyper persona list and get, resolve effective persona and owner context through the hypercli-agents MCP server, manage account profile and Agent metadata with hyper user and hyper soul, write the local product API key with hyper configure, and check billing balance, API keys, and wallet with hyper billing, hyper keys, and hyper wallet. Use for who-am-I, capability, entitlement, profile, and balance questions; hypercli-auth owns credential precedence and auth failure diagnosis, and grant-code redemption belongs to hypercli-agents.",
       "commands": [
         "hyper me",
         "hyper me --json",

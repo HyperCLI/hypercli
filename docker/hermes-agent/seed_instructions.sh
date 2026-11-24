@@ -6,6 +6,7 @@ set -euo pipefail
 # into testdata/retired-templates/<sha>.md); never remove entries, so agents
 # seeded with any older template keep getting refreshed.
 RETIRED_TEMPLATE_SHA256S=(
+  17d983debd140efb56e76f3c457ac86cf07ad7e92bf1d1978e7f335c7458ed37
   c9e56394052091c77e8d7d4c418a082b826d2da74de464c73b4c733d3c02b066
   4997170e6513949ae43025429520b3b88fde31aca364f28b38a09c824cb43b97
   ec134b2c9f38ef1f025fdc9ee46518b321458afe54ae44afb18856ea6064332d

@@ -3,7 +3,7 @@ name: hypercli-account
 description: >
   Inspect the active HyperCLI identity, capabilities, and entitlements with
   hyper me, discover live personas with hyper persona list and get, resolve
-  effective persona and owner context with hyper persona resolve,
+  effective persona and owner context through the hypercli-agents MCP server,
   manage account profile and Agent metadata with hyper user and hyper soul,
   write the local product API key with hyper
   configure, and check billing balance, API keys, and wallet with hyper
@@ -40,12 +40,11 @@ installed `--help` when exactness matters.
 | --- | --- |
 | Identity, capabilities, entitlements | `hyper me` |
 | Live persona catalog and content | `hyper persona list`, `hyper persona ls`, `hyper persona get <id>` |
-| Effective persona and owner USER | `hyper persona resolve [--agent <id>]` |
+| Effective persona and owner USER (CLI fallback) | `hyper persona resolve [--agent <id>]` |
 | Read, set, or clear Agent persona selection | `hyper agent <id> persona [<persona-id>] [--clear]` |
 | Account profile | `hyper user [--json] [-f <file>|-]` |
 | Agent soul | `hyper soul [--agent <id>] [-f <file>|-]` |
-| Agent role identifier | `hyper role [--agent <id>] [value]` |
-| Canonical Agent metadata | `hyper agent <id> soul`, `hyper agent <id> role [value]` |
+| Canonical Agent SOUL by ID | `hyper agent <id> soul` |
 | Write the local product API key | `hyper configure` |
 | Balance, invoices, transactions | `hyper billing balance` |
 | API keys | `hyper keys list`, `hyper keys create` |
@@ -78,38 +77,35 @@ one with `hyper persona get <id>`. Both fetch live content; no generated persona
 These commands accept `--json` and `--source live`; there is no offline persona
 fallback. Catalog failures are errors, not an empty catalog.
 
-Run `hyper persona resolve` for current owner USER and effective SOUL: the
-selected catalog persona when set, otherwise canonical Agent SOUL. Runtime-bound
-keys resolve their own Agent; owner keys supply `--agent <id>`. This read resolves
-current Backend metadata and catalog content, without projecting identity files.
-Local USER.md, SOUL.md, and PERSONA.md are not identity authorities; do not write
-the result into native identity files or delete retained files. Empty USER or
-SOUL is valid. A resolver failure is not empty context: report it rather than
-falling back to retained files or a baked persona.
+For session context, call `hyper_persona_resolve` on the local `hypercli-agents`
+MCP server. One call returns the owner's USER and effective SOUL (the selected
+persona, otherwise the Agent's canonical SOUL). For just one, call `hyper_user`
+or `hyper_soul`. Look for `hypercli-agents_<tool>` or the `hypercli-agents`
+namespace. The server applies enabled disk overrides; do not read or write the
+context files yourself.
+
+Only if those tools are unavailable, use `hyper persona resolve`. Runtime-bound
+keys resolve their own Agent; owner keys supply `--agent <id>`. Empty USER or
+SOUL is valid. Report a resolver failure rather than treating it as empty or
+substituting retained files.
 
 `hyper user` and `hyper soul` print Backend-owned Markdown; use `-f <file>` or
-`-f -` to replace it. `hyper role` prints a role identifier, not a role document.
+`-f -` to replace it.
 `hyper soul` reads canonical SOUL only, not the selected effective persona.
 Runtime self keys cannot mutate SOUL or persona selection; those changes require
 an authorized owner key.
 After confirming the exact Agent and obtaining approval, select a catalog ID
 with `hyper agent <id> persona <persona-id>`, or clear the selector with
-`hyper agent <id> persona --clear` to use canonical SOUL. Blank IDs are invalid. Omitting the value reads the
-selector. Selection changes Backend metadata, not persona service source; use
-`hyper persona resolve --agent <id>` to verify effective context afterward.
+`hyper agent <id> persona --clear` to use canonical SOUL. Blank IDs are invalid.
+Omitting the value reads the selector. Selection changes Backend metadata, not
+persona service source.
 API-key SOUL/selector writes require owner access and `agents:*`; even a wildcard
 runtime-agent key cannot self-write those fields.
-Shorthand soul/role commands resolve one Agent through Backend key identity;
-user-scoped keys require `--agent <id>` or canonical `hyper agent <id> ...`.
-Do not substitute local USER.md, SOUL.md, or role files. The `-f` and
-`[value]` write forms replace Backend-owned content — remote mutations:
-confirm the exact Agent and obtain approval before writing.
+For `hyper soul`, user-scoped keys require `--agent <id>`. Confirm the exact
+target and obtain approval before replacing Backend-owned content.
 
-When the hosted `hypercli-agents` MCP server is exposed in the session, prefer
-its context reads first: `hyper_user`, `hyper_soul`, and
-`hyper_persona_resolve`. Otherwise use the product MCP's corresponding reads
-(`hyper_user`, `hyper_soul`, `hyper_persona_list`, `hyper_persona_get`, and
-`hyper_persona_resolve`) or the CLI commands above. Approved remote writes
+The product MCP offers `hyper_persona_list` and `hyper_persona_get` for catalog
+discovery. Approved remote writes
 (product MCP only) use `hyper_user_update(profile)`, `hyper_soul_update(soul,
 agent_id)`, and `hyper_persona_set(persona_id, agent_id)`. Discover the actual
 tool schema before calling. Each replacement/selector argument is required:

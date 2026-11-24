@@ -24,9 +24,7 @@ this repository or its build contexts.
   only when no user-managed file, link, or directory exists there. It must
   direct runtimes to the `hypercli-agents` MCP server first
   (`hyper_persona_resolve`, `hyper_user`, `hyper_soul`) and to Backend-backed
-  `hyper persona resolve` (effective SOUL and owner USER) and `hyper role`
-  commands as the fallback for sessions without those MCP tools. `hyper role` returns a role identifier, not a role document;
-  retired local persona files and environment-based role resolution must stay out.
+  `hyper persona resolve` only when those tools are unavailable.
 - The private mono's `acp/hyper-acp` owns hosted ACP startup. Plain ACP launches run
   `hyper-acp` with `HYPER_ACP_AGENT_COMMAND` and `HYPER_ACP_AGENT_ARGS`.
   Buzz/Nostr launches run `hyper-acp` with Buzz credentials, which links the copied
