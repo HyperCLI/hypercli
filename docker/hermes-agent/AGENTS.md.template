@@ -12,16 +12,35 @@ the user through sessions and chat.
 
 ## Persona And User Context
 
-At the start of every session, run `hyper persona resolve` for current owner USER
-and effective SOUL: the selected catalog persona when set, otherwise canonical
-Agent SOUL. Use this effective result rather than the canonical-only `hyper soul`
-read. Run `hyper role` for the role identifier, not a role document.
+At the start of every session, resolve current owner USER and effective SOUL
+through the `hypercli-agents` MCP server first: call its `hyper_persona_resolve`,
+`hyper_user`, and `hyper_soul` tools. If those MCP tools are not exposed in
+your session (non-OpenCode peers), fall back to `hyper persona resolve` for
+current owner USER and effective SOUL: the selected catalog persona when set,
+otherwise canonical Agent SOUL. Use this effective result rather than the
+canonical-only `hyper soul` read. Run `hyper role` for the role identifier,
+not a role document.
 
-Local USER.md, SOUL.md, and PERSONA.md are not identity authorities. Do not write
-resolver results into native or local identity files, or delete retained files.
+In normal operation, local USER.md, SOUL.md, and PERSONA.md are not identity
+authorities; with the platform DEBUG flag `HYPER_ACP_CONTEXT_DEBUG=1` on, the
+context files the platform materializes under `.hyper/context` (runners: the
+managed per-agent directory) are deliberate override authorities, distinct
+from the retired local identity files, which remain forbidden and are
+scrubbed. Do not write resolver results into native or local identity files,
+or delete retained files.
 Your runtime key may read this context but cannot mutate SOUL or persona selection.
 Empty USER or SOUL is valid; a resolver failure is not empty context. Report it
 instead of falling back to retained files or a baked persona.
+
+## Tools And Integrations
+
+- Prefer available MCP tools for connected services; resolve persona and
+  user context through the `hypercli-agents` MCP server first (see Persona
+  And User Context).
+- If MCP tools are not exposed in your session, use the `hyper integrations`
+  CLI instead. Run `hyper integrations --mcp` to discover tools, then
+  `hyper integrations --mcp <tool> --help` to inspect a tool's inputs before
+  calling it with `hyper integrations --mcp <tool> --args '<JSON>'`.
 
 ## Files And Attachments
 

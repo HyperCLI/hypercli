@@ -213,8 +213,10 @@ default path for hosted coding work; the non-suffixed names remain available
 for OpenCode flows that expect the OpenAI-compatible model names.
 
 Hyper-ACP composes the full session `mcpServers` list host-side from launch
-environment: the local `hyper-chat` server with the runtime credential, the
-product `hypercli` entry (canonical product base plus `/mcp`, runtime bearer),
+environment: the local `hypercli-agents` server with the runtime credential
+(also the dictated context path for `hyper_persona_resolve`, `hyper_user`,
+and `hyper_soul` reads), the product `hypercli` entry (canonical product base
+plus `/mcp`, runtime bearer),
 `hypercli-docs`, and the user's saved servers from
 `HYPER_ADDITIONAL_MCP_SERVERS`. Clients send `mcpServers: []`; same-named
 caller entries shadow host additions. Images do not seed these entries.

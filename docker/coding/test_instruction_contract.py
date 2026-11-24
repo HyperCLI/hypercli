@@ -15,6 +15,10 @@ def test_generated_probe_requires_backend_commands_and_rejects_retired_persona_f
     for command in ("hyper persona resolve", "hyper role"):
         assert command in testlib.COMMON_PROBE
         assert command in testlib.INSTRUCTION_PERSONA_REFS
+    # The MCP context dictation markers ride the same probe.
+    for marker in ("hypercli-agents", "hyper_persona_resolve"):
+        assert marker in testlib.COMMON_PROBE
+        assert marker in testlib.INSTRUCTION_MARKERS
     assert "instructions_retired_markers_absent" in testlib.COMMON_PROBE
     for marker in (
         "~/.hypercli/USER.md",
@@ -23,6 +27,9 @@ def test_generated_probe_requires_backend_commands_and_rejects_retired_persona_f
         "/opt/hypercli-identities",
     ):
         assert marker in testlib.INSTRUCTION_RETIRED_MARKERS
+    # The materialized context paths are live doctrine, not retired markers.
+    for live in (".hyper/context", "HYPER_ACP_CONTEXT_DEBUG"):
+        assert live not in testlib.INSTRUCTION_RETIRED_MARKERS
     persistence_source = inspect.getsource(testlib.assert_workspace_persistence)
     assert "INSTRUCTION_RETIRED_MARKERS" in persistence_source
     assert "not in seeded_text" in persistence_source

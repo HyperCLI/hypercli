@@ -7,7 +7,8 @@ description: Publish a local attachment through a running Hyper-ACP host.
 hyper acp attach --file ./report.pdf --session-id <session-uuid>
 ```
 
-This TypeScript CLI command calls the local host's `attach_file` MCP tool.
+This TypeScript CLI command calls the local host's `attach_file` MCP tool on
+the `hypercli-agents` server.
 It requires a running Hyper-ACP listener and `HYPER_AGENTS_API_KEY` in the
 runtime environment. Omit `--session-id` when `HYPER_SESSION_ID` is already
 set. File paths resolve on the CLI host.

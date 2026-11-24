@@ -43,10 +43,13 @@ INSTRUCTION_RETIRED_MARKERS = (
     "HYPER_AGENT_ROLE",
     "/opt/hypercli-identities",
 )
-# Key-phrase markers only, never full copy: identity + files/skills contract.
+# Key-phrase markers only, never full copy: identity + files/skills contract
+# plus the hypercli-agents MCP context dictation.
 INSTRUCTION_MARKERS = (
     "hyper me",
     "/opt/hypercli/share/runtime/runtime",
+    "hypercli-agents",
+    "hyper_persona_resolve",
     "~/.inbox",
     "resource_link",
     "/opt/hypercli/skills",

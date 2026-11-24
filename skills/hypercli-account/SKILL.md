@@ -105,9 +105,12 @@ Do not substitute local USER.md, SOUL.md, or role files. The `-f` and
 `[value]` write forms replace Backend-owned content — remote mutations:
 confirm the exact Agent and obtain approval before writing.
 
-When using MCP, the corresponding reads are `hyper_user`, `hyper_soul`,
-`hyper_persona_list`, `hyper_persona_get`, and `hyper_persona_resolve`. Approved
-remote writes use `hyper_user_update(profile)`, `hyper_soul_update(soul,
+When the hosted `hypercli-agents` MCP server is exposed in the session, prefer
+its context reads first: `hyper_user`, `hyper_soul`, and
+`hyper_persona_resolve`. Otherwise use the product MCP's corresponding reads
+(`hyper_user`, `hyper_soul`, `hyper_persona_list`, `hyper_persona_get`, and
+`hyper_persona_resolve`) or the CLI commands above. Approved remote writes
+(product MCP only) use `hyper_user_update(profile)`, `hyper_soul_update(soul,
 agent_id)`, and `hyper_persona_set(persona_id, agent_id)`. Discover the actual
 tool schema before calling. Each replacement/selector argument is required:
 explicit null clears it; empty USER/SOUL strings store empty Markdown, while
