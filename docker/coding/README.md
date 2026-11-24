@@ -344,24 +344,22 @@ base document `AGENT` (`hypercli-base/AGENT.md`), which Hyper-ACP fetches at
 session setup and prepends ahead of the mode guidance on each ACP session
 prompt. Turns that drive the runtime over a raw pipe (the chat adapters for
 Slack, Telegram, Teams and Buzz) are not composed and receive none of these
-documents. `AGENT` is
-runtime-neutral and directs the runtime to resolve context through the
-`hypercli-agents` MCP server first (`hyper_persona_resolve`, `hyper_user`,
-`hyper_soul`), reading Backend-owned metadata with `hyper persona resolve`
-at session start only as the fallback when those MCP tools
-are not exposed. The resolver returns
-current owner USER and effective SOUL (selected catalog persona or canonical
-Agent SOUL). Resolver output is used in memory, never persisted into native
-identity files. Runtime self keys cannot mutate SOUL or persona selection.
-Empty context and resolver failures are distinct. A user-owned native
-instruction file is still loaded by its runtime and may carry older guidance;
-the platform neither writes nor refreshes it. This is instruction delivery,
-not enforced native adoption. The image tests prove that a fresh boot seeds no
-instruction file and that existing user files survive; CLI smoke proves resolver
-access/freshness, not that a native session performed the read or used its
-result. Merely configuring an MCP tool does not require the model to call it.
-Mandatory native consumption and precedence over retained identity instructions
-remain acceptance blockers.
+documents. `AGENT` is runtime-neutral and directs the runtime to resolve context
+through the `hypercli-agents` MCP server first (`hyper_persona_resolve`,
+`hyper_user`, `hyper_soul`), reading Backend-owned metadata with
+`hyper persona resolve` at session start only as the fallback when those MCP
+tools are not exposed. The resolver returns current owner USER and effective
+SOUL (selected catalog persona or canonical Agent SOUL). Resolver output is used
+in memory, never persisted into native identity files. Runtime self keys cannot
+mutate SOUL or persona selection. Empty context and resolver failures are
+distinct. A user-owned native instruction file is still loaded by its runtime
+and may carry older guidance; the platform neither writes nor refreshes it. This
+is instruction delivery, not enforced native adoption. The image tests prove
+that a fresh boot seeds no instruction file and that existing user files
+survive; CLI smoke proves resolver access/freshness, not that a native session
+performed the read or used its result. Merely configuring an MCP tool does not
+require the model to call it. Mandatory native consumption and precedence over
+retained identity instructions remain acceptance blockers.
 
 Runner host-process launches (`acp/hyper-runner/src/executors.rs:launch_process`
 in the private mono) execute the configured command/environment/cwd directly;
@@ -438,6 +436,18 @@ The gate accepts `opencode`, `claude`, `codex`, `goose`, `kimi-code`, or `pi` an
 checks default/platform/native precedence, empty-native rejection, unchanged cwd,
 and personal file/directory/symlink preservation as root and node. All probes run
 in disposable containers with networking disabled and no personal-home mounts.
+
+Two offline contracts need no image, and CI runs them before any coding image
+is built. From this directory:
+
+```sh
+python3 -m unittest -q test_auth_contract test_probe_contract
+```
+
+`test_auth_contract.py` covers auth discovery. `test_probe_contract.py` checks
+the generated probes: no undefined names, and no call into `testlib` passing a
+keyword its definition does not accept. Such a call would otherwise fail only
+inside the built image.
 
 ### Runtime inference environment
 

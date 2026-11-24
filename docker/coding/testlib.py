@@ -23,6 +23,17 @@ RUNTIME_STATE_DIRS = {
     "pi": ".pi",
     "opencode": ".config/opencode",
 }
+# Each runtime's native instruction file under the image-default home, for
+# the runtimes that run the common contract (pi/test.py checks its own agent
+# directory). The platform writes none of them; only a user does.
+NATIVE_INSTRUCTION_FILES = {
+    "buzz-agent": "AGENTS.md",
+    "claude-code": ".claude/CLAUDE.md",
+    "codex": ".codex/AGENTS.md",
+    "goose": ".goose/config/.goosehints",
+    "kimi-code": ".kimi-code/AGENTS.md",
+    "opencode": ".config/opencode/AGENTS.md",
+}
 
 
 def require_image_argument() -> str:
@@ -303,6 +314,9 @@ payload = {
         text=True,
     ).strip(),
     "runtime": runtime,
+    "native_instruction_file_exists": os.path.lexists(
+        workspace / __NATIVE_INSTRUCTION_FILES__[runtime]
+    ),
     "hypercli_skill_names": {
         skill: f"name: {skill}" in (
             Path("/opt/hypercli/skills") / f"{skill}/SKILL.md"
@@ -364,6 +378,7 @@ payload = {
 }
 print(json.dumps(payload))
 """
+COMMON_PROBE = COMMON_PROBE.replace("__NATIVE_INSTRUCTION_FILES__", repr(dict(NATIVE_INSTRUCTION_FILES)))
 
 
 def assert_common_contract(
@@ -426,6 +441,8 @@ def assert_common_contract(
     assert payload["cwd"] == str(WORKSPACE)
     assert payload["sudo_user"] == "root"
     assert payload["runtime"] == runtime
+    # The platform seeds no instruction file: a fresh boot has none.
+    assert payload["native_instruction_file_exists"] is False, payload
     assert payload["hypercli_skill_names"]
     assert all(payload["hypercli_skill_names"].values())
     assert not any(payload["removed_layout_paths"].values()), payload[

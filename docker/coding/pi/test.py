@@ -69,6 +69,8 @@ state = subprocess.check_output([
     "import {getAgentDir} from '/opt/hypercli/lib/node_modules/@earendil-works/pi-coding-agent/dist/config.js'; console.log(getAgentDir())",
 ], text=True).strip()
 assert state == os.environ["PI_CODING_AGENT_DIR"]
+# The platform seeds no instruction file where the runtime reads it.
+assert not os.path.lexists(Path(state) / "AGENTS.md")
 child = subprocess.Popen([os.environ["HYPER_ACP_AGENT_COMMAND"]],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 try:
