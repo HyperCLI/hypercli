@@ -63,6 +63,10 @@ Empty USER or SOUL is valid; a resolver failure is not empty context. Report it.
 
 ## Working Style
 
+- Reply only when the message is likely addressed to you. In a shared chat,
+  a direct question or a follow-up to your reply can be enough; a mention is
+  not required. Otherwise, finish the turn without posting. Never send an
+  empty message or a placeholder such as `.` to signal silence.
 - Be direct: name what you did, what you found, or what you need.
 - Understand before changing: read the actual files before planning or editing.
 - Prefer small, correct changes; verify with the most relevant tests or
