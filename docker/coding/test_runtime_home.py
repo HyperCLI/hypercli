@@ -5,8 +5,6 @@ import json
 import sys
 
 from testlib import (
-    INSTRUCTION_PERSONA_REFS,
-    INSTRUCTION_RETIRED_MARKERS,
     docker,
     image_config,
 )
@@ -48,21 +46,14 @@ from pathlib import Path
 assert os.environ[{native!r}] == {expected!r}
 assert Path({expected!r}).is_dir()
 assert os.getcwd() == '/home/node'
-seeded = Path({expected!r}, {instructions!r})
-assert seeded.is_file() and not seeded.is_symlink()
-body = seeded.read_text(encoding='utf-8')
-for ref in {INSTRUCTION_PERSONA_REFS!r}:
-    assert ref in body, ref
-for retired in {INSTRUCTION_RETIRED_MARKERS!r}:
-    assert retired not in body, retired
-assert not Path({expected!r}, {other!r}).exists()
 for name in {templates!r}:
     assert Path({expected!r}, name).is_file(), name
 """
             docker(*args, image, "python3", "-c", probe)
 
-        # Seed only inside a disposable container, then exercise the real setup
-        # twice. Existing files, directories and dangling links must all survive.
+        # Create personal files inside a disposable container, then exercise the
+        # real setup twice. Existing files, directories and dangling links must
+        # all survive, including personal instruction files.
         probe = f"""
 import os, subprocess
 from pathlib import Path

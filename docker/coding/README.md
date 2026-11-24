@@ -5,10 +5,10 @@ runtimes. The same images can also be launched by the Buzz provider when the
 agent is intentionally a Buzz/Nostr agent.
 
 This is the canonical human architecture document for these images. `AGENTS.md`
-contains maintainer guardrails. Skill bodies are installed at `/opt/hypercli/skills`;
-each runtime's native instruction file is seeded at boot from the canonical
-`/opt/hypercli/share/runtime/AGENTS.md.template` (see "Runtime instruction
-roots").
+contains maintainer guardrails. Skill bodies are installed at `/opt/hypercli/skills`.
+The images seed no instruction file: hosted-agent instructions and mode guidance
+are Backend documents that Hyper-ACP prepends to each prompt (see "Runtime
+instruction roots").
 
 Image integration tests take parent-owned inputs explicitly. From the private
 mono root, set `HYPERCLI_TEST_LAUNCH_CONTRACT` to the absolute path of
@@ -237,8 +237,9 @@ error without upstream response bodies or secrets.
 | Pi | `hypercli-pi:local` (local gate) / `ghcr.io/hypercli/hypercli-pi:latest` (hosted) | `pi-acp` | `/opt/hypercli/bin/pi-acp` | none | none | none — passthrough | `.pi/agent` |
 
 Hyper-acp forwards ordinary ACP turns without injecting system instructions.
-Instructions belong in native runtime configuration and seeded instruction files
-(below). The Buzz plugin supplies no compiled prompt asset; see
+Instructions belong in native runtime configuration and in the Backend base
+documents Hyper-ACP prepends as ordinary prompt text (below). The Buzz plugin
+supplies no compiled prompt asset; see
 `acp/hyper-acp/plugins/buzz/README.md` for its execution/signing boundary.
 
 Pi's minimal image installs the official `@earendil-works/pi-coding-agent` and
@@ -248,9 +249,8 @@ arguments. Its small runtime entrypoint delegates to agent-base's shared entrypo
 the adapter starts in RPC mode. `HYPER_RUNTIME_HOME=/home/node/.pi/agent`
 maps to `PI_CODING_AGENT_DIR` at startup, keeping native state under the sync-backed
 home, including when launched as root; explicit native overrides win.
-User-owned native `AGENTS.md` discovery is retained;
-the image seeds the native instruction file from the canonical template only
-when no user-managed file, link, or directory exists at the target. Pi has no
+User-owned native `AGENTS.md` discovery is retained; the image seeds no
+instruction file. Pi has no
 implicit
 HyperCLI inference mapping. Pi IS a registered hosted runtime: the backend
 launch contract maps `pi` to `ghcr.io/hypercli/hypercli-pi:latest`
@@ -302,8 +302,7 @@ The image must provide:
 - the runtime CLI and any required ACP adapter from the matrix above;
 - `/opt/hypercli/skills`, the canonical installed skill bodies;
 - `/opt/hypercli/share/runtime`, containing `.buzz-commit` provenance, the
-  concrete image's `runtime` marker, the canonical `AGENTS.md.template`
-  instruction seed, and runtime-specific config seeds;
+  concrete image's `runtime` marker, and runtime-specific config seeds;
 - `/opt/hypercli/bin/entrypoint` and runtime-specific `*-entrypoint` scripts;
 - `/home/node/shared` and `/home/node/.coding-agent`,
   owned by UID/GID 1000.
@@ -326,8 +325,9 @@ exit status becomes the container exit status. Intentional Nostr callers can
 still supply `/usr/local/bin/hyper-acp` explicitly.
 
 User and Buzz turns use ordinary ACP prompts. Platform identity, file and
-environment instructions belong in native runtime configuration and the seeded
-instruction file (`AGENTS.md.template`), not host-authored ACP extensions.
+environment instructions belong in native runtime configuration and in the
+Backend `AGENT` base document, delivered as ordinary prompt text rather than
+host-authored ACP extensions.
 Hosted Buzz sessions send `mcpServers: []`; the connector publishes completed
 replies locally. Retired context-injection assets are not part of this path.
 
@@ -339,27 +339,26 @@ its generated config. The CLI's generated `index.json` and per-skill JSON files
 live alongside the skill directories and support offline `hyper skills list`
 and `hyper skills export`; no static Markdown index is installed.
 
-At boot the shared entrypoint seeds each runtime's native instruction file
-(see "Runtime instruction roots") from the canonical
-`/opt/hypercli/share/runtime/AGENTS.md.template`. The template is
+No image seeds an instruction file. Hosted-agent instructions are the Backend
+base document `AGENT` (`hypercli-base/AGENT.md`), which Hyper-ACP fetches at
+session setup and prepends to every prompt ahead of the mode guidance. It is
 runtime-neutral and directs the runtime to resolve context through the
 `hypercli-agents` MCP server first (`hyper_persona_resolve`, `hyper_user`,
 `hyper_soul`), reading Backend-owned metadata with `hyper persona resolve`
 at session start only as the fallback when those MCP tools
 are not exposed. The resolver returns
 current owner USER and effective SOUL (selected catalog persona or canonical
-Agent SOUL). The
-seed is written only when the target path is absent: an existing user-managed
-file, directory, or symlink always wins and is never overwritten or followed.
-Consequently retained instructions can still contain old local-file guidance;
-updating the image does not migrate those files. Resolver output is used in
-memory, never persisted into native identity files. Runtime self keys cannot
-mutate SOUL or persona selection. Empty context and resolver failures are distinct.
-This is instruction delivery, not enforced native adoption. The seed tests prove
-file delivery/preservation; CLI smoke proves resolver access/freshness, not that
-a native session performed the read or used its result. Merely configuring an
-MCP tool does not require the model to call it. Mandatory native consumption and
-precedence over retained identity instructions remain acceptance blockers.
+Agent SOUL). Resolver output is used in memory, never persisted into native
+identity files. Runtime self keys cannot mutate SOUL or persona selection.
+Empty context and resolver failures are distinct. A user-owned native
+instruction file is still loaded by its runtime and may carry older guidance;
+the platform neither writes nor refreshes it. This is instruction delivery,
+not enforced native adoption. The image tests prove that no instruction file is
+seeded and that existing user files survive; CLI smoke proves resolver
+access/freshness, not that a native session performed the read or used its
+result. Merely configuring an MCP tool does not require the model to call it.
+Mandatory native consumption and precedence over retained identity instructions
+remain acceptance blockers.
 Runner host-process launches (`acp/hyper-runner/src/executors.rs:launch_process`
 in the private mono) execute the configured command/environment/cwd directly;
 they do not pass through this image seed and have no dynamic context consumer.
@@ -380,7 +379,7 @@ The six coding images expose one platform build argument/environment variable,
 entrypoint resolves its native variable before creating directories or copying
 existing config templates:
 
-| Runtime | Image default | Native variable | Instruction file relative to resolved native root |
+| Runtime | Image default | Native variable | Native instruction file relative to resolved native root (user-owned) |
 | --- | --- | --- | --- |
 | OpenCode | `/home/node/.config/opencode` | `OPENCODE_CONFIG_DIR` | `AGENTS.md` |
 | Claude | `/home/node/.claude` | `CLAUDE_CONFIG_DIR` | `CLAUDE.md` |
@@ -397,13 +396,11 @@ the old default wins over a different platform root. Use absolute directory path
 This mapping applies to entrypoint descendants; Docker exec processes bypass
 the entrypoint and must receive the matching native variable separately.
 
-The relative filenames name the native instruction file the shared entrypoint
-seeds from the canonical template at boot, at the resolved native root. The
-seed carries the platform base instructions plus the context contract
-(`hypercli-agents` MCP tools first; `hyper persona resolve`
-as the CLI fallback), with no local persona
-file or environment-based role fallback. It is written only when no user-managed
-file, link, or directory exists at the target. Existing config
+The relative filenames name each runtime's native instruction file at the
+resolved native root. The platform writes none of them: a file there is
+user-owned and left exactly as it is. Hosted-agent instructions and the context
+contract (`hypercli-agents` MCP tools first; `hyper persona resolve`
+as the CLI fallback) arrive from the Backend as prompt text. Existing config
 templates follow the resolved native root and retain their existing
 ownership/protection rules. Coding cwd remains `/home/node`; selecting a root
 does not update sync mounts, other state roots, or Pi adapter state at
@@ -417,9 +414,9 @@ loads generic `AGENTS.md` from workspace cwd (default `/home/hermes`), not from
 `HERMES_HOME` (`/home/hermes/.hermes`). Its CLI and ACP workspace controls
 need separate verification against the pinned August image before mapping them.
 
-Hermes' existing workspace instruction seed now dictates effective context
-reads through the `hypercli-agents` MCP server first, with `hyper persona
-resolve` as the CLI fallback. OpenClaw's existing skill seed carries that
+Hermes seeds no instruction file either; the same Backend `AGENT` document
+directs effective context reads through the `hypercli-agents` MCP server first,
+with `hyper persona resolve` as the CLI fallback. OpenClaw's existing skill seed carries that
 guidance in `hypercli-account`; existing skill directories are preserved too.
 OpenClaw supports workspace `AGENTS.md` bootstrap instructions, but this image
 does not seed a platform instruction file there. Skill availability is not proof
@@ -653,12 +650,10 @@ Provider, SDK, ACP, or image changes must verify:
    `hyper-acp --help` command with networking disabled. Missing
    fixtures, dangling links, non-executable files, and overwritten launch env
    fail this gate.
-6. The canonical instruction template is seeded once into each runtime's
-    resolved native instruction root (workspace root only for `buzz-agent`,
-    whose home is its instruction root), dictates the `hypercli-agents` MCP
-    context tools first, and carries the `hyper persona resolve` CLI fallback, contains no retired local-persona markers, and never
-    overwrites an existing user-managed path. System instructions belong in native configuration;
-      ACP carries ordinary user turns.
+6. No instruction file is seeded. Existing user-managed files at the native
+    instruction paths survive initialization unchanged. System instructions
+    belong in native configuration and the Backend base documents; ACP carries
+    ordinary user turns.
 7. The real `tini` and setup entrypoint chain terminates promptly and preserves
    the launched command's nonzero exit status.
    Built image inspection also checks the default CMD and child environment for

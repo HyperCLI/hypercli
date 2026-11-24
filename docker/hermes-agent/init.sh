@@ -50,15 +50,9 @@ else
 fi
 python3 /opt/hypercli-hermes/configure_mem0.py "${MEM0_CONFIG_PATH}"
 
-HERMES_INSTRUCTIONS_TEMPLATE="${HERMES_INSTRUCTIONS_TEMPLATE:-/opt/hypercli-hermes/AGENTS.md.template}"
-/opt/hypercli-hermes/seed_instructions.sh "${HERMES_INSTRUCTIONS_TEMPLATE}" "${HOME}/AGENTS.md"
-
 chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${CONFIG_PATH}"
 if [[ -e "${MEM0_CONFIG_PATH}" || -L "${MEM0_CONFIG_PATH}" ]]; then
   chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${MEM0_CONFIG_PATH}"
-fi
-if [[ -e "${HOME}/AGENTS.md" || -L "${HOME}/AGENTS.md" ]]; then
-  chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${HOME}/AGENTS.md"
 fi
 chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${HOME}" "${HERMES_HOME}" "${HERMES_SKILLS_DIR}"
 chown -h -- "${HERMES_OWNER_UID}:${HERMES_OWNER_GID}" "${HYPER_WORKSPACES_DIR}"

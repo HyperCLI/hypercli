@@ -9,8 +9,6 @@ CODING_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODING_DIR))
 
 from testlib import (  # noqa: E402
-    INSTRUCTION_PERSONA_REFS,
-    INSTRUCTION_RETIRED_MARKERS,
     assert_entrypoint_exit_passthrough,
     assert_workspace_persistence,
     docker,
@@ -50,10 +48,7 @@ assert "--ws-url" in run(image, ["hyper-acp", "--help"]).stdout
 
 # All probes run in disposable container homes with networking disabled. Keep
 # stdin open until initialize responds: pi-acp exits immediately on stdin EOF.
-probe = (
-    f"INSTRUCTION_PERSONA_REFS = {INSTRUCTION_PERSONA_REFS!r}\n"
-    f"INSTRUCTION_RETIRED_MARKERS = {INSTRUCTION_RETIRED_MARKERS!r}\n"
-) + r'''
+probe = r'''
 import json
 import os
 import selectors
@@ -67,16 +62,6 @@ assert shutil.which("pi") == os.environ["PI_ACP_PI_COMMAND"]
 assert shutil.which("pi-acp") == os.environ["HYPER_ACP_AGENT_COMMAND"]
 assert Path("/opt/hypercli/share/runtime/runtime").read_text().strip() == "pi"
 assert not Path("AGENTS.md").exists()
-# The entrypoint seeds the canonical template into the resolved pi agent dir:
-# $PI_CODING_AGENT_DIR when set, else the default $HOME/.pi/agent. Probe the
-# location this container actually resolved to.
-agents = Path(os.environ.get("PI_CODING_AGENT_DIR", ".pi/agent")) / "AGENTS.md"
-assert agents.is_file() and not agents.is_symlink()
-agents_text = agents.read_text(encoding="utf-8")
-for ref in INSTRUCTION_PERSONA_REFS:
-    assert ref in agents_text, ref
-for retired in INSTRUCTION_RETIRED_MARKERS:
-    assert retired not in agents_text, retired
 version = subprocess.check_output(["node", "--version"], text=True).strip()
 assert tuple(map(int, version.lstrip("v").split("."))) >= (22, 19, 0)
 state = subprocess.check_output([
@@ -124,5 +109,5 @@ override = json.loads(run(
 ).stdout)
 assert override["state"] == "/tmp/pi-contract-state"
 assert_entrypoint_exit_passthrough(image)
-assert_workspace_persistence(image, runtime="pi")
+assert_workspace_persistence(image)
 print(f"{image}: Pi image contract and offline ACP initialize passed")

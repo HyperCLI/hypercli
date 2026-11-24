@@ -14,15 +14,14 @@ this repository or its build contexts.
 - `README.md` is the human architecture and lifecycle reference for these
   images.
 - Plain ACP launches carry no compiled ACP base prompt. Runtime instructions
-  belong in native launch configuration and the seeded instruction file
-  (`AGENTS.md.template`), not private ACP fields or a host rejection framework.
+  belong in native launch configuration and in the Backend base documents
+  Hyper-ACP prepends as prompt text, not private ACP fields or a host rejection
+  framework.
   Buzz submits ordinary ACP turns; no compiled Buzz prompt asset is supplied.
 - `/opt/hypercli/skills` contains the installed HyperCLI skill bodies.
-- `/opt/hypercli/share/runtime/AGENTS.md.template` is the canonical
-  runtime-neutral instruction file. The shared entrypoint seeds it into each
-  runtime's resolved native instruction root (per the README matrix) at boot,
-  only when no user-managed file, link, or directory exists there. It must
-  direct runtimes to the `hypercli-agents` MCP server first
+- `hypercli-base/AGENT.md` (served at `/agents/base/AGENT`) is the canonical
+  runtime-neutral hosted-agent instruction document; no image seeds an
+  instruction file. It must direct runtimes to the `hypercli-agents` MCP server first
   (`hyper_persona_resolve`, `hyper_user`, `hyper_soul`) and to Backend-backed
   `hyper persona resolve` only when those tools are unavailable.
 - The private mono's `acp/hyper-acp` owns hosted ACP startup. Plain ACP launches run
@@ -65,7 +64,7 @@ provider or lifecycle behavior also require the sanitized provider-wire and
 deployment contract tests in the parent repositories. The checks must cover:
 
 1. Exact command, arguments, MCP command, environment, and prompt transport.
-2. Native instruction-file seeding from the canonical `AGENTS.md.template`.
+2. No instruction-file seeding, with user-managed native instruction files preserved.
 3. Ordinary ACP turns without host-injected system instructions or private fields.
 4. Completed replies signed locally without automatic turn resubmission.
 5. Independent text-mention matching and author authorization.

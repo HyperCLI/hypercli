@@ -23,49 +23,6 @@ RUNTIME_STATE_DIRS = {
     "pi": ".pi",
     "opencode": ".config/opencode",
 }
-# Native instruction file seeded at boot from the baked
-# /opt/hypercli/share/runtime/AGENTS.md.template (paths relative to the
-# resolved native instruction root, which is the sync-rooted home here).
-INSTRUCTION_FILES = {
-    "buzz-agent": "AGENTS.md",
-    "claude-code": ".claude/CLAUDE.md",
-    "codex": ".codex/AGENTS.md",
-    "goose": ".goose/config/.goosehints",
-    "kimi-code": ".kimi-code/AGENTS.md",
-    "opencode": ".config/opencode/AGENTS.md",
-    "pi": ".pi/agent/AGENTS.md",
-}
-INSTRUCTION_HEADING = "# AGENTS.md — HyperCLI Hosted Agent"
-INSTRUCTION_PERSONA_REFS = ("hyper persona resolve", "hyper_persona_resolve")
-INSTRUCTION_RETIRED_MARKERS = (
-    "~/.hypercli/USER.md",
-    "~/.hypercli/SOUL.md",
-    "HYPER_AGENT_ROLE",
-    "/opt/hypercli-identities",
-)
-# Key-phrase markers only, never full copy: identity + files/skills contract
-# plus the hypercli-agents MCP context dictation.
-INSTRUCTION_MARKERS = (
-    "hyper me",
-    "/opt/hypercli/share/runtime/runtime",
-    "hypercli-agents",
-    "hyper_persona_resolve",
-    "~/.inbox",
-    "resource_link",
-    "/opt/hypercli/skills",
-    "hyper skills list",
-    "Speak only if spoken to.",
-    "Never continue small talk",
-    "zero-width placeholder",
-    "In a Room or any other conversation with several participants",
-    "In a direct conversation with your human, reply to their messages as usual.",
-    "selected-persona PERSONA.md overrides",
-    "DM.md",
-    "MULTI.md",
-    "ROOMS.md",
-)
-
-
 def require_image_argument() -> str:
     if len(sys.argv) != 2:
         raise SystemExit(f"usage: {sys.argv[0]} IMAGE")
@@ -329,13 +286,6 @@ hypercli_skills = sorted(
     for path in Path("/opt/hypercli/skills").glob("*/SKILL.md")
 )
 runtime = Path("/opt/hypercli/share/runtime/runtime").read_text().strip()
-agents_path = workspace / "AGENTS.md"
-instructions_path = workspace / __INSTRUCTION_FILES__[runtime]
-instructions_text = (
-    instructions_path.read_text(encoding="utf-8")
-    if instructions_path.is_file() and not instructions_path.is_symlink()
-    else None
-)
 runtime_state_dir = {
     "claude-code": ".claude",
     "goose": ".goose",
@@ -351,29 +301,6 @@ payload = {
         text=True,
     ).strip(),
     "runtime": runtime,
-    "agents_exists": agents_path.exists() or agents_path.is_symlink(),
-    "agents_heading": agents_path.read_text(encoding="utf-8").splitlines()[0]
-    if agents_path.exists()
-    else None,
-    "instructions_exists": instructions_text is not None,
-    "instructions_heading": instructions_text.splitlines()[0]
-    if instructions_text is not None
-    else None,
-    "instructions_persona_refs": all(
-        ref in instructions_text for ref in __INSTRUCTION_PERSONA_REFS__
-    )
-    if instructions_text is not None
-    else False,
-    "instructions_retired_markers_absent": all(
-        marker not in instructions_text for marker in __INSTRUCTION_RETIRED_MARKERS__
-    )
-    if instructions_text is not None
-    else False,
-    "instructions_markers": all(
-        marker in instructions_text for marker in __INSTRUCTION_MARKERS__
-    )
-    if instructions_text is not None
-    else False,
     "hypercli_skill_names": {
         skill: f"name: {skill}" in (
             Path("/opt/hypercli/skills") / f"{skill}/SKILL.md"
@@ -435,12 +362,6 @@ payload = {
 }
 print(json.dumps(payload))
 """
-COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_FILES__", repr(dict(INSTRUCTION_FILES)))
-COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_MARKERS__", repr(tuple(INSTRUCTION_MARKERS)))
-COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_PERSONA_REFS__", repr(tuple(INSTRUCTION_PERSONA_REFS)))
-COMMON_PROBE = COMMON_PROBE.replace("__INSTRUCTION_RETIRED_MARKERS__", repr(tuple(INSTRUCTION_RETIRED_MARKERS)))
-
-
 def assert_common_contract(
     image: str,
     *,
@@ -501,18 +422,6 @@ def assert_common_contract(
     assert payload["cwd"] == str(WORKSPACE)
     assert payload["sudo_user"] == "root"
     assert payload["runtime"] == runtime
-    # buzz-agent's native instruction root is its home (= workspace); every
-    # other runtime seeds its instruction file under its native runtime root,
-    # never the workspace root.
-    assert payload["agents_exists"] is (runtime == "buzz-agent")
-    assert payload["agents_heading"] == (
-        INSTRUCTION_HEADING if runtime == "buzz-agent" else None
-    )
-    assert payload["instructions_exists"] is True, payload
-    assert payload["instructions_heading"] == INSTRUCTION_HEADING, payload
-    assert payload["instructions_persona_refs"] is True, payload
-    assert payload["instructions_retired_markers_absent"] is True, payload
-    assert payload["instructions_markers"] is True, payload
     assert payload["hypercli_skill_names"]
     assert all(payload["hypercli_skill_names"].values())
     assert not any(payload["removed_layout_paths"].values()), payload[
@@ -581,21 +490,11 @@ print(json.dumps({{
     run(image, [*command, "--help"], env=env)
 
 
-def assert_workspace_persistence(image: str, *, runtime: str) -> None:
+def assert_workspace_persistence(image: str) -> None:
     with tempfile.TemporaryDirectory() as persisted_name:
         persisted = Path(persisted_name)
         persisted.chmod(0o777)
         run(image, ["true"], mounts=[(persisted, "/home/node")])
-
-        seeded = persisted / INSTRUCTION_FILES[runtime]
-        assert seeded.is_file() and not seeded.is_symlink()
-        seeded_text = seeded.read_text(encoding="utf-8")
-        for ref in INSTRUCTION_PERSONA_REFS:
-            assert ref in seeded_text
-        for retired in INSTRUCTION_RETIRED_MARKERS:
-            assert retired not in seeded_text, retired
-        for marker in INSTRUCTION_MARKERS:
-            assert marker in seeded_text, marker
 
         agents = persisted / "AGENTS.md"
         agents.write_text("user-managed AGENTS\n", encoding="utf-8")
@@ -609,9 +508,6 @@ def assert_workspace_persistence(image: str, *, runtime: str) -> None:
         run(image, ["true"], mounts=[(persisted, "/home/node")])
         agents_content = agents.read_text(encoding="utf-8")
         assert agents_content == "user-managed AGENTS\n"
-        if runtime != "buzz-agent":
-            # The seeded native instruction file survives later boots.
-            assert seeded.read_text(encoding="utf-8") == seeded_text
         assert not claude.is_symlink()
         assert (
             claude.read_text(encoding="utf-8")
