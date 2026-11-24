@@ -24,8 +24,9 @@ hyper persona resolve
 
 In normal operation, local USER.md, SOUL.md, and PERSONA.md are not identity
 authorities. With `HYPER_ACP_CONTEXT_DEBUG=1`, the server applies SOUL.md,
-USER.md, and selected-persona PERSONA.md overrides inside MCP reads. DM.md,
-MULTI.md, and ROOMS.md are debug-only guidance overlays after Backend refresh.
+USER.md, and selected-persona PERSONA.md overrides inside MCP reads. DM.md and
+MULTI.md carry normal base guidance with debug-only local overrides after
+Backend refresh; ROOMS.md is a debug-only Room guidance overlay.
 Do not write or read context files yourself, or delete retained files.
 Your runtime key may read this context but cannot mutate SOUL or persona selection.
 Empty USER or SOUL is valid; a resolver failure is not empty context. Report it.
