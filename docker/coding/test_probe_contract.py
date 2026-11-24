@@ -99,6 +99,55 @@ def test_runtime_home_generated_probes_are_self_contained(monkeypatch):
         check(probe, f"runtime-home generated probe #{index}")
 
 
+def accepted_keywords(source: str) -> dict[str, set[str]]:
+    """Keyword names each top-level function in `source` accepts ("**" = any)."""
+    tree = ast.parse(source)
+    return {
+        node.name: {arg.arg for arg in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]}
+        | ({"**"} if node.args.kwarg else set())
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def unsupported_keywords(tree: ast.AST, definitions: dict[str, set[str]]) -> list[str]:
+    """`file:line callee keyword` for every call passing a keyword the callee lacks."""
+    bad = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        accepted = definitions.get(node.func.id)
+        if accepted is None:
+            continue
+        bad += [
+            f"{node.lineno} {node.func.id} {keyword.arg}"
+            for keyword in node.keywords
+            if keyword.arg is not None and keyword.arg not in accepted and "**" not in accepted
+        ]
+    return bad
+
+
+def test_runtime_tests_call_testlib_with_accepted_keywords():
+    """A keyword the callee no longer accepts only fails inside the built image."""
+    definitions = accepted_keywords(Path(testlib.__file__).read_text(encoding="utf-8"))
+    definitions |= accepted_keywords((ROOT / "test_runtime_home.py").read_text(encoding="utf-8"))
+    assert {"assert_common_contract", "assert_workspace_persistence", "assert_runtime_home"} <= set(definitions)
+    for path in [*sorted(ROOT.glob("*/test.py")), ROOT / "test_runtime_home.py"]:
+        bad = unsupported_keywords(ast.parse(path.read_text(encoding="utf-8")), definitions)
+        assert not bad, f"{path.name}: {bad}"
+
+
+def test_keyword_guard_catches_the_regression_it_exists_for():
+    definitions = {"assert_workspace_persistence": {"image"}, "f": {"a", "**"}}
+    assert unsupported_keywords(
+        ast.parse("assert_workspace_persistence(image, runtime=runtime)"), definitions
+    ) == ["1 assert_workspace_persistence runtime"]
+    assert unsupported_keywords(
+        ast.parse("assert_workspace_persistence(image)\nf(image, anything=1)"), definitions
+    ) == []
+    assert unsupported_keywords(ast.parse("undefined_callee(image, runtime=runtime)"), definitions) == []
+
+
 def test_maintainer_docs_do_not_restore_local_persona_contract():
     for path in (ROOT / "AGENTS.md", ROOT / "README.md"):
         text = path.read_text(encoding="utf-8")

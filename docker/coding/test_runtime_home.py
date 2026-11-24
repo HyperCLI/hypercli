@@ -46,6 +46,9 @@ from pathlib import Path
 assert os.environ[{native!r}] == {expected!r}
 assert Path({expected!r}).is_dir()
 assert os.getcwd() == '/home/node'
+# The platform seeds no instruction file: a fresh boot has none.
+assert not Path({expected!r}, {instructions!r}).exists()
+assert not Path({expected!r}, {other!r}).exists()
 for name in {templates!r}:
     assert Path({expected!r}, name).is_file(), name
 """

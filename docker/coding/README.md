@@ -7,8 +7,8 @@ agent is intentionally a Buzz/Nostr agent.
 This is the canonical human architecture document for these images. `AGENTS.md`
 contains maintainer guardrails. Skill bodies are installed at `/opt/hypercli/skills`.
 The images seed no instruction file: hosted-agent instructions and mode guidance
-are Backend documents that Hyper-ACP prepends to each prompt (see "Runtime
-instruction roots").
+are Backend documents that Hyper-ACP prepends to each ACP session prompt (see
+"Runtime instruction roots").
 
 Image integration tests take parent-owned inputs explicitly. From the private
 mono root, set `HYPERCLI_TEST_LAUNCH_CONTRACT` to the absolute path of
@@ -341,7 +341,10 @@ and `hyper skills export`; no static Markdown index is installed.
 
 No image seeds an instruction file. Hosted-agent instructions are the Backend
 base document `AGENT` (`hypercli-base/AGENT.md`), which Hyper-ACP fetches at
-session setup and prepends to every prompt ahead of the mode guidance. It is
+session setup and prepends ahead of the mode guidance on each ACP session
+prompt. Turns that drive the runtime over a raw pipe (the chat adapters for
+Slack, Telegram, Teams and Buzz) are not composed and receive none of these
+documents. `AGENT` is
 runtime-neutral and directs the runtime to resolve context through the
 `hypercli-agents` MCP server first (`hyper_persona_resolve`, `hyper_user`,
 `hyper_soul`), reading Backend-owned metadata with `hyper persona resolve`
@@ -353,15 +356,16 @@ identity files. Runtime self keys cannot mutate SOUL or persona selection.
 Empty context and resolver failures are distinct. A user-owned native
 instruction file is still loaded by its runtime and may carry older guidance;
 the platform neither writes nor refreshes it. This is instruction delivery,
-not enforced native adoption. The image tests prove that no instruction file is
-seeded and that existing user files survive; CLI smoke proves resolver
+not enforced native adoption. The image tests prove that a fresh boot seeds no
+instruction file and that existing user files survive; CLI smoke proves resolver
 access/freshness, not that a native session performed the read or used its
 result. Merely configuring an MCP tool does not require the model to call it.
 Mandatory native consumption and precedence over retained identity instructions
 remain acceptance blockers.
+
 Runner host-process launches (`acp/hyper-runner/src/executors.rs:launch_process`
 in the private mono) execute the configured command/environment/cwd directly;
-they do not pass through this image seed and have no dynamic context consumer.
+they bypass the image entrypoints and have no dynamic context consumer.
 There is no ACP session prompt transport to reconcile against: the wire is
 passthrough with reject semantics (see "Container Injection").
 Native mode does not create

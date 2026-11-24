@@ -23,6 +23,8 @@ RUNTIME_STATE_DIRS = {
     "pi": ".pi",
     "opencode": ".config/opencode",
 }
+
+
 def require_image_argument() -> str:
     if len(sys.argv) != 2:
         raise SystemExit(f"usage: {sys.argv[0]} IMAGE")
@@ -362,6 +364,8 @@ payload = {
 }
 print(json.dumps(payload))
 """
+
+
 def assert_common_contract(
     image: str,
     *,
@@ -441,7 +445,7 @@ def assert_common_contract(
     runtime_state_dir = RUNTIME_STATE_DIRS.get(runtime)
     assert payload["runtime_state_dir"] == runtime_state_dir
     assert payload["runtime_state_exists"] == (runtime_state_dir is not None)
-    assert_workspace_persistence(image, runtime=runtime)
+    assert_workspace_persistence(image)
 
 
 def assert_buzz_launch_contract(image: str, *, runtime: str) -> None:
