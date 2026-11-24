@@ -57,6 +57,8 @@ INSTRUCTION_MARKERS = (
     "Speak only if spoken to.",
     "Never continue small talk",
     "zero-width placeholder",
+    "In a Room or any other conversation with several participants",
+    "In a direct conversation with your human, reply to their messages as usual.",
     "selected-persona PERSONA.md overrides",
     "DM.md",
     "MULTI.md",
