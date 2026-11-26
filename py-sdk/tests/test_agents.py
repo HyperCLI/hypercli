@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
+import httpx
 import pytest
 
 from hypercli.agents import (
@@ -178,6 +179,98 @@ def test_agent_from_dict_parses_requested_size_and_rejects_unknown_size():
     assert agent.requested_size == "large"
     with pytest.raises(ValueError, match="small, medium, large"):
         Agent.from_dict({"id": "agent-123", "state": "RUNNING", "requested_size": "huge"})
+
+
+def test_atlas_deployment_readers_keep_ordinary_slots_separate():
+    atlas = {"id": "agent-123", "state": "STOPPED", "requested_size": "atlas", "slot_type": "atlas"}
+    ordinary = {"id": "other", "handle": "Atlas", "requested_size": "small", "meta": {"persona": "atlas"}}
+    undesignated = {"id": "undesignated", "requested_size": "atlas"}
+    deployments = Deployments(MagicMock(spec=HTTPClient), api_key="test", api_base="https://example.test/agents")
+    with patch.object(deployments, "_get", side_effect=[
+        {"items": [ordinary, undesignated, atlas]}, atlas, {"items": [], "agent_slots": [{"size": "atlas"}]},
+    ]):
+        assert [(agent.requested_size, agent.slot_type) for agent in deployments.list()] == [
+            ("small", None), ("atlas", None), ("atlas", "atlas"),
+        ]
+        detail = deployments.get(atlas["id"])
+        assert (detail.requested_size, detail.slot_type) == ("atlas", "atlas")
+        assert Agent.from_dict({**atlas, "slot_type": None}).slot_type is None
+        with pytest.raises(ValueError, match="Agent slot size"):
+            deployments.list_with_capacity()
+
+
+def test_reserved_atlas_size_rejected_before_any_deployment_request(agents_client):
+    reserved = {"size": "atlas"}
+    ordinary = {"id": "agent-123", "state": "STOPPED"}
+    bound = agents_client._hydrate_agent(ordinary)
+    with (
+        patch.object(agents_client, "_get") as get,
+        patch.object(agents_client, "_post", return_value=ordinary) as post,
+        patch.object(agents_client, "_patch", return_value=ordinary) as patch_agent,
+    ):
+        for write in (
+            lambda: agents_client.create(**reserved),
+            lambda: agents_client.create(config=reserved, dry_run=True),
+            lambda: agents_client.create_agent("openclaw_acp", config={"size": "  Atlas "}),
+            lambda: agents_client.update("lookup-by-name", **reserved),
+            lambda: agents_client.update("lookup-by-name", launch_config=reserved),
+            lambda: agents_client.resize("lookup-by-name", **reserved),
+            lambda: bound.update(**reserved),
+            lambda: bound.resize(**reserved),
+            lambda: bound.resize(size="ATLAS"),
+        ):
+            with pytest.raises(ValueError, match="'atlas' size is reserved"):
+                write()
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="'atlas' size is reserved"):
+            agents_client.create_coding_agent("opencode", **reserved)
+        get.assert_not_called()
+        post.assert_not_called()
+        patch_agent.assert_not_called()
+        agents_client.create(size="vm")
+        bound.resize(size="x-atlas")
+        assert post.call_args.kwargs["json"]["size"] == "vm"
+        assert patch_agent.call_args.kwargs["json"] == {"size": "x-atlas"}
+
+
+@pytest.mark.parametrize("created", [True, False])
+def test_create_atlas_posts_bodyless_and_binds_receipt(agents_client, created):
+    snapshot = {"id": "agent-123", "state": "STOPPED", "requested_size": "atlas", "slot_type": "atlas"}
+    post = Mock(return_value=httpx.Response(200, json={"created": created, "deployment": snapshot}))
+    with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(post))):
+        result = agents_client.create_atlas()
+    post.assert_called_once()
+    request = post.call_args.args[0]
+    assert (request.method, str(request.url), request.content) == (
+        "POST", "https://api.test.hypercli.com/agents/deployments/atlas", b"",
+    )
+    assert result.created is created
+    assert result.deployment.id == snapshot["id"]
+    assert result.deployment.slot_type == "atlas"
+    assert result.deployment._deployments is agents_client
+
+
+def test_create_atlas_preserves_conflict_and_saved_id(agents_client):
+    error = {"detail": "atlas_create_pending", "saved_agent": {"id": "saved"}}
+    post = Mock(return_value=httpx.Response(409, json=error))
+    with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(post))):
+        with pytest.raises(APIError) as caught:
+            agents_client.create_atlas()
+    post.assert_called_once()
+    assert caught.value.status_code == 409
+    assert caught.value.detail == error["detail"]
+    assert json.loads(caught.value.response_text) == error
+
+
+@pytest.mark.parametrize("receipt", [
+    None, {}, {"created": 1, "deployment": {"id": "saved", "state": "STOPPED"}},
+    {"created": False, "deployment": []}, {"created": True, "deployment": {"id": " "}},
+    {"created": False, "deployment": {"id": "saved"}},
+])
+def test_create_atlas_rejects_malformed_receipts(agents_client, receipt):
+    with patch.object(agents_client, "_post", return_value=receipt) as post:
+        with pytest.raises(ValueError, match="Invalid Atlas create response"):
+            agents_client.create_atlas()
+        post.assert_called_once_with("/deployments/atlas")
 
 
 @pytest.mark.asyncio

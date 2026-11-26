@@ -48,6 +48,92 @@ describe('Agents SDK', () => {
       .toThrow('small, medium, large');
   });
 
+  it('reads Atlas in lists and details without granting an ordinary slot', async () => {
+    const atlas = { id: 'agent-123', state: 'STOPPED', requested_size: 'atlas', slot_type: 'atlas' };
+    const ordinary = { id: 'other', handle: 'Atlas', requested_size: 'small', meta: { persona: 'atlas' } };
+    const get = vi.fn()
+      .mockResolvedValueOnce({ items: [ordinary, { ...atlas, id: 'undesignated', slot_type: undefined }, atlas] })
+      .mockResolvedValueOnce(atlas)
+      .mockResolvedValueOnce({ items: [], agent_slots: [{ size: 'atlas' }] });
+    const deployments = new Deployments({ get } as unknown as HTTPClient, 'test', 'https://example.test/agents');
+    const agents = await deployments.list();
+    expect(agents.map(agent => [agent.requestedSize, agent.slotType])).toEqual([
+      ['small', null], ['atlas', null], ['atlas', 'atlas'],
+    ]);
+    expect(await deployments.get(atlas.id)).toMatchObject({ requestedSize: 'atlas', slotType: 'atlas' });
+    expect(Agent.fromDict({ ...atlas, slot_type: null }).slotType).toBeNull();
+    await expect(deployments.listWithCapacity()).rejects.toThrow('Agent slot size');
+  });
+
+  it('rejects reserved sizes before create, resolution or patch', async () => {
+    const http = { get: vi.fn(), post: vi.fn(), patch: vi.fn() };
+    const deployments = new Deployments(http as unknown as HTTPClient, 'test', 'https://example.test/agents');
+    const reserved = { size: 'atlas' };
+    const bound = Agent.fromDict({ id: 'agent-123', state: 'STOPPED' });
+    bound._deployments = deployments;
+    const writes = [
+      () => deployments.create(reserved),
+      () => deployments.create({ config: reserved, dryRun: true }),
+      () => deployments.createAgent('openclaw_acp', { config: { size: '  Atlas ' } }),
+      () => deployments.createCodingAgent('opencode', { config: reserved, buzzEnabled: true }),
+      () => deployments.update('lookup-by-name', reserved),
+      () => deployments.update('lookup-by-name', { launchConfig: reserved }),
+      () => deployments.resize('lookup-by-name', reserved),
+      () => bound.update(reserved),
+      () => bound.resize(reserved),
+      () => bound.resize({ size: 'ATLAS' }),
+    ];
+    for (const write of writes) await expect(write()).rejects.toThrow("'atlas' size is reserved");
+    expect(http.get).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalled();
+    expect(http.patch).not.toHaveBeenCalled();
+
+    const response = { id: bound.id, state: 'STOPPED' };
+    http.post.mockResolvedValue(response);
+    http.patch.mockResolvedValue(response);
+    await deployments.create({ size: 'vm' });
+    await bound.resize({ size: 'x-atlas' });
+    expect(http.post.mock.calls[0][1].size).toBe('vm');
+    expect(http.patch.mock.calls[0][1]).toEqual({ size: 'x-atlas' });
+  });
+
+  it.each([true, false])('posts once without a body and binds the Atlas receipt (created=%s)', async created => {
+    const base = 'https://example.test/agents';
+    const deployments = new Deployments(new HTTPClient(base, 'test'), 'test', base);
+    const snapshot = { id: 'agent-123', state: 'STOPPED', requested_size: 'atlas', slot_type: 'atlas' };
+    const fetch = vi.fn().mockResolvedValue(Response.json({ created, deployment: snapshot }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await deployments.createAtlas();
+    expect(result.created).toBe(created);
+    expect(result.deployment).toBeInstanceOf(Agent);
+    expect(result.deployment).toMatchObject({ id: snapshot.id, slotType: 'atlas', _deployments: deployments });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`${base}/deployments/atlas`, expect.objectContaining({
+      method: 'POST', body: undefined,
+    }));
+  });
+
+  it('preserves an Atlas conflict, including its saved ID, without fallback', async () => {
+    const base = 'https://example.test/agents';
+    const deployments = new Deployments(new HTTPClient(base, 'test'), 'test', base);
+    const error = { detail: 'atlas_create_pending', saved_agent: { id: 'saved' } };
+    const fetch = vi.fn().mockResolvedValue(Response.json(error, { status: 409 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(deployments.createAtlas()).rejects.toMatchObject({
+      statusCode: 409, detail: error.detail, responseText: JSON.stringify(error),
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, {}, { created: 1 }, { created: false, deployment: [] },
+    { created: true, deployment: { id: ' ', state: 'STOPPED' } },
+    { created: false, deployment: { id: 'saved' } },
+  ])('rejects malformed Atlas receipts', async receipt => {
+    const post = vi.fn().mockResolvedValue(receipt);
+    const deployments = new Deployments({ post } as unknown as HTTPClient, 'test', 'https://example.test/agents');
+    await expect(deployments.createAtlas()).rejects.toThrow('Invalid Atlas create response');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
   it.each([null, 1, 99])('preserves informational Hyper-ACP version %s', version => {
     const agent = Agent.fromDict({ id: 'agent-1', state: 'RUNNING', hyper_acp_version: version });
     expect(agent.hyperAcpVersion).toBe(version);

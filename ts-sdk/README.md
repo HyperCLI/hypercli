@@ -246,6 +246,11 @@ nullable policy at create time to select the whole root.
 Both helper families default `HYPER_WORKSPACES_DIR` to `/home/node/shared` and
 preserve an explicit value supplied in the launch `env`.
 
+Once the Backend serves `POST /agents/deployments/atlas`, call
+`await client.deployments.createAtlas()` without arguments. It returns
+`{ created, deployment }` with a bound `Agent`. The call does not start Atlas or
+fall back to ordinary create on an older Backend.
+
 ```typescript
 const launchConfig = buildAgentConfig({}, {
   image: 'ghcr.io/example/agent:latest',

@@ -29,7 +29,6 @@ function preferredWebSocket(): typeof WebSocket {
 export { preferredWebSocket };
 import {
   agentSlotFromDict,
-  parseAgentSlotSize,
   type AgentSlot,
   type AgentSlotInventory,
   type AgentSlotSize,
@@ -1643,6 +1642,8 @@ export interface DeploymentSubscribeOptions {
   onReady?: () => void | Promise<void>;
 }
 
+export type DeploymentSize = AgentSlotSize | 'atlas';
+
 export interface AgentStateFields {
   id: string;
   userId: string;
@@ -1661,7 +1662,8 @@ export interface AgentStateFields {
   relayKey?: AgentRelayKey | null;
   cpu: number;
   memory: number;
-  requestedSize?: AgentSlotSize | null;
+  requestedSize?: DeploymentSize | null;
+  slotType?: 'atlas' | null;
   hostname?: string | null;
   tags?: string[];
   jwtToken?: string | null;
@@ -1706,6 +1708,7 @@ export interface AgentHydrationData {
   cpu?: number;
   memory?: number;
   requested_size?: unknown;
+  slot_type?: unknown;
   hostname?: string | null;
   tags?: string[] | null;
   jwt_token?: string | null;
@@ -2144,6 +2147,18 @@ function validateAgentExecResult(value: unknown): AgentExecResult {
   return execResultFromDict(value);
 }
 
+function parseDeploymentSize(value: unknown): DeploymentSize | null {
+  if (value == null) return null;
+  if (value === 'small' || value === 'medium' || value === 'large' || value === 'atlas') return value;
+  throw new Error('Agent requested_size must be one of: small, medium, large, atlas');
+}
+
+function rejectReservedSize(size: unknown, config?: Record<string, unknown> | null): void {
+  if ([size, config?.size].some(value => typeof value === 'string' && value.trim().toLowerCase() === 'atlas')) {
+    throw new Error("The 'atlas' size is reserved");
+  }
+}
+
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   const launchConfig = isPlainRecord(data.launch_config) ? structuredClone(data.launch_config) : null;
   if (launchConfig) {
@@ -2167,9 +2182,8 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     relayKey: data.relay_key ?? null,
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
-    requestedSize: data.requested_size == null
-      ? null
-      : parseAgentSlotSize(data.requested_size, 'Agent requested_size'),
+    requestedSize: parseDeploymentSize(data.requested_size),
+    slotType: data.slot_type === 'atlas' ? 'atlas' : null,
     hostname: data.hostname ?? null,
     tags: Array.isArray(data.tags) ? data.tags : [],
     jwtToken: data.jwt_token ?? null,
@@ -2657,7 +2671,8 @@ export class Agent {
   public readonly relayKey: AgentRelayKey | null;
   public readonly cpu: number;
   public readonly memory: number;
-  public readonly requestedSize: AgentSlotSize | null;
+  public readonly requestedSize: DeploymentSize | null;
+  public readonly slotType: 'atlas' | null;
   public readonly hostname: string | null;
   public readonly tags: string[];
   public jwtToken: string | null;
@@ -2701,6 +2716,7 @@ export class Agent {
     this.cpu = fields.cpu;
     this.memory = fields.memory;
     this.requestedSize = fields.requestedSize ?? null;
+    this.slotType = fields.slotType ?? null;
     this.hostname = fields.hostname ?? null;
     this.tags = [...(fields.tags ?? [])];
     this.jwtToken = fields.jwtToken ?? null;
@@ -3767,7 +3783,22 @@ export class Deployments {
     return response;
   }
 
+  /** Requires Backend support for POST /deployments/atlas. Does not start the deployment. */
+  async createAtlas(): Promise<{ created: boolean; deployment: Agent }> {
+    if (arguments.length) throw new TypeError('createAtlas accepts no arguments');
+    const result = await this.agentHttp.post<{ created?: unknown; deployment?: AgentHydrationData } | null>(
+      `${DEPLOYMENTS_API_PREFIX}/atlas`, undefined, { retries: 1 },
+    );
+    const deployment = result?.deployment;
+    if (typeof result?.created !== 'boolean' || typeof deployment?.id !== 'string' || !deployment.id.trim()
+      || typeof deployment.state !== 'string' || !deployment.state.trim()) {
+      throw new Error('Invalid Atlas create response: expected created and a deployment with id and state');
+    }
+    return { created: result.created, deployment: this.hydrateAgent(deployment) };
+  }
+
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
+    rejectReservedSize(options.size, options.config);
     const config = buildAgentCreateConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
@@ -3808,6 +3839,7 @@ export class Deployments {
    * `buzz` switches to the Buzz launch (coding runtimes only).
    */
   async createAgent(runtime: ManagedAgentRuntime, options: ManagedAgentCreateOptions = {}): Promise<Agent> {
+    rejectReservedSize(options.size, options.config);
     if (runtime === 'generic') return this.create(options);
     return this.createAcpAgentDeployment(runtime, options);
   }
@@ -4592,6 +4624,7 @@ export class Deployments {
   }
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
+    rejectReservedSize(options.size, options.launchConfig);
     // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
     // soul, persona, role, name, handle, size, launch_config, runtime, reset_image, ui, integrations.
     // refresh_from_lagoon/error are rejected.

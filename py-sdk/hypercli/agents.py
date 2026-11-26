@@ -300,6 +300,7 @@ ManagedAgentRuntime = Literal[
     "pi",
 ]
 AgentSize = Literal["small", "medium", "large"]
+DeploymentSize = AgentSize | Literal["atlas"]
 _AGENT_SIZES = frozenset({"small", "medium", "large"})
 
 
@@ -307,6 +308,22 @@ def _parse_agent_size(value: object, *, field_name: str) -> AgentSize:
     if not isinstance(value, str) or value not in _AGENT_SIZES:
         raise ValueError(f"{field_name} must be one of: small, medium, large")
     return cast(AgentSize, value)
+
+
+def _parse_deployment_size(value: object) -> DeploymentSize | None:
+    if value is None:
+        return None
+    if value == "atlas":
+        return "atlas"
+    if not isinstance(value, str) or value not in _AGENT_SIZES:
+        raise ValueError("Agent requested_size must be one of: small, medium, large, atlas")
+    return cast(AgentSize, value)
+
+
+def _reject_reserved_size(size: str | None, config: dict | None) -> None:
+    config_size = config.get("size") if isinstance(config, dict) else None
+    if any(isinstance(value, str) and value.strip().lower() == "atlas" for value in (size, config_size)):
+        raise ValueError("The 'atlas' size is reserved")
 
 
 CodingAgentRuntime = Literal["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code", "pi"]
@@ -1087,11 +1104,8 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "relay_key": data.get("relay_key") if isinstance(data.get("relay_key"), dict) else None,
         "cpu": data.get("cpu", 0),
         "memory": data.get("memory", 0),
-        "requested_size": (
-            _parse_agent_size(data.get("requested_size"), field_name="Agent requested_size")
-            if data.get("requested_size") is not None
-            else None
-        ),
+        "requested_size": _parse_deployment_size(data.get("requested_size")),
+        "slot_type": "atlas" if data.get("slot_type") == "atlas" else None,
         "hostname": data.get("hostname"),
         "tags": list(data.get("tags") or []),
         "jwt_token": data.get("jwt_token"),
@@ -1741,7 +1755,8 @@ class Agent:
     relay_key: Optional[dict] = None
     cpu: int = 0  # cores
     memory: int = 0  # GB
-    requested_size: AgentSize | None = None
+    requested_size: DeploymentSize | None = None
+    slot_type: Literal["atlas"] | None = field(default=None, kw_only=True)
     hostname: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     jwt_token: Optional[str] = None
@@ -2148,6 +2163,12 @@ def _validate_exec_result(data: object) -> ExecResult:
     raise RuntimeError("Agent exec WebSocket returned an invalid result frame")
 
 
+@dataclass(frozen=True)
+class AtlasCreateResult:
+    created: bool
+    deployment: Agent
+
+
 class Deployments:
     """
     HyperClaw deployments API — manage agent runtimes.
@@ -2225,7 +2246,7 @@ class Deployments:
                 detail = resp.json().get("detail", resp.text)
             except Exception:
                 detail = resp.text
-            raise APIError(resp.status_code, detail)
+            raise APIError(resp.status_code, detail, response_text=resp.text)
         return resp.json()
 
     def _patch(self, path: str, json: dict = None) -> Any:
@@ -2512,6 +2533,18 @@ class Deployments:
     # Agent lifecycle (HyperClaw backend → Lagoon)
     # -----------------------------------------------------------------------
 
+    def create_atlas(self) -> AtlasCreateResult:
+        """Create or retrieve Atlas. Requires Backend support for POST /deployments/atlas."""
+        result = self._post(f"{AGENTS_API_PREFIX}/atlas")
+        deployment = result.get("deployment") if isinstance(result, dict) else None
+        if (
+            not isinstance(deployment, dict)
+            or not isinstance(result.get("created"), bool)
+            or not all(isinstance(deployment.get(key), str) and deployment[key].strip() for key in ("id", "state"))
+        ):
+            raise ValueError("Invalid Atlas create response: expected created and a deployment with id and state")
+        return AtlasCreateResult(result["created"], self._hydrate_agent(deployment))
+
     def create(
         self,
         name: str = None,
@@ -2565,6 +2598,7 @@ class Deployments:
         propagated; Files API deletes are. Remote-to-PVC copying occurs only
         during explicit cold restore.
         """
+        _reject_reserved_size(size, config)
         launch_options: dict[str, Any] = {
             "env": env,
             "secrets": secrets,
@@ -2669,6 +2703,7 @@ class Deployments:
         ``TypeError``. Hosted Slack has no launch knob to set: the relay
         attaches and routes outside the pod.
         """
+        _reject_reserved_size(size, config)
         launch = {
             "name": name,
             "handle": handle,
@@ -3446,6 +3481,7 @@ class Deployments:
         """Update metadata. Backend requires agents:* owner access for soul/persona;
         runtime self-writes are denied. Omit to preserve; None clears.
         """
+        _reject_reserved_size(size, launch_config)
         body: dict[str, Any] = {}
         if persona is not _UNSET:
             body["persona"] = persona

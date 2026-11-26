@@ -354,6 +354,7 @@ export {
   type AgentSlot,
   type AgentSlotInventory,
   type AgentSlotSize,
+  type DeploymentSize,
   type AgentTokenResponse,
   type AgentEnvMutationResponse,
   type AgentSecretMutationResponse,

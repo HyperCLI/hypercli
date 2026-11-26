@@ -80,6 +80,11 @@ print(f"User: {user.email}")
 
 ## Hosted Agents & Inference
 
+Once the Backend serves `POST /agents/deployments/atlas`, call
+`client.deployments.create_atlas()` without arguments. The result contains
+`created` and the bound `deployment`. Retrieving an existing Atlas does not
+start it. An older Backend's HTTP error is returned without a generic-create fallback.
+
 Use `client.agent` for discovery and plan metadata, and point the OpenAI SDK at
 the hosted inference base URL for chat completions:
 
