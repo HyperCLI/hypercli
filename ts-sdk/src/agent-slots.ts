@@ -1,7 +1,11 @@
 export type AgentSlotSize = 'small' | 'medium' | 'large';
 
+export function isAgentSlotSize(value: unknown): value is AgentSlotSize {
+  return value === 'small' || value === 'medium' || value === 'large';
+}
+
 export function parseAgentSlotSize(value: unknown, fieldName = 'Agent slot size'): AgentSlotSize {
-  if (value !== 'small' && value !== 'medium' && value !== 'large') {
+  if (!isAgentSlotSize(value)) {
     throw new Error(`${fieldName} must be one of: small, medium, large`);
   }
   return value;

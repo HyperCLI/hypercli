@@ -29,6 +29,7 @@ function preferredWebSocket(): typeof WebSocket {
 export { preferredWebSocket };
 import {
   agentSlotFromDict,
+  isAgentSlotSize,
   type AgentSlot,
   type AgentSlotInventory,
   type AgentSlotSize,
@@ -2149,7 +2150,7 @@ function validateAgentExecResult(value: unknown): AgentExecResult {
 
 function parseDeploymentSize(value: unknown): DeploymentSize | null {
   if (value == null) return null;
-  if (value === 'small' || value === 'medium' || value === 'large' || value === 'atlas') return value;
+  if (value === 'atlas' || isAgentSlotSize(value)) return value;
   throw new Error('Agent requested_size must be one of: small, medium, large, atlas');
 }
 
