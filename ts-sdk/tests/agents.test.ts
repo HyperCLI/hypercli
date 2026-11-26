@@ -115,7 +115,7 @@ describe('Agents SDK', () => {
   it('preserves an Atlas conflict, including its saved ID, without fallback', async () => {
     const base = 'https://example.test/agents';
     const deployments = new Deployments(new HTTPClient(base, 'test'), 'test', base);
-    const error = { detail: 'atlas_create_pending', saved_agent: { id: 'saved' } };
+    const error = { detail: 'Storage provisioning conflict', saved_agent: { id: 'saved' } };
     const fetch = vi.fn().mockResolvedValue(Response.json(error, { status: 409 }));
     vi.stubGlobal('fetch', fetch);
     await expect(deployments.createAtlas()).rejects.toMatchObject({
@@ -132,6 +132,40 @@ describe('Agents SDK', () => {
     const deployments = new Deployments({ post } as unknown as HTTPClient, 'test', 'https://example.test/agents');
     await expect(deployments.createAtlas()).rejects.toThrow('Invalid Atlas create response');
     expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  const designatedId = '0194faba-4ed2-7000-8000-000000000001';
+  it.each([
+    { used: false, deployment_id: null },
+    { used: true, deployment_id: designatedId },
+  ])('reads slot designation with one bodyless GET: $used', async status => {
+    const base = 'https://example.test/agents';
+    const deployments = new Deployments(new HTTPClient(base, 'test'), 'test', base);
+    const fetch = vi.fn().mockResolvedValue(Response.json(status));
+    vi.stubGlobal('fetch', fetch);
+    await expect(deployments.isAtlasSlotUsed()).resolves.toBe(status.used);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`${base}/deployments/atlas/slot`, expect.objectContaining({
+      method: 'GET', body: undefined, redirect: 'manual',
+    }));
+  });
+
+  it.each([null, {}, { used: false }, { used: false, deployment_id: designatedId },
+    { used: true, deployment_id: null }, { used: true, deployment_id: 'not-a-uuid' },
+    { used: 0, deployment_id: null },
+  ])('rejects inconsistent or malformed Atlas slot status', async status => {
+    const get = vi.fn().mockResolvedValue(status);
+    const deployments = new Deployments({ get } as unknown as HTTPClient, 'test', 'https://example.test/agents');
+    await expect(deployments.isAtlasSlotUsed()).rejects.toThrow('Invalid Atlas slot response');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an unsupported Atlas slot endpoint error', async () => {
+    const base = 'https://example.test/agents';
+    const deployments = new Deployments(new HTTPClient(base, 'test'), 'test', base);
+    const fetch = vi.fn().mockResolvedValue(Response.json({ detail: 'Not Found' }, { status: 404 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(deployments.isAtlasSlotUsed()).rejects.toMatchObject({ statusCode: 404, detail: 'Not Found' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([null, 1, 99])('preserves informational Hyper-ACP version %s', version => {

@@ -3784,6 +3784,21 @@ export class Deployments {
     return response;
   }
 
+  /** Whether this owner's Atlas slot is designated, independent of runtime state. */
+  async isAtlasSlotUsed(): Promise<boolean> {
+    const status = await this.agentHttp.get<{ used?: unknown; deployment_id?: unknown } | null>(
+      `${DEPLOYMENTS_API_PREFIX}/atlas/slot`,
+      undefined, { redirect: 'manual' },
+    );
+    if (status?.used === false && status.deployment_id === null) return false;
+    const id = status?.deployment_id;
+    if (status?.used === true && typeof id === 'string' && id.length === 36
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return true;
+    }
+    throw new Error('Invalid Atlas slot response: expected a boolean used flag and matching deployment_id');
+  }
+
   /** Requires Backend support for POST /deployments/atlas. Does not start the deployment. */
   async createAtlas(): Promise<{ created: boolean; deployment: Agent }> {
     if (arguments.length) throw new TypeError('createAtlas accepts no arguments');

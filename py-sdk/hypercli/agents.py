@@ -2228,7 +2228,7 @@ class Deployments:
     def _get(self, path: str, params: dict = None) -> Any:
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.get(f"{self._api_base}{path}", headers=self._headers, params=params)
-        if resp.status_code >= 400:
+        if not 200 <= resp.status_code < 300:
             try:
                 detail = resp.json().get("detail", resp.text)
             except Exception:
@@ -2532,6 +2532,21 @@ class Deployments:
     # -----------------------------------------------------------------------
     # Agent lifecycle (HyperClaw backend → Lagoon)
     # -----------------------------------------------------------------------
+
+    def is_atlas_slot_used(self) -> bool:
+        """Whether this owner's Atlas slot is designated, independent of runtime state."""
+        status = self._get(f"{AGENTS_API_PREFIX}/atlas/slot")
+        if isinstance(status, dict) and "deployment_id" in status:
+            used = status.get("used")
+            deployment_id = status["deployment_id"]
+            if used is False and deployment_id is None:
+                return False
+            if used is True and isinstance(deployment_id, str) and re.fullmatch(
+                r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                deployment_id,
+            ):
+                return True
+        raise ValueError("Invalid Atlas slot response: expected a boolean used flag and matching deployment_id")
 
     def create_atlas(self) -> AtlasCreateResult:
         """Create or retrieve Atlas. Requires Backend support for POST /deployments/atlas."""

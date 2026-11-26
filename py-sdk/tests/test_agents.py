@@ -250,7 +250,7 @@ def test_create_atlas_posts_bodyless_and_binds_receipt(agents_client, created):
 
 
 def test_create_atlas_preserves_conflict_and_saved_id(agents_client):
-    error = {"detail": "atlas_create_pending", "saved_agent": {"id": "saved"}}
+    error = {"detail": "Storage provisioning conflict", "saved_agent": {"id": "saved"}}
     post = Mock(return_value=httpx.Response(409, json=error))
     with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(post))):
         with pytest.raises(APIError) as caught:
@@ -271,6 +271,51 @@ def test_create_atlas_rejects_malformed_receipts(agents_client, receipt):
         with pytest.raises(ValueError, match="Invalid Atlas create response"):
             agents_client.create_atlas()
         post.assert_called_once_with("/deployments/atlas")
+
+
+@pytest.mark.parametrize("status", [
+    {"used": False, "deployment_id": None},
+    {"used": True, "deployment_id": "0194faba-4ed2-7000-8000-000000000001"},
+])
+def test_is_atlas_slot_used_reads_designation_with_one_bodyless_get(agents_client, status):
+    send = Mock(return_value=httpx.Response(200, json=status))
+    with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(send))):
+        assert agents_client.is_atlas_slot_used() is status["used"]
+    send.assert_called_once()
+    request = send.call_args.args[0]
+    assert (request.method, str(request.url), request.content) == (
+        "GET", "https://api.test.hypercli.com/agents/deployments/atlas/slot", b"",
+    )
+
+
+@pytest.mark.parametrize("status", [
+    None, {}, {"used": False}, {"used": 0, "deployment_id": None},
+    {"used": False, "deployment_id": "0194faba-4ed2-7000-8000-000000000001"},
+    {"used": True, "deployment_id": None}, {"used": True, "deployment_id": "not-a-uuid"},
+])
+def test_is_atlas_slot_used_rejects_malformed_receipts(agents_client, status):
+    with patch.object(agents_client, "_get", return_value=status):
+        with pytest.raises(ValueError, match="Invalid Atlas slot response"):
+            agents_client.is_atlas_slot_used()
+
+
+def test_is_atlas_slot_used_rejects_redirect_with_valid_unused_body(agents_client):
+    send = Mock(return_value=httpx.Response(307, headers={"Location": "/elsewhere"},
+                                             json={"used": False, "deployment_id": None}))
+    with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(send))):
+        with pytest.raises(APIError) as caught:
+            agents_client.is_atlas_slot_used()
+    assert caught.value.status_code == 307
+    send.assert_called_once()
+
+
+def test_is_atlas_slot_used_propagates_http_error(agents_client):
+    send = Mock(return_value=httpx.Response(404, json={"detail": "Not Found"}))
+    with patch("hypercli.agents.httpx.Client", return_value=httpx.Client(transport=httpx.MockTransport(send))):
+        with pytest.raises(APIError) as caught:
+            agents_client.is_atlas_slot_used()
+    assert (caught.value.status_code, caught.value.detail) == (404, "Not Found")
+    send.assert_called_once()
 
 
 @pytest.mark.asyncio

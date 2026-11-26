@@ -251,6 +251,15 @@ Once the Backend serves `POST /agents/deployments/atlas`, call
 `{ created, deployment }` with a bound `Agent`. The call does not start Atlas or
 fall back to ordinary create on an older Backend.
 
+With Backend support for `GET /agents/deployments/atlas/slot`,
+`await client.deployments.isAtlasSlotUsed()` returns `false` before the owner
+has a designated deployment and `true` once bound, even while stopped. This
+read never provisions Atlas. An unsupported endpoint, failed request, or
+malformed response rejects rather than reporting a free slot.
+The regular deployment DELETE keeps the slot bound while cleanup is unconfirmed.
+After terminal deletion the getter returns `false`; a subsequent enabled
+`createAtlas()` creates a fresh deployment with a new ID and application key.
+
 ```typescript
 const launchConfig = buildAgentConfig({}, {
   image: 'ghcr.io/example/agent:latest',

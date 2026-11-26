@@ -85,6 +85,15 @@ Once the Backend serves `POST /agents/deployments/atlas`, call
 `created` and the bound `deployment`. Retrieving an existing Atlas does not
 start it. An older Backend's HTTP error is returned without a generic-create fallback.
 
+With Backend support for `GET /agents/deployments/atlas/slot`,
+`client.deployments.is_atlas_slot_used()` returns `False` before the owner has
+a designated deployment and `True` once bound, even while stopped. This read
+never provisions Atlas. An unsupported endpoint, failed request, or malformed
+response raises an error rather than reporting a free slot.
+The regular deployment DELETE keeps the slot bound while cleanup is unconfirmed.
+After terminal deletion the getter returns `False`; a subsequent enabled
+`create_atlas()` creates a fresh deployment with a new ID and application key.
+
 Use `client.agent` for discovery and plan metadata, and point the OpenAI SDK at
 the hosted inference base URL for chat completions:
 
