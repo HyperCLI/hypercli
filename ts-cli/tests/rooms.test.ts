@@ -21,6 +21,9 @@ const SESSION_ID = '2f5d8a10-97c3-4a1e-8b4d-9a2f6c0e7d31';
 const AGENT_A = '3f6c9a20-1b4d-4e5f-8a7c-2d0e9f1b3a45';
 const AGENT_B = '8d1f2b34-56a7-48b9-9c01-d23e4f5a6b7c';
 const OWNER_ID = '81c2f4e6-7a8b-49c0-b1d2-3e4f5a6b7c8d';
+/** What `hyper agents create` prints: the id trimmed to 12 characters. */
+const SHORT_A = AGENT_A.slice(0, 12);
+const SHORT_B = AGENT_B.slice(0, 12);
 
 const PARENT_ID = '44444444-4444-4444-8444-444444444444';
 const PARENT_MEMBER_PERIOD = '55555555-5555-4555-8555-555555555555';
@@ -38,6 +41,25 @@ const roomMessage: RoomMessage = {
   createdAt: '2026-11-12T10:05:00Z', fanout: { [AGENT_A]: true, [AGENT_B]: false },
 };
 
+const AGENT_RECORDS = [
+  { id: AGENT_A, name: 'helper', handle: 'helper', hostname: 'helper.example.com' },
+  { id: AGENT_B, name: 'sidekick', handle: 'sidekick', hostname: 'sidekick.example.com' },
+] as const;
+
+/** Emulates the SDK's Deployments.resolveAgentId contract (agents.ts). */
+function resolveAgentIdMock(ref: string): Promise<string> {
+  const raw = String(ref ?? '').trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)) return Promise.resolve(raw);
+  const fields = (a: (typeof AGENT_RECORDS)[number]) => [a.id, a.name, a.handle, a.hostname];
+  const matches = AGENT_RECORDS.filter((a) =>
+    fields(a).some((v) => v === raw) || fields(a).some((v) => v.startsWith(raw)));
+  if (matches.length === 0) return Promise.reject(new Error(`Agent not found: ${raw}`));
+  if (matches.length > 1) {
+    return Promise.reject(new Error(`Agent reference is ambiguous: ${raw} (${matches.map((m) => m.id).join(', ')})`));
+  }
+  return Promise.resolve(matches[0].id);
+}
+
 function setup(format: 'table' | 'json' = 'table') {
   const api = {
     createRoom: vi.fn(async () => ({ ...parent, session_id: SESSION_ID })),
@@ -49,9 +71,10 @@ function setup(format: 'table' | 'json' = 'table') {
     updateRoom: vi.fn(async () => parent),
     createRoomMessage: vi.fn(async () => roomMessage),
   };
-  const client = vi.fn(async () => ({ sessions: api }) as unknown as HyperCLI);
+  const deployments = { resolveAgentId: vi.fn(resolveAgentIdMock) };
+  const client = vi.fn(async () => ({ sessions: api, deployments }) as unknown as HyperCLI);
   const ctx: CommandContext = { client, format, output: createOutput(format) };
-  return { api, ctx, client };
+  return { api, deployments, ctx, client };
 }
 
 describe('hyper rooms', () => {
@@ -89,6 +112,40 @@ describe('hyper rooms', () => {
     expect(api.createRoom).toHaveBeenCalledExactlyOnceWith([AGENT_A], {
       title: undefined, purpose: undefined, style: undefined,
     });
+  });
+
+  it('create resolves a short id prefix and a name to full agent ids', async () => {
+    const { ctx, api, deployments } = setup();
+    await rooms.run(ctx, ['create', SHORT_A, 'sidekick', '--title', 'Pair']);
+    expect(deployments.resolveAgentId).toHaveBeenCalledWith(SHORT_A);
+    expect(deployments.resolveAgentId).toHaveBeenCalledWith('sidekick');
+    expect(api.createRoom).toHaveBeenCalledExactlyOnceWith([AGENT_A, AGENT_B], {
+      title: 'Pair', purpose: undefined, style: undefined,
+    });
+  });
+
+  it('create sends a full agent UUID unchanged, still through the resolver', async () => {
+    const { ctx, api, deployments } = setup();
+    await rooms.run(ctx, ['create', AGENT_A, '--title', 'Solo']);
+    expect(deployments.resolveAgentId).toHaveBeenCalledExactlyOnceWith(AGENT_A);
+    expect(api.createRoom).toHaveBeenCalledExactlyOnceWith([AGENT_A], {
+      title: 'Solo', purpose: undefined, style: undefined,
+    });
+  });
+
+  it('create with an unknown agent reference fails with the resolver error and creates nothing', async () => {
+    const { ctx, api, deployments } = setup();
+    await expect(rooms.run(ctx, ['create', SHORT_A, 'ghost', '--title', 'Nope']))
+      .rejects.toThrow('Agent not found: ghost');
+    expect(deployments.resolveAgentId).toHaveBeenCalledWith('ghost');
+    expect(api.createRoom).not.toHaveBeenCalled();
+  });
+
+  it('child-create resolves its agent arguments the same way', async () => {
+    const { ctx, api } = setup();
+    await rooms.run(ctx, ['child-create', PARENT_ID, SHORT_B, 'helper', '--title', 'kid']);
+    expect(api.createRoomSession).toHaveBeenCalledExactlyOnceWith(PARENT_ID, [AGENT_B, AGENT_A], { title: 'kid' });
+    expect(stdout).toContain(SESSION_ID);
   });
 
   it('reads one room', async () => {
