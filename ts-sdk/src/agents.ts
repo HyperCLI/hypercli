@@ -1026,6 +1026,16 @@ export interface AgentUiAvatarMeta {
 
 export interface AgentUiMeta {
   description?: string | null;
+  /**
+   * Short greeting the agent shows at the top of a new chat. Backend accepts a
+   * strict nonblank string of at most 2000 characters; null on write clears it.
+   */
+  intro?: string | null;
+  /**
+   * Suggested first messages shown as chips. Backend accepts at most 6 unique
+   * nonblank strings of at most 120 characters each; null on write clears it.
+   */
+  suggestions?: string[] | null;
   avatar?: AgentUiAvatarMeta | null;
   /** @deprecated Legacy read/write alias; canonical soul is AgentMeta.soul. */
   soul?: string | null;
@@ -1175,7 +1185,7 @@ export interface UpdateAgentOptions {
   persona?: string | null;
   /** Omit to preserve; a nonblank string <=64 chars replaces verbatim; null clears. */
   role?: string | null;
-  ui?: Pick<AgentUiMeta, 'description' | 'soul' | 'user'>;
+  ui?: Pick<AgentUiMeta, 'description' | 'intro' | 'suggestions' | 'soul' | 'user'>;
   name?: string;
   handle?: string | null;
   size?: string;
