@@ -11,7 +11,7 @@ import { parseCommandArgs } from '../core/argv.js';
 import { UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
-import type { RoomMessage } from '@hypercli.com/sdk';
+import type { HyperCLI, RoomMessage } from '@hypercli.com/sdk';
 
 export const name = 'rooms';
 export const summary = 'Create and read multiparty agent rooms, edit the brief or policy, and post owner messages.';
@@ -63,6 +63,16 @@ function parseLimit(value: unknown, flag: string): number | null | undefined {
 
 function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Agent arguments accept everything `hyper agents` accepts: full id, unique id
+ * prefix, name, handle or hostname. Resolve every reference through the
+ * deployments resolver before any room call, so a failed reference creates
+ * nothing.
+ */
+async function resolveAgentRefs(client: HyperCLI, refs: readonly string[]): Promise<string[]> {
+  return Promise.all(refs.map((ref) => client.deployments.resolveAgentId(ref)));
 }
 
 // ---------- table rendering ----------
@@ -121,7 +131,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
     throw new UsageError('rooms message requires a child session ID and a message body');
   }
 
-  const sessions = (await ctx.client()).sessions;
+  const client = await ctx.client();
+  const sessions = client.sessions;
   switch (command) {
     case 'grants':
     case 'grant':
@@ -150,7 +161,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
       throw new UsageError(`Invalid rooms ${command} arguments; see rooms --help`);
     }
     case 'create': {
-      const room = await sessions.createRoom(rest, {
+      const room = await sessions.createRoom(await resolveAgentRefs(client, rest), {
         title: optionalText(parsed.values.title),
         purpose: optionalText(parsed.values.purpose),
         style: optionalText(parsed.values.style),
@@ -184,7 +195,7 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
       return;
     }
     case 'child-create': {
-      const child = await sessions.createRoomSession(rest[0], rest.slice(1), { title: optionalText(parsed.values.title) });
+      const child = await sessions.createRoomSession(rest[0], await resolveAgentRefs(client, rest.slice(1)), { title: optionalText(parsed.values.title) });
       ctx.output.result(child, rowsBlock([['room_id', child.room_id], ['session_id', child.id]]).join('\n'));
       return;
     }
