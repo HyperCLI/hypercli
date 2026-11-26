@@ -50,6 +50,41 @@ describe('Deployments.update', () => {
     expect(patch).toHaveBeenCalledWith(`/deployments/${id}`, { ui: { description: null } });
     expect(agent.meta?.ui).toEqual({ description: null, avatar: { icon_index: 2 } });
   });
+  it('sends ui.intro and ui.suggestions through PATCH and reads them back from the agent record', async () => {
+    const id = 'c75a1d4f-9f1e-4b2e-8d3a-2f0e1a9a0001';
+    const patch = vi.fn().mockResolvedValue({
+      id,
+      meta: {
+        ui: {
+          intro: 'Hello, I am Riley.',
+          suggestions: ['Show my files', 'What can you do?'],
+          description: 'kept',
+          avatar: { icon_index: 2 },
+        },
+      },
+    });
+    const deployments = new Deployments({ patch } as unknown as HTTPClient, 'test', 'https://api.test/agents');
+    const agent = await deployments.update(id, {
+      ui: { intro: 'Hello, I am Riley.', suggestions: ['Show my files', 'What can you do?'] },
+    });
+    expect(patch).toHaveBeenCalledWith(`/deployments/${id}`, {
+      ui: { intro: 'Hello, I am Riley.', suggestions: ['Show my files', 'What can you do?'] },
+    });
+    expect(agent.meta?.ui?.intro).toBe('Hello, I am Riley.');
+    expect(agent.meta?.ui?.suggestions).toEqual(['Show my files', 'What can you do?']);
+    expect(agent.meta?.ui?.description).toBe('kept');
+    await deployments.update(id, { ui: { intro: null, suggestions: null } });
+    expect(patch).toHaveBeenLastCalledWith(`/deployments/${id}`, { ui: { intro: null, suggestions: null } });
+  });
+  it('accepts intro and suggestions in create meta.ui and hydrates the returned agent', async () => {
+    const meta = { ui: { intro: 'Hello, I am Riley.', suggestions: ['List my files'], avatar: { icon_index: 2 } } };
+    const post = vi.fn().mockResolvedValue({ id: 'a', runtime: 'opencode', meta });
+    const deployments = new Deployments({ post } as unknown as HTTPClient, 'test', 'https://api.test/agents');
+    const agent = await deployments.createCodingAgent('opencode', { meta });
+    expect(post.mock.calls[0][1].meta).toEqual(meta);
+    expect(agent.meta?.ui?.intro).toBe('Hello, I am Riley.');
+    expect(agent.meta?.ui?.suggestions).toEqual(['List my files']);
+  });
   it('sends docker null through the update payload to clear stored runner docker options', async () => {
     const agentId = 'c75a1d4f-9f1e-4b2e-8d3a-2f0e1a9a0001';
     const patch = vi.fn().mockResolvedValue({ id: agentId, state: 'STOPPED' });
