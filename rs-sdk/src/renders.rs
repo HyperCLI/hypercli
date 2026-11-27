@@ -16,7 +16,7 @@ use serde_json::Value;
 use crate::{AuthMe, HyperCliClient, HyperCliError};
 
 /// Render projection returned by the flow/render endpoints.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Render {
     pub render_id: String,
     pub state: String,
@@ -24,6 +24,7 @@ pub struct Render {
     pub render_type: Option<String>,
     pub tags: Vec<String>,
     pub result_url: Option<String>,
+    pub result_file_id: Option<String>,
     pub error: Option<String>,
     pub created_at: Option<f64>,
     pub started_at: Option<f64>,
@@ -79,6 +80,7 @@ struct RenderWire {
     tags: Vec<String>,
     #[serde(default)]
     result_url: Option<String>,
+    result_file_id: Option<String>,
     #[serde(default)]
     error: Option<String>,
     #[serde(default, deserialize_with = "de_opt_f64")]
@@ -103,6 +105,7 @@ impl RenderWire {
             render_type: self.render_type_alias.or(self.render_type),
             tags: self.tags,
             result_url: self.result_url,
+            result_file_id: self.result_file_id,
             error: self.error,
             created_at: self.created_at,
             started_at: self.started_at,
@@ -394,13 +397,12 @@ impl RendersClient<'_> {
                 .bearer_auth(self.client.api_key.expose_secret())
                 .json(payload)
         };
-        let trace = Some(payload.clone());
         if self.supports_flows_family(Some(flow_type)) {
             match self.client.send_json(
                 "renders.create_flow",
                 "POST",
                 &agents_url,
-                trace.clone(),
+                None,
                 post(&agents_url),
             ) {
                 Err(error)
@@ -413,7 +415,7 @@ impl RendersClient<'_> {
                         "renders.create_flow",
                         "POST",
                         &product_url,
-                        trace,
+                        None,
                         post(&product_url),
                     )
                 }
@@ -424,7 +426,7 @@ impl RendersClient<'_> {
                 "renders.create_flow",
                 "POST",
                 &product_url,
-                trace,
+                None,
                 post(&product_url),
             )
         }
@@ -549,7 +551,7 @@ impl RendersClient<'_> {
             "renders.create",
             "POST",
             &url,
-            serde_json::to_value(request).ok(),
+            None,
             self.client
                 .http
                 .post(&url)

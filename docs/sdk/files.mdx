@@ -3,7 +3,9 @@ title: Files
 description: Upload local files, bytes, URLs, and base64 payloads for use in render workflows.
 ---
 
-Uploaded files are primarily intended for use inside HyperCLI workflows. The returned `url` is an internal storage reference, not a public download URL.
+Upload any file, including archives, PDFs, and other binary payloads. Multipart uploads retain the original basename. Files are retained for 30 days; `expires_at` is the file's retention deadline, not the lifetime of a signed link.
+
+Use `url` as the internal storage reference for HyperCLI workflows. For downloads, use the ready file's `download_url`, or send an authenticated `GET /api/files/{id}/download` to the product API. It redirects to a signed storage URL that preserves the original filename. Follow the redirect without forwarding the product credential. Treat signed links as credentials; do not log them.
 
 ## Upload From Disk
 
@@ -58,6 +60,8 @@ render = client.renders.speaking_video(
 
 ```python
 current = client.files.get(file.id)
+if render.result_file_id:
+    output_file = client.files.get(render.result_file_id)
 client.files.delete(file.id)
 ```
 
@@ -67,10 +71,12 @@ client.files.delete(file.id)
 | --- | --- | --- |
 | `id` | `str` | File UUID |
 | `user_id` | `str` | Owner user ID |
-| `filename` | `str` | Original filename |
-| `content_type` | `str` | MIME type |
-| `file_size` | `int` | Size in bytes |
-| `url` | `str` | Internal S3 reference used by HyperCLI workflows |
+| `filename` | `str \| None` | Original basename when available |
+| `content_type` | `str \| None` | MIME type when known |
+| `file_size` | `int \| None` | Size in bytes when known |
+| `url` | `str \| None` | Internal storage reference used by HyperCLI workflows |
+| `download_url` | `str \| None` | Download link when available |
+| `expires_at` | `str \| None` | File retention deadline |
 | `state` | `str \| None` | `processing`, `done`, or `failed` for async uploads |
 | `error` | `str \| None` | Backend error for failed async uploads |
 | `created_at` | `str \| None` | Upload timestamp |

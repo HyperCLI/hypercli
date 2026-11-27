@@ -22,7 +22,7 @@ import { createInterface } from 'node:readline/promises';
 import type { ParseArgsConfig } from 'node:util';
 import type { Render } from '@hypercli.com/sdk';
 import { parseCommandArgs, parseUniversal } from '../core/argv.js';
-import { CliError, UsageError } from '../core/errors.js';
+import { CliError, redactDownloadLinks, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
 
@@ -221,6 +221,14 @@ function formatTimestamp(value: unknown): string {
   return String(value);
 }
 
+function renderOutput(render: Render): Render {
+  return {
+    ...render,
+    resultUrl: render.resultUrl && redactDownloadLinks(render.resultUrl),
+    error: render.error && redactDownloadLinks(render.error),
+  };
+}
+
 function renderDetail(render: Render): string {
   const rows: Array<[string, string]> = [
     ['id', render.renderId],
@@ -235,6 +243,7 @@ function renderDetail(render: Render): string {
   const completed = formatTimestamp(render.completedAt);
   if (completed) rows.push(['completed', completed]);
   if (render.resultUrl) rows.push(['result_url', render.resultUrl]);
+  if (render.resultFileId) rows.push(['result_file_id', render.resultFileId]);
   if (render.error) rows.push(['error', render.error]);
   const width = Math.max(...rows.map(([key]) => key.length));
   return rows.map(([key, value]) => `${key.padEnd(width)}  ${value}`).join('\n');
@@ -265,7 +274,7 @@ async function cmdCreate(ctx: CommandContext, args: string[]): Promise<void> {
     return;
   }
   const client = await ctx.client();
-  const render = await client.renders.flow(type, params);
+  const render = renderOutput(await client.renders.flow(type, params));
   ctx.output.result(
     render,
     [
@@ -284,7 +293,7 @@ async function cmdList(ctx: CommandContext, args: string[]): Promise<void> {
   }
   const state = typeof parsed.values.state === 'string' ? parsed.values.state : undefined;
   const client = await ctx.client();
-  const renders = await client.renders.list(state ? { state } : undefined);
+  const renders = (await client.renders.list(state ? { state } : undefined)).map(renderOutput);
   ctx.output.result(renders, {
     columns: ['ID', 'TYPE', 'STATE', 'CREATED', 'RESULTS'],
     rows: renders.map((render) => [
@@ -292,7 +301,7 @@ async function cmdList(ctx: CommandContext, args: string[]): Promise<void> {
       render.renderType ?? render.template ?? '',
       render.state,
       formatTimestamp(render.createdAt),
-      render.resultUrl ? 1 : 0,
+      render.resultFileId || render.resultUrl ? 1 : 0,
     ]),
   });
 }
@@ -318,7 +327,7 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
   const client = await ctx.client();
   let render: Render;
   try {
-    render = await client.renders.wait(id, { timeoutMs: timeoutS * 1000 });
+    render = renderOutput(await client.renders.wait(id, { timeoutMs: timeoutS * 1000 }));
   } catch (err) {
     if (err instanceof Error && /did not complete within/.test(err.message)) {
       let finalState = 'unknown';
@@ -333,6 +342,7 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
   }
   const lines = [`flow ${render.renderId} ${render.state}`];
   if (render.resultUrl) lines.push(`result: ${render.resultUrl}`);
+  if (render.resultFileId) lines.push(`result_file_id: ${render.resultFileId}`);
   if (render.error) lines.push(`error: ${render.error}`);
   ctx.output.result(render, lines.join('\n'));
   if (['failed', 'cancelled'].includes(render.state.toLowerCase())) {
@@ -413,7 +423,7 @@ const COMMANDS: Record<string, (ctx: CommandContext, args: string[]) => Promise<
         }
       }
     }
-    const render = await client.renders.submit(family, template, inputs);
+    const render = renderOutput(await client.renders.submit(family, template, inputs));
     ctx.output.result(render, renderDetail(render));
   },
   create: cmdCreate,

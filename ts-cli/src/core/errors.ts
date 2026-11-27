@@ -27,10 +27,15 @@ export class UsageError extends CliError {
   }
 }
 
+/** Storage signatures may use provider-specific query names. Omit the entire URL. */
+export function redactDownloadLinks(text: string): string {
+  return text.replace(/https?:\/\/[^\s"'<>?]*\?[^\s"'<>]+/gi, '[redacted URL]');
+}
+
 /** Print an error to stderr in the canonical `error: <message>` form. */
 export function printError(err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`error: ${message}\n`);
+  process.stderr.write(`error: ${redactDownloadLinks(message)}\n`);
 }
 
 /** Map any thrown value to a process exit code. */

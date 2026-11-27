@@ -84,14 +84,15 @@ def _handle_response(response: httpx.Response) -> Any:
         body = response.text or ""
         method = response.request.method if response.request else None
         url = str(response.request.url) if response.request else None
-        logger.error(
-            "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
-            method,
-            url,
-            response.status_code,
-            detail,
-            _truncate_for_log(body),
-        )
+        # File and render failures can echo an import URL or signed storage link.
+        path = response.request.url.path
+        if any(prefix in path for prefix in ("/api/files/", "/api/renders", "/api/flow/", "/agents/flow/")):
+            logger.error("HyperCLI file/flow request failed: method=%s status=%s", method, response.status_code)
+        else:
+            logger.error(
+                "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
+                method, url, response.status_code, detail, _truncate_for_log(body),
+            )
         raise APIError(
             response.status_code,
             detail,

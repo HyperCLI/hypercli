@@ -23,6 +23,7 @@ class Render:
     created_at: float | None = None
     started_at: float | None = None
     completed_at: float | None = None
+    result_file_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Render":
@@ -33,6 +34,7 @@ class Render:
             render_type=data.get("type") or data.get("render_type"),
             tags=list(data.get("tags") or []),
             result_url=data.get("result_url"),
+            result_file_id=data.get("result_file_id"),
             error=data.get("error"),
             created_at=data.get("created_at"),
             started_at=data.get("started_at"),

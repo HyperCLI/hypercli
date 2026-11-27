@@ -84,7 +84,7 @@ function baseRenders() {
       renderFixture({ state: 'completed', resultUrl: 'https://cdn.example.com/out.png', completedAt: 1770000060 }),
     ),
     wait: vi.fn(async () =>
-      renderFixture({ state: 'completed', resultUrl: 'https://cdn.example.com/out.png', completedAt: 1770000060 }),
+      renderFixture({ state: 'completed', resultUrl: 'https://cdn.example.com/out.png', resultFileId: 'file-456', completedAt: 1770000060 }),
     ),
     cancel: vi.fn(async () => ({ ok: true })),
   };
@@ -124,6 +124,15 @@ describe('hyper flow', () => {
     const error = await flow.run(makeCtx(fakeClient(renders), 'json'), ['wait', 'r_123']).catch(e => e);
     expect(exitCodeFor(error)).toBe(1);
     expect(JSON.parse(stdout())).toEqual(record);
+  });
+
+  it('wait returns the file ID without disclosing signed links embedded in legacy fields', async () => {
+    const signed = 'https://storage.example/file?X-Amz-Signature=fixture';
+    const record = renderFixture({ state: 'completed', resultUrl: signed, resultFileId: 'f' });
+    const renders = fakeRenders({ wait: vi.fn(async () => record) });
+    await flow.run(makeCtx(fakeClient(renders), 'json'), ['wait', 'r_123']);
+    expect(JSON.parse(stdout()).resultFileId).toBe('f');
+    expect(stdout() + stderr()).not.toContain(signed);
   });
   it('submits upstream names with typed values and owned media bindings', async () => {
     const renders = fakeRenders();
@@ -243,6 +252,7 @@ describe('hyper flow', () => {
 
     expect(renders.wait).toHaveBeenCalledWith('r_123', { timeoutMs: 5000 });
     expect(stdout()).toContain('flow r_123 completed');
+    expect(stdout()).toContain('result_file_id: file-456');
     expect(stdout()).toContain('https://cdn.example.com/out.png');
   });
 

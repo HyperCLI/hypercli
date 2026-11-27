@@ -14,24 +14,25 @@ import { createInterface } from 'node:readline/promises';
 import { APIError } from '@hypercli.com/sdk';
 import type { File as HyperFile } from '@hypercli.com/sdk';
 import { parseCommandArgs } from '../core/argv.js';
-import { CliError, UsageError } from '../core/errors.js';
+import { CliError, redactDownloadLinks, UsageError } from '../core/errors.js';
 import { renderGroupHelp } from '../core/help.js';
 import type { CommandContext } from '../core/types.js';
 
 export const name = 'files';
-export const summary = 'Upload, inspect, and delete render assets.';
+export const summary = 'Upload, inspect, download, and delete files.';
 export const usage = [
   'hyper files upload <path> [--json]',
   'hyper files get <id> [--json]',
+  'hyper files download-url <id> [--json]',
   'hyper files delete <id> [--yes] [--json]',
 ];
 
 function describeError(err: unknown): string {
-  if (err instanceof APIError) return `${err.statusCode}: ${err.detail}`;
-  return err instanceof Error ? err.message : String(err);
+  if (err instanceof APIError) return `HTTP ${err.statusCode}`;
+  return 'request failed';
 }
 
-/** Raw SDK record, with nulls preserved (dates stay ISO strings). */
+/** Routine metadata output omits download credentials and preserves null fields. */
 function fileRecord(file: HyperFile): Record<string, unknown> {
   return {
     id: file.id,
@@ -41,8 +42,9 @@ function fileRecord(file: HyperFile): Record<string, unknown> {
     fileSize: file.fileSize,
     url: file.url,
     state: file.state,
-    error: file.error,
+    error: file.error && redactDownloadLinks(file.error),
     createdAt: file.createdAt,
+    expiresAt: file.expiresAt ?? null,
   };
 }
 
@@ -76,7 +78,8 @@ async function upload(ctx: CommandContext, args: string[]): Promise<void> {
   }
 
   // Return only once the file is usable in renders.
-  if (!client.files.isReady(file)) {
+  const legacyReady = file.state == null && Boolean(file.url);
+  if (!legacyReady && !client.files.isReady(file)) {
     ctx.output.info(`uploaded ${file.id}, waiting for processing to finish…`);
     try {
       file = await client.files.waitReady(file.id);
@@ -85,7 +88,7 @@ async function upload(ctx: CommandContext, args: string[]): Promise<void> {
     }
   }
 
-  ctx.output.info(`uploaded ${file.id} (${file.filename}) → ${file.url || 'no url yet'}`);
+  ctx.output.info(`uploaded ${file.id}`);
   ctx.output.result(fileRecord(file), {
     columns: ['ID', 'NAME', 'URL'],
     rows: [[file.id, file.filename, file.url]],
@@ -112,9 +115,22 @@ async function get(ctx: CommandContext, args: string[]): Promise<void> {
   }
 
   ctx.output.result(fileRecord(file), {
-    columns: ['ID', 'NAME', 'URL', 'CREATED', 'SIZE'],
-    rows: [[file.id, file.filename, file.url, file.createdAt ?? '', String(file.fileSize)]],
+    columns: ['ID', 'NAME', 'URL', 'CREATED', 'SIZE', 'EXPIRES'],
+    rows: [[file.id, file.filename, file.url, file.createdAt ?? '', file.fileSize ?? '', file.expiresAt ?? '']],
   });
+}
+
+async function downloadUrl(ctx: CommandContext, args: string[]): Promise<void> {
+  const { positionals } = parseCommandArgs(args);
+  const [id, ...rest] = positionals;
+  if (!id || rest.length) throw new UsageError('usage: hyper files download-url <id> [--json]');
+  const client = await ctx.client();
+  try {
+    const url = await client.files.downloadUrl(id);
+    ctx.output.result({ id, downloadUrl: url }, url);
+  } catch (err) {
+    throw new CliError(`failed to resolve download: ${describeError(err)}`);
+  }
 }
 
 async function confirm(question: string): Promise<boolean> {
@@ -181,6 +197,8 @@ export async function run(ctx: CommandContext, args: string[]): Promise<void> {
       return upload(ctx, subArgs);
     case 'get':
       return get(ctx, subArgs);
+    case 'download-url':
+      return downloadUrl(ctx, subArgs);
     case 'delete':
       return del(ctx, subArgs);
     default:

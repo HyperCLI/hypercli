@@ -8,10 +8,12 @@ import { basename } from 'path';
 export interface File {
   id: string;
   userId: string;
-  filename: string;
-  contentType: string;
-  fileSize: number;
-  url: string; // Internal S3 reference - only valid for use in HyperCLI renders
+  filename: string | null;
+  contentType: string | null;
+  fileSize: number | null;
+  url: string | null; // Internal storage reference for workflows
+  downloadUrl?: string | null;
+  expiresAt?: string | null;
   state: string | null;
   error: string | null;
   createdAt: string | null;
@@ -21,10 +23,12 @@ function fileFromDict(data: any): File {
   return {
     id: data.id || '',
     userId: data.user_id || '',
-    filename: data.filename || '',
-    contentType: data.content_type || '',
-    fileSize: data.file_size || 0,
-    url: data.url || '',
+    filename: data.filename === undefined ? '' : data.filename,
+    contentType: data.content_type === undefined ? '' : data.content_type,
+    fileSize: data.file_size === undefined ? 0 : data.file_size,
+    url: data.url === undefined ? '' : data.url,
+    downloadUrl: data.download_url ?? null,
+    expiresAt: data.expires_at ?? null,
     state: data.state || null,
     error: data.error || null,
     createdAt: data.created_at || null,
@@ -58,7 +62,7 @@ export class Files {
   /**
    * Upload file bytes directly
    */
-  async uploadBytes(content: Buffer, filename: string, contentType: string): Promise<File> {
+  async uploadBytes(content: Buffer, filename: string, contentType = 'application/octet-stream'): Promise<File> {
     const files = {
       file: { filename, content, contentType },
     };
@@ -100,6 +104,11 @@ export class Files {
   async get(fileId: string): Promise<File> {
     const data = await this.http.get(`/api/files/${fileId}`);
     return fileFromDict(data);
+  }
+
+  /** Resolve a fresh signed download URL without forwarding product credentials to storage. */
+  async downloadUrl(fileId: string): Promise<string> {
+    return this.http.getRedirectLocation(`/api/files/${encodeURIComponent(fileId)}/download`);
   }
 
   /**

@@ -58,7 +58,10 @@ console.log(status.state, status.progress);
 const finalRender = await client.renders.wait(render.renderId, {
   pollIntervalMs: 2_000, timeoutMs: 1_800_000,
 });
-console.log(finalRender.state, finalRender.resultUrl, finalRender.error);
+console.log(finalRender.state, finalRender.resultFileId);
+if (finalRender.resultFileId) {
+  const outputFile = await client.files.get(finalRender.resultFileId);
+}
 const details = await client.renders.get(render.renderId);
 ```
 

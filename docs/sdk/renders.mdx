@@ -59,7 +59,9 @@ client.renders.list(state="completed")
 status = client.renders.status(render.render_id)
 print(status.state, status.progress)
 final_render = client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
-print(final_render.state, final_render.result_url, final_render.error)
+print(final_render.state, final_render.result_file_id)
+if final_render.result_file_id:
+    output_file = client.files.get(final_render.result_file_id)
 details = client.renders.get(render.render_id)
 ```
 

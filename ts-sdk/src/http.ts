@@ -291,6 +291,24 @@ export class HTTPClient {
     }, handleResponse<T>);
   }
 
+  /** Inspect the authenticated redirect without sending credentials to the target. */
+  async getRedirectLocation(path: string): Promise<string> {
+    return requestWithRetryHandled({
+      method: 'GET', url: `${this.baseUrl}${path}`, headers: this.headers,
+      timeout: this.timeout, redirect: 'manual',
+    }, async response => {
+      await response.body?.cancel();
+      const location = response.headers.get('location');
+      if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+        throw new APIError(response.status, 'Expected a download redirect');
+      }
+      if (!URL.canParse(location) || !['https:', 'http:'].includes(new URL(location).protocol)) {
+        throw new Error('Invalid storage download URL');
+      }
+      return location;
+    });
+  }
+
   /** Consume a streamed response while the request deadline remains active. */
   async getStream<T>(path: string, consume: (response: Response) => Promise<T>, options: RequestOverrides = {}): Promise<T> {
     return requestWithRetryHandled({

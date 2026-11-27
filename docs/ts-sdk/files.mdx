@@ -3,7 +3,7 @@ title: Files
 description: Upload local assets and asynchronous URL or base64 imports with the TypeScript SDK.
 ---
 
-Uploaded files are primarily intended for use inside HyperCLI render workflows. The returned `url` is an internal storage reference, not a public download URL.
+Upload any file, not just render media. The returned `url` is an internal storage reference for workflows. `downloadUrl` is a separate download link when available. `expiresAt` is the file's retention deadline (30 days), not the expiry of the signed URL.
 
 ## Upload From Disk
 
@@ -14,7 +14,7 @@ console.log(file.id);
 console.log(file.url);
 ```
 
-The SDK infers common MIME types for:
+Uploads preserve the local basename. Unrecognized extensions use `application/octet-stream`. The SDK infers common MIME types for:
 
 - PNG, JPEG, GIF, WebP
 - MP3, WAV
@@ -71,6 +71,17 @@ Helpers:
 - `isProcessing(file)`
 
 ## Metadata And Deletion
+
+To download, resolve a fresh signed URL with the product credential. The SDK reads the redirect from `GET /api/files/{id}/download`; the storage request needs no authorization header. The response preserves the original filename. Do not log the signed URL.
+
+```ts
+const signedUrl = await client.files.downloadUrl(file.id);
+const response = await fetch(signedUrl);
+if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
+const bytes = await response.arrayBuffer();
+```
+
+For a finished render with `resultFileId`, pass that ID to `client.files.get()` or `client.files.downloadUrl()`. Existing `resultUrl` remains available when the backend supplies it.
 
 ```ts
 const current = await client.files.get(file.id);

@@ -2,7 +2,7 @@
 import os
 import time
 import mimetypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,13 +19,15 @@ class File:
     """
     id: str
     user_id: str
-    filename: str
-    content_type: str
-    file_size: int
-    url: str  # Internal S3 reference - only valid for use in HyperCLI renders
+    filename: str | None
+    content_type: str | None
+    file_size: int | None
+    url: str | None  # Internal storage reference for workflows
     state: str | None = None  # processing, done, failed (for async uploads)
     error: str | None = None  # Error message if state=failed
     created_at: str | None = None
+    download_url: str | None = field(default=None, repr=False)
+    expires_at: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "File":
@@ -39,6 +41,8 @@ class File:
             state=data.get("state"),
             error=data.get("error"),
             created_at=data.get("created_at"),
+            download_url=data.get("download_url"),
+            expires_at=data.get("expires_at"),
         )
 
     @property
@@ -228,4 +232,3 @@ class Files:
                 raise ValueError(f"File upload failed: {file.error}")
             time.sleep(poll_interval)
         raise TimeoutError(f"File {file_id} did not complete within {timeout}s")
-

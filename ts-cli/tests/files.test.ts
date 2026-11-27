@@ -51,6 +51,8 @@ function fileFixture(overrides: Partial<HyperFile> = {}): HyperFile {
     contentType: 'image/png',
     fileSize: 2048,
     url: 's3://hypercli/files/file_123.png',
+    downloadUrl: 'https://storage.example/file?signature=private',
+    expiresAt: '2026-10-01T00:00:00Z',
     state: 'done',
     error: null,
     createdAt: '2026-09-01T00:00:00Z',
@@ -62,6 +64,7 @@ interface FakeHandlers {
   upload?: (path: string) => Promise<HyperFile>;
   get?: (fileId: string) => Promise<HyperFile>;
   delete?: (fileId: string) => Promise<unknown>;
+  downloadUrl?: (fileId: string) => Promise<string>;
 }
 
 function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
@@ -69,6 +72,7 @@ function fakeClient(handlers: FakeHandlers = {}): HyperCLI {
     files: {
       upload: handlers.upload ?? (async () => fileFixture()),
       get: handlers.get ?? (async () => fileFixture()),
+      downloadUrl: handlers.downloadUrl,
       delete: handlers.delete ?? (async () => ({})),
       isReady: (f: HyperFile) => f.state === 'done',
       waitReady: async (fileId: string) => fileFixture({ id: fileId }),
@@ -144,6 +148,19 @@ describe('hyper files', () => {
     expect(payload.id).toBe('file_123');
     expect(payload.filename).toBe('image.png');
     expect(payload.fileSize).toBe(2048);
+    expect(payload.expiresAt).toBe('2026-10-01T00:00:00Z');
+    expect(stdout() + stderr()).not.toContain('signature=private');
+  });
+
+  it('prints the signed URL only on explicit download output', async () => {
+    const signed = 'https://storage.example/file?signature=private';
+    const downloadUrl = vi.fn().mockResolvedValueOnce(signed).mockRejectedValueOnce(new Error(signed));
+    const ctx = makeCtx(fakeClient({ downloadUrl }), 'json');
+    await files.run(ctx, ['download-url', 'file_123', '--json']);
+    expect(downloadUrl).toHaveBeenCalledWith('file_123');
+    expect(JSON.parse(stdout())).toEqual({ id: 'file_123', downloadUrl: signed });
+    await expect(files.run(ctx, ['download-url', 'file_123'])).rejects.toThrow('failed to resolve download: request failed');
+    expect(stderr()).toBe('');
   });
 
   it('upload: waits for processing when the upload is not yet ready', async () => {
@@ -164,6 +181,16 @@ describe('hyper files', () => {
     expect(waitReady).toHaveBeenCalledWith('file_123');
     const payload = JSON.parse(stdout());
     expect(payload.state).toBe('done');
+  });
+
+  it('upload: accepts a synchronous legacy upload with a raw URL and no state', async () => {
+    const client = fakeClient({ upload: async () => fileFixture({ state: null }) });
+    const wait = vi.spyOn(client.files, 'waitReady');
+    const path = join(workDir, 'empty.bin');
+    await writeFile(path, Buffer.alloc(0));
+    await files.run(makeCtx(client, 'json'), ['upload', path, '--json']);
+    expect(wait).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout()).state).toBeNull();
   });
 
   it('get: renders id/name/url/created/size', async () => {

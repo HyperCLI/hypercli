@@ -3289,6 +3289,9 @@ impl HyperCliClient {
         };
         let (outcome, error) = match result {
             Ok(_) => ("success", None),
+            Err(error) if operation.starts_with("files.") || operation.starts_with("renders.") => {
+                (error.outcome(), None)
+            }
             Err(error) => (error.outcome(), Some(error.to_string())),
         };
         let event = json!({

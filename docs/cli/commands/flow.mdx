@@ -71,7 +71,9 @@ hyper flow cancel RENDER_ID --yes
 
 `status` reads the lightweight status endpoint and reports state and progress,
 including zero progress. `wait` prints the terminal render record, including its
-result URL or error. Failed and cancelled records produce a nonzero exit status.
+result URL, `resultFileId` when supplied, or error. Pass `resultFileId` to
+`hyper files download-url FILE_ID` for a filename-preserving download.
+Failed and cancelled records produce a nonzero exit status.
 An accepted pending/running render is not a completed result: retain its ID.
 
 The SDK's existing wait policy adds up to 1,800 seconds of queue grace and

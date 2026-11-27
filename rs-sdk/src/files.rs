@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use secrecy::ExposeSecret;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{HyperCliClient, HyperCliError};
@@ -16,20 +16,22 @@ use crate::{HyperCliClient, HyperCliError};
 /// Uploaded file metadata. The `url` is an internal `s3://` reference usable
 /// only inside the platform (e.g. as a render input); it is not a download
 /// link.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct File {
     #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub user_id: String,
     #[serde(default)]
-    pub filename: String,
+    pub filename: Option<String>,
     #[serde(default)]
-    pub content_type: String,
+    pub content_type: Option<String>,
     #[serde(default)]
-    pub file_size: u64,
+    pub file_size: Option<u64>,
     #[serde(default)]
-    pub url: String,
+    pub url: Option<String>,
+    pub download_url: Option<String>,
+    pub expires_at: Option<String>,
     /// `processing`, `done`, or `failed` for async uploads.
     #[serde(default)]
     pub state: Option<String>,
@@ -37,6 +39,17 @@ pub struct File {
     pub error: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
+}
+
+impl std::fmt::Debug for File {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("File")
+            .field("id", &self.id)
+            .field("file_size", &self.file_size)
+            .field("state", &self.state)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
 }
 
 impl File {
@@ -158,7 +171,7 @@ impl FilesClient<'_> {
             "files.upload_url",
             "POST",
             &endpoint,
-            Some(payload.clone()),
+            None,
             self.client
                 .http
                 .post(&endpoint)
@@ -187,7 +200,7 @@ impl FilesClient<'_> {
             "files.upload_b64",
             "POST",
             &endpoint,
-            Some(payload.clone()),
+            None,
             self.client
                 .http
                 .post(&endpoint)
@@ -285,6 +298,31 @@ mod tests {
     }
 
     #[test]
+    fn metadata_round_trips_pending_and_ready_results() {
+        let pending = json!({"state": "processing", "url": null, "filename": null,
+            "content_type": null, "file_size": null});
+        let file: File = serde_json::from_value(pending.clone()).unwrap();
+        let serialized = serde_json::to_value(file).unwrap();
+        for (key, expected) in pending.as_object().unwrap() {
+            assert_eq!(&serialized[key], expected);
+        }
+        let ready = json!({"result_url": "legacy", "result_file_id": "f"});
+        let render = crate::renders::Render::from_value(&ready).unwrap();
+        assert_eq!(serde_json::to_value(render).unwrap()["result_file_id"], "f");
+        let file: File = serde_json::from_value(json!({"url":"s3://raw", "file_size":0,
+            "download_url":"https://storage.example/?sig=private", "expires_at":"2027-01-01"}))
+        .unwrap();
+        assert!(!format!("{file:?}").contains("private"));
+        let serialized = serde_json::to_value(file).unwrap();
+        assert_eq!(
+            serialized["download_url"],
+            "https://storage.example/?sig=private"
+        );
+        assert_eq!(serialized["expires_at"], "2027-01-01");
+        assert_eq!(serialized["file_size"], 0);
+    }
+
+    #[test]
     fn upload_bytes_posts_multipart_with_file_field() {
         let mut server = Server::new();
         let upload = server
@@ -368,7 +406,7 @@ mod tests {
             .files()
             .wait_ready("file-3", None, Some(Duration::from_millis(1)))
             .unwrap();
-        assert_eq!(file.url, "s3://bucket/file-3");
+        assert_eq!(file.url.as_deref(), Some("s3://bucket/file-3"));
         get.assert();
     }
 

@@ -1,15 +1,16 @@
 ---
 title: hyper files
-description: Upload media for flows, inspect processing state, and delete uploaded files.
+description: Upload arbitrary files, inspect metadata, resolve download links, and delete files.
 ---
 
-`hyper files` manages product-scoped uploads used by media flows and renders.
+`hyper files` manages product-scoped files, including archives, documents, and media used by flows. Uploads preserve the original basename and are retained for 30 days.
 
 ## Commands
 
 ```bash
 hyper files upload ./source.png
 hyper files get <file_id>
+hyper files download-url <file_id>
 hyper files delete <file_id>
 ```
 
@@ -18,6 +19,10 @@ processing to complete.
 
 The printed file `URL` is an internal storage reference for HyperCLI renders. It
 is not a public download URL and should not be treated as a shareable asset.
+
+`get --json` includes `expiresAt`, the retention deadline. `download-url` explicitly prints a signed download URL to stdout (`--json`: `id` and `downloadUrl`). It authenticates `GET /api/files/{id}/download` and returns the redirect target. Download from that URL without a product API key; storage supplies the original filename. Keep signed URLs out of logs.
+
+If `hyper flow wait <render_id> --json` returns a `resultFileId`, use that ID with `hyper files download-url`.
 
 ## Flow Inputs
 

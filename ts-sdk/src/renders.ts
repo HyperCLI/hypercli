@@ -11,6 +11,7 @@ export interface Render {
   renderType: string | null;
   tags: string[] | null;
   resultUrl: string | null;
+  resultFileId?: string | null;
   error: string | null;
   createdAt: number | null;
   startedAt: number | null;
@@ -38,6 +39,7 @@ function renderFromDict(data: any): Render {
     renderType: data.type || data.render_type || null,
     tags: Array.isArray(data.tags) ? data.tags : null,
     resultUrl: data.result_url || null,
+    resultFileId: data.result_file_id ?? null,
     error: data.error || null,
     createdAt: data.created_at || null,
     startedAt: data.started_at || null,
