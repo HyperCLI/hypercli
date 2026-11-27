@@ -190,6 +190,7 @@
         { "argv": ["--help"] },
         { "argv": ["upload", "--help"] },
         { "argv": ["get", "--help"] },
+        { "argv": ["download-url", "--help"] },
         { "argv": ["delete", "--help"] }
       ]
     },

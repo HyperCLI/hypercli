@@ -615,6 +615,12 @@ case "${GROUP}/${SUB}" in
     assert_fail 1 "refusing to delete" -- files delete "${NOID}"
     ;;
 
+  files/download-url)
+    step "files download-url (usage and missing file)"
+    assert_fail 2 "usage: hyper files download-url" -- files download-url
+    assert_fail 1 "failed to resolve download:" -- files download-url "${NOID}"
+    ;;
+
   voice/clone|voice/transcribe)
     step "voice clone -> transcribe (checked reference, required live round trip)"
     assert_fail 2 "usage: hyper voice clone" -- voice clone
