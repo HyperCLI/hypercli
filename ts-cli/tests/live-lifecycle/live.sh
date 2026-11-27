@@ -618,7 +618,7 @@ case "${GROUP}/${SUB}" in
   files/download-url)
     step "files download-url (usage and missing file)"
     assert_fail 2 "usage: hyper files download-url" -- files download-url
-    assert_fail 1 "failed to resolve download:" -- files download-url "${NOID}"
+    assert_fail 1 "failed to resolve download: HTTP 404" -- files download-url "${NOID}"
     ;;
 
   voice/clone|voice/transcribe)
