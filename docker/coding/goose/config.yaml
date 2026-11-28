@@ -3,7 +3,7 @@ providers:
   hypercli:
     configured: true
     enabled: true
-    model: coding-anthropic
+    model: default-anthropic
 GOOSE_MODE: auto
 GOOSE_TELEMETRY_ENABLED: false
 extensions:

@@ -452,7 +452,7 @@ Authentication remains runtime-specific:
 | Kimi Code | Native login; SDK status discovery and noninteractive logout are unsupported |
 
 OpenCode and Goose images default to HyperCLI's Anthropic-native
-`coding-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps Moonshot's upstream service and
+`default-anthropic` route (currently `kimi-k3-anthropic`). Kimi Code keeps Moonshot's upstream service and
 login flow. Login sessions use an agent-bound shell WebSocket and never put an
 API key on the command line; runtime credentials persist under `/home/node`.
 See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete

@@ -114,7 +114,7 @@
       }
     }
   },
-  "model": "hypercli/coding-anthropic",
+  "model": "hypercli/default-anthropic",
   "skills": {
     "paths": ["/opt/hypercli/skills"]
   },

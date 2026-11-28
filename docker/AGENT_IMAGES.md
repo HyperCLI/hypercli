@@ -177,8 +177,8 @@ containers. Today the image aliases resolve as:
 
 | Alias | Current target | Notes |
 | --- | --- | --- |
-| `default-anthropic` | `glm53-flash-anthropic` | Agent default (OpenClaw, Hermes), Anthropic Messages route |
-| `coding-anthropic` | `kimi-k31-pro-anthropic` | Coding-agent default (OpenCode, Goose, Buzz Agent, Claude Code in hypercli mode), Anthropic Messages route |
+| `default-anthropic` | `glm53-flash-anthropic` | Image default, Anthropic Messages route |
+| `coding-anthropic` | `kimi-k31-pro-anthropic` | Stable coding alias, Anthropic Messages route |
 | `kimi-k3-anthropic` | `kimi-k31-pro-anthropic` | Compatibility Kimi alias, Anthropic Messages route |
 
 Model defaults are image-owned, not SDK-owned. The OpenClaw and Hermes
@@ -206,7 +206,7 @@ For agent runtimes and tool-calling workloads, prefer `-anthropic` aliases.
 They use the Anthropic Messages route and are the expected surface for the best
 tool-calling behavior.
 
-OpenCode boots with `coding-anthropic`, and its seeded config includes
+OpenCode boots with `default-anthropic`, and its seeded config includes
 both route families: `default`, `coding`, `kimi-k3`, and the matching
 `-anthropic` aliases. Keep the `-anthropic` aliases as the
 default path for hosted coding work; the non-suffixed names remain available
