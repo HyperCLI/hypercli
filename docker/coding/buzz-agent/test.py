@@ -72,7 +72,7 @@ print(json.dumps(env))
 defaults = run_python(image, env_probe, env=runtime_env)
 assert defaults == {
     "BUZZ_AGENT_PROVIDER": "openai",
-    "BUZZ_AGENT_MODEL": "coding-anthropic",
+    "BUZZ_AGENT_MODEL": "default-anthropic",
     "OPENAI_COMPAT_BASE_URL": "https://api.example.invalid/v1",
     "OPENAI_COMPAT_API": "chat",
     "OPENAI_COMPAT_API_KEY": "image-sanity-placeholder",

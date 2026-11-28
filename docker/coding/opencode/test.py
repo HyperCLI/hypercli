@@ -46,11 +46,10 @@ assert_models(
     agent_args="acp",
 )
 
-# The gateway routes default-anthropic to 1M GLM Flash and the other image
-# aliases to 256k Kimi. The image boots coding agents on coding-anthropic
-# (Kimi, 262144). Check the actual COPY and first-boot seed path, not just
-# the source JSON. These native limits drive context accounting/compaction
-# before a request reaches the gateway.
+# The gateway deliberately routes default-anthropic to 1M GLM Flash,
+# while the other image aliases route to 256k Kimi. Check the actual COPY
+# and first-boot seed path, not just the source JSON. These native limits
+# drive context accounting/compaction before a request reaches the gateway.
 run(
     image,
     ["python3", "-c", """
@@ -61,7 +60,7 @@ from pathlib import Path
 baked = json.loads(Path('/opt/hypercli/share/runtime/opencode.json').read_text())
 seeded = json.loads((Path(os.environ['OPENCODE_CONFIG_DIR']) / 'opencode.json').read_text())
 assert seeded == baked
-assert seeded['model'] == 'hypercli/coding-anthropic'
+assert seeded['model'] == 'hypercli/default-anthropic'
 models = seeded['provider']['hypercli']['models']
 expected_context = {
     'default': 262144,
@@ -79,7 +78,7 @@ for alias, context in expected_context.items():
 assert_user_config_preserved(
     image,
     relative_path=".config/opencode/opencode.json",
-    generated_contains="hypercli/coding-anthropic",
+    generated_contains="hypercli/default-anthropic",
     user_content=json.dumps({
         "userManaged": True,
         "agent": {"personal": {"mode": "primary", "permission": {"*": "ask"}}},
